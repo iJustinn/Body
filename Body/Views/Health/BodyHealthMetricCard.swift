@@ -75,6 +75,9 @@ struct BodyHealthMetricCard: View {
             // vitals are pending, so the card doesn't lose the chart and get it
             // back — it fills the skeleton in place. The levels preview does the
             // same while the reading is unclassified: four gray rows, no ring.
+            // Both keep drawing once nothing is coming either, so a card that
+            // learns its category is empty settles in place instead of dropping
+            // its preview and lurching the grid.
             hasChartPreview = chartPreview != nil
                 || chartRangePreview != nil
                 || !previewDotEntries.isEmpty
@@ -98,9 +101,52 @@ struct BodyHealthMetricCard: View {
         }
     }
 
+    /// What a mini preview is actually showing. Emptiness alone can't tell
+    /// "still loading" from "nothing to load": someone who granted Body two or
+    /// three Health categories has nothing in flight for the rest, and reading
+    /// empty as pending left those cards wearing a skeleton that never filled —
+    /// a dashboard that looks like it is loading forever.
+    enum PreviewPhase: Equatable {
+        /// Entries to draw. Renders the same while a refresh runs, so a card
+        /// with history never drops back to a skeleton mid-refresh.
+        case data
+        /// Nothing yet, but a refresh is in flight — today's skeleton, which
+        /// fills in place when the reading lands.
+        case pending
+        /// Nothing, and nothing on the way: the category is off or empty, or
+        /// the reading can't be classified. A calm empty shape, not a skeleton.
+        case unavailable
+
+        /// Not `private`: `BodyTests` exercises this truth table directly.
+        static func resolved(for metric: Model, isRefreshing: Bool) -> PreviewPhase {
+            let hasEntries: Bool
+            switch metric.chartPreviewStyle {
+            case .dots:
+                hasEntries = !metric.previewDotEntries.isEmpty
+            case .levels:
+                hasEntries = metric.levelPreviewEntry != nil
+            case .line, .bar, .range:
+                // These previews plot whatever points they were handed and have
+                // never faked a skeleton for the missing ones, so there is no
+                // waiting state for them to be caught in.
+                hasEntries = true
+            }
+
+            if hasEntries {
+                return .data
+            }
+
+            return isRefreshing ? .pending : .unavailable
+        }
+    }
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let metric: Model
+    /// Whether a health refresh is in flight. It is the only thing that
+    /// separates a pending preview from an unavailable one, so the card takes
+    /// it rather than guessing from emptiness.
+    var isRefreshing: Bool = false
 
     var body: some View {
         cardContent
@@ -201,7 +247,8 @@ struct BodyHealthMetricCard: View {
                     dotEntries: metric.previewDotEntries,
                     levelPreviewEntry: metric.levelPreviewEntry,
                     tintColor: metric.symbolColor,
-                    style: metric.chartPreviewStyle
+                    style: metric.chartPreviewStyle,
+                    phase: PreviewPhase.resolved(for: metric, isRefreshing: isRefreshing)
                 )
             }
 
@@ -276,6 +323,7 @@ struct BodyHealthMetricCardTrendPreview: View {
     let levelPreviewEntry: BodyHealthMetricCard.Model.LevelEntry?
     let tintColor: Color
     let style: BodyHomeMetricCardPreview.Style
+    let phase: BodyHealthMetricCard.PreviewPhase
 
     init(
         calendarPoints: [HealthTrendCalendarPoint],
@@ -283,7 +331,8 @@ struct BodyHealthMetricCardTrendPreview: View {
         dotEntries: [BodyHealthMetricCard.Model.DotEntry] = [],
         levelPreviewEntry: BodyHealthMetricCard.Model.LevelEntry? = nil,
         tintColor: Color,
-        style: BodyHomeMetricCardPreview.Style
+        style: BodyHomeMetricCardPreview.Style,
+        phase: BodyHealthMetricCard.PreviewPhase = .data
     ) {
         self.calendarPoints = calendarPoints
         self.rangeCalendarPoints = rangeCalendarPoints
@@ -291,6 +340,7 @@ struct BodyHealthMetricCardTrendPreview: View {
         self.levelPreviewEntry = levelPreviewEntry
         self.tintColor = tintColor
         self.style = style
+        self.phase = phase
     }
 
     private var refreshAnimation: Animation? {
@@ -559,18 +609,25 @@ struct BodyHealthMetricCardTrendPreview: View {
     private static let placeholderDotCount = VitalKind.allCases.count
 
     private var previewDots: [PreviewDot] {
-        guard !dotEntries.isEmpty else {
+        switch phase {
+        case .data:
+            return dotEntries.map { PreviewDot(position: $0.position, region: $0.region) }
+        case .pending:
             return Array(
                 repeating: PreviewDot(position: 0.5, region: nil),
                 count: Self.placeholderDotCount
             )
+        case .unavailable:
+            // No rings at all: the skeleton ones promise readings that are
+            // coming, and with Sleep off or empty and no refresh running none
+            // are. The three regions stay, so the card keeps its height and
+            // reads as a metric with no data rather than one still loading.
+            return []
         }
-
-        return dotEntries.map { PreviewDot(position: $0.position, region: $0.region) }
     }
 
     private var isAwaitingDots: Bool {
-        dotEntries.isEmpty
+        phase != .data
     }
 
     /// Health's Vitals preview: three stacked rounded regions — high, the
@@ -583,7 +640,10 @@ struct BodyHealthMetricCardTrendPreview: View {
     /// at equal height with gray rings resting in the middle; when the
     /// assessment arrives the band takes its color, the regions morph to their
     /// new proportions, and each ring glides to the region it belongs in — one
-    /// motion, since every height here is a function of `dotEntries`.
+    /// motion, since every height here is a function of `dotEntries`. Once
+    /// there is nothing left to wait for the gray rings go and the three dimmed
+    /// regions stay on their own: the card keeps its height without claiming a
+    /// reading is on its way.
     private var dotsPreview: some View {
         GeometryReader { proxy in
             let dots = previewDots
@@ -620,7 +680,16 @@ struct BodyHealthMetricCardTrendPreview: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // With nothing coming the regions drop from the skeleton's wash to
+            // the fainter one a missing point gets in the bar and range
+            // previews (0.24 × 0.58 ≈ 0.14, the levels preview's empty rows),
+            // so neither empty preview reads as a skeleton about to fill.
+            .opacity(phase == .unavailable ? 0.58 : 1)
             .animation(refreshAnimation, value: dotEntries)
+            // A refresh that lands with nothing takes the skeleton rings away
+            // without touching `dotEntries`, so that change needs its own key
+            // or the rings pop out instead of fading.
+            .animation(refreshAnimation, value: phase)
         }
     }
 
@@ -758,8 +827,8 @@ struct BodyHealthMetricCardTrendPreview: View {
 
     /// Which regions currently hold a ring. Read from the dot positions rather
     /// than `DotEntry.region` so the grown region and the drawn ring can never
-    /// disagree. Empty while the night is pending, which the layout reads as an
-    /// even three-way split.
+    /// disagree. Empty whenever there is no assessment — pending or not — which
+    /// the layout reads as an even three-way split.
     private func occupiedRegions(for dots: [PreviewDot]) -> Set<SleepVitalRegion> {
         guard !isAwaitingDots else {
             return []
@@ -795,7 +864,8 @@ struct BodyHealthMetricCardTrendPreview: View {
     /// dark-centered ring at the reading's place inside that row. While the
     /// reading is unclassified — no VO₂ max yet, or an age the norms don't cover
     /// — the same four rows render dimmed with no ring, so the card shows the
-    /// shape of the metric rather than an empty corner. Row heights are fixed,
+    /// shape of the metric rather than an empty corner; how dimmed depends on
+    /// whether a refresh could still classify it. Row heights are fixed,
     /// unlike the dots preview: there is only ever one reading, so growing its
     /// row would make the card lurch every time the level changed. That leaves
     /// the tint and the ring as the only things that move when a reading lands.
@@ -830,13 +900,20 @@ struct BodyHealthMetricCardTrendPreview: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(refreshAnimation, value: levelPreviewEntry)
+            // The rows settling from the skeleton wash to the empty one is a
+            // phase change, not an entry change, so it needs its own key.
+            .animation(refreshAnimation, value: phase)
         }
     }
 
     private func levelRowColor(for level: CardioFitnessLevel) -> Color {
         guard let entry = levelPreviewEntry else {
-            // Same dimmed skeleton the dots preview shows while it waits.
-            return Color.secondary.opacity(0.24)
+            // The dots preview's dimmed skeleton while a refresh could still
+            // bring the reading in, and the fainter wash a missing point gets in
+            // the bar and range previews once it can't: no VO₂ max to classify,
+            // or a reading the norms have no band for. Nothing is coming, so the
+            // rows must stop looking like a skeleton about to fill.
+            return Color.secondary.opacity(phase == .pending ? 0.24 : 0.14)
         }
 
         // The occupied row is a muted wash of its level color, not the full

@@ -336,7 +336,7 @@ struct BodyHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @Environment(ReadinessCommentGenerator.self) private var readinessComment
-    @State private var draggedHomeCard: BodyHomeCardKind?
+    @State private var dragState = BodyHomeCardDragState()
     @State private var showsAllHomeTrends = false
     // Scroll offset lives in an @Observable so per-frame scroll updates only re-render the
     // hero fade wrapper that reads it — not this whole body. (The metric-card models are
@@ -519,13 +519,13 @@ struct BodyHomeView: View {
         BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
     }
 
-    private var homeCardRows: [BodyHomeCardLayoutRow] {
+    private var visibleHomeCards: [BodyHomeCardKind] {
         // The starred metric is shown as the top hero, so exclude it from the grid via
-        // an effective selection. Filtering the order won't work — `layoutRows` repairs
+        // an effective selection. Filtering the order won't work — `visibleOrder` repairs
         // missing cards back in. The persisted order is untouched, so reordering the
         // remaining cards is unaffected and the card returns to its slot when un-starred.
         let gridSelection = starredHomeCard.map { summaryCardSelection.setting($0, isEnabled: false) } ?? summaryCardSelection
-        return BodyHomeCardKind.layoutRows(from: homeCardOrder, visibleIn: gridSelection)
+        return BodyHomeCardKind.visibleOrder(from: homeCardOrder, visibleIn: gridSelection)
     }
 
     /// Today's frozen morning readiness (undrained, captured ~10 min after wake), read
@@ -647,22 +647,15 @@ struct BodyHomeView: View {
     }
 
     /// The two-column grid of summary metric cards (identical on iPhone and iPad).
-    @ViewBuilder
+    ///
+    /// One flat `ForEach` inside `BodyHomeCardGridLayout` rather than a `ForEach` of rows:
+    /// a card keeps the same identity wherever it lands, so the reorder that runs while a
+    /// drag is in flight moves the dragged card's view instead of destroying it.
     private func metricCardsGrid(lookup: [HealthMetricKind: BodyHealthMetricCard.Model]) -> some View {
-        VStack(spacing: 14) {
-            ForEach(homeCardRows) { row in
-                HStack(spacing: 14) {
-                    ForEach(row.cards) { card in
-                        reorderableHomeCard(for: card, lookup: lookup)
-                            .frame(maxWidth: .infinity)
-                    }
-
-                    if row.slotCount < 2 {
-                        Color.clear
-                            .frame(maxWidth: .infinity)
-                            .accessibilityHidden(true)
-                    }
-                }
+        BodyHomeCardGridLayout(spacing: 14) {
+            ForEach(visibleHomeCards) { card in
+                reorderableHomeCard(for: card, lookup: lookup)
+                    .bodyHomeCardSlots(card.slotCount)
             }
         }
         .animation(.spring(response: 0.25, dampingFraction: 0.85), value: homeCardOrder)
@@ -1245,15 +1238,18 @@ struct BodyHomeView: View {
         lookup: [HealthMetricKind: BodyHealthMetricCard.Model]
     ) -> some View {
         homeCardView(for: card, lookup: lookup)
+            // `onDrag`'s closure runs while UIKit is building the drag session; writing
+            // observed state here would re-evaluate this whole view at that moment, so the
+            // dragged card is parked in an unobserved box instead.
             .onDrag {
-                draggedHomeCard = card
+                dragState.card = card
                 return NSItemProvider(object: card.rawValue as NSString)
             }
             .onDrop(
                 of: [UTType.text],
                 delegate: BodyHomeCardDropDelegate(
                     destination: card,
-                    draggedCard: $draggedHomeCard,
+                    dragState: dragState,
                     order: homeCardOrder,
                     saveOrder: saveHomeCardOrder
                 )
@@ -1284,7 +1280,7 @@ struct BodyHomeView: View {
             if let metricKind = card.healthMetricKind,
                let metric = lookup[metricKind] {
                 NavigationLink(value: HomeMetricRoute.metric(metric.kind)) {
-                    BodyHealthMetricCard(metric: metric)
+                    BodyHealthMetricCard(metric: metric, isRefreshing: workoutStore.isRefreshing)
                         .matchedTransitionSource(id: HomeMetricRoute.metric(metric.kind), in: metricZoom) {
                             $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
                         }
@@ -1820,14 +1816,21 @@ struct BodyHomeView: View {
 
 }
 
+/// The card a Home grid drag is carrying. A reference box rather than `@State` so that
+/// recording it from `onDrag`, mid drag-session setup, does not invalidate `BodyHomeView`.
+@MainActor
+private final class BodyHomeCardDragState {
+    var card: BodyHomeCardKind?
+}
+
 private struct BodyHomeCardDropDelegate: DropDelegate {
     let destination: BodyHomeCardKind
-    @Binding var draggedCard: BodyHomeCardKind?
+    let dragState: BodyHomeCardDragState
     let order: [BodyHomeCardKind]
     let saveOrder: ([BodyHomeCardKind]) -> Void
 
     func dropEntered(info: DropInfo) {
-        guard let draggedCard, draggedCard != destination else {
+        guard let draggedCard = dragState.card, draggedCard != destination else {
             return
         }
 
@@ -1846,7 +1849,7 @@ private struct BodyHomeCardDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        draggedCard = nil
+        dragState.card = nil
         return true
     }
 }
