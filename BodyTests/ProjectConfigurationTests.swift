@@ -294,6 +294,24 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(source.contains(".tint(permission.tintColor)"))
     }
 
+    /// The Home grid must stay one flat `ForEach` of cards inside `BodyHomeCardGridLayout`.
+    /// A `ForEach` of rows identified by their card names gave the card being dragged a new
+    /// identity on every mid-drag reorder, and the destroyed view is what UIKit's cancelled
+    /// set-down animation then crashed reading (`previewForCancelling` ->
+    /// `UIViewSnapshotResponder.animatedPositionTranslation`, EXC_BAD_ACCESS).
+    func testHomeCardGridRendersOneFlatForEachSoDraggedCardsKeepTheirIdentity() throws {
+        let source = try bodyHomeViewText()
+
+        XCTAssertTrue(source.contains("BodyHomeCardGridLayout(spacing: 14)"))
+        XCTAssertTrue(source.contains("ForEach(visibleHomeCards) { card in"))
+        XCTAssertTrue(source.contains(".bodyHomeCardSlots(card.slotCount)"))
+        XCTAssertFalse(source.contains("ForEach(homeCardRows)"))
+        // The dragged card is parked in an unobserved box: writing observed state from
+        // `onDrag` re-evaluates this view while UIKit is building the drag session.
+        XCTAssertTrue(source.contains("dragState.card = card"))
+        XCTAssertFalse(source.contains("@State private var draggedHomeCard"))
+    }
+
     func testHealthMetricChartSelectionAnnotationsFitWithinChartEdges() throws {
         let source = try bodyHomeViewText()
 
@@ -335,6 +353,9 @@ final class ProjectConfigurationTests: XCTestCase {
             // The Details explanation sheet likewise lives in its own file, so the
             // workouts file above can keep its own backdrop and a count of zero.
             ("Body/Views/BodyWorkoutDetailsExplanationSheet.swift", 1, 0),
+            // The readiness Impact by Activity explainer, likewise in its own file so the
+            // metric detail view keeps no backdrop of its own.
+            ("Body/Views/Health/BodyReadinessImpactExplanationSheet.swift", 1, 0),
             ("Body/Views/Health/BodyWorkoutShareSheet.swift", 0, 1)
         ]
 
@@ -1323,9 +1344,13 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testMetricCardPreviewStylesMatchRequestedChartKinds() throws {
         let source = try bodyHomeViewText()
-        let previewBlock = String(source[
-            try XCTUnwrap(source.range(of: "struct BodyHealthMetricCardTrendPreview")?.lowerBound)...
-        ].prefix(8_000))
+        // Bounded by the NEXT declaration rather than a character count: the
+        // preview struct grows (the pending/unavailable phases pushed it past
+        // 7.8k), and a fixed prefix silently starts excluding the very lines
+        // these assertions guard instead of failing loudly.
+        let previewStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricCardTrendPreview")?.lowerBound)
+        let previewEnd = try XCTUnwrap(source.range(of: "struct AnimatablePolyline", range: previewStart..<source.endIndex)?.lowerBound)
+        let previewBlock = String(source[previewStart..<previewEnd])
         let heartRateCardStart = try XCTUnwrap(
             source.range(of: "kind: .heartRate,\n                title: \"Heart Rate\"")?.lowerBound
         )
@@ -1636,6 +1661,38 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(source.contains("var animatableData: Double"))
         XCTAssertTrue(arcBlock.contains(".modifier(BodyActivityRingHeadPosition(progress: animatedHeadProgress, radius: radius))"))
         XCTAssertTrue(arcBlock.contains("setAnimatedProgress(nextProgress, animation: animation)"))
+    }
+
+    func testActivityRingsCalendarPadsScrollTargetsNotTheScrollTargetLayout() throws {
+        let source = try text(at: "Body/Views/BodyActivityRingsDetailView.swift")
+        // Bounded by the next declaration rather than a fixed character window: guards
+        // in this file have silently stopped covering the lines they existed to protect
+        // once the code above them grew.
+        let viewStart = try XCTUnwrap(source.range(of: "struct BodyActivityRingsDetailView: View {")?.upperBound)
+        let bodyEnd = try XCTUnwrap(
+            source.range(of: "private func pinToCurrentMonth()", range: viewStart..<source.endIndex)?.lowerBound
+        )
+        // Comment lines are dropped first: the modifier chain is documented with a
+        // comment that names `.scrollTargetLayout()` and the anchor, and a raw substring
+        // search matches the prose before the code it describes.
+        let bodyBlock = source[viewStart..<bodyEnd]
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+
+        // `.defaultScrollAnchor(.bottom, for: .alignment)` re-centers a scroll target
+        // narrower than its container on BOTH axes (`.bottom` is UnitPoint(x: 0.5, y: 1)).
+        // Padding the scroll-target layout instead of the month sections inside it left
+        // every target inset by 18pt, and the anchor then added a matching 18pt of
+        // contentOffset.x, so the calendar rendered 18pt left of center until the first
+        // scroll re-clamped it. The padding must stay on the sections, which means it
+        // appears BEFORE `.scrollTargetLayout()` in source order. Compared by position
+        // rather than by matching indentation, so reflowing the chain can't break it.
+        let paddingIndex = try XCTUnwrap(bodyBlock.range(of: ".padding(.horizontal, 18)")?.lowerBound)
+        let scrollTargetIndex = try XCTUnwrap(bodyBlock.range(of: ".scrollTargetLayout()")?.lowerBound)
+        XCTAssertLessThan(paddingIndex, scrollTargetIndex)
+        XCTAssertEqual(bodyBlock.occurrenceCount(of: ".padding(.horizontal, 18)"), 1)
+        XCTAssertTrue(bodyBlock.contains(".defaultScrollAnchor(.bottom, for: .alignment)"))
     }
 
     func testSupportedMetricDetailScreensExposeSwitchableDataSources() throws {
@@ -2065,7 +2122,11 @@ final class ProjectConfigurationTests: XCTestCase {
     /// publish — and persist — a mixed-source series.
     func testMetricRefreshDropsDaySamplesWhenSelectionChangesMidFetch() throws {
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
-        let start = try XCTUnwrap(storeSource.range(of: "func refreshHealthMetric(")?.lowerBound)
+        // Anchored on `performHealthMetricRefresh`, which now owns the fetch and
+        // the mid-fetch signature check: `refreshHealthMetric` keeps only the
+        // authorization step and the deadline wrapper, so slicing from there
+        // measured past these lines instead of guarding them.
+        let start = try XCTUnwrap(storeSource.range(of: "func performHealthMetricRefresh(")?.lowerBound)
         let block = String(storeSource[start...].prefix(3_000))
 
         XCTAssertTrue(block.contains("let capturedDaySampleSignatures = currentDaySampleSignatures()"))
@@ -2767,12 +2828,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 23;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 25;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.0;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 23;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 25;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2807,7 +2868,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 23)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 25)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 23)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 22)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 21)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 20)**"))
@@ -2923,8 +2985,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
-        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 23)"))
-        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 23."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 25)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 25."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 22)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 22."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 20)"))
@@ -3375,6 +3437,37 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(workoutsSource.contains("comparisonMonthsSettled = true"))
     }
 
+    func testReadinessImpactCardExplainsItselfInASheet() throws {
+        let detailSource = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let sheetSource = try text(at: "Body/Views/Health/BodyReadinessImpactExplanationSheet.swift")
+
+        // A question-mark button sits at the trailing edge of the Impact by Activity
+        // heading — readiness only, since the other kinds' rows are plain averages — and
+        // opens the explainer at half height, draggable to full.
+        XCTAssertTrue(detailSource.contains(#"Image(systemName: "questionmark.circle")"#))
+        XCTAssertTrue(detailSource.contains("if model.kind == .readiness {"))
+        XCTAssertTrue(detailSource.contains("showsReadinessImpactExplanation = true"))
+        XCTAssertTrue(detailSource.contains(".sheet(isPresented: $showsReadinessImpactExplanation)"))
+        XCTAssertTrue(detailSource.contains(".presentationDetents([.medium, .large])"))
+        XCTAssertTrue(detailSource.contains("BodyReadinessImpactExplanationSheet()"))
+        // Dismissed by the grabber; no toolbar Done button, like the app's other popups.
+        XCTAssertFalse(sheetSource.contains(#"Button("Done")"#))
+
+        // The 18 pt glyph is padded out to the 44 pt minimum target and the padding is
+        // cancelled again, so the heading's baseline doesn't move.
+        XCTAssertTrue(detailSource.contains("private static let activityImpactHelpTapSlop: CGFloat = 13"))
+        XCTAssertTrue(detailSource.contains(".padding(Self.activityImpactHelpTapSlop)"))
+        XCTAssertTrue(detailSource.contains(".padding(-Self.activityImpactHelpTapSlop)"))
+
+        // The sheet's whole reason for existing: the sub-5% softening that lets the listed
+        // impacts sum past the day's starting score, plus the cap that shapes each row.
+        XCTAssertTrue(sheetSource.contains("Why the Total Can Exceed Your Score"))
+        XCTAssertTrue(sheetSource.contains("The Daily Ceiling"))
+        // One shared title for the nav bar, the intro card, and the button's label.
+        XCTAssertTrue(sheetSource.contains("static var sheetTitle: String"))
+        XCTAssertTrue(detailSource.contains(".accessibilityLabel(BodyReadinessImpactExplanationSheet.sheetTitle)"))
+    }
+
     func testWorkoutDetailsCardExplainsItsMetricsInASheet() throws {
         let workoutsSource = try text(at: "Body/Views/BodyWorkoutsView.swift")
         let sheetSource = try text(at: "Body/Views/BodyWorkoutDetailsExplanationSheet.swift")
@@ -3384,7 +3477,11 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(workoutsSource.contains(#"Image(systemName: "questionmark.circle")"#))
         XCTAssertTrue(workoutsSource.contains("showsDetailsExplanation = true"))
         XCTAssertTrue(workoutsSource.contains(".sheet(isPresented: $showsDetailsExplanation)"))
-        XCTAssertTrue(workoutsSource.contains(".presentationDetents([.large])"))
+        // Half height by default, draggable to full, and dismissed by the grabber:
+        // the sheet carries no toolbar Done button, like the app's other popups.
+        XCTAssertTrue(workoutsSource.contains(".presentationDetents([.medium, .large])"))
+        XCTAssertTrue(workoutsSource.contains(".presentationDragIndicator(.visible)"))
+        XCTAssertFalse(sheetSource.contains(#"Button("Done")"#))
 
         // The 18 pt glyph is padded out to the 44 pt minimum target and the padding is
         // cancelled again, so the header's height and the "Details" baseline don't move.
@@ -3499,7 +3596,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 23)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 25)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 23)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 22)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 21)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 20)"))

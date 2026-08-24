@@ -19,8 +19,6 @@ import SwiftUI
 /// already localized and already unit-correct ("Active kcal" vs "Active kJ"), so the
 /// sheet can never disagree with the grid behind it.
 struct BodyWorkoutDetailsExplanationSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
     /// The card's resolved tiles, in the order the grid draws them.
     let metrics: [WorkoutDetailMetric]
     /// Whether the card is showing comparison badges at all; when it isn't, the
@@ -51,15 +49,6 @@ struct BodyWorkoutDetailsExplanationSheet: View {
             .bodySheetBackground()
             .navigationTitle(Self.sheetTitle)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .font(.system(.body, design: .rounded))
-                    .fontWeight(.semibold)
-                }
-            }
         }
     }
 

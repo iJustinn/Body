@@ -906,6 +906,23 @@
         }
       }
     },
+    "A session counts for more when it runs longer, when you worked harder, and when the activity is more demanding on the body as a whole, so an easy walk barely registers beside a hard run of the same length. Effort comes from the rating you saved for the session, and when there is none Body estimates it from your average heart rate and energy burn. Very long sessions level off rather than draining without limit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A session counts for more when it runs longer, when you worked harder, and when the activity is more demanding on the body as a whole, so an easy walk barely registers beside a hard run of the same length. Effort comes from the rating you saved for the session, and when there is none Body estimates it from your average heart rate and energy burn. Very long sessions level off rather than draining without limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "训练时间越长、你越用力、运动对全身的负担越大，这次训练所占的分量就越重，因此同样时长下，轻松散步的影响远不及一次高强度跑步。用力程度取自你为该次训练保存的评分。若没有评分，Body 会根据你的平均心率和能量消耗进行估算。非常长的训练带来的影响会趋于平缓，而不会无止境地累加。"
+          }
+        }
+      }
+    },
     "About" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -919,6 +936,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于"
+          }
+        }
+      }
+    },
+    "About Impact by Activity" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Impact by Activity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于活动影响"
           }
         }
       }
@@ -1033,6 +1067,142 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于你的评分"
+          }
+        }
+      }
+    },
+    "However much you train, there is a limit to how far one day's workouts can pull your readiness down. Each row shows only what its own session actually moved the score, so once earlier workouts have taken the day close to that limit, a later one is credited with just the remainder and can read much smaller than the same session would on a fresh day." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "However much you train, there is a limit to how far one day's workouts can pull your readiness down. Each row shows only what its own session actually moved the score, so once earlier workouts have taken the day close to that limit, a later one is credited with just the remainder and can read much smaller than the same session would on a fresh day."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无论你训练多少，一天的训练能把恢复状态拉低的幅度都是有限的。每一行只显示该次训练实际让分数移动了多少，因此当较早的训练已经把这一天推近上限后，之后的训练只会记入剩余的部分，读数可能远小于同样训练在状态充足的一天所造成的影响。"
+          }
+        }
+      }
+    },
+    "It Only Applies to Today" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It Only Applies to Today"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅影响今天"
+          }
+        }
+      }
+    },
+    "Readiness does not keep falling one for one once it nears the bottom of the scale. Below roughly 5% it eases down far more slowly, so even a very hard day settles just above zero rather than dropping straight to it. That is why the impacts listed here can add up to more than the readiness you started the day with, and why the chart above falls by less than those numbers together suggest." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness does not keep falling one for one once it nears the bottom of the scale. Below roughly 5% it eases down far more slowly, so even a very hard day settles just above zero rather than dropping straight to it. That is why the impacts listed here can add up to more than the readiness you started the day with, and why the chart above falls by less than those numbers together suggest."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当恢复状态接近量表底部时，它不再一比一地继续下降。在大约 5% 以下，分数的下降会明显放缓，因此即使是非常辛苦的一天，也只会停在接近零的位置，而不会直接归零。正因如此，这里列出的影响之和可能大于你当天开始时的恢复状态，上方图表的实际跌幅也会小于这些数字加起来给人的印象。"
+          }
+        }
+      }
+    },
+    "The Daily Ceiling" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Daily Ceiling"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日上限"
+          }
+        }
+      }
+    },
+    "This card lists every workout that moved the day's readiness, in the order the sessions finished, with the share of the drop each one accounts for. A session too light to move the score is left out, and a day without workouts shows none at all." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This card lists every workout that moved the day's readiness, in the order the sessions finished, with the share of the drop each one accounts for. A session too light to move the score is left out, and a day without workouts shows none at all."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此卡片按训练结束的先后顺序，列出当天所有影响了恢复状态的训练，并显示每次训练各自造成的下降幅度。过于轻松、不足以改变分数的训练不会列出，没有训练的日子则完全不显示。"
+          }
+        }
+      }
+    },
+    "This drop is a layer on top of today's live score. It builds up across the day, does not fade back on its own, and clears with the next morning's score. It never rewrites history: the Week, Month, and longer trend charts keep the score you woke up with, while the Day View chart above replays how the day's workouts brought it down." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This drop is a layer on top of today's live score. It builds up across the day, does not fade back on its own, and clears with the next morning's score. It never rewrites history: the Week, Month, and longer trend charts keep the score you woke up with, while the Day View chart above replays how the day's workouts brought it down."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这一下降只是叠加在今天实时分数上的一层。它在一天中不断累积，不会自行回升，并在第二天早晨的分数出来时清零。它绝不会改写历史记录：周、月及更长范围的趋势图保留的是你醒来时的分数，而上方的日视图图表则回放当天的训练是如何把它拉低的。"
+          }
+        }
+      }
+    },
+    "What Shapes Each Impact" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What Shapes Each Impact"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "什么会影响每次训练的幅度"
+          }
+        }
+      }
+    },
+    "Why the Total Can Exceed Your Score" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Why the Total Can Exceed Your Score"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为什么总和会超过你的分数"
           }
         }
       }
@@ -5500,6 +5670,22 @@
         }
       }
     },
+    "Loading Apple Health data is taking longer than expected. Please try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading Apple Health data is taking longer than expected. Please try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载 Apple 健康数据的时间比预期更长，请重试。"
+          }
+        }
+      }
+    },
     "Loading data..." : {
       "localizations" : {
         "en" : {
@@ -7549,6 +7735,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "开始使用"
+          }
+        }
+      }
+    },
+    "onboarding.health.allowAll" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "We recommend turning on every category for the fullest picture of your body."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "建议开启全部类别，以获得最完整的身体状况分析。"
           }
         }
       }

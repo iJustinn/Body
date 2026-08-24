@@ -454,6 +454,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "onboarding.health.loaded",
             "onboarding.health.finished",
             "onboarding.health.continue",
+            "onboarding.health.allowAll",
             "onboarding.readiness.title",
             "onboarding.readiness.subtitle",
             "onboarding.readiness.signals",
@@ -549,6 +550,55 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(keys.count, 20, "expected one explanation per metric kind plus the header copy")
 
         try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testReadinessImpactExplanationKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // Same shape as the Details sheet's guard above: the literals are read back out
+        // of the source rather than restated here, so the assertion can never fall
+        // behind an edit to the copy and a newly added card is covered as it is written.
+        let source = try String(
+            contentsOf: projectRoot.appendingPathComponent("Body/Views/Health/BodyReadinessImpactExplanationSheet.swift"),
+            encoding: .utf8
+        )
+        let pattern = try NSRegularExpression(pattern: #"String\(localized: "((?:[^"\\]|\\.)*)"\)"#)
+        let matches = pattern.matches(in: source, range: NSRange(source.startIndex..., in: source))
+        let keys = matches.compactMap { match -> String? in
+            guard let range = Range(match.range(at: 1), in: source) else { return nil }
+            return String(source[range])
+        }
+
+        XCTAssertFalse(keys.contains { $0.contains("\\") }, "escaped literal needs unescaping before lookup")
+        // Guards the regex itself: the sheet is a title plus five titled cards.
+        XCTAssertGreaterThanOrEqual(keys.count, 10, "expected the sheet title plus a title and body per card")
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    /// The Permissions sheet footers. Enumerating the states and reading their
+    /// resolved English text keeps a newly added state covered as it is written:
+    /// under English the resolved sentence IS the catalog key.
+    func testPermissionAccessStateFootersResolveInBodyMetricsKitCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        let literalStates: [BodyHealthPermissionAccessState] = [
+            .off, .notUsedByDashboard, .checking, .hasData, .noData, .readOnDemand
+        ]
+        try assertKeysTranslated(literalStates.map(\.footerText), in: catalog)
+
+        // `.needsParent` interpolates the parent's title, so its catalog key
+        // carries the placeholder rather than the resolved sentence.
+        let needsParentKey = "On, but it needs %@ on as well."
+        try assertKeysTranslated([needsParentKey], in: catalog)
+        XCTAssertEqual(
+            BodyHealthPermissionAccessState.needsParent(.heart).footerText,
+            "On, but it needs Heart on as well."
+        )
+        // Dropping the placeholder in translation would silently lose the parent
+        // name and leave a sentence naming no permission at all.
+        let translated = try value(of: needsParentKey, language: "zh-Hans", in: catalog)
+        XCTAssertTrue(translated.contains("%@"), "zh-Hans lost the parent placeholder: \(translated)")
     }
 
     private func assertKeysTranslated(_ keys: [String], in catalog: [String: Any]) throws {

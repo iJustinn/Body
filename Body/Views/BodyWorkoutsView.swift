@@ -2057,7 +2057,9 @@ struct BodyWorkoutDetailSheet: View {
                 metrics: resolvedDetailMetrics(presentation: presentation),
                 showsComparison: presentation.comparisonAvailability != nil
             )
-            .presentationDetents([.large])
+            // Opens at half height, draggable to full; the grabber is the only
+            // way out, as elsewhere in the app.
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
     }

@@ -327,11 +327,20 @@ struct BodyOnboardingView: View {
                             .multilineTextAlignment(.center)
                             .transition(.opacity)
                     } else {
-                        Text("onboarding.health.body")
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .transition(.opacity)
+                        VStack(spacing: 10) {
+                            Text("onboarding.health.body")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+
+                            // Every metric in the flow needs its own category
+                            // switched on, so say so before the sheet opens.
+                            Text("onboarding.health.allowAll")
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundColor(.primary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .transition(.opacity)
                     }
                 }
                 .animation(.easeInOut(duration: 0.4), value: hasAttemptedHealthLoad)
@@ -341,7 +350,7 @@ struct BodyOnboardingView: View {
             // flow asks for Health access in the first place.
             OnboardingFeatureRow(
                 iconName: "lock.fill",
-                tintColor: .green,
+                tintColor: .white,
                 title: "onboarding.welcome.privacy",
                 subtitle: "onboarding.welcome.privacy.subtitle"
             )
@@ -350,7 +359,7 @@ struct BodyOnboardingView: View {
             if mode == .firstRun {
 
                 if hasAttemptedHealthLoad && !isLoadingHealth {
-                    // The green check means data actually landed. A load that
+                    // The blue check means data actually landed. A load that
                     // completed but brought back nothing (denied permissions,
                     // an empty Health store) clears
                     // `needsInitialHealthDataLoad` yet must still show the
@@ -371,7 +380,7 @@ struct BodyOnboardingView: View {
                     } else {
                         healthOutcomeRow(
                             iconName: "checkmark.circle.fill",
-                            tintColor: .green,
+                            tintColor: .blue,
                             message: Text("onboarding.health.loaded")
                         )
                     }
@@ -465,7 +474,7 @@ struct BodyOnboardingView: View {
 
                 OnboardingFeatureRow(
                     iconName: "checkmark.circle.fill",
-                    tintColor: .green,
+                    tintColor: .white,
                     title: "onboarding.trainingLoad.range",
                     subtitle: "onboarding.trainingLoad.range.subtitle"
                 )
@@ -906,9 +915,10 @@ struct BodyOnboardingView: View {
             message
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundColor(.primary)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
     }
 
     /// The Summary readiness card's model over a fabricated score and week of
