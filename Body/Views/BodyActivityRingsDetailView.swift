@@ -381,10 +381,21 @@ struct BodyActivityRingsDetailView: View {
             LazyVStack(alignment: .leading, spacing: 46) {
                 ForEach(displayedCalendarMonths) { month in
                     monthSection(month)
+                        // Inside each month, NOT around the whole stack. These sections
+                        // are the scroll targets (`.scrollTargetLayout()` below), and
+                        // `.defaultScrollAnchor(.bottom, for: .alignment)` re-centers a
+                        // target narrower than the container on BOTH axes — `.bottom` is
+                        // UnitPoint(x: 0.5, y: 1). With the padding wrapped around the
+                        // stack every target started 18pt in from the content's leading
+                        // edge, and the anchor added another 18pt of contentOffset.x, so
+                        // the calendar rendered 18pt left of center until the first
+                        // scroll re-clamped it. Full-width targets leave the anchor no
+                        // cross-axis slack to take up. Measured in
+                        // ActivityRingsDetailLayoutTests.
+                        .padding(.horizontal, 18)
                 }
             }
             .scrollTargetLayout()
-            .padding(.horizontal, 18)
             .padding(.top, 18)
             .padding(.bottom, 36)
             .readableContentColumn()
