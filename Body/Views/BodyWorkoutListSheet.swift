@@ -228,10 +228,7 @@ private struct BodyWorkoutRecordRow: View {
                         .minimumScaleFactor(0.75)
 
                     if let recordStanding {
-                        BodyWorkoutPRGlyph(
-                            tint: workoutColorPalette.color(for: workout.type),
-                            standing: recordStanding
-                        )
+                        BodyWorkoutPRGlyph(standing: recordStanding)
                         // The baseline scan usually finishes after this sheet is up,
                         // so the trophy fades into a settled row.
                         .transition(.opacity)

@@ -2006,11 +2006,7 @@ struct BodyWorkoutDetailSheet: View {
     private func heroCaption(_ text: LocalizedStringKey, standing: WorkoutRecordStanding?) -> some View {
         HStack(spacing: 4) {
             if let standing {
-                BodyWorkoutPRGlyph(
-                    tint: workoutColorPalette.color(for: workout.type),
-                    size: 13,
-                    standing: standing
-                )
+                BodyWorkoutPRGlyph(size: 13, standing: standing)
                 // The baseline scan can land after the sheet is on screen.
                 .transition(.opacity)
             }
@@ -2098,8 +2094,7 @@ struct BodyWorkoutDetailSheet: View {
                         title: metric.title,
                         value: metric.value,
                         comparison: metric.comparison,
-                        recordStanding: recordKinds[metric.kind],
-                        recordTint: workoutColorPalette.color(for: workout.type)
+                        recordStanding: recordKinds[metric.kind]
                     )
                 }
             }
@@ -2765,9 +2760,6 @@ struct BodyWorkoutDetailMetricTile: View {
     /// This metric's all-time, per-type record standing, or nil when the workout
     /// neither holds the record nor ever held it.
     var recordStanding: WorkoutRecordStanding? = nil
-    /// The workout type's colour, tinting the PR pill. Unused when there is no
-    /// standing, and ignored by the dimmed `.former` treatment.
-    var recordTint: Color = .accentColor
 
     /// Combined VoiceOver label so the caption's ↑/↓ glyph is spoken meaningfully
     /// ("12 percent lower than 30-day average") instead of read as a bare symbol.
@@ -2808,7 +2800,7 @@ struct BodyWorkoutDetailMetricTile: View {
                     .minimumScaleFactor(0.75)
 
                 if let recordStanding {
-                    BodyWorkoutPRBadge(tint: recordTint, standing: recordStanding)
+                    BodyWorkoutPRBadge(standing: recordStanding)
                         // The ledger's baseline scan can finish while the sheet is
                         // already open, so the pill arrives mid-life; it fades in
                         // rather than popping onto a settled tile.
