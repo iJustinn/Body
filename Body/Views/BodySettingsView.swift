@@ -2284,6 +2284,14 @@ private struct BodyWorkoutColorsSheet: View {
 
             Spacer(minLength: 12)
 
+            // Marks the types whose color was customized, so an edit is findable
+            // at a glance among the built-in rows.
+            if overrides[type] != nil {
+                Image(systemName: "pencil")
+                    .font(.system(.subheadline, weight: .bold))
+                    .foregroundColor(.secondary)
+            }
+
             Text("#\(BodyWorkoutColorOverrides.hexText(from: palette.resolvedHex(for: type)))")
                 .font(.system(.subheadline, design: .rounded))
                 .fontWeight(.semibold)
