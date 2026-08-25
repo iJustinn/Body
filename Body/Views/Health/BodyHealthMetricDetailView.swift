@@ -1976,14 +1976,17 @@ struct BodyHealthMetricDetailView: View {
                 Spacer(minLength: 12)
 
                 // Stress folds its old separate "Time by Band" card into this one, so
-                // the day's average heads the card the breakdown rows belong to.
+                // the day's average heads the card the breakdown rows belong to —
+                // styled like `BodyHealthSourceLegend`'s single-source "Avg" line so
+                // every Day View header reads the same.
                 if model.kind == .stress, let averageScore = selectedStressDaySummary?.averageScore {
-                    BodyAnimatedMetricValueText(
-                        value: "\(averageScore)",
-                        fontSize: 22,
-                        color: .secondary,
-                        minimumScaleFactor: 0.75
-                    )
+                    Text("Avg \("\(averageScore)")")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .bodyLegendNumberFlip(value: "\(averageScore)")
                 }
 
                 if !dayComparisonLegendItems.isEmpty {
@@ -2010,7 +2013,10 @@ struct BodyHealthMetricDetailView: View {
                         title: model.title,
                         floatingCallout: floatingCallout
                     )
-                    .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
+                    // ~80% of the standard day-chart height: the banded blocks
+                    // need less vertical resolution than the continuous-line
+                    // charts, and the breakdown rows below reclaim the space.
+                    .frame(height: BodyHealthDetailChartLayout.dayChartHeight * 0.8)
                     .transition(dayChartTransition)
                 } else if selectedMetricDaySeries.isEmpty && selectedMetricSecondaryDaySeries.isEmpty {
                     Text("No data for this day")
@@ -2321,9 +2327,8 @@ struct BodyHealthMetricDetailView: View {
 
     /// Sleep and workout shading for the Stress intraday plot. Kept separate from
     /// `selectedMetricDayContextIntervals` (whose exact source text is guarded by
-    /// `ProjectConfigurationTests`) and deliberately narrower: the plot's marks are
-    /// 15-minute blocks, so per-nap bands would clutter it — the main sleep session
-    /// and each workout are the context that explains a masked or elevated stretch.
+    /// `ProjectConfigurationTests`) but showing the same context: the main sleep
+    /// session, each nap, and each workout explain a masked or Rest-banded stretch.
     private var selectedStressDayContextIntervals: [BodyHealthMetricDayContextInterval] {
         guard model.kind == .stress else {
             return []
@@ -2332,7 +2337,8 @@ struct BodyHealthMetricDetailView: View {
         let dayInterval = selectedMetricDayInterval
         var intervals: [BodyHealthMetricDayContextInterval] = []
 
-        if let sleepInterval = sleepSummary(for: selectedMetricDay)?.stageSnapshot.mainSession.dateInterval,
+        let stageSnapshot = sleepSummary(for: selectedMetricDay)?.stageSnapshot
+        if let sleepInterval = stageSnapshot?.mainSession.dateInterval,
            let clipped = sleepInterval.clamped(to: dayInterval) {
             intervals.append(
                 BodyHealthMetricDayContextInterval(
@@ -2344,6 +2350,21 @@ struct BodyHealthMetricDetailView: View {
                     color: Color(red: 0.20, green: 0.72, blue: 1.00)
                 )
             )
+        }
+
+        for napSession in stageSnapshot?.napSessions ?? [] {
+            if let napInterval = napSession.dateInterval?.clamped(to: dayInterval) {
+                intervals.append(
+                    BodyHealthMetricDayContextInterval(
+                        kind: .sleep,
+                        startDate: napInterval.start,
+                        endDate: napInterval.end,
+                        title: "Nap",
+                        symbolName: "moon.zzz.fill",
+                        color: Color(red: 0.20, green: 0.72, blue: 1.00)
+                    )
+                )
+            }
         }
 
         for workout in workouts(on: dayInterval) {

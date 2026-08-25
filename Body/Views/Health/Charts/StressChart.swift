@@ -341,35 +341,6 @@ struct BodyStressPlotTrackPair: Equatable {
     var to: BodyStressPlotTrack?
 }
 
-/// `bodyWorkoutChartAxisLabel`'s font-shrink rule, duplicated rather than shared:
-/// the pace plot's helper is private to `BodyWorkoutsView`, whose source guards
-/// count its lines.
-private func bodyStressChartAxisLabel(
-    _ label: String,
-    in context: GraphicsContext
-) -> GraphicsContext.ResolvedText {
-    func resolve(_ size: CGFloat) -> GraphicsContext.ResolvedText {
-        context.resolve(
-            Text(label)
-                .font(.system(size: size, weight: .semibold, design: .rounded))
-                .foregroundColor(.secondary)
-        )
-    }
-    func fits(_ resolved: GraphicsContext.ResolvedText) -> Bool {
-        resolved.measure(in: CGSize(width: 200, height: 40)).width <= 40
-    }
-
-    let base = resolve(14)
-    if fits(base) {
-        return base
-    }
-    let medium = resolve(12)
-    if fits(medium) {
-        return medium
-    }
-    return resolve(11)
-}
-
 /// One tick on the intraday plot's time axis: a civil clock hour resolved through
 /// the calendar, expressed as its real fraction of the day interval.
 struct BodyStressIntradayTimeMark: Equatable {
@@ -422,14 +393,11 @@ struct BodyStressIntradayPlot: View {
 
     static let transitionDuration: TimeInterval = 0.45
 
-    fileprivate static let yAxisLabelInset: CGFloat = 44
     fileprivate static let xAxisLabelOffset: CGFloat = 18
     fileprivate static let timeMarkLabelHorizontalInset: CGFloat = 24
     fileprivate static let gridFractions: [Double] = [0, 0.25, 0.5, 0.75, 1]
-    fileprivate static let gridLabels: [String] = ["0", "25", "50", "75", "100"]
     fileprivate static let activityStubHeight: CGFloat = 6
     fileprivate static let capsuleMinimumHeight: CGFloat = 6
-    fileprivate static let contextSymbolMinimumWidth: CGFloat = 18
 
     /// One drawable/scrubbable window. `.unscored` windows produce no mark at all —
     /// a literal gap, the way the pace plot drops a bucket with no samples.
@@ -641,11 +609,13 @@ struct BodyStressIntradayPlot: View {
     }
 
     fileprivate static func plotRect(in size: CGSize) -> CGRect {
+        // 24pt of headroom matches the Swift Charts day chart's top annotation
+        // area: the context-band symbols draw above the plot edge, not inside it.
         CGRect(
             x: 0,
-            y: 6,
-            width: max(1, size.width - Self.yAxisLabelInset),
-            height: max(1, size.height - 34)
+            y: 24,
+            width: max(1, size.width),
+            height: max(1, size.height - 52)
         )
     }
 
@@ -829,14 +799,16 @@ private struct BodyStressIntradayRenderPlot: View, Animatable {
                 with: .color(band.color.opacity(band.opacity))
             )
 
-            guard width >= BodyStressIntradayPlot.contextSymbolMinimumWidth else { continue }
+            // Above the plot edge at the band's midpoint — the same placement and
+            // 14pt bold styling as the Swift Charts day chart's top annotation,
+            // and like it the symbol draws regardless of how narrow the band is.
             context.draw(
                 context.resolve(
                     Text(Image(systemName: band.symbolName))
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 14, weight: .bold))
                         .foregroundColor(band.color.opacity(band.opacity))
                 ),
-                at: CGPoint(x: leading + width / 2, y: plotRect.minY + stripeHeight + 9)
+                at: CGPoint(x: leading + width / 2, y: plotRect.minY - 11)
             )
         }
     }
@@ -848,19 +820,13 @@ private struct BodyStressIntradayRenderPlot: View, Animatable {
             grid.move(to: CGPoint(x: plotRect.minX, y: y))
             grid.addLine(to: CGPoint(x: plotRect.maxX, y: y))
         }
+        // No y-axis labels: the score is banded, so the quarter gridlines alone
+        // carry the scale and the plot spans the card's full width.
         context.stroke(
             grid,
             with: .color(Color.secondary.opacity(0.26)),
             style: StrokeStyle(lineWidth: 1, dash: [4, 4])
         )
-
-        let fractions = BodyStressIntradayPlot.gridFractions
-        for (index, label) in BodyStressIntradayPlot.gridLabels.enumerated() where index < fractions.count {
-            context.draw(
-                bodyStressChartAxisLabel(label, in: context),
-                at: CGPoint(x: plotRect.maxX + 22, y: y(for: fractions[index], in: plotRect))
-            )
-        }
     }
 
     private func drawTracks(
@@ -929,8 +895,9 @@ private struct BodyStressIntradayRenderPlot: View, Animatable {
             let rawX = plotRect.minX + plotRect.width * CGFloat(mark.fraction)
             context.draw(
                 context.resolve(
+                    // `.caption2` matches the Swift Charts day charts' axis labels.
                     Text(mark.label)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .font(.system(.caption2, design: .rounded))
                         .foregroundColor(Color.secondary.opacity(mark.opacity))
                 ),
                 at: CGPoint(
@@ -986,7 +953,9 @@ struct BodyStressDayBreakdownRows: View {
     // Duplicated from `BodySleepStageOptimalRangeChart`, whose constants are private.
     private let labelWidth: CGFloat = 52
     private let percentColumnWidth: CGFloat = 44
-    private let durationColumnWidth: CGFloat = 68
+    // Wider than sleep's 68: zh-Hans durations like "10小时30分" need the extra
+    // room at full size — the flexible track absorbs the difference.
+    private let durationColumnWidth: CGFloat = 88
     private let columnSpacing: CGFloat = 12
     private let trackHeight: CGFloat = 22
     private let barHeight: CGFloat = 14
@@ -1040,14 +1009,14 @@ struct BodyStressDayBreakdownRows: View {
             emptyState
         } else {
             VStack(alignment: .leading, spacing: 12) {
+                header
+
                 ForEach(rows) { row in
                     self.row(row)
                 }
 
-                if baselineShares != nil {
-                    legend
-                        .padding(.top, 2)
-                }
+                legend
+                    .padding(.top, 2)
             }
         }
     }
@@ -1107,6 +1076,25 @@ struct BodyStressDayBreakdownRows: View {
         .accessibilityLabel("\(row.label), \(percentText), \(durationText)")
     }
 
+    /// Sleep's column-title row, reusing its already-localized "Stage"/"Pct."/
+    /// "Duration" strings so the two breakdowns stay word-for-word consistent.
+    private var header: some View {
+        HStack(spacing: columnSpacing) {
+            Text("Stage")
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: labelWidth, alignment: .leading)
+            Spacer(minLength: 0)
+            Text("Pct.")
+                .frame(width: percentColumnWidth, alignment: .trailing)
+            Text("Duration")
+                .frame(width: durationColumnWidth, alignment: .trailing)
+        }
+        .font(.system(.caption, design: .rounded))
+        .fontWeight(.semibold)
+        .foregroundColor(.secondary)
+    }
+
     private func track(fraction: Double, color: Color, baselineRange: ClosedRange<Double>?) -> some View {
         GeometryReader { proxy in
             let width = proxy.size.width
@@ -1151,17 +1139,30 @@ struct BodyStressDayBreakdownRows: View {
             )
     }
 
+    /// The baseline swatch half only appears once a baseline exists, but the
+    /// trailing axis caption always renders — sleep's legend row, adapted.
     private var legend: some View {
         HStack(spacing: 8) {
-            baselineBox
-                .frame(width: 22, height: 14)
+            if baselineShares != nil {
+                baselineBox
+                    .frame(width: 22, height: 14)
 
-            Text(Self.baselineLegendTitle)
-                .font(.system(.caption, design: .rounded))
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
+                Text(Self.baselineLegendTitle)
+                    .font(.system(.caption, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
 
             Spacer(minLength: 0)
+
+            // "measured time", not "the day": the denominator is
+            // `totalMeasuredMinutes` (scored + activity), so unscored gaps —
+            // watch off, sparse coverage — are outside the 100%.
+            Text("Percent of measured time")
+                .font(.system(.caption2, design: .rounded))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
         .accessibilityElement(children: .combine)
     }
