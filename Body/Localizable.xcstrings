@@ -8744,6 +8744,22 @@
         }
       }
     },
+    "Percent of measured time" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Percent of measured time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "占测量时间的百分比"
+          }
+        }
+      }
+    },
     "Percent of time in bed" : {
       "localizations" : {
         "en" : {
@@ -12353,6 +12369,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "训练负荷"
+          }
+        }
+      }
+    },
+    "Transparent, Black Text" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transparent, Black Text"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透明，黑色文字"
+          }
+        }
+      }
+    },
+    "Transparent, White Text" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transparent, White Text"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透明，白色文字"
           }
         }
       }

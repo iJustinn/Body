@@ -32,12 +32,18 @@ import UIKit
 /// snapshot, so the card skips its own Canvas trace for that case. `.video` draws
 /// *nothing*: the moving frames come from a player layer the sheet puts under the
 /// card in the preview, and from the video composition on export — either way the
-/// card is the transparent overlay held over them, scrims and all.
+/// card is the transparent overlay held over them, scrims and all. `.transparent`
+/// draws nothing either, but for the opposite reason: nothing is ever going under it,
+/// so it also drops the scrims — a black gradient baked into the exported alpha would
+/// show up as two dark bands on whatever the user drops the PNG onto. Its ink is a
+/// payload rather than a derived value for the same reason: with no background to read
+/// the polarity off, the user picks it.
 enum WorkoutShareCardBackground {
     case preset(BodyWorkoutSharePreset)
     case photo(UIImage)
     case map(UIImage)
     case video
+    case transparent(WorkoutShareCardInk)
 }
 
 /// Which arrangement the card draws. Passed in rather than derived from `background`:
@@ -121,12 +127,31 @@ struct BodyWorkoutShareCardView: View {
     /// Which way this card's ink runs, read from the background that is *actually*
     /// drawn rather than from any stored preference: a photo, a map snapshot, or a video
     /// frame is dark-backed by the scrims and always takes the light ink, even while a
-    /// Daylight preset stays selected in the tray.
+    /// Daylight preset stays selected in the tray. Transparent is the one background
+    /// that carries its own — there is nothing behind the text to derive it from.
     private var ink: WorkoutShareCardInk {
         switch background {
         case .preset(let preset): return preset.ink
         case .photo, .map, .video: return .light
+        case .transparent(let ink): return ink
         }
+    }
+
+    /// The scrims exist to darken (or lighten) whatever is behind the text. Transparent
+    /// has nothing behind it, and a scrim would be the one part of the export that
+    /// *isn't* see-through — two grey bands on the user's own backdrop. The ink's
+    /// legibility shadow, which every text run already carries, does the work instead.
+    private var drawsScrims: Bool {
+        if case .transparent = background { return false }
+        return true
+    }
+
+    /// Map tiles carry bright labels and roads behind the text, so their scrims are
+    /// taller and darker. A property rather than an `if case` inside `scrims`: that body
+    /// is a `@ViewBuilder` now, and a bare `if`/`else` statement there is read as a view.
+    private var isMapBackground: Bool {
+        if case .map = background { return true }
+        return false
     }
 
     /// `.routeless` never traces, whatever it's handed: making that a property of the
@@ -194,10 +219,11 @@ struct BodyWorkoutShareCardView: View {
                 .scaledToFill()
                 .frame(width: size.width, height: size.height)
                 .clipped()
-        case .video:
+        case .video, .transparent:
             // Deliberately empty, sized so the ZStack still gets the card's frame from
             // its background layer. `ImageRenderer.isOpaque` is false, so the rendered
-            // overlay keeps this transparency and the clip shows through it.
+            // overlay keeps this transparency — the clip shows through it for `.video`,
+            // and for `.transparent` it *is* the export's alpha channel.
             Color.clear
                 .frame(width: size.width, height: size.height)
         }
@@ -208,28 +234,31 @@ struct BodyWorkoutShareCardView: View {
     /// roads right behind the text, so they get taller, darker shades. The heights are
     /// fractions of the card's height, so a short landscape card isn't swallowed. The
     /// scrim colour follows the ink — a white card lightens its edges rather than
-    /// darkening them — while the opacities stay the same on both polarities.
+    /// darkening them — while the opacities stay the same on both polarities. A
+    /// transparent card draws none: see `drawsScrims`.
+    @ViewBuilder
     private var scrims: some View {
-        let isMap: Bool
-        if case .map = background { isMap = true } else { isMap = false }
+        let isMap = isMapBackground
         let scrim = ink.scrim
 
-        return VStack(spacing: 0) {
-            LinearGradient(
-                colors: [scrim.opacity(isMap ? 0.85 : 0.45), scrim.opacity(0)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: geometry.topScrimHeight(isMap: isMap))
+        if drawsScrims {
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [scrim.opacity(isMap ? 0.85 : 0.45), scrim.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: geometry.topScrimHeight(isMap: isMap))
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-            LinearGradient(
-                colors: [scrim.opacity(0), scrim.opacity(isMap ? 0.85 : 0.5)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: geometry.bottomScrimHeight(isMap: isMap))
+                LinearGradient(
+                    colors: [scrim.opacity(0), scrim.opacity(isMap ? 0.85 : 0.5)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: geometry.bottomScrimHeight(isMap: isMap))
+            }
         }
     }
 

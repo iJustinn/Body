@@ -548,10 +548,15 @@ struct BodyWorkoutShareSheet: View {
 
     private var activeMapSnapshot: UIImage? { mapSnapshots[activeMapKey] }
 
-    /// What the sheet restores on open — the map unless a preset was last picked, and
-    /// never the map without a route to draw.
+    /// What the sheet restores on open — the map unless a preset (or transparent) was
+    /// last picked, never the map without a route to draw, and never transparent without
+    /// the Pro entitlement that unlocks it. Both fallbacks are session-only: the stored
+    /// key is left exactly as the user set it.
     private var selectedChoice: BodyWorkoutShareBackgroundChoice {
-        BodyWorkoutShareBackgroundChoice.stored(rawValue: storedBackground, hasRoute: hasRoute)
+        WorkoutShareBackgroundPolicy.resolvedBackgroundChoice(
+            BodyWorkoutShareBackgroundChoice.stored(rawValue: storedBackground, hasRoute: hasRoute),
+            isProUnlocked: isProUnlocked
+        )
     }
 
     /// The persisted choice is not the same thing as what's on screen: a session-only
@@ -562,6 +567,9 @@ struct BodyWorkoutShareSheet: View {
         case photo
         case video
         case map
+        /// The ink is part of the identity: the tray offers a light and a dark
+        /// transparent tile, and only one of them may show the selection ring.
+        case transparent(WorkoutShareCardInk)
         case preset(BodyWorkoutSharePreset)
     }
 
@@ -571,6 +579,7 @@ struct BodyWorkoutShareSheet: View {
     private var activeSelection: ActiveSelection {
         if renderablePhoto != nil { return .photo }
         if renderableVideo != nil { return .video }
+        if case .transparent(let ink) = selectedChoice { return .transparent(ink) }
         if case .preset(let preset) = selectedChoice { return .preset(preset) }
         // Stored choice is the map, but this session couldn't snapshot the combination
         // on screen. Another dimension's or ratio's failure doesn't count — each has
@@ -604,14 +613,17 @@ struct BodyWorkoutShareSheet: View {
         activeSelection == .photo || activeSelection == .video
     }
 
-    /// The background both preview and export use: photo wins, then the preset, then
-    /// the map's snapshot.
+    /// The background both preview and export use: photo wins, then the preset (or the
+    /// transparent pick), then the map's snapshot.
     private var activeBackground: WorkoutShareCardBackground {
         if let renderablePhoto {
             return .photo(renderablePhoto)
         }
         if renderableVideo != nil {
             return .video
+        }
+        if case .transparent(let ink) = selectedChoice {
+            return .transparent(ink)
         }
         if case .preset(let preset) = selectedChoice {
             return .preset(preset)
@@ -632,7 +644,20 @@ struct BodyWorkoutShareSheet: View {
         switch activeBackground {
         case .preset(let preset): return preset.ink
         case .photo, .map, .video: return .light
+        case .transparent(let ink): return ink
         }
+    }
+
+    /// Whether this Share/Save has to be written as a PNG rather than handed over as a
+    /// bare `UIImage`. `PHAssetCreationRequest(from:)` encodes JPEG and
+    /// `UIActivityViewController` re-encodes at the receiver's discretion, so a card
+    /// with a real alpha channel would arrive flattened to black either way. Long mode
+    /// never qualifies: the long image paints a gradient (`activeLongPreset`), which is
+    /// never transparent.
+    private var isTransparentOutput: Bool {
+        guard !isLongMode else { return false }
+        if case .transparent = activeBackground { return true }
+        return false
     }
 
     /// Only the map keeps the classic card. Keyed off `activeSelection`, never
@@ -644,7 +669,7 @@ struct BodyWorkoutShareSheet: View {
     private var cardLayout: WorkoutShareCardLayout {
         guard hasRoute else { return .routeless }
         switch activeSelection {
-        case .preset, .photo, .video: return .centered
+        case .preset, .photo, .video, .transparent: return .centered
         case .map: return .classic
         }
     }
@@ -1122,8 +1147,14 @@ struct BodyWorkoutShareSheet: View {
                     .accessibilityLabel(Text("Save to Photos"))
                 }
             }
+            // A transparent card ships as a `.png` file so its alpha survives the hand-off;
+            // every other card is the `UIImage` it always was. The file has to outlive the
+            // share sheet, so it goes when the payload is cleared.
             .sheet(item: $payload) { payload in
-                BodyShareActivityView(items: [payload.image]) { self.payload = nil }
+                BodyShareActivityView(items: [payload.pngURL ?? payload.image]) {
+                    self.payload = nil
+                    if let url = payload.pngURL { Self.removeSharePNG(at: url) }
+                }
             }
             // The exported file has to outlive the share sheet, so clearing the payload
             // is also what releases a scratch directory retired while it was up.
@@ -1273,6 +1304,15 @@ struct BodyWorkoutShareSheet: View {
                         // rounding difference drift the overlay off the frames it's
                         // supposed to be pinned to.
                         ZStack(alignment: .topLeading) {
+                            if isTransparentOutput {
+                                // Under the card, never inside it: `cardView()` is what
+                                // rasterizes, so the checkerboard can't reach the export.
+                                // It stands in for the alpha the PNG actually carries,
+                                // using the convention every image editor uses.
+                                WorkoutShareTransparencyChecker()
+                                    .frame(width: cardSize.width, height: cardSize.height)
+                            }
+
                             if activeSelection == .video, let clip = selectedVideo {
                                 // The same chain the card gives a photo: fill, then
                                 // zoom about the centre, then offset, then clip — the
@@ -1871,6 +1911,16 @@ struct BodyWorkoutShareSheet: View {
                 ForEach(BodyWorkoutSharePreset.allCases) { preset in
                     presetSwatch(preset)
                 }
+                // Two tiles, one per ink: a transparent export has nothing behind its
+                // text to derive the polarity from, so which way it runs is the user's
+                // pick. Dimmed in long mode with the map/photo/video tiles — the long
+                // image always paints a gradient.
+                transparentTile(ink: .light)
+                    .opacity(isLongMode ? 0.4 : 1)
+                    .disabled(isLongMode)
+                transparentTile(ink: .dark)
+                    .opacity(isLongMode ? 0.4 : 1)
+                    .disabled(isLongMode)
                 // Nothing to snapshot without a route, so the tile isn't offered.
                 if hasRoute {
                     mapTile()
@@ -2438,6 +2488,58 @@ struct BodyWorkoutShareSheet: View {
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
+    /// No background at all: the card exports as a PNG with a real alpha channel, for
+    /// dropping onto a Story, a poster, or a video edit. Pro, and stored like the
+    /// presets and the map — `selectedChoice` absorbs a lapse rather than the key being
+    /// rewritten. The tile shows the same checkerboard the preview puts behind the card,
+    /// so "transparent" reads without a caption.
+    private func transparentTile(ink: WorkoutShareCardInk) -> some View {
+        let isSelected = activeSelection == .transparent(ink)
+        return Button {
+            closeTray()
+            guard isProUnlocked else {
+                showBodyProPaywall = true
+                return
+            }
+            storedBackground = BodyWorkoutShareBackgroundChoice.transparent(ink).rawValue
+            // Also resets the picker items, so re-picking the same asset later re-fires
+            // the `.task(id:)` load (an unchanged id would silently do nothing).
+            replaceMedia(with: nil)
+        } label: {
+            ZStack {
+                WorkoutShareTransparencyChecker(square: 7)
+                // The letterform is the swatch: it's the ink itself, which is the only
+                // thing that differs between the two tiles.
+                Image(systemName: "textformat")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(ink.primary)
+                    .shadow(color: ink.legibilityShadow, radius: 2, x: 0, y: 0.5)
+            }
+            .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+            .clipShape(Circle())
+            .overlay {
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 0.5)
+                }
+            }
+            // The checkerboard is mid-gray on every theme, so the edge and the ring stay
+            // dark — a white hairline would wash out against it, the way Daylight's does.
+            .overlay { Circle().strokeBorder(Color.black.opacity(0.15)) }
+            .overlay { selectionRing(isSelected: isSelected, stroke: Color.black.opacity(0.6)) }
+            .overlay(alignment: .bottomTrailing) {
+                if !isProUnlocked {
+                    lockBadge
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(ink == .light ? Text("Transparent, White Text") : Text("Transparent, Black Text"))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
     /// Free route-map background: a dark map snapshot with the pace-colored route
     /// composited in, generated once per dimension+ratio on first selection.
     private func mapTile() -> some View {
@@ -2683,7 +2785,14 @@ struct BodyWorkoutShareSheet: View {
             defer { isRendering = false }
 
             if let image = renderShareImage() {
-                payload = WorkoutSharePayload(image: image)
+                // A transparent card is handed over as a file so nothing downstream can
+                // re-encode its alpha away. If the write fails there's still a perfectly
+                // good image to share — it just arrives flattened — so this falls back
+                // rather than failing the share.
+                payload = WorkoutSharePayload(
+                    image: image,
+                    pngURL: isTransparentOutput ? Self.writeSharePNG(image) : nil
+                )
             } else {
                 showRenderError = true
             }
@@ -2738,9 +2847,20 @@ struct BodyWorkoutShareSheet: View {
             return
         }
 
+        // `creationRequestForAsset(from:)` encodes a JPEG, which has no alpha channel —
+        // a transparent card saved that way arrives in Photos on a black background. The
+        // PNG bytes are added as the asset's photo resource instead. Resolved out here:
+        // the change block is `@Sendable` and can't read the sheet's state.
+        let pngData = isTransparentOutput ? image.pngData() : nil
+
         do {
             try await PHPhotoLibrary.shared().performChanges {
-                PHAssetCreationRequest.creationRequestForAsset(from: image)
+                if let pngData {
+                    PHAssetCreationRequest.forAsset()
+                        .addResource(with: .photo, data: pngData, options: nil)
+                } else {
+                    PHAssetCreationRequest.creationRequestForAsset(from: image)
+                }
             }
         } catch {
             isPhotoAccessDenied = false
@@ -2787,6 +2907,31 @@ struct BodyWorkoutShareSheet: View {
             try? await Task.sleep(for: .seconds(1))
             dismiss()
         }
+    }
+
+    /// Writes a transparent card out as a real PNG for the share sheet to carry. Its own
+    /// directory per export, so the file can keep a stable, presentable name ("Body.png"
+    /// is what the receiving app shows) without two shares in a row colliding. Returns
+    /// `nil` on any failure — the caller then shares the `UIImage`, which is the old
+    /// behaviour, rather than dropping the share entirely.
+    private static func writeSharePNG(_ image: UIImage) -> URL? {
+        guard let data = image.pngData() else { return nil }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WorkoutShareImage-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appendingPathComponent("Body.png")
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            return nil
+        }
+    }
+
+    /// Takes the whole per-export directory, not just the file inside it.
+    private static func removeSharePNG(at url: URL) {
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
 
     /// The still Save and Share hand on — whichever of the two the mode asks for.
@@ -3224,6 +3369,53 @@ private struct WorkoutShareInfoGesture: Equatable {
 private struct WorkoutSharePayload: Identifiable {
     let id = UUID()
     let image: UIImage
+    /// Set only for a transparent card, and then shared *instead of* `image`:
+    /// `UIActivityViewController` re-encodes a bare `UIImage` at the receiver's
+    /// discretion — JPEG for most of them — which flattens the alpha to black. Handing
+    /// over a real `.png` file leaves nothing to re-encode. The file outlives the share
+    /// sheet, so it's deleted from the completion handler, like the video's scratch.
+    var pngURL: URL?
+}
+
+/// The checkerboard drawn *behind* a transparent card in the preview, and
+/// inside its tray tiles — the convention every image editor uses to say "this area is
+/// alpha". Deliberately not part of `cardView()`: that view is what `ImageRenderer`
+/// rasterizes, so anything drawn inside it would end up in the exported PNG.
+private struct WorkoutShareTransparencyChecker: View {
+    /// Side of one square, in the coordinate space this view is laid out in. The preview
+    /// draws it in card points (so it scales with the card); the tiles use a smaller
+    /// square, since a 40 pt circle needs more than four squares to read as a pattern.
+    var square: CGFloat = 10
+
+    /// Mid-tones rather than the white/near-white pair image editors use. The card drawn
+    /// over this is the *user's* pick of ink, and a light checkerboard renders the
+    /// white-text option almost invisible — the preview would read as a broken card
+    /// rather than as a transparent one. These two are dark enough for white text and
+    /// light enough for black, so neither tile is penalised for the backdrop.
+    private static let light = Color(white: 0.70)
+    private static let dark = Color(white: 0.52)
+
+    var body: some View {
+        Canvas { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.light))
+            guard square > 0 else { return }
+            let columns = Int(ceil(size.width / square))
+            let rows = Int(ceil(size.height / square))
+            guard columns > 0, rows > 0 else { return }
+            for row in 0..<rows {
+                for column in 0..<columns where (row + column).isMultiple(of: 2) {
+                    let rect = CGRect(
+                        x: CGFloat(column) * square,
+                        y: CGFloat(row) * square,
+                        width: square,
+                        height: square
+                    )
+                    context.fill(Path(rect), with: .color(Self.dark))
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
 }
 
 /// The exported MP4 waiting for the share sheet. Its own id (not the clip's) so sharing

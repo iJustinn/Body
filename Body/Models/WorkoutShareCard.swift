@@ -1128,11 +1128,16 @@ enum WorkoutShareRouteColorChoice: String, CaseIterable, Identifiable {
 }
 
 /// What the share sheet restores when it opens: a gradient preset (Midnight is the
-/// default) or the route map. Photos stay session-only — a Pro entitlement can lapse
-/// between sessions, and `WorkoutShareBackgroundPolicy` is the only seam that
-/// decides whether one may render.
+/// default), the route map, or no background at all. Photos stay session-only — a Pro
+/// entitlement can lapse between sessions, and `WorkoutShareBackgroundPolicy` is the
+/// only seam that decides whether one may render.
 enum BodyWorkoutShareBackgroundChoice: Equatable {
     case map
+    /// No background: the card exports as a PNG with a real alpha channel. Nothing sits
+    /// behind the text, so the ink is the user's pick rather than the background's —
+    /// hence the payload, and hence two tiles in the tray. Pro, resolved through
+    /// `WorkoutShareBackgroundPolicy.resolvedBackgroundChoice`.
+    case transparent(WorkoutShareCardInk)
     case preset(BodyWorkoutSharePreset)
 
     /// Unchanged from the preset-only key it replaces: a stored "ocean"/"sunset"/
@@ -1140,10 +1145,14 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
     static let storageKey = "workoutShareBackgroundPreset"
 
     private static let mapRawValue = "map"
+    private static let transparentLightRawValue = "transparentLight"
+    private static let transparentDarkRawValue = "transparentDark"
 
     var rawValue: String {
         switch self {
         case .map: return Self.mapRawValue
+        case .transparent(let ink):
+            return ink == .light ? Self.transparentLightRawValue : Self.transparentDarkRawValue
         case .preset(let preset): return preset.rawValue
         }
     }
@@ -1153,9 +1162,12 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
     /// when there's a route to map. A route-less workout resolves a stored "map" to
     /// Midnight for the session without rewriting the key, so the next routed share
     /// still opens on the map (the same session-only fallback a failed snapshot takes).
+    /// Transparent needs no such guard — it draws nothing either way.
     static func stored(rawValue: String?, hasRoute: Bool) -> BodyWorkoutShareBackgroundChoice {
         guard let rawValue else { return .preset(.midnight) }
         if rawValue == mapRawValue { return hasRoute ? .map : .preset(.midnight) }
+        if rawValue == transparentLightRawValue { return .transparent(.light) }
+        if rawValue == transparentDarkRawValue { return .transparent(.dark) }
         guard let preset = BodyWorkoutSharePreset(rawValue: rawValue) else { return .preset(.midnight) }
         return .preset(preset)
     }
@@ -1770,6 +1782,19 @@ struct WorkoutSharePhotoTransform: Equatable {
 enum WorkoutShareBackgroundPolicy {
     static func resolvedPhoto(_ photo: UIImage?, isProUnlocked: Bool) -> UIImage? {
         isProUnlocked ? photo : nil
+    }
+
+    /// The gate for the transparent background, which — unlike a photo or a clip — is
+    /// *stored*, so a lapse has to be absorbed on read. Same session-only fallback as
+    /// the ratio and the output style: the key is never rewritten, so a resubscribe
+    /// opens straight back on transparent. Presets and the map are free and pass
+    /// through untouched.
+    static func resolvedBackgroundChoice(
+        _ choice: BodyWorkoutShareBackgroundChoice,
+        isProUnlocked: Bool
+    ) -> BodyWorkoutShareBackgroundChoice {
+        if case .transparent = choice, !isProUnlocked { return .preset(.midnight) }
+        return choice
     }
 
     /// The same gate for a video background: a clip picked before the entitlement lapses

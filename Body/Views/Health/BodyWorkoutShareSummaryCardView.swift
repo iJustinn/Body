@@ -67,7 +67,15 @@ struct BodyWorkoutShareSummaryCardView: View {
         switch background {
         case .preset(let preset): return preset.ink
         case .photo, .map, .video: return .light
+        case .transparent(let ink): return ink
         }
+    }
+
+    /// A transparent export has nothing behind its text, so a scrim would be the one
+    /// part of it that isn't see-through. Same rule as the workout card's.
+    private var drawsScrims: Bool {
+        if case .transparent = background { return false }
+        return true
     }
 
     var body: some View {
@@ -116,36 +124,41 @@ struct BodyWorkoutShareSummaryCardView: View {
             // is no route to snapshot). Drawn as Midnight rather than left empty so an
             // impossible state still produces a legible card instead of a bare frame.
             BodyWorkoutSharePreset.midnight.gradient(tint: palette.color(for: summary.tintType))
-        case .video:
+        case .video, .transparent:
             // Deliberately empty, sized so the ZStack still gets the card's frame from
             // its background layer. `ImageRenderer.isOpaque` is false, so the rendered
-            // overlay keeps this transparency and the video shows through it.
+            // overlay keeps this transparency — the video shows through it for `.video`,
+            // and for `.transparent` it *is* the export's alpha channel.
             Color.clear
                 .frame(width: size.width, height: size.height)
         }
     }
 
     /// The workout card's scrims, at the same heights and opacities — `isMap: false`
-    /// always, since a summary card never carries map tiles.
+    /// always, since a summary card never carries map tiles. A transparent card draws
+    /// none: see `drawsScrims`.
+    @ViewBuilder
     private var scrims: some View {
         let scrim = ink.scrim
 
-        return VStack(spacing: 0) {
-            LinearGradient(
-                colors: [scrim.opacity(0.45), scrim.opacity(0)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: cardGeometry.topScrimHeight(isMap: false))
+        if drawsScrims {
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [scrim.opacity(0.45), scrim.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: cardGeometry.topScrimHeight(isMap: false))
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-            LinearGradient(
-                colors: [scrim.opacity(0), scrim.opacity(0.5)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: cardGeometry.bottomScrimHeight(isMap: false))
+                LinearGradient(
+                    colors: [scrim.opacity(0), scrim.opacity(0.5)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: cardGeometry.bottomScrimHeight(isMap: false))
+            }
         }
     }
 
