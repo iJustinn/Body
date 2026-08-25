@@ -1,5 +1,9 @@
 # Version History
 
+## Unreleased
+
+- **Personal record badges.** Body now tracks all-time per-workout-type records — best pace/speed, longest duration/distance, and highest elevation — and marks the record-holding workout with a trophy.fill "PR" capsule on the detail sheet's stat tiles, a bare trophy glyph on workout list rows, and a pill on share cards (not monthly-summary cards). A workout that has since been beaten keeps its badge in a dimmed neutral gray, so a superseded record still reads as an achievement without being mistaken for the live one; share cards show only records still held, and every badge fades in rather than popping in. A metric needs at least 4 comparable same-type workouts before any PR badge appears. The baseline history scan runs once in the background after the first refresh; Settings > Cache > Clear Cache resets it so it re-scans on the next refresh.
+
 ## 1.0.0 (build 25)
 
 - **Dragging a Summary card somewhere it can't go no longer crashes the app.** Releasing a card over the hero, the empty space below the grid, or the tab bar cancelled the drag, and iOS then animated the card back to a view the app had already thrown away — the grid rebuilt its rows on every reorder that ran while the drag was still in flight, and the card being dragged was rebuilt with them. The grid now keeps one view per card wherever it moves, so a cancelled drop returns the card to the grid, and reordering slides the cards to their new places instead of rebuilding the rows underneath them.
