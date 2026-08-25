@@ -137,6 +137,49 @@ extension HealthKitFetchEngine {
         return nextOptionsByKind
     }
 
+    /// Discovers sources for just `kinds` and merges them into the memoized map
+    /// — the focused counterpart of `fetchHealthDataSourceOptions` for a
+    /// headless caller (the background metric-warning evaluation) that needs a
+    /// pinned source to RESOLVE without paying for the full option fan-out.
+    /// Kinds already discovered this process, not source-selectable, without
+    /// permission, or without sample types are skipped; a kind whose query
+    /// fails simply stays absent, so its selection remains `.unresolved` and
+    /// the leaf fetch skips with failure semantics (H4). Deliberately does NOT
+    /// record `fetchedHealthDataSourcePermissionRawValue`: this is a partial
+    /// discovery and must never short-circuit the full one.
+    func discoverHealthSources(for kinds: Set<HealthMetricKind>) async {
+        let pending = kinds.filter { kind in
+            healthSourcesByKind[kind] == nil
+                && kind.supportsHealthDataSourceSelection
+                && permissionSelection.includes(healthPermission(forSourceKind: kind))
+                && !healthSampleTypes(forSourceKind: kind).isEmpty
+        }
+        guard !pending.isEmpty else { return }
+
+        let kindSources = await withTaskGroup(of: KindSources.self) { group in
+            for kind in pending {
+                group.addTask { await self.fetchKindSources(for: kind) }
+            }
+
+            var collected: [KindSources] = []
+            for await result in group {
+                collected.append(result)
+            }
+            return collected
+        }
+
+        for kindSource in kindSources {
+            guard let sources = kindSource.sources else { continue }
+            let (_, sourcesByID) = BodyHealthSourceResolver.sourceOptionsAndMap(
+                from: sources,
+                combinesSourcesByName: combinesHealthDataSourcesByName,
+                customGroups: customHealthSourceGroups,
+                displayName: Self.displayName(for:)
+            )
+            healthSourcesByKind[kindSource.kind] = sourcesByID
+        }
+    }
+
     private func fetchKindSources(for kind: HealthMetricKind) async -> KindSources {
         KindSources(
             kind: kind,

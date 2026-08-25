@@ -25,6 +25,10 @@ struct BodyHealthMetricDetailModel {
     let sleepHistory: SleepHistorySnapshot
     let sleepHistorySecondary: SleepHistorySnapshot
     let readiness: ReadinessSummary?
+    /// Today's Stress rollup, mirroring `readiness` — the hero's calibration /
+    /// empty-state split and the time-in-band breakdown both read it directly
+    /// rather than re-parsing `value`.
+    let stress: StressDaySummary?
     /// Live training-load ratio behind `value`, unformatted — the About your interval
     /// card marks the band it falls in while nothing is scrubbed.
     let trainingLoadValue: Double?
@@ -71,6 +75,7 @@ struct BodyHealthMetricDetailModel {
         valueFormatter: @escaping (Double) -> String,
         secondaryValueFormatter: ((Double) -> String)?,
         readiness: ReadinessSummary? = nil,
+        stress: StressDaySummary? = nil,
         trainingLoadValue: Double? = nil,
         cardioFitnessValue: Double? = nil,
         cardioFitnessProfile: CardioFitnessProfile? = nil,
@@ -99,6 +104,7 @@ struct BodyHealthMetricDetailModel {
         self.sleepHistory = sleepHistory
         self.sleepHistorySecondary = sleepHistorySecondary
         self.readiness = readiness
+        self.stress = stress
         self.trainingLoadValue = trainingLoadValue
         self.cardioFitnessValue = cardioFitnessValue
         self.cardioFitnessProfile = cardioFitnessProfile
@@ -181,12 +187,12 @@ struct BodyMetricActivityAverage: Equatable, Identifiable {
         }
     }
 
-    var color: Color {
+    func color(palette: BodyWorkoutColorPalette) -> Color {
         switch activity {
         case .sleep:
             return Color(red: 0.20, green: 0.72, blue: 1.00)
         case .workout(let workoutType):
-            return workoutType.color
+            return palette.color(for: workoutType)
         }
     }
 }
@@ -390,6 +396,7 @@ struct BodyHealthMetricDetailView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.workoutColorPalette) private var workoutColorPalette
 
     let model: BodyHealthMetricDetailModel
     /// Shared with `BodyHomeView` so the Basics page's Weight/Body Fat cards are zoom sources for
@@ -699,7 +706,8 @@ struct BodyHealthMetricDetailView: View {
              .oxygenSaturation,
              .activeEnergy,
              .steps,
-             .readiness:
+             .readiness,
+             .stress:
             return true
         case .restingHeartRate,
              .sleep,
@@ -887,6 +895,35 @@ struct BodyHealthMetricDetailView: View {
             workouts: workouts,
             dayInterval: dayInterval
         )
+    }
+
+    /// The selected day's intraday Stress windows, scored live against the
+    /// cached snapshot — there is no fetched day series to fall back to (Stress
+    /// is derived, like Readiness), so an unscored day simply renders empty.
+    private var selectedStressWindows: [StressWindow] {
+        guard model.kind == .stress else {
+            return []
+        }
+
+        return workoutStore.stressWindows(for: selectedMetricDay)
+    }
+
+    /// The selected day's Stress rollup: today comes off the live model (which
+    /// tracks the current, still-updating score), any other day off the
+    /// recorded history — the same recorded/live split
+    /// `selectedReadinessMorningScore` makes for Readiness.
+    private var selectedStressDaySummary: StressDaySummary? {
+        guard model.kind == .stress else {
+            return nil
+        }
+
+        guard !Calendar.bodyGregorian.isDateInToday(selectedMetricDay) else {
+            return model.stress
+        }
+
+        return workoutStore.healthTrends.recordedStressDays.first {
+            Calendar.bodyGregorian.isDate($0.date, inSameDayAs: selectedMetricDay)
+        }
     }
 
     private var selectedMetricSecondaryDaySeries: HealthTrendSeries {
@@ -1186,6 +1223,13 @@ struct BodyHealthMetricDetailView: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .bodyCardBackground(translucent: true)
+    }
+
+    private var stressBandBreakdownCard: some View {
+        BodyStressBandBreakdownChart(summary: selectedStressDaySummary)
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .bodyCardBackground(translucent: true)
     }
 
     private func cardioFitnessLevelExplanationRow(level: CardioFitnessLevel, isCurrent: Bool) -> some View {
@@ -1514,6 +1558,9 @@ struct BodyHealthMetricDetailView: View {
             if model.kind == .cardioFitness {
                 cardioFitnessLevelCard(activeLevel: activeCardioFitnessLevel)
             }
+            if model.kind == .stress {
+                stressBandBreakdownCard
+            }
             helpTextCard
             dataSourceFooter
         }
@@ -1669,7 +1716,7 @@ struct BodyHealthMetricDetailView: View {
                 rangeSeries: metricRangeSeries,
                 symbolColor: model.symbolColor,
                 valueFormatter: model.valueFormatter,
-                showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability,
+                showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .stress,
                 immersive: immersive,
                 yDomain: metricRangeYDomain,
                 floatingCallout: immersive ? floatingCallout : nil
@@ -1948,7 +1995,23 @@ struct BodyHealthMetricDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             ZStack {
-                if selectedMetricDaySeries.isEmpty && selectedMetricSecondaryDaySeries.isEmpty {
+                if model.kind == .stress {
+                    // Discrete banded windows (scored / activity / unscored gap)
+                    // don't fit the continuous-line day chart, so Stress gets its
+                    // own bar chart instead of `BodyHealthMetricDayChart`.
+                    if selectedStressWindows.contains(where: { $0.isScored || $0.state == .activity }) {
+                        BodyStressIntradayChart(windows: selectedStressWindows)
+                            .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
+                            .transition(dayChartTransition)
+                    } else {
+                        Text("No data for this day")
+                            .font(.system(.body, design: .rounded))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, minHeight: BodyHealthDetailChartLayout.dayChartHeight)
+                            .transition(dayChartTransition)
+                    }
+                } else if selectedMetricDaySeries.isEmpty && selectedMetricSecondaryDaySeries.isEmpty {
                     Text("No data for this day")
                         .font(.system(.body, design: .rounded))
                         .fontWeight(.semibold)
@@ -2145,7 +2208,7 @@ struct BodyHealthMetricDetailView: View {
                 Image(systemName: row.symbolName)
                     .font(.system(size: 17, weight: .bold, design: .rounded))
                     .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(row.color)
+                    .foregroundStyle(row.color(palette: workoutColorPalette))
                     .transition(.opacity)
                     .id(row.symbolName)
             }
@@ -2154,7 +2217,7 @@ struct BodyHealthMetricDetailView: View {
             // icons (18 pt radius at 58 pt, scaled to this 38 pt slot).
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(row.color.opacity(0.14))
+                    .fill(row.color(palette: workoutColorPalette).opacity(0.14))
             )
             // Keyed on the activity, not the glyph, so the tint and its tile also
             // cross over when two activities happen to share a symbol.
@@ -2192,7 +2255,7 @@ struct BodyHealthMetricDetailView: View {
             VStack(alignment: .trailing, spacing: 3) {
                 Text(valueText)
                     .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundColor(row.color)
+                    .foregroundColor(row.color(palette: workoutColorPalette))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
                     .bodyLegendNumberFlip(value: valueText)
@@ -2296,7 +2359,7 @@ struct BodyHealthMetricDetailView: View {
                     endDate: $0.end,
                     title: workoutStore.workoutCustomNames[workout.id] ?? workout.type.displayName,
                     symbolName: workout.type.symbolName,
-                    color: workout.type.color
+                    color: workoutColorPalette.color(for: workout.type)
                 )
             }
         }.compactMap { $0 })
@@ -3013,7 +3076,7 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var usesRangeTrendChart: Bool {
-        model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .oxygenSaturation || model.kind == .respiratoryRate
+        model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .oxygenSaturation || model.kind == .respiratoryRate || model.kind == .stress
     }
 
     private var metricRangeYDomain: (([Double]) -> ClosedRange<Double>)? {

@@ -20,6 +20,7 @@ struct BodyWorkoutsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.workoutColorPalette) private var workoutColorPalette
     @State private var selectedMonth = Calendar.bodyGregorian.component(.month, from: Date())
     @State private var selectedYear = Calendar.bodyGregorian.component(.year, from: Date())
     @State private var observedCurrentMonthYear = BodyMonthYear.current()
@@ -144,7 +145,8 @@ struct BodyWorkoutsView: View {
                                                     titleFontSize: 20,
                                                     metadataFontSize: 13,
                                                     amountFontSize: 25,
-                                                    customName: workoutStore.workoutCustomNames[workout.id]
+                                                    customName: workoutStore.workoutCustomNames[workout.id],
+                                                    recordStanding: workoutStore.rowRecordStanding(for: workout)
                                                 )
                                                 .matchedTransitionSource(id: workout.id, in: workoutZoom) {
                                                     $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
@@ -468,6 +470,7 @@ struct BodyWorkoutsView: View {
     private func workoutCalendarCard(snapshot: WorkoutMonthSnapshot) -> some View {
         WorkoutCalendarView(
             snapshot: snapshot,
+            palette: workoutColorPalette,
             style: .widgetLarge,
             fillsAvailableHeight: false,
             onSelectDay: { day in
@@ -496,6 +499,7 @@ struct BodyWorkoutsView: View {
 
             WorkoutTypeBreakdownView(
                 snapshot: snapshot,
+                palette: workoutColorPalette,
                 style: .app,
                 onSelectType: { type in
                     selectedWorkoutListSelection = .type(
@@ -918,6 +922,8 @@ struct BodyWorkoutRowPresentation {
 }
 
 private struct BodyWorkoutExpenseStyleRow: View {
+    @Environment(\.workoutColorPalette) private var workoutColorPalette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
@@ -926,23 +932,36 @@ private struct BodyWorkoutExpenseStyleRow: View {
     let metadataFontSize: CGFloat
     let amountFontSize: CGFloat
     var customName: String? = nil
+    /// The workout's strongest record standing, or nil when it holds none. Computed
+    /// at the call site — the row is a pure struct with no store access.
+    var recordStanding: WorkoutRecordStanding? = nil
 
     var body: some View {
         HStack(spacing: 16) {
             Image(systemName: workout.type.symbolName)
                 .font(.system(size: 30, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(workout.type.color)
+                .foregroundStyle(workoutColorPalette.color(for: workout.type))
                 .frame(width: 56, height: 56)
-                .background(workout.type.color.opacity(0.14))
+                .background(workoutColorPalette.color(for: workout.type).opacity(0.14))
                 .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(customName ?? workout.type.displayName)
-                    .font(.system(size: titleFontSize, weight: .bold))
-                    .fontWeight(.bold)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                HStack(spacing: 5) {
+                    Text(customName ?? workout.type.displayName)
+                        .font(.system(size: titleFontSize, weight: .bold))
+                        .fontWeight(.bold)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+
+                    if let recordStanding {
+                        BodyWorkoutPRGlyph(standing: recordStanding)
+                        // Rows are on screen long before the baseline scan finishes,
+                        // so the trophy arrives into a settled list — it fades in.
+                        .transition(.opacity)
+                    }
+                }
+                .animation(reduceMotion ? nil : .easeIn(duration: 0.3), value: recordStanding)
 
                 Text(formattedCompactDateTime)
                     .font(.system(size: metadataFontSize, weight: .semibold))
@@ -953,7 +972,7 @@ private struct BodyWorkoutExpenseStyleRow: View {
                 HStack(spacing: 6) {
                     Image(systemName: presentation.detailIconName)
                         .font(.system(size: metadataFontSize, weight: .semibold))
-                        .foregroundColor(workout.type.color)
+                        .foregroundColor(workoutColorPalette.color(for: workout.type))
 
                     Text(presentation.detailText)
                         .font(.system(size: metadataFontSize, weight: .semibold))
@@ -1080,6 +1099,7 @@ struct BodyWorkoutDetailSheet: View {
     /// this instead of the system back chevron.
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.workoutColorPalette) private var workoutColorPalette
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
@@ -1293,7 +1313,7 @@ struct BodyWorkoutDetailSheet: View {
                     // it with no backing of its own (like the home and detail pages).
                     Color.black.ignoresSafeArea()
 
-                    BodyWorkoutRouteMapHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset)
+                    BodyWorkoutRouteMapHero(route: route, tint: workoutColorPalette.color(for: workout.type), targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset)
                         .frame(height: mapHeight)
                         .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
                         .overlay {
@@ -1310,7 +1330,7 @@ struct BodyWorkoutDetailSheet: View {
                     // workout-tint backdrop and the route strokes over it.
                     sheetBackdrop
 
-                    BodyWorkoutRoutePlainHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, drawsReveal: drawsRouteReveal)
+                    BodyWorkoutRoutePlainHero(route: route, tint: workoutColorPalette.color(for: workout.type), targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, drawsReveal: drawsRouteReveal)
                         .frame(height: mapHeight)
                         .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
                         .overlay {
@@ -1325,7 +1345,7 @@ struct BodyWorkoutDetailSheet: View {
                     // route carries no altitude.
                     sheetBackdrop
 
-                    BodyWorkoutRoute3DHero(route: route, tint: workout.type.color, targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, yawState: routeYawState, drawsReveal: drawsRouteReveal)
+                    BodyWorkoutRoute3DHero(route: route, tint: workoutColorPalette.color(for: workout.type), targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, yawState: routeYawState, drawsReveal: drawsRouteReveal)
                         .frame(height: mapHeight)
                         .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
                         .overlay {
@@ -1348,7 +1368,7 @@ struct BodyWorkoutDetailSheet: View {
 
                 if showsRouteLoadingShimmer {
                     BodyWorkoutRouteHeroShimmer(
-                        tint: workout.type.color,
+                        tint: workoutColorPalette.color(for: workout.type),
                         targetCenterY: routeTargetCenterY,
                         topInset: topSafeAreaInset
                     )
@@ -1478,7 +1498,7 @@ struct BodyWorkoutDetailSheet: View {
         }
         .fullScreenCover(isPresented: $showsFullScreenRouteMap) {
             if let route = displayedRoute {
-                BodyWorkoutRouteMapFullScreen(route: route, tint: workout.type.color)
+                BodyWorkoutRouteMapFullScreen(route: route, tint: workoutColorPalette.color(for: workout.type))
                     .navigationTransition(.zoom(sourceID: "routeMap", in: routeMapZoom))
             }
         }
@@ -1586,7 +1606,7 @@ struct BodyWorkoutDetailSheet: View {
         // When there is no route map, use the same workout-tint-to-black
         // backdrop as the metric detail page.
         LinearGradient(
-            colors: [workout.type.color.opacity(0.45), Color.black],
+            colors: [workoutColorPalette.color(for: workout.type).opacity(0.45), Color.black],
             startPoint: .top,
             endPoint: UnitPoint(x: 0.5, y: 0.5)
         )
@@ -1719,13 +1739,17 @@ struct BodyWorkoutDetailSheet: View {
         // either exists, so an inline check would recompute the splits.
         let paceOrSpeed = paceOrSpeedPresentation
         let splits = splitsPresentation
+        // Read once per pass alongside the presentation: the hero header and the
+        // Details grid both mark records, and the store's ledger lookup shouldn't
+        // run twice per publish.
+        let records = workoutStore.personalRecordStandings(for: workout)
         return VStack(spacing: 0) {
             // Always present, sized by `reservedGapHeight` — see `routeTapGap`.
             routeTapGap
 
             VStack(spacing: 18) {
-                topEntryPanel(presentation: presentation)
-                workoutDetailsCard(presentation: presentation)
+                topEntryPanel(presentation: presentation, records: records)
+                workoutDetailsCard(presentation: presentation, records: records)
                 effortCard
                 heartRateSection(presentation: presentation)
                 // Each of these cards exists only once its series (or the route) has
@@ -1812,15 +1836,18 @@ struct BodyWorkoutDetailSheet: View {
         }
     }
 
-    private func topEntryPanel(presentation: WorkoutDetailPresentation) -> some View {
+    private func topEntryPanel(
+        presentation: WorkoutDetailPresentation,
+        records: [WorkoutRecordMetric: WorkoutRecordStanding]
+    ) -> some View {
         HStack(alignment: .bottom, spacing: 16) {
             VStack(alignment: .leading, spacing: 12) {
                 Image(systemName: workout.type.symbolName)
                     .font(.system(size: 34, weight: .semibold))
                     .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(workout.type.color)
+                    .foregroundStyle(workoutColorPalette.color(for: workout.type))
                     .frame(width: 68, height: 68)
-                    .background(workout.type.color.opacity(0.25))
+                    .background(workoutColorPalette.color(for: workout.type).opacity(0.25))
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -1881,9 +1908,7 @@ struct BodyWorkoutDetailSheet: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.45)
 
-                        Text("Distance")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundColor(.secondary)
+                        heroCaption("Distance", standing: records[.distance])
                     }
                 }
 
@@ -1894,9 +1919,7 @@ struct BodyWorkoutDetailSheet: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.45)
 
-                    Text("Duration")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundColor(.secondary)
+                    heroCaption("Duration", standing: records[.duration])
                 }
             }
             .frame(width: 152, alignment: .trailing)
@@ -1977,11 +2000,33 @@ struct BodyWorkoutDetailSheet: View {
         }
     }
 
+    /// A hero metric's caption line, carrying a bare trophy when the metric is —
+    /// or once was — a personal record. The glyph rides on the caption rather than
+    /// beside the 40 pt number so the fixed-width metrics column isn't squeezed.
+    private func heroCaption(_ text: LocalizedStringKey, standing: WorkoutRecordStanding?) -> some View {
+        HStack(spacing: 4) {
+            if let standing {
+                BodyWorkoutPRGlyph(
+                    tint: workoutColorPalette.color(for: workout.type),
+                    size: 13,
+                    standing: standing
+                )
+                // The baseline scan can land after the sheet is on screen.
+                .transition(.opacity)
+            }
+
+            Text(text)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+        }
+        .animation(reduceMotion ? nil : .easeIn(duration: 0.3), value: standing)
+    }
+
     private func heroContextPair(systemImage: String, text: String) -> some View {
         HStack(spacing: 5) {
             Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(workout.type.color)
+                .foregroundStyle(workoutColorPalette.color(for: workout.type))
             Text(text)
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundColor(.secondary)
@@ -2003,8 +2048,21 @@ struct BodyWorkoutDetailSheet: View {
         return metrics
     }
 
-    private func workoutDetailsCard(presentation: WorkoutDetailPresentation) -> some View {
+    private func workoutDetailsCard(
+        presentation: WorkoutDetailPresentation,
+        records: [WorkoutRecordMetric: WorkoutRecordStanding]
+    ) -> some View {
         let metrics = resolvedDetailMetrics(presentation: presentation)
+        // The tile kinds a record maps to for this workout's type; `.duration` maps to
+        // nil because it lives in the hero header, not the grid.
+        let recordKinds = [WorkoutDetailMetric.Kind: WorkoutRecordStanding](
+            records.compactMap { metric, standing in
+                metric.detailKind(for: workout.type).map { ($0, standing) }
+            },
+            // Two record metrics can't share a detail kind for one type, so the
+            // collision arm is unreachable; keeping the first is arbitrary but safe.
+            uniquingKeysWith: { first, _ in first }
+        )
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("Details")
@@ -2039,7 +2097,9 @@ struct BodyWorkoutDetailSheet: View {
                     BodyWorkoutDetailMetricTile(
                         title: metric.title,
                         value: metric.value,
-                        comparison: metric.comparison
+                        comparison: metric.comparison,
+                        recordStanding: recordKinds[metric.kind],
+                        recordTint: workoutColorPalette.color(for: workout.type)
                     )
                 }
             }
@@ -2361,7 +2421,7 @@ struct BodyWorkoutDetailSheet: View {
         HStack(spacing: 7) {
             Image(systemName: "heart.text.square.fill")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(workout.type.color)
+                .foregroundColor(workoutColorPalette.color(for: workout.type))
 
             Text(presentation.sourceText)
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -2697,14 +2757,26 @@ private struct BodyWorkoutEffortPredictionLine: View {
 /// Internal rather than private: the share sheet's long image draws this same card,
 /// value-for-value, so the export can't drift from the detail page.
 struct BodyWorkoutDetailMetricTile: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let title: String
     let value: String
     let comparison: WorkoutMetricComparison?
+    /// This metric's all-time, per-type record standing, or nil when the workout
+    /// neither holds the record nor ever held it.
+    var recordStanding: WorkoutRecordStanding? = nil
+    /// The workout type's colour, tinting the PR pill. Unused when there is no
+    /// standing, and ignored by the dimmed `.former` treatment.
+    var recordTint: Color = .accentColor
 
     /// Combined VoiceOver label so the caption's ↑/↓ glyph is spoken meaningfully
     /// ("12 percent lower than 30-day average") instead of read as a bare symbol.
+    /// The PR pill folds in here too — the tile ignores child accessibility.
     private var metricAccessibilityLabel: String {
         var parts = [title, value]
+        if let recordStanding {
+            parts.append(BodyWorkoutPRAccessibility.string(for: recordStanding))
+        }
         if let comparison {
             parts.append(comparison.accessibilityLabel)
         }
@@ -2726,11 +2798,24 @@ struct BodyWorkoutDetailMetricTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundColor(.primary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.75)
+            // First-baseline aligned so the pill rides the title's first line rather
+            // than centering against a two-line title.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+
+                if let recordStanding {
+                    BodyWorkoutPRBadge(tint: recordTint, standing: recordStanding)
+                        // The ledger's baseline scan can finish while the sheet is
+                        // already open, so the pill arrives mid-life; it fades in
+                        // rather than popping onto a settled tile.
+                        .transition(.opacity)
+                }
+            }
+            .animation(reduceMotion ? nil : .easeIn(duration: 0.3), value: recordStanding)
 
             HStack(alignment: .lastTextBaseline, spacing: 4) {
                 Text(valueParts.number)

@@ -7,6 +7,7 @@ import RevenueCatUI
 import SafariServices
 import SwiftUI
 import UIKit
+import UserNotifications
 
 struct BodySettingsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
@@ -26,6 +27,8 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
     @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
+    @AppStorage(BodyAppearancePreference.workoutColorOverridesKey, store: BodyWorkoutColorStore.sharedDefaults)
+    private var workoutColorOverridesRawValue = ""
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
@@ -257,6 +260,25 @@ struct BodySettingsView: View {
                     title: "Background",
                     value: homeBackgroundSummaryText,
                     iconName: "paintpalette.fill",
+                    tintColor: .teal,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
+                if proStore?.isPro ?? false {
+                    activeSheet = .workoutColors
+                } else {
+                    showBodyProPaywall = true
+                }
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Workouts",
+                    value: workoutColorsSummaryText,
+                    iconName: "figure.mixed.cardio",
                     tintColor: .teal,
                     accessory: .chevron
                 )
@@ -568,6 +590,18 @@ struct BodySettingsView: View {
         return "\(String(localized: "routeStyle.drawSummary")) · \(style.title)"
     }
 
+    private var workoutColorsSummaryText: String {
+        // A locked palette resolves to the built-ins, so the row reads "Default"
+        // while Pro is off even though the picks are still in storage.
+        let palette = BodyWorkoutColorPalette(
+            rawOverrides: workoutColorOverridesRawValue,
+            isProUnlocked: proStore?.isPro ?? false
+        )
+        return palette.isCustomized
+            ? String(localized: "workoutColors.custom", defaultValue: "Custom")
+            : String(localized: "workoutColors.default", defaultValue: "Default")
+    }
+
     private var settingsDivider: some View {
         Divider()
             .padding(.leading, 76)
@@ -776,6 +810,8 @@ struct BodySettingsView: View {
         switch sheet {
         case .homeBackground:
             BodyHomeBackgroundSheet()
+        case .workoutColors:
+            BodyWorkoutColorsSheet()
         case .appIcon:
             BodyAppIconPickerSheet(
                 selectedIconName: selectedAppIconName,
@@ -896,6 +932,7 @@ enum BodyProfileMotivation {
 
 enum BodySettingsSheet: String, Identifiable {
     case homeBackground
+    case workoutColors
     case appIcon
     case sleepDurationGoal
     case summaryCards
@@ -2086,6 +2123,591 @@ private struct BodyHomeBackgroundColorWheel: View {
     }
 }
 
+/// Hue/saturation/brightness is the editor's only draft state: round-tripping
+/// through RGB loses hue and saturation the moment brightness reaches 0.
+private struct BodyWorkoutColorDraft: Equatable {
+    var hue: Double
+    var saturation: Double
+    var brightness: Double
+
+    init(hex: UInt32) {
+        let color = UIColor(
+            red: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: 1
+        )
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        hue = Double(h)
+        saturation = Double(s)
+        brightness = Double(b)
+    }
+
+    var hex: UInt32 {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(
+            hue: CGFloat(hue),
+            saturation: CGFloat(saturation),
+            brightness: CGFloat(brightness),
+            alpha: 1
+        ).getRed(&r, green: &g, blue: &b, alpha: &a)
+
+        let red = UInt32((max(0, min(1, r)) * 255).rounded())
+        let green = UInt32((max(0, min(1, g)) * 255).rounded())
+        let blue = UInt32((max(0, min(1, b)) * 255).rounded())
+        return (red << 16) | (green << 8) | blue
+    }
+
+    var color: Color {
+        Color(hue: hue, saturation: saturation, brightness: brightness)
+    }
+}
+
+private struct BodyWorkoutColorsSheet: View {
+    @AppStorage(BodyAppearancePreference.workoutColorOverridesKey, store: BodyWorkoutColorStore.sharedDefaults)
+    private var overridesRawValue = ""
+    @AppStorage(BodyAppearancePreference.knownWorkoutTypesKey, store: BodyWorkoutColorStore.sharedDefaults)
+    private var knownWorkoutTypesRawValue = ""
+    @State private var editedType: BodyWorkoutType?
+    @State private var isConfirmingResetAll = false
+
+    private var overrides: [BodyWorkoutType: UInt32] {
+        BodyWorkoutColorOverrides.overrides(from: overridesRawValue)
+    }
+
+    /// Always resolved unlocked: the row that opens this sheet is Pro-gated, so
+    /// reaching it means the entitlement is active.
+    private var palette: BodyWorkoutColorPalette {
+        BodyWorkoutColorPalette(rawOverrides: overridesRawValue, isProUnlocked: true)
+    }
+
+    /// The census plus anything already customized, so a type whose overrides
+    /// outlived its workouts stays reachable (and resettable).
+    private var workoutTypes: [BodyWorkoutType] {
+        BodyKnownWorkoutTypesCensus.types(from: knownWorkoutTypesRawValue)
+            .union(overrides.keys)
+            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+    }
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Workout Colors") {
+            VStack(alignment: .leading, spacing: 20) {
+                if workoutTypes.isEmpty {
+                    emptyState
+                } else {
+                    typesCard
+
+                    if !overrides.isEmpty {
+                        resetAllButton
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                }
+
+                Text(String(localized: "workoutColors.footer", defaultValue: "Tap a workout to give it your own color. Everything that shows that workout uses it."))
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .sheet(item: $editedType) { type in
+            BodyWorkoutColorEditorView(type: type, overridesRawValue: $overridesRawValue)
+        }
+        .alert(
+            String(localized: "workoutColors.resetAllTitle", defaultValue: "Reset all workout colors?"),
+            isPresented: $isConfirmingResetAll
+        ) {
+            Button(String(localized: "workoutColors.resetAllConfirm", defaultValue: "Reset"), role: .destructive) {
+                overridesRawValue = ""
+            }
+
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(String(localized: "workoutColors.resetAllMessage", defaultValue: "Every workout type goes back to its built-in color."))
+        }
+    }
+
+    private var typesCard: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(workoutTypes.enumerated()), id: \.element.id) { index, type in
+                Button {
+                    editedType = type
+                } label: {
+                    typeRow(for: type)
+                }
+                .buttonStyle(.plain)
+
+                if index < workoutTypes.count - 1 {
+                    Divider()
+                        .padding(.leading, 76)
+                }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .bodyCardBackground(cornerRadius: 26, translucent: true)
+    }
+
+    private func typeRow(for type: BodyWorkoutType) -> some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: type.symbolName, color: palette.color(for: type))
+
+            Text(type.displayName)
+                .font(.system(.headline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
+            Spacer(minLength: 12)
+
+            Text("#\(BodyWorkoutColorOverrides.hexText(from: palette.resolvedHex(for: type)))")
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+
+            Image(systemName: "chevron.right")
+                .font(.system(.caption, weight: .bold))
+                .foregroundColor(.secondary.opacity(0.7))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private var resetAllButton: some View {
+        Button {
+            isConfirmingResetAll = true
+        } label: {
+            Label(
+                String(localized: "workoutColors.resetAll", defaultValue: "Reset All"),
+                systemImage: "arrow.counterclockwise"
+            )
+            .font(.system(.subheadline, design: .rounded))
+            .fontWeight(.semibold)
+            .foregroundColor(.red)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Capsule(style: .continuous).fill(Color.red.opacity(0.14)))
+    }
+
+    private var emptyState: some View {
+        Text(String(localized: "workoutColors.empty", defaultValue: "No workouts yet. Workout types appear here once you've logged them."))
+            .font(.system(.subheadline, design: .rounded))
+            .fontWeight(.semibold)
+            .foregroundColor(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 40)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct BodyWorkoutColorEditorView: View {
+    let type: BodyWorkoutType
+    @Binding var overridesRawValue: String
+
+    private enum Field: Hashable {
+        case hex
+        case red
+        case green
+        case blue
+    }
+
+    @State private var draft: BodyWorkoutColorDraft
+    /// Each text field edits its own string while focused and only feeds the HSB
+    /// draft on submit or focus loss, so no field observes another and there is
+    /// no reciprocal update loop.
+    @State private var hexText = ""
+    @State private var redText = ""
+    @State private var greenText = ""
+    @State private var blueText = ""
+    @FocusState private var focusedField: Field?
+
+    init(type: BodyWorkoutType, overridesRawValue: Binding<String>) {
+        self.type = type
+        _overridesRawValue = overridesRawValue
+        let stored = BodyWorkoutColorOverrides.overrides(from: overridesRawValue.wrappedValue)
+        _draft = State(initialValue: BodyWorkoutColorDraft(hex: stored[type] ?? type.colorHex))
+    }
+
+    private var hasOverride: Bool {
+        BodyWorkoutColorOverrides.overrides(from: overridesRawValue)[type] != nil
+    }
+
+    var body: some View {
+        // `displayName` is already localized (BodyMetricsKit table); wrapping it as a
+        // key is a pass-through — an unmatched key renders as itself.
+        BodySettingsAboutSheetScaffold(title: LocalizedStringKey(type.displayName)) {
+            VStack(alignment: .leading, spacing: 20) {
+                previewRow
+
+                BodyWorkoutColorWheel(
+                    hue: $draft.hue,
+                    saturation: $draft.saturation,
+                    brightness: draft.brightness,
+                    onCommit: commitDraft
+                )
+                .frame(height: 300)
+
+                brightnessSection
+
+                valuesSection
+
+                resetButton
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+        .onAppear(perform: syncTextFields)
+        .onChange(of: focusedField) { previous, _ in
+            commitText(for: previous)
+        }
+        .onSubmit {
+            commitText(for: focusedField)
+            focusedField = nil
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+
+                Button(String(localized: "workoutColors.doneEditing", defaultValue: "Done")) {
+                    focusedField = nil
+                }
+            }
+        }
+    }
+
+    private var previewRow: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: type.symbolName, color: draft.color)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(type.displayName)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+
+                Text("#\(BodyWorkoutColorOverrides.hexText(from: draft.hex))")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer(minLength: 12)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+        .bodyCardBackground(cornerRadius: 26, translucent: true)
+    }
+
+    private var brightnessSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "workoutColors.brightness", defaultValue: "Brightness"))
+                .font(.system(size: BodySettingsTypography.sectionTitleFontSize, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            VStack(spacing: 10) {
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(hue: draft.hue, saturation: draft.saturation, brightness: 0),
+                                Color(hue: draft.hue, saturation: draft.saturation, brightness: 1)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(height: 10)
+
+                Slider(value: $draft.brightness, in: 0...1) { isEditing in
+                    if !isEditing {
+                        commitDraft()
+                    }
+                }
+                .tint(draft.color)
+                .accessibilityLabel(String(localized: "workoutColors.brightness", defaultValue: "Brightness"))
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity)
+            .bodyCardBackground(cornerRadius: 26, translucent: true)
+        }
+    }
+
+    private var valuesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "workoutColors.values", defaultValue: "Values"))
+                .font(.system(size: BodySettingsTypography.sectionTitleFontSize, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            VStack(spacing: 0) {
+                fieldRow(
+                    title: String(localized: "workoutColors.hex", defaultValue: "Hex"),
+                    placeholder: String(localized: "workoutColors.hexPlaceholder", defaultValue: "RRGGBB"),
+                    text: $hexText,
+                    field: .hex,
+                    keyboard: .asciiCapable
+                )
+
+                Divider()
+
+                fieldRow(
+                    title: String(localized: "workoutColors.red", defaultValue: "Red"),
+                    placeholder: "0",
+                    text: $redText,
+                    field: .red,
+                    keyboard: .numberPad
+                )
+
+                Divider()
+
+                fieldRow(
+                    title: String(localized: "workoutColors.green", defaultValue: "Green"),
+                    placeholder: "0",
+                    text: $greenText,
+                    field: .green,
+                    keyboard: .numberPad
+                )
+
+                Divider()
+
+                fieldRow(
+                    title: String(localized: "workoutColors.blue", defaultValue: "Blue"),
+                    placeholder: "0",
+                    text: $blueText,
+                    field: .blue,
+                    keyboard: .numberPad
+                )
+            }
+            .padding(.horizontal, 18)
+            .frame(maxWidth: .infinity)
+            .bodyCardBackground(cornerRadius: 26, translucent: true)
+        }
+    }
+
+    private func fieldRow(
+        title: String,
+        placeholder: String,
+        text: Binding<String>,
+        field: Field,
+        keyboard: UIKeyboardType
+    ) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(.headline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+
+            Spacer(minLength: 12)
+
+            TextField(placeholder, text: text)
+                .font(.system(.body, design: .rounded))
+                .fontWeight(.semibold)
+                .multilineTextAlignment(.trailing)
+                .keyboardType(keyboard)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($focusedField, equals: field)
+                .frame(width: 110)
+                .accessibilityLabel(title)
+        }
+        .padding(.vertical, 14)
+    }
+
+    private var resetButton: some View {
+        Button(action: resetToDefault) {
+            Label(
+                String(localized: "workoutColors.reset", defaultValue: "Reset to Default"),
+                systemImage: "arrow.counterclockwise"
+            )
+            .font(.system(.subheadline, design: .rounded))
+            .fontWeight(.semibold)
+            .foregroundColor(hasOverride ? .red : .secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            Capsule(style: .continuous)
+                .fill((hasOverride ? Color.red : Color.secondary).opacity(0.14))
+        )
+        .disabled(!hasOverride)
+    }
+
+    /// Persists on gesture end, slider end, and field commit — never per frame —
+    /// so a drag doesn't re-encode the shared raw string on every tick.
+    private func commitDraft() {
+        var parsed = BodyWorkoutColorOverrides.overrides(from: overridesRawValue)
+        parsed[type] = draft.hex
+        // The codec drops entries that merely restate the built-in color, so a
+        // draft dragged back onto the default clears the override on its own.
+        overridesRawValue = BodyWorkoutColorOverrides.rawValue(from: parsed)
+        syncTextFields()
+    }
+
+    private func resetToDefault() {
+        var parsed = BodyWorkoutColorOverrides.overrides(from: overridesRawValue)
+        parsed.removeValue(forKey: type)
+        overridesRawValue = BodyWorkoutColorOverrides.rawValue(from: parsed)
+        draft = BodyWorkoutColorDraft(hex: type.colorHex)
+        syncTextFields()
+    }
+
+    private func syncTextFields() {
+        let hex = draft.hex
+        hexText = BodyWorkoutColorOverrides.hexText(from: hex)
+        redText = String((hex >> 16) & 0xFF)
+        greenText = String((hex >> 8) & 0xFF)
+        blueText = String(hex & 0xFF)
+    }
+
+    /// Validates one field's string and folds it into the HSB draft. Anything
+    /// unparseable simply snaps back to the current value.
+    private func commitText(for field: Field?) {
+        guard let field else { return }
+
+        switch field {
+        case .hex:
+            var text = hexText.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if text.hasPrefix("#") {
+                text.removeFirst()
+            }
+            guard text.count == 6,
+                  text.allSatisfy({ $0.isHexDigit }),
+                  let hex = UInt32(text, radix: 16) else {
+                syncTextFields()
+                return
+            }
+            draft = BodyWorkoutColorDraft(hex: hex)
+        case .red, .green, .blue:
+            let source: String
+            switch field {
+            case .red:
+                source = redText
+            case .green:
+                source = greenText
+            default:
+                source = blueText
+            }
+
+            guard let component = UInt32(source.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  component <= 255 else {
+                syncTextFields()
+                return
+            }
+
+            let hex = draft.hex
+            var red = (hex >> 16) & 0xFF
+            var green = (hex >> 8) & 0xFF
+            var blue = hex & 0xFF
+            switch field {
+            case .red:
+                red = component
+            case .green:
+                green = component
+            default:
+                blue = component
+            }
+            draft = BodyWorkoutColorDraft(hex: (red << 16) | (green << 8) | blue)
+        }
+
+        commitDraft()
+    }
+}
+
+/// Single-bubble sibling of `BodyHomeBackgroundColorWheel`: the drag sets hue and
+/// saturation only, and the ring is rendered at the draft's brightness so what the
+/// wheel shows is what the color will be.
+private struct BodyWorkoutColorWheel: View {
+    @Binding var hue: Double
+    @Binding var saturation: Double
+    let brightness: Double
+    let onCommit: () -> Void
+
+    private let bubbleSize: CGFloat = 60
+
+    var body: some View {
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            let radius = side / 2
+            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+
+            ZStack {
+                ZStack {
+                    AngularGradient(gradient: Gradient(colors: hueRing), center: .center)
+                    RadialGradient(
+                        gradient: Gradient(colors: [
+                            Color(hue: 0, saturation: 0, brightness: brightness),
+                            Color(hue: 0, saturation: 0, brightness: brightness).opacity(0)
+                        ]),
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: radius
+                    )
+                }
+                .frame(width: side, height: side)
+                .clipShape(Circle())
+                .position(center)
+
+                Circle()
+                    .fill(Color(hue: hue, saturation: saturation, brightness: brightness))
+                    .overlay(Circle().strokeBorder(.white, lineWidth: 4))
+                    .frame(width: bubbleSize, height: bubbleSize)
+                    .shadow(color: .black.opacity(0.25), radius: 3, y: 2)
+                    .position(bubblePosition(center: center, radius: radius))
+                    .gesture(
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named("workoutColorWheel"))
+                            .onChanged { value in
+                                update(with: value.location, center: center, radius: radius)
+                            }
+                            .onEnded { _ in
+                                onCommit()
+                            }
+                    )
+            }
+            .coordinateSpace(name: "workoutColorWheel")
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "accessibility.workoutColorWheel", defaultValue: "Color wheel"))
+        .accessibilityHint(String(localized: "accessibility.workoutColorWheelHint", defaultValue: "Drag to set hue and saturation. Use the Brightness slider and the Hex and RGB fields to set exact values."))
+    }
+
+    private var hueRing: [Color] {
+        stride(from: 0.0, through: 1.0, by: 1.0 / 12.0)
+            .map { Color(hue: $0, saturation: 1, brightness: brightness) }
+    }
+
+    private func bubblePosition(center: CGPoint, radius: CGFloat) -> CGPoint {
+        let angle = hue * 2 * .pi
+        let dist = min(saturation, 1) * Double(radius)
+        return CGPoint(
+            x: center.x + CGFloat(cos(angle) * dist),
+            y: center.y + CGFloat(sin(angle) * dist)
+        )
+    }
+
+    private func update(with point: CGPoint, center: CGPoint, radius: CGFloat) {
+        let dx = Double(point.x - center.x)
+        let dy = Double(point.y - center.y)
+        let dist = min((dx * dx + dy * dy).squareRoot(), Double(radius))
+        var angle = atan2(dy, dx) / (2 * .pi)
+        if angle < 0 { angle += 1 }
+        hue = angle
+        saturation = radius > 0 ? dist / Double(radius) : 0
+    }
+}
+
 private struct BodyStarMetricOptionRow: View {
     let title: String
     let subtitle: String
@@ -2643,12 +3265,47 @@ private struct BodyMetricWarningsSettingsSheet: View {
     @Binding var thresholds: BodyMetricWarningThresholds
     @ObservedObject var workoutStore: HealthKitWorkoutStore
 
+    @AppStorage(BodyAppearancePreference.metricWarningNotificationsKey) private var metricWarningNotificationsEnabled = false
+
     /// Needed for the high heart rate default, which tracks zone 3's lower bound.
     @State private var resolvedMaxHeartRate: Double?
+
+    /// Set when the system denied the notification request, so the row can tell
+    /// the user to turn notifications on in Settings.
+    @State private var notificationsDenied = false
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Warnings") {
             VStack(alignment: .leading, spacing: 12) {
+                BodyMetricWarningNotificationsRow(isEnabled: Binding {
+                    metricWarningNotificationsEnabled
+                } set: { isEnabled in
+                    metricWarningNotificationsEnabled = isEnabled
+                    if isEnabled {
+                        Task { await enableNotifications() }
+                    } else {
+                        notificationsDenied = false
+                        BodyBackgroundRefreshScheduler.cancelPending()
+                    }
+                })
+                .bodyCardBackground(translucent: true)
+
+                Text("When on, Body periodically checks in the background and sends a notification the first time a warning is detected each day. Checks are scheduled by the system and are not real-time.")
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+
+                if notificationsDenied {
+                    Text("Notifications are turned off for Body. Enable them in Settings to get warning alerts.")
+                        .font(.system(.footnote, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
+                }
+
                 ForEach(MetricWarningKind.allCases) { kind in
                     VStack(spacing: 0) {
                         BodyMetricWarningToggleRow(
@@ -2689,6 +3346,31 @@ private struct BodyMetricWarningsSettingsSheet: View {
         }
         .task {
             resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
+            await reflectNotificationAuthorization()
+        }
+    }
+
+    /// Asks for notification permission; reverts the toggle when it is refused.
+    private func enableNotifications() async {
+        let center = UNUserNotificationCenter.current()
+        let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+        if granted {
+            notificationsDenied = false
+            BodyBackgroundRefreshScheduler.schedule()
+        } else {
+            metricWarningNotificationsEnabled = false
+            notificationsDenied = true
+        }
+    }
+
+    /// Turns the toggle back off when the user revoked notifications elsewhere.
+    private func reflectNotificationAuthorization() async {
+        guard metricWarningNotificationsEnabled else { return }
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        if settings.authorizationStatus == .denied {
+            metricWarningNotificationsEnabled = false
+            notificationsDenied = true
+            BodyBackgroundRefreshScheduler.cancelPending()
         }
     }
 
@@ -2701,6 +3383,43 @@ private struct BodyMetricWarningsSettingsSheet: View {
         Int(BodyMetricWarningThresholds.defaultValue
             .threshold(for: kind, maxHeartRate: resolvedMaxHeartRate)
             .rounded())
+    }
+}
+
+private struct BodyMetricWarningNotificationsRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: "bell.badge.fill", color: .yellow)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Notify Me")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Send a notification when a warning is detected")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Notify Me", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 

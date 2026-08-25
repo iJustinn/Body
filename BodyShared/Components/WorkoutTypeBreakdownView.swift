@@ -23,6 +23,11 @@ struct WorkoutTypeBreakdownRowPresentation: Equatable {
 
 struct WorkoutTypeBreakdownView: View {
     let snapshot: WorkoutMonthSnapshot
+    /// Resolved workout colors (built-in defaults plus any Pro customization). Rendered
+    /// in both the app and the widget extension, so this is an explicit stored property
+    /// rather than an `@Environment` read — the widget's timeline entry supplies its own
+    /// entry-derived palette, which the environment can't carry across the process.
+    let palette: BodyWorkoutColorPalette
     let style: WorkoutTypeBreakdownDisplayStyle
     let onSelectType: ((BodyWorkoutType) -> Void)?
     /// Nil in the widgets, which have no second chart to switch to — and which
@@ -47,12 +52,14 @@ struct WorkoutTypeBreakdownView: View {
 
     init(
         snapshot: WorkoutMonthSnapshot,
+        palette: BodyWorkoutColorPalette,
         style: WorkoutTypeBreakdownDisplayStyle = .app,
         rowLimit: Int? = nil,
         onSelectType: ((BodyWorkoutType) -> Void)? = nil,
         onSwitchChart: (() -> Void)? = nil
     ) {
         self.snapshot = snapshot
+        self.palette = palette
         self.style = style
         self.rowLimit = rowLimit
         self.onSelectType = onSelectType
@@ -233,7 +240,7 @@ struct WorkoutTypeBreakdownView: View {
         let percentage = percentage(atRank: rank)
 
         return ZStack(alignment: .leading) {
-            BodyGlassChip(color: entry.type.color, cornerRadius: barCornerRadius)
+            BodyGlassChip(color: palette.color(for: entry.type), cornerRadius: barCornerRadius)
 
             // Verbatim: an interpolated `Text` would register `%lld%%` as a
             // localizable key, and the percentage is the same in every language.
@@ -265,7 +272,7 @@ struct WorkoutTypeBreakdownView: View {
             Image(systemName: entry.type.symbolName)
                 .font(.system(size: iconFontSize, weight: iconWeight))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(entry.type.color)
+                .foregroundStyle(palette.color(for: entry.type))
                 .frame(width: iconFrameSide, height: iconFrameSide)
 
             VStack(alignment: .leading, spacing: detailTextSpacing) {
@@ -471,7 +478,7 @@ private extension WorkoutTypeBreakdownDisplayStyle {
 }
 
 #Preview {
-    WorkoutTypeBreakdownView(snapshot: .placeholder)
+    WorkoutTypeBreakdownView(snapshot: .placeholder, palette: .builtIn)
         .padding()
         .background(Color.black)
 }

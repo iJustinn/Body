@@ -136,11 +136,21 @@
 			);
 			target = 710000362E00000100000036 /* BodyWatch */;
 		};
+		71000053BF00000100000053 /* Exceptions for "Body" folder in "Body" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 7100000D2E0000010000000D /* Body */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		710000132E00000100000013 /* Body */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				71000053BF00000100000053 /* Exceptions for "Body" folder in "Body" target */,
+			);
 			path = Body;
 			sourceTree = "<group>";
 		};
@@ -759,10 +769,11 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Body/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ohmybody;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, running form, swim strokes, distance, date of birth, and biological sex from Apple Health to power your dashboard, charts, and widgets.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, beat-to-beat heart rhythm data, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, running form, swim strokes, distance, date of birth, and biological sex from Apple Health to power your dashboard, charts, and widgets.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Body saves the weight, body fat, and workout effort ratings you enter to Apple Health.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Body saves the workout images and videos you create to your photo library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -800,10 +811,11 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Body/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ohmybody;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, running form, swim strokes, distance, date of birth, and biological sex from Apple Health to power your dashboard, charts, and widgets.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, beat-to-beat heart rhythm data, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, running form, swim strokes, distance, date of birth, and biological sex from Apple Health to power your dashboard, charts, and widgets.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Body saves the weight, body fat, and workout effort ratings you enter to Apple Health.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Body saves the workout images and videos you create to your photo library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

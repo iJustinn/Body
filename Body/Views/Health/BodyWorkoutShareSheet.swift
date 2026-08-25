@@ -60,6 +60,7 @@ struct BodyWorkoutShareSheet: View {
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.workoutColorPalette) private var workoutColorPalette
 
     @AppStorage(BodyWorkoutShareBackgroundChoice.storageKey) private var storedBackground: String =
         BodyWorkoutShareBackgroundChoice.preset(.midnight).rawValue
@@ -122,6 +123,9 @@ struct BodyWorkoutShareSheet: View {
         case video(WorkoutShareVideoClip)
     }
 
+    /// The workout's all-time personal records, read once from the store by
+    /// `WorkoutSharePersonalRecordsReader` and handed to the card as a plain value.
+    @State private var personalRecords: Set<WorkoutRecordMetric> = []
     @State private var selectedMedia: SelectedMedia?
     @State private var photoItem: PhotosPickerItem?
     @State private var isPickerPresented = false
@@ -236,6 +240,10 @@ struct BodyWorkoutShareSheet: View {
     private struct MapSnapshotKey: Hashable {
         let dimension: WorkoutShareRouteDimension
         let aspectRatio: WorkoutShareAspectRatio
+        /// The resolved workout tint's hex at snapshot time, so a color customization
+        /// mid-session can't serve a stale-tinted cached bitmap for an otherwise-identical
+        /// dimension/ratio pair.
+        let tintHex: String
     }
 
     /// The four long-image inputs are defaulted, so every existing call site (and the
@@ -531,7 +539,11 @@ struct BodyWorkoutShareSheet: View {
     /// The snapshot the card would draw right now — dimension *and* ratio; no other
     /// key's cached image ever stands in for it.
     private var activeMapKey: MapSnapshotKey {
-        MapSnapshotKey(dimension: activeDimension, aspectRatio: activeAspectRatio)
+        MapSnapshotKey(
+            dimension: activeDimension,
+            aspectRatio: activeAspectRatio,
+            tintHex: BodyWorkoutColorOverrides.hexText(from: workoutColorPalette.resolvedHex(for: workout.type))
+        )
     }
 
     private var activeMapSnapshot: UIImage? { mapSnapshots[activeMapKey] }
@@ -706,6 +718,7 @@ struct BodyWorkoutShareSheet: View {
         let ids = activeSummaryMetricIDs
         return BodyWorkoutShareSummaryCardView(
             summary: summary,
+            palette: workoutColorPalette,
             chartStyle: summaryChartStyle,
             showsWeekdayHeader: !isWeekdayHeaderHidden,
             // Pool order, so the card's strip reads the way the chips are laid out.
@@ -745,6 +758,7 @@ struct BodyWorkoutShareSheet: View {
             iconHidden: isIconHidden && cardLayout == .routeless,
             locality: route?.locality,
             type: workout.type,
+            palette: workoutColorPalette,
             background: activeBackground,
             layout: cardLayout,
             aspectRatio: activeAspectRatio,
@@ -752,8 +766,9 @@ struct BodyWorkoutShareSheet: View {
             infoTransform: activeInfoTransform,
             photoTransform: activePhotoTransform,
             fontDesign: storedFontChoice.design,
-            routeColor: storedRouteColorChoice.color(tint: workout.type.color),
-            attribution: activeAttribution
+            routeColor: storedRouteColorChoice.color(tint: workoutColorPalette.color(for: workout.type)),
+            attribution: activeAttribution,
+            personalRecords: personalRecords
         )
     }
 
@@ -869,9 +884,10 @@ struct BodyWorkoutShareSheet: View {
             iconHidden: isIconHidden || hasRoute,
             locality: route?.locality,
             type: workout.type,
+            palette: workoutColorPalette,
             preset: activeLongPreset,
             fontDesign: storedFontChoice.design,
-            routeColor: storedRouteColorChoice.color(tint: workout.type.color),
+            routeColor: storedRouteColorChoice.color(tint: workoutColorPalette.color(for: workout.type)),
             sections: sections,
             heartRateSamples: heartRateSamples,
             maxHeartRate: maxHeartRate ?? workout.maximumHeartRateBeatsPerMinute,
@@ -984,6 +1000,22 @@ struct BodyWorkoutShareSheet: View {
 
                 // The reader is only here for the tray's width budget; it draws nothing
                 // itself, so the empty area around the rail stays untouchable.
+                // Resolved through a zero-sized child rather than an `@EnvironmentObject`
+                // on the sheet: the store publishes throughout a background refresh, and
+                // observing it here would invalidate the whole composer — gestures and
+                // all — on every one of those. The set is captured into state, so the
+                // card renderers stay static.
+                if !isSummaryMode {
+                    WorkoutSharePersonalRecordsReader(workout: workout) { records in
+                        // The baseline scan can finish with the composer already open,
+                        // so the badge fades onto the live preview instead of popping
+                        // into the middle of a card the user is looking at.
+                        withAnimation(reduceMotion ? nil : .easeIn(duration: 0.3)) {
+                            personalRecords = records
+                        }
+                    }
+                }
+
                 GeometryReader { proxy in
                     // Two rails rather than one filtered rail: they disagree about more
                     // than which rows show — see `summaryOptionRail`.
@@ -1213,7 +1245,7 @@ struct BodyWorkoutShareSheet: View {
                 .ignoresSafeArea()
         }
         LinearGradient(
-            colors: [activeTintType.color.opacity(0.45), Color.black],
+            colors: [workoutColorPalette.color(for: activeTintType).opacity(0.45), Color.black],
             startPoint: .top,
             endPoint: UnitPoint(x: 0.5, y: 0.5)
         )
@@ -2335,7 +2367,7 @@ struct BodyWorkoutShareSheet: View {
             storedRouteColor = choice.rawValue
         } label: {
             Circle()
-                .fill(choice.color(tint: activeTintType.color))
+                .fill(choice.color(tint: workoutColorPalette.color(for: activeTintType)))
                 .frame(width: Self.optionTileSize, height: Self.optionTileSize)
                 // Ring only, again: a checkmark would vanish on White and swamp Black.
                 .overlay { selectionRing(isSelected: isSelected) }
@@ -2377,7 +2409,7 @@ struct BodyWorkoutShareSheet: View {
             replaceMedia(with: nil)
         } label: {
             Circle()
-                .fill(preset.gradient(tint: activeTintType.color))
+                .fill(preset.gradient(tint: workoutColorPalette.color(for: activeTintType)))
                 .frame(width: Self.optionTileSize, height: Self.optionTileSize)
                 .overlay {
                     if isSelected {
@@ -2939,7 +2971,7 @@ struct BodyWorkoutShareSheet: View {
 
         let image = await Self.mapBackground(
             for: route,
-            tint: UIColor(workout.type.color),
+            tint: UIColor(workoutColorPalette.color(for: workout.type)),
             dimension: key.dimension,
             aspectRatio: key.aspectRatio
         )
@@ -3341,5 +3373,31 @@ private struct OptionTileViewportWidthKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+/// Reads the workout's personal records out of the store and hands them to the sheet
+/// as a plain value.
+///
+/// Its own zero-sized view rather than an `@EnvironmentObject` on the sheet itself:
+/// the store publishes on every step of a background refresh, and observing it from
+/// the sheet would invalidate the entire composer — preview, rail, and live gesture
+/// state — each time. Here the invalidation stops at a view that draws nothing.
+private struct WorkoutSharePersonalRecordsReader: View {
+    let workout: WorkoutSummary
+    let onResolve: (Set<WorkoutRecordMetric>) -> Void
+
+    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .onAppear { onResolve(workoutStore.personalRecords(for: workout)) }
+            // The ledger is empty until the one-time baseline scan finishes, which can
+            // land while the sheet is already open.
+            .onChange(of: workoutStore.recordLedger.baselineComplete) { _, _ in
+                onResolve(workoutStore.personalRecords(for: workout))
+            }
     }
 }

@@ -15,6 +15,7 @@ struct BodyWorkoutFilterView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.workoutColorPalette) private var workoutColorPalette
 
     @State private var tempSelectedWorkoutTypes: Set<BodyWorkoutType>
 
@@ -114,9 +115,9 @@ struct BodyWorkoutFilterView: View {
             HStack(spacing: 12) {
                 Image(systemName: workoutType.symbolName)
                     .font(.system(size: 19, weight: .semibold))
-                    .foregroundColor(workoutType.color)
+                    .foregroundColor(workoutColorPalette.color(for: workoutType))
                     .frame(width: 34, height: 34)
-                    .background(workoutType.color.opacity(0.13))
+                    .background(workoutColorPalette.color(for: workoutType).opacity(0.13))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .accessibilityHidden(true)
 
@@ -131,7 +132,7 @@ struct BodyWorkoutFilterView: View {
                 // space, so the row's tap affordance reads without a selection.
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 21, weight: .semibold))
-                    .foregroundColor(isSelected ? workoutType.color : Color.secondary.opacity(0.35))
+                    .foregroundColor(isSelected ? workoutColorPalette.color(for: workoutType) : Color.secondary.opacity(0.35))
                     .accessibilityHidden(true)
             }
             .padding(14)

@@ -21,6 +21,11 @@ import UIKit
 
 struct BodyWorkoutShareSummaryCardView: View {
     let summary: WorkoutShareMonthSummary
+    /// Resolved workout colors (built-in defaults plus any Pro customization), passed in
+    /// like every other value here rather than read from the environment — an
+    /// `ImageRenderer` root doesn't inherit it. Also handed to the calendar/breakdown
+    /// charts below, which render in the app and the widget extension alike.
+    let palette: BodyWorkoutColorPalette
     /// Which chart the card draws. Session state on the sheet — changing it here never
     /// moves the Workouts page's own toggle.
     let chartStyle: WorkoutSummaryChartStyle
@@ -93,7 +98,7 @@ struct BodyWorkoutShareSummaryCardView: View {
         let size = geometry.size
         switch background {
         case .preset(let preset):
-            preset.gradient(tint: summary.tintType.color)
+            preset.gradient(tint: palette.color(for: summary.tintType))
         case .photo(let image):
             // Scale then offset, then clip: the fill's overhang beyond the card must
             // survive until after the transform, because the clamp lets the photo pan
@@ -110,7 +115,7 @@ struct BodyWorkoutShareSummaryCardView: View {
             // Unreachable: the sheet never offers the map tile in summary mode (there
             // is no route to snapshot). Drawn as Midnight rather than left empty so an
             // impossible state still produces a legible card instead of a bare frame.
-            BodyWorkoutSharePreset.midnight.gradient(tint: summary.tintType.color)
+            BodyWorkoutSharePreset.midnight.gradient(tint: palette.color(for: summary.tintType))
         case .video:
             // Deliberately empty, sized so the ZStack still gets the card's frame from
             // its background layer. `ImageRenderer.isOpaque` is false, so the rendered
@@ -258,6 +263,7 @@ struct BodyWorkoutShareSummaryCardView: View {
             // The grid sits centered in the frame's width-driven square cells.
             WorkoutCalendarView(
                 snapshot: summary.snapshot,
+                palette: palette,
                 style: .widgetLarge,
                 fillsAvailableHeight: false,
                 scalesGlyphsToFit: true,
@@ -269,6 +275,7 @@ struct BodyWorkoutShareSummaryCardView: View {
         case .bar:
             WorkoutTypeBreakdownView(
                 snapshot: summary.snapshot,
+                palette: palette,
                 style: .widgetLarge,
                 rowLimit: geometry.barRowLimit,
                 onSelectType: nil,
@@ -305,6 +312,7 @@ private func previewSummaryCard(
     )
     return BodyWorkoutShareSummaryCardView(
         summary: WorkoutShareMonthSummary(snapshot: snapshot, initialChartStyle: chartStyle),
+        palette: .builtIn,
         chartStyle: chartStyle,
         showsWeekdayHeader: true,
         metrics: Array(options.prefix(metricCount)),

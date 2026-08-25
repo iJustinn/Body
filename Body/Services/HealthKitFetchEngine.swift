@@ -439,7 +439,8 @@ actor HealthKitFetchEngine {
 
     nonisolated static func healthPermission(forMetric kind: HealthMetricKind) -> BodyHealthPermission {
         switch kind {
-        case .readiness:
+        case .readiness,
+             .stress:
             return .heart
         case .sleep:
             return .sleep
@@ -1617,6 +1618,76 @@ actor HealthKitFetchEngine {
                 resume(.success(intervals))
             }
         }
+    }
+
+    // MARK: - Headless warning evaluation
+
+    /// One-shot warning evaluation for a headless caller (the background
+    /// refresh task), which builds a fresh engine and has none of the
+    /// dashboard's surrounding refresh machinery. Mirrors the gates Home
+    /// applies from OUTSIDE the warning fetches (`fetchDashboardMetricIfNeeded`
+    /// → `fetchIfPermitted`), so a background pass can never detect against an
+    /// input the user turned off.
+    ///
+    /// Per requested kind:
+    /// - `.success(event)` — an episode past today's threshold.
+    /// - `.success(nil)` — the query ran and confirmed nothing past threshold.
+    /// - `.failure` — inconclusive, so the caller must keep whatever warning
+    ///   state it already had and notify nothing: the Body permission the kind
+    ///   needs is off (`.heart` for the heart-rate kinds, `.bloodOxygen` for
+    ///   blood oxygen, plus `.workouts` for high heart rate's exclusion list),
+    ///   the metric's pinned source stayed unresolved, the query failed (locked
+    ///   device, XPC drop), or the task was cancelled. Unlike the foreground —
+    ///   where a permission-off metric is absent from the card and `.success(nil)`
+    ///   correctly clears the tile — a headless pass has no card to clear and
+    ///   must not read "off" as "confirmed fine".
+    func fetchCurrentMetricWarnings(
+        kinds: Set<MetricWarningKind>,
+        calendar: Calendar
+    ) async -> [MetricWarningKind: QueryOutcome<MetricWarningEvent>] {
+        guard !kinds.isEmpty else { return [:] }
+
+        // Pin "today" to one instant for every kind, the way a foreground
+        // refresh pins `anchorDate` before fanning out; the warning fetches
+        // below read it for both their window and their workout exclusions.
+        anchorDate = Date()
+
+        // A fresh engine starts with an empty `healthSourcesByKind`, which
+        // leaves any pinned source `.unresolved` and would fail every warning.
+        // Discover only the kinds these warnings query.
+        await discoverHealthSources(for: Set(kinds.map(\.metric)))
+
+        // One workout-interval query shared by the high heart rate kind (the
+        // only kind that excludes in-workout readings).
+        var workoutIntervals: QueryOutcome<[DateInterval]>?
+        if kinds.contains(.highHeartRate), permissionSelection.includes(.workouts) {
+            workoutIntervals = await fetchTodayWorkoutIntervals(calendar: calendar)
+        }
+
+        var results: [MetricWarningKind: QueryOutcome<MetricWarningEvent>] = [:]
+        for kind in kinds {
+            guard permissionSelection.includes(Self.healthPermission(forMetric: kind.metric)) else {
+                results[kind] = .failure
+                continue
+            }
+
+            if kind == .highHeartRate {
+                // Workouts permission off, or an unreadable workout list: skip
+                // rather than detect as if the user had been at rest all day.
+                guard case .success(let intervals)? = workoutIntervals else {
+                    results[kind] = .failure
+                    continue
+                }
+                results[kind] = await fetchTodayMetricWarning(
+                    .highHeartRate,
+                    calendar: calendar,
+                    excluding: intervals ?? []
+                )
+            } else {
+                results[kind] = await fetchTodayMetricWarning(kind, calendar: calendar)
+            }
+        }
+        return results
     }
 
     // MARK: - Cancellable queries
@@ -3140,6 +3211,14 @@ actor HealthKitFetchEngine {
             return HealthDashboardMetricFetchResult(snapshot: recomputed, hadQueryFailure: false, ranQueries: false)
         }
 
+        // Stress is computed, never fetched, and its recompute needs the workout
+        // months only the store holds — so hand the cached snapshot straight
+        // back and let `updateHealthDashboardSnapshot` re-derive it. Returning
+        // the empty snapshot instead would blank the recorded days on merge.
+        if kind == .stress {
+            return HealthDashboardMetricFetchResult(snapshot: existing, hadQueryFailure: false, ranQueries: false)
+        }
+
         guard permissionSelection.includes(Self.healthPermission(forMetric: kind)) else {
             // Permission disabled: cached snapshot returned without querying, so
             // this no-op must not advance the sync badge.
@@ -3151,7 +3230,10 @@ actor HealthKitFetchEngine {
         }
 
         switch kind {
-        case .readiness:
+        // Derived metrics: nothing to query here. Readiness recomputed above;
+        // Stress recomputes in the store, which holds the workouts its activity
+        // mask needs.
+        case .readiness, .stress:
             break
         case .sleep, .vitals:
             async let sleepSummary = fetchSleepSummary(calendar: calendar)

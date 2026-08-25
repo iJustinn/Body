@@ -86,6 +86,22 @@
         }
       }
     },
+    "#%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "#%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "#%@"
+          }
+        }
+      }
+    },
     "%" : {
       "localizations" : {
         "en" : {
@@ -906,6 +922,54 @@
         }
       }
     },
+    "A periodic check found a blood oxygen level of %lld%% today, below your %lld%% limit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a blood oxygen level of %lld%% today, below your %lld%% limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的血氧水平为 %lld%%，低于您设定的 %lld%% 限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a heart rate of %lld bpm today, above your %lld bpm limit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a heart rate of %lld bpm today, above your %lld bpm limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的心率为 %lld 次/分，高于您设定的 %lld 次/分限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a heart rate of %lld bpm today, below your %lld bpm limit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a heart rate of %lld bpm today, below your %lld bpm limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的心率为 %lld 次/分，低于您设定的 %lld 次/分限值。"
+          }
+        }
+      }
+    },
     "A session counts for more when it runs longer, when you worked harder, and when the activity is more demanding on the body as a whole, so an easy walk barely registers beside a hard run of the same length. Effort comes from the rating you saved for the session, and when there is none Body estimates it from your average heart rate and energy burn. Very long sessions level off rather than draining without limit." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -940,6 +1004,22 @@
         }
       }
     },
+    "About an hour after a workout ends. Body waits so a rating from your Apple Watch has time to sync first." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About an hour after a workout ends. Body waits so a rating from your Apple Watch has time to sync first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动结束约一小时后。Body 会先等待，好让 Apple Watch 的评分有时间先同步过来。"
+          }
+        }
+      }
+    },
     "About Impact by Activity" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -953,22 +1033,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于活动影响"
-          }
-        }
-      }
-    },
-    "About an hour after a workout ends. Body waits so a rating from your Apple Watch has time to sync first." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "About an hour after a workout ends. Body waits so a rating from your Apple Watch has time to sync first."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "运动结束约一小时后。Body 会先等待，好让 Apple Watch 的评分有时间先同步过来。"
           }
         }
       }
@@ -1071,142 +1135,6 @@
         }
       }
     },
-    "However much you train, there is a limit to how far one day's workouts can pull your readiness down. Each row shows only what its own session actually moved the score, so once earlier workouts have taken the day close to that limit, a later one is credited with just the remainder and can read much smaller than the same session would on a fresh day." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "However much you train, there is a limit to how far one day's workouts can pull your readiness down. Each row shows only what its own session actually moved the score, so once earlier workouts have taken the day close to that limit, a later one is credited with just the remainder and can read much smaller than the same session would on a fresh day."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无论你训练多少，一天的训练能把恢复状态拉低的幅度都是有限的。每一行只显示该次训练实际让分数移动了多少，因此当较早的训练已经把这一天推近上限后，之后的训练只会记入剩余的部分，读数可能远小于同样训练在状态充足的一天所造成的影响。"
-          }
-        }
-      }
-    },
-    "It Only Applies to Today" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "It Only Applies to Today"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅影响今天"
-          }
-        }
-      }
-    },
-    "Readiness does not keep falling one for one once it nears the bottom of the scale. Below roughly 5% it eases down far more slowly, so even a very hard day settles just above zero rather than dropping straight to it. That is why the impacts listed here can add up to more than the readiness you started the day with, and why the chart above falls by less than those numbers together suggest." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Readiness does not keep falling one for one once it nears the bottom of the scale. Below roughly 5% it eases down far more slowly, so even a very hard day settles just above zero rather than dropping straight to it. That is why the impacts listed here can add up to more than the readiness you started the day with, and why the chart above falls by less than those numbers together suggest."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当恢复状态接近量表底部时，它不再一比一地继续下降。在大约 5% 以下，分数的下降会明显放缓，因此即使是非常辛苦的一天，也只会停在接近零的位置，而不会直接归零。正因如此，这里列出的影响之和可能大于你当天开始时的恢复状态，上方图表的实际跌幅也会小于这些数字加起来给人的印象。"
-          }
-        }
-      }
-    },
-    "The Daily Ceiling" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The Daily Ceiling"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每日上限"
-          }
-        }
-      }
-    },
-    "This card lists every workout that moved the day's readiness, in the order the sessions finished, with the share of the drop each one accounts for. A session too light to move the score is left out, and a day without workouts shows none at all." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This card lists every workout that moved the day's readiness, in the order the sessions finished, with the share of the drop each one accounts for. A session too light to move the score is left out, and a day without workouts shows none at all."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此卡片按训练结束的先后顺序，列出当天所有影响了恢复状态的训练，并显示每次训练各自造成的下降幅度。过于轻松、不足以改变分数的训练不会列出，没有训练的日子则完全不显示。"
-          }
-        }
-      }
-    },
-    "This drop is a layer on top of today's live score. It builds up across the day, does not fade back on its own, and clears with the next morning's score. It never rewrites history: the Week, Month, and longer trend charts keep the score you woke up with, while the Day View chart above replays how the day's workouts brought it down." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This drop is a layer on top of today's live score. It builds up across the day, does not fade back on its own, and clears with the next morning's score. It never rewrites history: the Week, Month, and longer trend charts keep the score you woke up with, while the Day View chart above replays how the day's workouts brought it down."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这一下降只是叠加在今天实时分数上的一层。它在一天中不断累积，不会自行回升，并在第二天早晨的分数出来时清零。它绝不会改写历史记录：周、月及更长范围的趋势图保留的是你醒来时的分数，而上方的日视图图表则回放当天的训练是如何把它拉低的。"
-          }
-        }
-      }
-    },
-    "What Shapes Each Impact" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "What Shapes Each Impact"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "什么会影响每次训练的幅度"
-          }
-        }
-      }
-    },
-    "Why the Total Can Exceed Your Score" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Why the Total Can Exceed Your Score"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "为什么总和会超过你的分数"
-          }
-        }
-      }
-    },
     "accessibility.deleteProfile" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1220,6 +1148,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "删除“%@”"
+          }
+        }
+      }
+    },
+    "accessibility.workoutColorWheel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color wheel"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "颜色轮盘"
+          }
+        }
+      }
+    },
+    "accessibility.workoutColorWheelHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag to set hue and saturation. Use the Brightness slider and the Hex and RGB fields to set exact values."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拖动以设置色相和饱和度。可使用“亮度”滑块以及“十六进制”和 RGB 输入框来设置精确数值。"
           }
         }
       }
@@ -2832,6 +2794,23 @@
         }
       }
     },
+    "Calibrating" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calibrating"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "校准中"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3579,23 +3558,6 @@
         }
       }
     },
-    "Each switch controls which Apple Health category Body reads. Turning one on asks Apple Health for access if needed and refreshes the dashboard. Turning one off stops Body from reading that category and removes its data from the app and from the local cache. Body only ever reads, and Apple Health stays in charge: a category that is turned off in the Health app simply shows as empty here, and you can change that under Settings, Health, Data Access and Devices." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Each switch controls which Apple Health category Body reads. Turning one on asks Apple Health for access if needed and refreshes the dashboard. Turning one off stops Body from reading that category and removes its data from the app and from the local cache. Body only ever reads, and Apple Health stays in charge: a category that is turned off in the Health app simply shows as empty here, and you can change that under Settings, Health, Data Access and Devices."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每个开关决定 Body 读取哪一类 Apple Health 数据。打开时，Body 会在需要时向 Apple Health 申请访问权限并刷新仪表盘。关闭时，Body 会停止读取该类别，并把它的数据从应用和本地缓存中移除。Body 只读取数据，权限始终由 Apple Health 掌控：在健康 App 中被关闭的类别在这里只会显示为空，你可以在「设置」、「健康」、「数据访问与设备」中更改。"
-          }
-        }
-      }
-    },
     "Data Refresh" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4187,6 +4149,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "时长"
+          }
+        }
+      }
+    },
+    "Each switch controls which Apple Health category Body reads. Turning one on asks Apple Health for access if needed and refreshes the dashboard. Turning one off stops Body from reading that category and removes its data from the app and from the local cache. Body only ever reads, and Apple Health stays in charge: a category that is turned off in the Health app simply shows as empty here, and you can change that under Settings, Health, Data Access and Devices." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each switch controls which Apple Health category Body reads. Turning one on asks Apple Health for access if needed and refreshes the dashboard. Turning one off stops Body from reading that category and removes its data from the app and from the local cache. Body only ever reads, and Apple Health stays in charge: a category that is turned off in the Health app simply shows as empty here, and you can change that under Settings, Health, Data Access and Devices."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个开关决定 Body 读取哪一类 Apple Health 数据。打开时，Body 会在需要时向 Apple Health 申请访问权限并刷新仪表盘。关闭时，Body 会停止读取该类别，并把它的数据从应用和本地缓存中移除。Body 只读取数据，权限始终由 Apple Health 掌控：在健康 App 中被关闭的类别在这里只会显示为空，你可以在「设置」、「健康」、「数据访问与设备」中更改。"
           }
         }
       }
@@ -5000,6 +4979,22 @@
         }
       }
     },
+    "High Heart Rate Warning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Heart Rate Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高心率警告"
+          }
+        }
+      }
+    },
     "Hour-by-hour chart for a chosen day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5149,6 +5144,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用指南"
+          }
+        }
+      }
+    },
+    "However much you train, there is a limit to how far one day's workouts can pull your readiness down. Each row shows only what its own session actually moved the score, so once earlier workouts have taken the day close to that limit, a later one is credited with just the remainder and can read much smaller than the same session would on a fresh day." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "However much you train, there is a limit to how far one day's workouts can pull your readiness down. Each row shows only what its own session actually moved the score, so once earlier workouts have taken the day close to that limit, a later one is credited with just the remainder and can read much smaller than the same session would on a fresh day."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无论你训练多少，一天的训练能把恢复状态拉低的幅度都是有限的。每一行只显示该次训练实际让分数移动了多少，因此当较早的训练已经把这一天推近上限后，之后的训练只会记入剩余的部分，读数可能远小于同样训练在状态充足的一天所造成的影响。"
           }
         }
       }
@@ -5349,6 +5361,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "iPhone"
+          }
+        }
+      }
+    },
+    "It Only Applies to Today" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It Only Applies to Today"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅影响今天"
           }
         }
       }
@@ -5899,6 +5928,22 @@
         }
       }
     },
+    "Low Blood Oxygen Warning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Blood Oxygen Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低血氧警告"
+          }
+        }
+      }
+    },
     "Low Deviation" : {
       "localizations" : {
         "en" : {
@@ -5927,6 +5972,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "心率过低"
+          }
+        }
+      }
+    },
+    "Low Heart Rate Warning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Heart Rate Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低心率警告"
           }
         }
       }
@@ -6713,6 +6774,23 @@
         }
       }
     },
+    "No Stress yet today" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Stress yet today"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天暂无压力数据"
+          }
+        }
+      }
+    },
     "No Training Load yet" : {
       "localizations" : {
         "en" : {
@@ -6936,6 +7014,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "尚未刷新"
+          }
+        }
+      }
+    },
+    "Notifications are turned off for Body. Enable them in Settings to get warning alerts." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notifications are turned off for Body. Enable them in Settings to get warning alerts."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 的通知已关闭。请在“设置”中开启通知以接收警告提醒。"
+          }
+        }
+      }
+    },
+    "Notify Me" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notify Me"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通知我"
           }
         }
       }
@@ -7365,6 +7475,74 @@
         }
       }
     },
+    "onboarding.done.explore" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More to explore in Settings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置中还有更多"
+          }
+        }
+      }
+    },
+    "onboarding.done.explore.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Summary cards, units, appearance, sleep goals, widgets, and more are all waiting in Settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "摘要卡片、单位、外观、睡眠目标、小组件等更多选项都在设置中等您探索。"
+          }
+        }
+      }
+    },
+    "onboarding.done.sources" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compare data sources"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对比数据来源"
+          }
+        }
+      }
+    },
+    "onboarding.done.sources.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings › Data › Source lets you pick which Apple Health source each metric uses and overlay a second one for comparison."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在设置›数据›来源中，为每项指标选择所用的 Apple 健康来源，并叠加第二个来源进行对比。"
+          }
+        }
+      }
+    },
     "onboarding.done.tip1" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7429,74 +7607,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "长按摘要页的卡片，然后拖到想要的位置。"
-          }
-        }
-      }
-    },
-    "onboarding.done.sources" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Compare data sources"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "对比数据来源"
-          }
-        }
-      }
-    },
-    "onboarding.done.sources.subtitle" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Settings › Data › Source lets you pick which Apple Health source each metric uses and overlay a second one for comparison."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在设置›数据›来源中，为每项指标选择所用的 Apple 健康来源，并叠加第二个来源进行对比。"
-          }
-        }
-      }
-    },
-    "onboarding.done.explore" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "More to explore in Settings"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "设置中还有更多"
-          }
-        }
-      }
-    },
-    "onboarding.done.explore.subtitle" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Summary cards, units, appearance, sleep goals, widgets, and more are all waiting in Settings."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "摘要卡片、单位、外观、睡眠目标、小组件等更多选项都在设置中等您探索。"
           }
         }
       }
@@ -8716,22 +8826,6 @@
         }
       }
     },
-    "Pick up to 3 metrics." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pick up to 3 metrics."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最多选择 3 个指标。"
-          }
-        }
-      }
-    },
     "Pick at least two sources to merge into this one." : {
       "localizations" : {
         "en" : {
@@ -8760,6 +8854,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择长图要显示的指标。"
+          }
+        }
+      }
+    },
+    "Pick up to 3 metrics." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick up to 3 metrics."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最多选择 3 个指标。"
           }
         }
       }
@@ -8842,6 +8952,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "磅"
+          }
+        }
+      }
+    },
+    "pr.accessibility.formerPersonalRecord" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Former personal record"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "曾创个人纪录"
+          }
+        }
+      }
+    },
+    "pr.accessibility.personalRecord" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personal record"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "个人纪录"
+          }
+        }
+      }
+    },
+    "pr.badge" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PR"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PR"
           }
         }
       }
@@ -9193,6 +9354,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复状态点评"
+          }
+        }
+      }
+    },
+    "Readiness does not keep falling one for one once it nears the bottom of the scale. Below roughly 5% it eases down far more slowly, so even a very hard day settles just above zero rather than dropping straight to it. That is why the impacts listed here can add up to more than the readiness you started the day with, and why the chart above falls by less than those numbers together suggest." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness does not keep falling one for one once it nears the bottom of the scale. Below roughly 5% it eases down far more slowly, so even a very hard day settles just above zero rather than dropping straight to it. That is why the impacts listed here can add up to more than the readiness you started the day with, and why the chart above falls by less than those numbers together suggest."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当恢复状态接近量表底部时，它不再一比一地继续下降。在大约 5% 以下，分数的下降会明显放缓，因此即使是非常辛苦的一天，也只会停在接近零的位置，而不会直接归零。正因如此，这里列出的影响之和可能大于你当天开始时的恢复状态，上方图表的实际跌幅也会小于这些数字加起来给人的印象。"
           }
         }
       }
@@ -10097,6 +10275,22 @@
         }
       }
     },
+    "Score" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Score"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "评分"
+          }
+        }
+      }
+    },
     "Scroll to today" : {
       "localizations" : {
         "en" : {
@@ -10320,6 +10514,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已选体重日期"
+          }
+        }
+      }
+    },
+    "Send a notification when a warning is detected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send a notification when a warning is detected"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检测到警告时发送通知"
           }
         }
       }
@@ -11493,6 +11703,74 @@
         }
       }
     },
+    "Stress" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stress"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压力"
+          }
+        }
+      }
+    },
+    "Stress from heart rate and HRV" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stress from heart rate and HRV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "基于心率和心率变异性的压力"
+          }
+        }
+      }
+    },
+    "Stress score trend" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stress score trend"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压力评分趋势"
+          }
+        }
+      }
+    },
+    "stress.status.noData" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无数据"
+          }
+        }
+      }
+    },
     "Strong is built daily." : {
       "localizations" : {
         "en" : {
@@ -11640,6 +11918,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "对比标记"
+          }
+        }
+      }
+    },
+    "The Daily Ceiling" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Daily Ceiling"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日上限"
           }
         }
       }
@@ -11796,6 +12091,23 @@
         }
       }
     },
+    "This card lists every workout that moved the day's readiness, in the order the sessions finished, with the share of the drop each one accounts for. A session too light to move the score is left out, and a day without workouts shows none at all." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This card lists every workout that moved the day's readiness, in the order the sessions finished, with the share of the drop each one accounts for. A session too light to move the score is left out, and a day without workouts shows none at all."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此卡片按训练结束的先后顺序，列出当天所有影响了恢复状态的训练，并显示每次训练各自造成的下降幅度。过于轻松、不足以改变分数的训练不会列出，没有训练的日子则完全不显示。"
+          }
+        }
+      }
+    },
     "This custom source will be removed." : {
       "localizations" : {
         "en" : {
@@ -11825,6 +12137,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此设备不支持替换 App 图标。"
+          }
+        }
+      }
+    },
+    "This drop is a layer on top of today's live score. It builds up across the day, does not fade back on its own, and clears with the next morning's score. It never rewrites history: the Week, Month, and longer trend charts keep the score you woke up with, while the Day View chart above replays how the day's workouts brought it down." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This drop is a layer on top of today's live score. It builds up across the day, does not fade back on its own, and clears with the next morning's score. It never rewrites history: the Week, Month, and longer trend charts keep the score you woke up with, while the Day View chart above replays how the day's workouts brought it down."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这一下降只是叠加在今天实时分数上的一层。它在一天中不断累积，不会自行回升，并在第二天早晨的分数出来时清零。它绝不会改写历史记录：周、月及更长范围的趋势图保留的是你醒来时的分数，而上方的日视图图表则回放当天的训练是如何把它拉低的。"
           }
         }
       }
@@ -11874,6 +12203,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "时间"
+          }
+        }
+      }
+    },
+    "Time by Band" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time by Band"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按等级划分的时长"
           }
         }
       }
@@ -12672,6 +13018,22 @@
         }
       }
     },
+    "Weekdays" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weekdays"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "星期"
+          }
+        }
+      }
+    },
     "Weight" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12702,6 +13064,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "体重、体脂率和体重指数"
+          }
+        }
+      }
+    },
+    "What Shapes Each Impact" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What Shapes Each Impact"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "什么会影响每次训练的幅度"
           }
         }
       }
@@ -12755,6 +13134,22 @@
         }
       }
     },
+    "When on, Body periodically checks in the background and sends a notification the first time a warning is detected each day. Checks are scheduled by the system and are not real-time." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When on, Body periodically checks in the background and sends a notification the first time a warning is detected each day. Checks are scheduled by the system and are not real-time."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后，Body 会定期在后台检查，并在每天首次检测到警告时发送通知。检查由系统调度，并非实时。"
+          }
+        }
+      }
+    },
     "White" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12768,6 +13163,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "白色"
+          }
+        }
+      }
+    },
+    "Why the Total Can Exceed Your Score" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Why the Total Can Exceed Your Score"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为什么总和会超过你的分数"
           }
         }
       }
@@ -12796,6 +13208,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Workout Color"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动颜色"
+          }
+        }
+      }
+    },
+    "Workout Colors" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout Colors"
           }
         },
         "zh-Hans" : {
@@ -12923,6 +13352,295 @@
         }
       }
     },
+    "workoutColors.blue" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blue"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "蓝色"
+          }
+        }
+      }
+    },
+    "workoutColors.brightness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brightness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "亮度"
+          }
+        }
+      }
+    },
+    "workoutColors.custom" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义"
+          }
+        }
+      }
+    },
+    "workoutColors.default" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认"
+          }
+        }
+      }
+    },
+    "workoutColors.doneEditing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
+        }
+      }
+    },
+    "workoutColors.empty" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No workouts yet. Workout types appear here once you've logged them."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有运动记录。记录运动后，类型会显示在这里。"
+          }
+        }
+      }
+    },
+    "workoutColors.footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap a workout to give it your own color. Everything that shows that workout uses it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点按某项运动即可为其设置专属颜色。凡是显示该运动的地方都会使用这个颜色。"
+          }
+        }
+      }
+    },
+    "workoutColors.green" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Green"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "绿色"
+          }
+        }
+      }
+    },
+    "workoutColors.hex" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hex"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "十六进制"
+          }
+        }
+      }
+    },
+    "workoutColors.hexPlaceholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RRGGBB"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RRGGBB"
+          }
+        }
+      }
+    },
+    "workoutColors.red" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Red"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "红色"
+          }
+        }
+      }
+    },
+    "workoutColors.reset" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset to Default"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复默认"
+          }
+        }
+      }
+    },
+    "workoutColors.resetAll" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset All"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部重置"
+          }
+        }
+      }
+    },
+    "workoutColors.resetAllConfirm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置"
+          }
+        }
+      }
+    },
+    "workoutColors.resetAllMessage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every workout type goes back to its built-in color."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有运动类型都将恢复为内置颜色。"
+          }
+        }
+      }
+    },
+    "workoutColors.resetAllTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset all workout colors?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置所有运动颜色？"
+          }
+        }
+      }
+    },
+    "workoutColors.values" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Values"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数值"
+          }
+        }
+      }
+    },
     "workouts" : {
       "localizations" : {
         "en" : {
@@ -12935,22 +13653,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "次运动"
-          }
-        }
-      }
-    },
-    "Weekdays" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Weekdays"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "星期"
           }
         }
       }
@@ -13438,6 +14140,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的睡眠时长"
+          }
+        }
+      }
+    },
+    "your stress score" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "your stress score"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的压力评分"
           }
         }
       }

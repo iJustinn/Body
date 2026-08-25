@@ -701,6 +701,7 @@ struct BodyOnboardingView: View {
             if showsWorkoutBreakdown {
                 WorkoutTypeBreakdownView(
                     snapshot: Self.sampleCalendarSnapshot,
+                    palette: .builtIn,
                     style: .app,
                     onSwitchChart: toggleWorkoutsPreview
                 )
@@ -708,6 +709,7 @@ struct BodyOnboardingView: View {
             } else {
                 WorkoutCalendarView(
                     snapshot: Self.sampleCalendarSnapshot,
+                    palette: .builtIn,
                     style: .widgetLarge,
                     fillsAvailableHeight: false,
                     onSwitchChart: toggleWorkoutsPreview

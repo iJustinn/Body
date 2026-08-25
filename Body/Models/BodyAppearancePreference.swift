@@ -47,6 +47,7 @@ extension HealthMetricKind {
     // sync with `supportsMetricDayView` in BodyHealthMetricDetailView.
     static let dayViewKinds: [HealthMetricKind] = [
         .readiness,
+        .stress,
         .heartRate,
         .heartRateVariability,
         .respiratoryRate,
@@ -57,7 +58,7 @@ extension HealthMetricKind {
 
     var supportedComparisonCharts: Set<SourceComparisonChartKind> {
         switch self {
-        case .readiness:
+        case .readiness, .stress:
             return []
         case .sleep:
             return [.line]
@@ -298,6 +299,16 @@ extension BodyAppearancePreference {
     /// the other must still be migrated for both.
     static let homeTrendCardCardioFitnessMigratedKey = "homeTrendCardCardioFitnessMigrated"
 
+    /// Set once the Stress card has been offered to an existing Summary Cards
+    /// layout. The Stress twin of `summaryCardCardioFitnessMigratedKey`, keyed
+    /// independently so it runs once on its own regardless of whether the
+    /// Cardio Fitness migration already ran.
+    static let summaryCardStressMigratedKey = "summaryCardStressMigrated"
+
+    /// Set once the Stress trend card has been offered to an existing layout.
+    /// The Stress twin of `homeTrendCardCardioFitnessMigratedKey`.
+    static let homeTrendCardStressMigratedKey = "homeTrendCardStressMigrated"
+
     /// The user's on-device display name shown on the Settings profile card.
     static let profileNameKey = "profileName"
 
@@ -384,7 +395,8 @@ struct BodySummaryCardSelection: Equatable {
             from: defaults.string(forKey: BodyAppearancePreference.summaryCardSelectionKey)
                 ?? defaultRawValue
         )
-        return migratingCardioFitnessIfNeeded(stored, defaults: defaults)
+        let cardioFitnessMigrated = migratingCardioFitnessIfNeeded(stored, defaults: defaults)
+        return migratingStressIfNeeded(cardioFitnessMigrated, defaults: defaults)
     }
 
     /// One-time migration that shows the Cardio Fitness card to users whose saved
@@ -418,6 +430,31 @@ struct BodySummaryCardSelection: Equatable {
             defaults.set(migrated.rawValue, forKey: BodyAppearancePreference.summaryCardSelectionKey)
         }
         defaults.set(true, forKey: BodyAppearancePreference.summaryCardCardioFitnessMigratedKey)
+        return migrated
+    }
+
+    /// The Stress twin of `migratingCardioFitnessIfNeeded` above — same one-time,
+    /// idempotent mechanics, its own flag, run independently so it fires
+    /// regardless of whether the Cardio Fitness migration already has.
+    private static func migratingStressIfNeeded(
+        _ selection: BodySummaryCardSelection,
+        defaults: UserDefaults
+    ) -> BodySummaryCardSelection {
+        guard !defaults.bool(forKey: BodyAppearancePreference.summaryCardStressMigratedKey) else {
+            return selection
+        }
+
+        // An empty selection is a deliberate "hide every card" choice, so adding one
+        // back would override it. The flag is still recorded, keeping this one-time.
+        var migrated = selection
+        if !selection.selectedCards.isEmpty {
+            migrated.selectedCards.insert(.stress)
+        }
+
+        if migrated != selection {
+            defaults.set(migrated.rawValue, forKey: BodyAppearancePreference.summaryCardSelectionKey)
+        }
+        defaults.set(true, forKey: BodyAppearancePreference.summaryCardStressMigratedKey)
         return migrated
     }
 }
@@ -494,7 +531,8 @@ struct BodyHomeTrendCardSelection: Equatable {
             from: defaults.string(forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
                 ?? defaultRawValue
         )
-        return migratingCardioFitnessIfNeeded(stored, defaults: defaults)
+        let cardioFitnessMigrated = migratingCardioFitnessIfNeeded(stored, defaults: defaults)
+        return migratingStressIfNeeded(cardioFitnessMigrated, defaults: defaults)
     }
 
     /// The trend-card twin of `BodySummaryCardSelection.migratingCardioFitnessIfNeeded`.
@@ -523,6 +561,31 @@ struct BodyHomeTrendCardSelection: Equatable {
             defaults.set(migrated.rawValue, forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
         }
         defaults.set(true, forKey: BodyAppearancePreference.homeTrendCardCardioFitnessMigratedKey)
+        return migrated
+    }
+
+    /// The Stress twin of `migratingCardioFitnessIfNeeded` above — same one-time,
+    /// idempotent mechanics, its own flag, run independently so it fires
+    /// regardless of whether the Cardio Fitness migration already has.
+    private static func migratingStressIfNeeded(
+        _ selection: BodyHomeTrendCardSelection,
+        defaults: UserDefaults
+    ) -> BodyHomeTrendCardSelection {
+        guard !defaults.bool(forKey: BodyAppearancePreference.homeTrendCardStressMigratedKey) else {
+            return selection
+        }
+
+        // An empty selection is a deliberate "hide every trend" choice, so adding one
+        // back would override it. The flag is still recorded, keeping this one-time.
+        var migrated = selection
+        if !selection.selectedCards.isEmpty {
+            migrated.selectedCards.insert(.stress)
+        }
+
+        if migrated != selection {
+            defaults.set(migrated.rawValue, forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
+        }
+        defaults.set(true, forKey: BodyAppearancePreference.homeTrendCardStressMigratedKey)
         return migrated
     }
 }
@@ -571,7 +634,15 @@ struct BodyMetricDayViewSelection: Equatable {
     /// marker is authoritative, so deselecting only Readiness sticks. Unknown
     /// tokens are already skipped by the kind parser, so old builds reading a
     /// marked value simply ignore the marker.
-    private static let currentFormatMarker = "v2"
+    private static let currentFormatMarker = "v3"
+
+    /// The marker Stress's day view shipped after. A value carrying this but not
+    /// `currentFormatMarker` predates Stress and could never have enabled it (the
+    /// case didn't exist yet), so it is a one-time addition rather than a stored
+    /// choice — mirrors the unmarked -> `defaultValue` upgrade above, one version
+    /// later. Once re-saved it carries `currentFormatMarker` and this no longer
+    /// applies.
+    private static let priorFormatMarker = "v2"
 
     /// The full day-view list as it shipped before Readiness joined. A persisted
     /// unmarked selection equal to this set predates the readiness row (it could
@@ -610,7 +681,12 @@ struct BodyMetricDayViewSelection: Equatable {
             return defaultValue
         }
 
-        return BodyMetricDayViewSelection(enabledKinds: kinds)
+        var resultKinds = kinds
+        if tokens.contains(priorFormatMarker), !tokens.contains(currentFormatMarker) {
+            resultKinds.insert(.stress)
+        }
+
+        return BodyMetricDayViewSelection(enabledKinds: resultKinds)
     }
 }
 
@@ -796,6 +872,17 @@ struct BodyDashboardFetchSelection: Equatable {
         .oxygenSaturation,
         .wristTemperature
     ]
+    /// Stress reads its own inputs — quiet heart rate, HRV, the coarse
+    /// movement mask, and the sleep window for rest context. Deliberately
+    /// separate from `readinessDependencyKinds`: the two metrics overlap but
+    /// are not the same set, and neither should pull the other's data.
+    private static let stressDependencyKinds: Set<HealthMetricKind> = [
+        .heartRate,
+        .heartRateVariability,
+        .sleep,
+        .steps,
+        .activeEnergy
+    ]
     private static let vitalsMetricKinds: Set<HealthMetricKind> = [.sleep]
 
     static let defaultValue = BodyDashboardFetchSelection(
@@ -833,6 +920,10 @@ struct BodyDashboardFetchSelection: Equatable {
             metrics.formUnion(Self.readinessDependencyKinds)
         }
 
+        if metrics.contains(.stress) {
+            metrics.formUnion(Self.stressDependencyKinds)
+        }
+
         if metrics.contains(.vitals) {
             metrics.formUnion(Self.vitalsMetricKinds)
         }
@@ -858,6 +949,7 @@ struct BodyDashboardFetchSelection: Equatable {
 
 enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
     case readiness
+    case stress
     case heartRate
     case restingHeartRate
     case heartRateVariability
@@ -877,6 +969,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 
     static let defaultOrder: [BodyHomeTrendCardKind] = [
         .readiness,
+        .stress,
         .heartRate,
         .restingHeartRate,
         .heartRateVariability,
@@ -911,6 +1004,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .readiness:
             return String(localized: "Readiness")
+        case .stress:
+            return String(localized: "Stress")
         case .heartRate:
             return String(localized: "Heart Rate")
         case .restingHeartRate:
@@ -950,6 +1045,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .readiness:
             return String(localized: "Readiness score trend")
+        case .stress:
+            return String(localized: "Stress score trend")
         case .heartRate:
             return String(localized: "Average heart rate trend")
         case .restingHeartRate:
@@ -989,6 +1086,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .readiness:
             return "bolt.heart.fill"
+        case .stress:
+            return "brain.head.profile.fill"
         case .heartRate,
              .restingHeartRate:
             return "heart.fill"
@@ -1027,6 +1126,8 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
         switch self {
         case .readiness:
             return Color(red: 0.12, green: 0.68, blue: 0.55)
+        case .stress:
+            return Color(red: 0.90, green: 0.35, blue: 0.75)
         case .heartRate,
              .restingHeartRate,
              .heartRateVariability,
@@ -1058,6 +1159,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
 enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case activityRings
     case readiness
+    case stress
     case exerciseMinutes
     case trainingLoad
     case wristTemperature
@@ -1083,6 +1185,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         .heartRate,
         .heartRateVariability,
         .readiness,
+        .stress,
         .activeEnergy,
         .restingEnergy,
         .restingHeartRate,
@@ -1132,6 +1235,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return nil
         case .readiness:
             return .readiness
+        case .stress:
+            return .stress
         case .exerciseMinutes:
             return .exerciseMinutes
         case .trainingLoad:
@@ -1173,6 +1278,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Activity Rings")
         case .readiness:
             return String(localized: "Readiness")
+        case .stress:
+            return String(localized: "Stress")
         case .exerciseMinutes:
             return String(localized: "Exercise Minutes")
         case .trainingLoad:
@@ -1214,6 +1321,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Move, Exercise, and Stand progress")
         case .readiness:
             return String(localized: "Readiness from sleep, strain, and vitals")
+        case .stress:
+            return String(localized: "Stress from heart rate and HRV")
         case .exerciseMinutes:
             return String(localized: "Daily exercise minute total")
         case .trainingLoad:
@@ -1251,7 +1360,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
 
     var isBeta: Bool {
         switch self {
-        case .readiness:
+        case .readiness,
+             .stress:
             return true
         case .vitals,
              .cardioFitness,
@@ -1280,6 +1390,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return "circle.circle.fill"
         case .readiness:
             return "bolt.heart.fill"
+        case .stress:
+            return "brain.head.profile.fill"
         case .exerciseMinutes:
             return "figure.run"
         case .trainingLoad:
@@ -1308,7 +1420,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         case .restingEnergy:
             return "leaf.fill"
         case .vitals:
-            return "heart.badge.bolt"
+            return "heart.badge.bolt.fill"
         case .cardioFitness:
             return "arrow.up.heart.fill"
         }
@@ -1320,6 +1432,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return .pink
         case .readiness:
             return Color(red: 0.12, green: 0.68, blue: 0.55)
+        case .stress:
+            return Color(red: 0.90, green: 0.35, blue: 0.75)
         case .exerciseMinutes,
              .trainingLoad,
              .steps,

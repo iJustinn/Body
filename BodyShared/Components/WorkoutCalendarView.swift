@@ -82,6 +82,11 @@ enum WorkoutCalendarCellKind: Equatable {
 
 struct WorkoutCalendarView: View {
     let snapshot: WorkoutMonthSnapshot
+    /// Resolved workout colors (built-in defaults plus any Pro customization). Rendered
+    /// in both the app and the widget extension, so this is an explicit stored property
+    /// rather than an `@Environment` read — the widget's timeline entry supplies its own
+    /// entry-derived palette, which the environment can't carry across the process.
+    let palette: BodyWorkoutColorPalette
     let style: WorkoutCalendarDisplayStyle
     let fillsAvailableHeight: Bool
     /// Shrinks the icons, markers, and numbers along with cells smaller than the
@@ -99,6 +104,7 @@ struct WorkoutCalendarView: View {
 
     init(
         snapshot: WorkoutMonthSnapshot,
+        palette: BodyWorkoutColorPalette,
         style: WorkoutCalendarDisplayStyle = .app,
         fillsAvailableHeight: Bool = true,
         scalesGlyphsToFit: Bool = false,
@@ -108,6 +114,7 @@ struct WorkoutCalendarView: View {
         onSwitchChart: (() -> Void)? = nil
     ) {
         self.snapshot = snapshot
+        self.palette = palette
         self.style = style
         self.fillsAvailableHeight = fillsAvailableHeight
         self.scalesGlyphsToFit = scalesGlyphsToFit
@@ -218,13 +225,13 @@ struct WorkoutCalendarView: View {
                     Image(systemName: workoutType.symbolName)
                         .font(.system(size: workoutIconSize * glyphScale, weight: .bold))
                         .symbolRenderingMode(.monochrome)
-                        .foregroundColor(workoutType.calendarContentColor)
+                        .foregroundColor(palette.contentColor(for: workoutType))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
 
                     workoutMarkers(
                         count: day.workoutCount,
-                        color: workoutType.calendarContentColor,
+                        color: palette.contentColor(for: workoutType),
                         glyphScale: glyphScale
                     )
                 } else {
@@ -279,7 +286,7 @@ struct WorkoutCalendarView: View {
     private func cellBackground(for day: WorkoutDaySummary) -> some View {
         if day.workoutCount > 0 {
             BodyGlassChip(
-                color: day.primaryWorkoutType?.color ?? Color(red: 0.09, green: 0.56, blue: 0.88),
+                color: day.primaryWorkoutType.map { palette.color(for: $0) } ?? Color(red: 0.09, green: 0.56, blue: 0.88),
                 cornerRadius: 9,
                 showsRim: false
             )

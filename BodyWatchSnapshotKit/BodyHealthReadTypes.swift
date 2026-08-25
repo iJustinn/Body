@@ -44,6 +44,12 @@ enum BodyHealthReadTypes {
                 // than Workout Metrics; the watch's compute set doesn't need it.
                 .heartRateRecoveryOneMinute
             ]
+            // Beat-to-beat interval series, the RMSSD input behind the Stress
+            // metric. Folded into the standard request like `workoutRoute()`
+            // above, so existing users are re-prompted on the next refresh;
+            // without it Stress falls back to the SDNN path. The watch's
+            // compute set doesn't need it.
+            types.insert(HKSeriesType.heartbeat())
             // Birth date (a read-only characteristic) anchors the workout heart-rate
             // zones at a percentage of the age-estimated max HR (220 − age). Gated on
             // its own `.dateOfBirth` toggle in addition to `.heart` — its only consumer

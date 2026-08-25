@@ -40,6 +40,10 @@ struct BodyWorkoutShareLongCardView: View {
     let iconHidden: Bool
     let locality: String?
     let type: BodyWorkoutType
+    /// Resolved workout colors (built-in defaults plus any Pro customization), passed in
+    /// like every other value here rather than read from the environment — an
+    /// `ImageRenderer` root doesn't inherit it, and this view stays environment-independent.
+    let palette: BodyWorkoutColorPalette
     let preset: BodyWorkoutSharePreset
     let fontDesign: Font.Design
     let routeColor: Color
@@ -79,7 +83,7 @@ struct BodyWorkoutShareLongCardView: View {
     /// high-luminance type (yellow, mint) gets a dark glyph instead of an invisible
     /// white one.
     private var chipGlyphColor: Color {
-        ink == .dark ? type.calendarContentColor : .white
+        ink == .dark ? palette.contentColor(for: type) : .white
     }
 
     /// A 45%-alpha tint chip washes out to near-white on a white card, taking the glyph
@@ -108,7 +112,7 @@ struct BodyWorkoutShareLongCardView: View {
         // The whole point of the long image: the height comes from the content, not
         // from a proposal. Everything above stays inside the fixed 360 pt width.
         .fixedSize(horizontal: false, vertical: true)
-        .background(preset.gradient(tint: type.color))
+        .background(preset.gradient(tint: palette.color(for: type)))
     }
 
     // MARK: - Header (the classic card's arrangement, one column wider)
@@ -121,7 +125,7 @@ struct BodyWorkoutShareLongCardView: View {
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(chipGlyphColor)
                     .frame(width: 46, height: 46)
-                    .background(type.color.opacity(chipFillOpacity))
+                    .background(palette.color(for: type).opacity(chipFillOpacity))
                     .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -370,6 +374,7 @@ struct BodyWorkoutShareLongCardView: View {
             iconHidden: false,
             locality: "Cupertino",
             type: .running,
+            palette: .builtIn,
             preset: .midnight,
             fontDesign: .rounded,
             routeColor: BodyWorkoutShareCardView.defaultRouteColor,

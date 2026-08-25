@@ -485,7 +485,8 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
         0x150017, 0x2A104B, 0x522C5C, 0x835061, 0xE3B6B1, 0xFEE4D9
     ]
 
-    private static func attachedWorkoutColor(hex: UInt32) -> Color {
+    /// Shared with `BodyWorkoutColorPalette` so customized colors render identically.
+    static func attachedWorkoutColor(hex: UInt32) -> Color {
         Color(
             red: Double((hex >> 16) & 0xFF) / 255,
             green: Double((hex >> 8) & 0xFF) / 255,
@@ -493,7 +494,7 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
         )
     }
 
-    private static func luminance(hex: UInt32) -> Double {
+    static func luminance(hex: UInt32) -> Double {
         let red = Double((hex >> 16) & 0xFF) / 255
         let green = Double((hex >> 8) & 0xFF) / 255
         let blue = Double(hex & 0xFF) / 255
