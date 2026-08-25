@@ -2125,6 +2125,25 @@ private struct BodyHomeBackgroundColorWheel: View {
 
 /// Hue/saturation/brightness is the editor's only draft state: round-tripping
 /// through RGB loses hue and saturation the moment brightness reaches 0.
+/// The calendar's rendering of a workout color — a solid tile with the glyph in
+/// the same contrast color the month grid uses — shown beside the tinted-glyph
+/// tile so both of the app's workout color styles preview at once.
+private struct BodyWorkoutCalendarStyleTile: View {
+    let iconName: String
+    let hex: UInt32
+
+    var body: some View {
+        Image(systemName: iconName)
+            .font(.system(size: 21, weight: .semibold))
+            .foregroundColor(BodyWorkoutType.luminance(hex: hex) > 0.58 ? Color.black.opacity(0.82) : .white)
+            .frame(width: 44, height: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(BodyWorkoutType.attachedWorkoutColor(hex: hex))
+            )
+    }
+}
+
 private struct BodyWorkoutColorDraft: Equatable {
     var hue: Double
     var saturation: Double
@@ -2242,7 +2261,7 @@ private struct BodyWorkoutColorsSheet: View {
 
                 if index < workoutTypes.count - 1 {
                     Divider()
-                        .padding(.leading, 76)
+                        .padding(.leading, 134)
                 }
             }
         }
@@ -2252,6 +2271,8 @@ private struct BodyWorkoutColorsSheet: View {
 
     private func typeRow(for type: BodyWorkoutType) -> some View {
         HStack(spacing: 14) {
+            BodyWorkoutCalendarStyleTile(iconName: type.symbolName, hex: palette.resolvedHex(for: type))
+
             BodySettingsIconTile(iconName: type.symbolName, color: palette.color(for: type))
 
             Text(type.displayName)
@@ -2386,6 +2407,8 @@ private struct BodyWorkoutColorEditorView: View {
 
     private var previewRow: some View {
         HStack(spacing: 14) {
+            BodyWorkoutCalendarStyleTile(iconName: type.symbolName, hex: draft.hex)
+
             BodySettingsIconTile(iconName: type.symbolName, color: draft.color)
 
             VStack(alignment: .leading, spacing: 3) {
