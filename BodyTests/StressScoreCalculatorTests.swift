@@ -819,4 +819,101 @@ final class StressScoreCalculatorTests: XCTestCase {
     private func makeWorkout(start: Date, duration: TimeInterval, endDate: Date?) -> WorkoutSummary {
         WorkoutSummary(type: .running, startDate: start, duration: duration, endDate: endDate)
     }
+
+    // MARK: - Personal baseline shares
+
+    private func baselineDay(
+        _ date: Date,
+        rest: Int,
+        low: Int,
+        medium: Int = 0,
+        high: Int = 0,
+        activity: Int = 0,
+        scoredWindowCount: Int = 40,
+        averageScore: Int? = 30
+    ) -> StressDaySummary {
+        StressDaySummary(
+            date: date,
+            averageScore: averageScore,
+            minutesByBand: [.rest: rest, .low: low, .medium: medium, .high: high],
+            scoredWindowCount: scoredWindowCount,
+            activityMinutes: activity
+        )
+    }
+
+    /// Fourteen qualifying days is the gate; thirteen produces no baseline at all
+    /// rather than a median of too little history.
+    func testBaselineBandSharesNeedsFourteenQualifyingDays() throws {
+        let now = day(2025, 4, 1)
+        let thirteen = (1...13).map { offset in
+            baselineDay(day(2025, 3, offset), rest: 60, low: 40)
+        }
+
+        XCTAssertNil(StressScoreCalculator.baselineBandShares(from: thirteen, calendar: calendar, now: now))
+
+        let fourteen = thirteen + [baselineDay(day(2025, 3, 14), rest: 60, low: 40)]
+        let shares = StressScoreCalculator.baselineBandShares(from: fourteen, calendar: calendar, now: now)
+
+        XCTAssertEqual(try XCTUnwrap(shares)[.rest] ?? 0, 0.6, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(shares)[.low] ?? 0, 0.4, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(shares)[.medium] ?? 0, 0, accuracy: 0.0001)
+    }
+
+    /// The median is over qualifying days only: activity-only days (no scored
+    /// window, no average) would read as zero for every band and drag the whole
+    /// baseline down, and today's summary is still growing.
+    func testBaselineBandSharesExcludesActivityOnlyAndTodayDays() throws {
+        let now = day(2025, 4, 1)
+
+        // Seven days at 60% Rest and seven at 40% — median 50%.
+        var days = (1...7).map { baselineDay(day(2025, 3, $0), rest: 60, low: 40) }
+        days += (8...14).map { baselineDay(day(2025, 3, $0), rest: 40, low: 60) }
+
+        // Activity-only days: masked all day, nothing scored.
+        days += (15...20).map {
+            baselineDay(
+                day(2025, 3, $0),
+                rest: 0,
+                low: 0,
+                activity: 600,
+                scoredWindowCount: 0,
+                averageScore: nil
+            )
+        }
+
+        // A zero-measured day contributes nothing either.
+        days.append(baselineDay(day(2025, 3, 21), rest: 0, low: 0, scoredWindowCount: 3))
+
+        // Today, still only an hour old and all Relaxed.
+        days.append(baselineDay(now, rest: 0, low: 60))
+
+        let shares = try XCTUnwrap(
+            StressScoreCalculator.baselineBandShares(from: days, calendar: calendar, now: now)
+        )
+
+        XCTAssertEqual(try XCTUnwrap(shares[.rest]), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(shares[.low]), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(shares[.medium]), 0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(shares[.high]), 0, accuracy: 0.0001)
+    }
+
+    /// The box is always five percentage points wide: at the edges it SHIFTS
+    /// inward rather than being clipped to a half-width sliver.
+    func testBaselineShareRangeIsFivePointsWideAndShiftsAtTheEdges() {
+        let middle = StressScoreCalculator.baselineShareRange(around: 0.5)
+        XCTAssertEqual(middle.lowerBound, 0.475, accuracy: 0.0001)
+        XCTAssertEqual(middle.upperBound, 0.525, accuracy: 0.0001)
+
+        let low = StressScoreCalculator.baselineShareRange(around: 0.01)
+        XCTAssertEqual(low.lowerBound, 0, accuracy: 0.0001)
+        XCTAssertEqual(low.upperBound, 0.05, accuracy: 0.0001)
+
+        let zero = StressScoreCalculator.baselineShareRange(around: 0)
+        XCTAssertEqual(zero.lowerBound, 0, accuracy: 0.0001)
+        XCTAssertEqual(zero.upperBound, 0.05, accuracy: 0.0001)
+
+        let high = StressScoreCalculator.baselineShareRange(around: 0.99)
+        XCTAssertEqual(high.lowerBound, 0.95, accuracy: 0.0001)
+        XCTAssertEqual(high.upperBound, 1, accuracy: 0.0001)
+    }
 }

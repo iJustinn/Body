@@ -2072,7 +2072,13 @@ final class ProjectConfigurationTests: XCTestCase {
         let engineSource = try healthKitFetchEngineText()
         let snapshotSource = try healthSummarySnapshotText()
         let dayChartCardStart = try XCTUnwrap(homeSource.range(of: "private var metricDayChartCard: some View")?.lowerBound)
-        let dayChartCardBlock = String(homeSource[dayChartCardStart...].prefix(3_500))
+        // Bounded by the NEXT declaration rather than a character count: a fixed
+        // prefix silently drops the assertions below as soon as a branch of this
+        // property grows, which turned a real guard into a passing no-op.
+        let dayChartCardEnd = try XCTUnwrap(
+            homeSource.range(of: "private var metricWarningCards", range: dayChartCardStart..<homeSource.endIndex)?.lowerBound
+        )
+        let dayChartCardBlock = String(homeSource[dayChartCardStart..<dayChartCardEnd])
         let dayChartStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthMetricDayChart")?.lowerBound)
         let dayChartEnd = try XCTUnwrap(
             homeSource.range(of: "struct BodyHealthMetricDayRangeEntry", range: dayChartStart..<homeSource.endIndex)?.lowerBound
@@ -2417,6 +2423,30 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(engineSource.contains("fetched: resolvedCardioFitness?[workout.uuid]"))
         XCTAssertTrue(engineSource.contains("fetched: resolvedStepCadence[workout.uuid]"))
         XCTAssertTrue(engineSource.contains("fetched: resolvedWorkoutDistance[workout.uuid]"))
+    }
+
+    /// Regression guard: Stress is DERIVED, never fetched, so `fetchHealthTrends`
+    /// is the sole custodian of its state between refreshes. Every stress field
+    /// used to default to empty in the snapshot it assembles, which silently
+    /// wiped the recorded day history — and with it the baselines that outlive
+    /// the ~32-day day-sample cache — on every full refresh. All of them must
+    /// stay carried forward from the cached trends, the way `recordedReadiness`
+    /// is; a new stress field added without a line here reintroduces the bug.
+    func testFullRefreshCarriesForwardEveryStressTrendField() throws {
+        let engineSource = try healthKitFetchEngineText()
+        let assemblyStart = try XCTUnwrap(engineSource.range(of: "let trends = HealthTrendSnapshot(")?.lowerBound)
+        // Window sized to the whole initializer call (~4.6k chars today).
+        let assemblyBlock = String(engineSource[assemblyStart...].prefix(5_500))
+
+        XCTAssertTrue(assemblyBlock.contains("stress: cachedStress,"))
+        XCTAssertTrue(assemblyBlock.contains("stressRanges: cachedStressRanges,"))
+        XCTAssertTrue(assemblyBlock.contains("heartbeatRMSSDDaySamples: cachedHeartbeatRMSSDDaySamples,"))
+        XCTAssertTrue(assemblyBlock.contains("recordedStressDays: cachedRecordedStressDays,"))
+        XCTAssertTrue(assemblyBlock.contains("recordedStressContext: cachedRecordedStressContext,"))
+        XCTAssertTrue(assemblyBlock.contains("stressBackfillScannedThrough: cachedStressBackfillScannedThrough,"))
+        XCTAssertTrue(assemblyBlock.contains("stressBackfillComplete: cachedStressBackfillComplete,"))
+        XCTAssertTrue(engineSource.contains("let cachedRecordedStressDays = cachedTrends.recordedStressDays"))
+        XCTAssertTrue(engineSource.contains("let cachedHeartbeatRMSSDDaySamples = cachedTrends.heartbeatRMSSDDaySamples"))
     }
 
     func testSecondarySleepStageHistorySkipsVitalsHydration() throws {
@@ -2827,13 +2857,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 25;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
-        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.0;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 25;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.1;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 2;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2868,7 +2898,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.0 (build 25)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 25)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 23)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 22)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 21)**"))
@@ -2985,6 +3016,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 2."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 25)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.0 build 25."))
         XCTAssertTrue(versionHistory.contains("## 1.0.0 (build 22)"))
@@ -3616,11 +3649,12 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-1.0.0`"))
+        XCTAssertTrue(testPlan.contains("branch `body-1.0.1`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.0 build 25)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.0 build 25)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 23)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 22)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 21)"))

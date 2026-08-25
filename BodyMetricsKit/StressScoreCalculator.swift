@@ -71,6 +71,62 @@ struct StressDayInput: Equatable {
             return DateInterval(start: workout.startDate, end: end)
         }
     }
+
+    /// One input per calendar day in `[start, end)` that actually has heart-rate
+    /// coverage — a day without it can only produce empty window scans.
+    ///
+    /// The transient counterpart of the snapshot's day-sample assembly, for the
+    /// progressive history backfill: it hands over one bounded chunk of raw
+    /// samples rather than reading the ~32-day intraday cache. No RMSSD, which
+    /// the backfill does not fetch, so backfilled days score on HR + SDNN.
+    static func dayInputs(
+        from start: Date,
+        to end: Date,
+        heartRateSamples: [HealthTrendDataPoint],
+        sdnnSamples: [HealthTrendDataPoint],
+        hourlySteps: [HealthTrendDataPoint],
+        hourlyActiveEnergy: [HealthTrendDataPoint],
+        workouts: [WorkoutSummary],
+        sleepIntervalsByDay: [Date: DateInterval],
+        calendar: Calendar = .bodyGregorian
+    ) -> [StressDayInput] {
+        let startDay = calendar.startOfDay(for: start)
+        let endDay = calendar.startOfDay(for: end)
+        func grouped(_ points: [HealthTrendDataPoint]) -> [Date: [HealthTrendDataPoint]] {
+            var byDay: [Date: [HealthTrendDataPoint]] = [:]
+            for point in points where point.value.isFinite {
+                let day = calendar.startOfDay(for: point.date)
+                guard day >= startDay, day < endDay else {
+                    continue
+                }
+                byDay[day, default: []].append(point)
+            }
+            return byDay
+        }
+
+        let heartRateByDay = grouped(heartRateSamples)
+        let sdnnByDay = grouped(sdnnSamples)
+        let stepsByDay = grouped(hourlySteps)
+        let energyByDay = grouped(hourlyActiveEnergy)
+        let workoutsByDay = Dictionary(grouping: workouts) { calendar.startOfDay(for: $0.startDate) }
+
+        return heartRateByDay.keys.sorted().map { day in
+            // A session started before midnight still masks the next day's first
+            // windows, so each day also takes the previous day's workouts.
+            let previousDay = calendar.date(byAdding: .day, value: -1, to: day) ?? day
+            let dayWorkouts = (workoutsByDay[day] ?? []) + (workoutsByDay[previousDay] ?? [])
+
+            return StressDayInput(
+                date: day,
+                heartRateSamples: heartRateByDay[day] ?? [],
+                sdnnSamples: sdnnByDay[day] ?? [],
+                hourlySteps: stepsByDay[day] ?? [],
+                hourlyActiveEnergy: energyByDay[day] ?? [],
+                workoutIntervals: StressDayInput.workoutIntervals(for: dayWorkouts),
+                sleepInterval: sleepIntervalsByDay[day]
+            )
+        }
+    }
 }
 
 /// The personal baselines a day is scored against. Quiet HR is required; the HRV
@@ -437,9 +493,13 @@ enum StressScoreCalculator {
         var minutesByBand: [StressBand: Int] = [:]
         var scores: [Double] = []
         var hrvCoveredWindowCount = 0
+        var activityMinutes = 0
 
         for window in windows {
             guard let score = window.score else {
+                if window.state == .activity {
+                    activityMinutes += Int((window.interval.duration / 60).rounded())
+                }
                 continue
             }
 
@@ -464,7 +524,8 @@ enum StressScoreCalculator {
             quietHRMedian: quietHRMedian,
             rmssdDailyMedian: rmssdDailyMedian,
             minScore: minScore,
-            maxScore: maxScore
+            maxScore: maxScore,
+            activityMinutes: activityMinutes
         )
     }
 
@@ -622,6 +683,64 @@ enum StressScoreCalculator {
         }
 
         return buckets
+    }
+
+    // MARK: - Personal baseline shares
+
+    /// Fewest qualifying days before the day breakdown draws its baseline boxes.
+    /// Below this the median is a guess, not a baseline.
+    static let baselineShareMinimumDays = 14
+
+    /// Half-width of a baseline box, in absolute share (so a box is 5 percentage
+    /// points wide, not ±2.5% of the median).
+    static let baselineShareHalfWidth = 0.025
+
+    /// The share of measured time each band typically accounts for: the median,
+    /// across qualifying recorded days, of `minutes(in: band) / totalMeasuredMinutes`.
+    /// nil until `baselineShareMinimumDays` days qualify.
+    ///
+    /// A day qualifies only when it has an average score AND at least one scored
+    /// window, and is not today. Activity-only days would otherwise read as 100%
+    /// Activity with four empty bands and drag every band median toward zero, and
+    /// today's summary is still growing.
+    ///
+    /// Activity itself is deliberately absent: legacy records decode a missing
+    /// `activityMinutes` as a real 0, so an upgraded user carries hundreds of
+    /// false zero-activity days — and masked movement is not a stress level.
+    static func baselineBandShares(
+        from days: [StressDaySummary],
+        calendar: Calendar = .bodyGregorian,
+        now: Date = Date()
+    ) -> [StressBand: Double]? {
+        var sharesByBand: [StressBand: [Double]] = [:]
+        var qualifyingDays = 0
+
+        for day in days {
+            guard day.averageScore != nil, day.scoredWindowCount > 0 else { continue }
+            guard !calendar.isDate(day.date, inSameDayAs: now) else { continue }
+            let total = day.totalMeasuredMinutes
+            guard total > 0 else { continue }
+
+            qualifyingDays += 1
+            for band in StressBand.displayOrder {
+                sharesByBand[band, default: []].append(Double(day.minutes(in: band)) / Double(total))
+            }
+        }
+
+        guard qualifyingDays >= baselineShareMinimumDays else {
+            return nil
+        }
+
+        return sharesByBand.compactMapValues { median($0) }
+    }
+
+    /// The drawn box around a baseline share: `baselineShareHalfWidth` either side,
+    /// kept inside 0...1 by SHIFTING rather than clipping, so a 1% median still
+    /// shows a full-width 0–5% box instead of a half-width one.
+    static func baselineShareRange(around share: Double) -> ClosedRange<Double> {
+        let width = min(1, baselineShareHalfWidth * 2)
+        let lower = min(max(0, share - baselineShareHalfWidth), 1 - width)
+        return lower...(lower + width)
     }
 
     /// Local helper so `ReadinessScoreCalculator`'s private internals stay private.

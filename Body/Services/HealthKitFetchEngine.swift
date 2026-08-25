@@ -2753,6 +2753,20 @@ actor HealthKitFetchEngine {
         let cachedActiveEnergyDaySamplesSecondary = cachedTrends.activeEnergyDaySamplesSecondary
         let cachedStepsDaySamples = cachedTrends.stepsDaySamples
         let cachedStepsDaySamplesSecondary = cachedTrends.stepsDaySamplesSecondary
+        // Stress is never fetched here — it is DERIVED, by `recomputeStress`,
+        // from state this assembly is the sole custodian of between refreshes.
+        // Every one of these fields used to default to empty in the snapshot
+        // below, so a full refresh silently wiped the recorded day history (and
+        // with it the baselines that outlive the ~32-day day-sample cache), the
+        // beat-to-beat RMSSD samples, and the backfill's walk marker. Carried
+        // forward explicitly, exactly like `recordedReadiness`.
+        let cachedHeartbeatRMSSDDaySamples = cachedTrends.heartbeatRMSSDDaySamples
+        let cachedStress = cachedTrends.stress
+        let cachedStressRanges = cachedTrends.stressRanges
+        let cachedRecordedStressDays = cachedTrends.recordedStressDays
+        let cachedRecordedStressContext = cachedTrends.recordedStressContext
+        let cachedStressBackfillScannedThrough = cachedTrends.stressBackfillScannedThrough
+        let cachedStressBackfillComplete = cachedTrends.stressBackfillComplete
 
         async let sleepHistory: SleepHistoryFetchResult = fetchDashboardMetricIfNeeded(.sleep, selection: selection, default: .empty) {
             await fetchDailySleepHistory(calendar: calendar, cachedSleepHistory: cachedTrends.sleepHistory)
@@ -3047,6 +3061,8 @@ actor HealthKitFetchEngine {
             steps: resolved(await steps, cached: cachedTrends.steps),
             stepsSecondary: resolved(await stepsSecondary, cached: cachedTrends.stepsSecondary),
             cardioFitness: resolved(await cardioFitness, cached: cachedTrends.cardioFitness),
+            stress: cachedStress,
+            stressRanges: cachedStressRanges,
             sleepHistory: fetchedSleepHistory,
             sleepHistorySecondary: fetchedSleepHistorySecondary,
             heartRateDaySamples: cachedHeartRateDaySamples,
@@ -3057,6 +3073,7 @@ actor HealthKitFetchEngine {
             restingHeartRateDaySamplesSecondary: .empty,
             heartRateVariabilityDaySamples: cachedHeartRateVariabilityDaySamples,
             heartRateVariabilityDaySamplesSecondary: cachedHeartRateVariabilityDaySamplesSecondary,
+            heartbeatRMSSDDaySamples: cachedHeartbeatRMSSDDaySamples,
             respiratoryRateDaySamples: cachedRespiratoryRateDaySamples,
             oxygenSaturationDaySamples: cachedOxygenSaturationDaySamples,
             oxygenSaturationDaySamplesSecondary: cachedOxygenSaturationDaySamplesSecondary,
@@ -3064,6 +3081,10 @@ actor HealthKitFetchEngine {
             activeEnergyDaySamplesSecondary: cachedActiveEnergyDaySamplesSecondary,
             stepsDaySamples: cachedStepsDaySamples,
             stepsDaySamplesSecondary: cachedStepsDaySamplesSecondary,
+            recordedStressDays: cachedRecordedStressDays,
+            recordedStressContext: cachedRecordedStressContext,
+            stressBackfillScannedThrough: cachedStressBackfillScannedThrough,
+            stressBackfillComplete: cachedStressBackfillComplete,
             recordedReadiness: cachedTrends.recordedReadiness,
             recordedReadinessContext: cachedTrends.recordedReadinessContext
         )

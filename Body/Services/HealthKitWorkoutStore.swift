@@ -256,6 +256,19 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// await its exit before wiping the ledger it would otherwise re-persist.
     var recordBackfillTask: Task<Void, Never>?
 
+    /// The one-time Stress history walk. Same rationale as `recordBackfillTask`
+    /// — its lifecycle lives in `HealthKitWorkoutStore+StressBackfill.swift`,
+    /// but an extension can't declare stored state.
+    var stressBackfillTask: Task<Void, Never>?
+
+    /// The in-flight post-refresh Stress input load, for the backfill's
+    /// serialization: the two must not fetch and merge Stress state at once.
+    var pendingStressInputLoadTask: Task<Void, Never>? { stressInputLoadTask }
+
+    /// The live Stress record context, for the backfill's per-chunk guard —
+    /// `stressRecordContextSignature()` itself stays private to this file.
+    var currentStressRecordContextSignature: String { stressRecordContextSignature() }
+
     /// `recordLedger` is `private(set)` so nothing outside this type writes it;
     /// the records extension lives in another file, so it publishes through here.
     func publishRecordLedger(_ ledger: WorkoutRecordLedger) {
@@ -402,9 +415,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         // and this only starts a detached, cancellable scan (see
         // `HealthKitWorkoutStore+Records.swift`).
         scheduleRecordBaselineBackfillIfNeeded()
+        // Same slot, same rule — and it chains itself behind the record scan and
+        // the Stress input load rather than racing them (see
+        // `HealthKitWorkoutStore+StressBackfill.swift`).
+        scheduleStressBackfillIfNeeded()
     }
 
-    private func awaitNextRefreshCompletion() async {
+    /// Internal so the Stress backfill extension can park on the same refresh
+    /// barrier the intraday loads use before publishing a chunk.
+    func awaitNextRefreshCompletion() async {
         guard isRefreshing, !Task.isCancelled else {
             return
         }
@@ -2302,6 +2321,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         stressInputLoadTask = Task { [weak self] in
             await self?.loadStressInputSamples()
             self?.stressInputLoadTask = nil
+            // The history walk stands down while this load holds the slot, and
+            // `finishRefresh` has long since run — so hand the slot over here.
+            self?.scheduleStressBackfillIfNeeded()
         }
     }
 
@@ -3920,6 +3942,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         // a persist enqueue of its own — awaiting its exit is what guarantees no
         // ledger write is still queued behind the delete.
         await cancelRecordBaselineBackfill()
+        // Same barrier for the Stress history walk: it owns a snapshot persist
+        // enqueue of its own, which must not land behind the delete below.
+        await cancelStressBackfill()
 
         // Await the engine cache clears (previously fire-and-forget) so a refresh
         // started right after this can't race a half-cleared source/effort cache.
@@ -5141,6 +5166,44 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
+    /// Publishes one chunk of the Stress history backfill: the scored days
+    /// upserted into `recordedStressDays`, both stress series rebuilt from the
+    /// result, and the walk marker advanced — one publish, one persist, so a
+    /// kill between chunks can never leave the marker ahead of the records it
+    /// claims to describe. Called only from
+    /// `HealthKitWorkoutStore+StressBackfill.swift`, which owns the guards.
+    func applyStressBackfillChunk(
+        summaries: [StressDaySummary],
+        scannedThrough: Date,
+        complete: Bool,
+        calendar: Calendar
+    ) {
+        let updated = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        ).mergingStressBackfillChunk(
+            summaries,
+            scannedThrough: scannedThrough,
+            complete: complete,
+            on: Date(),
+            calendar: calendar
+        )
+        healthTrends = updated.trends
+
+        let daySampleSignatures = currentDaySampleSignatures()
+        // Same reason as `recomputeStress`: carry the current summary-context
+        // signature so this save doesn't clobber the persisted one back to nil.
+        let summaryContextSignature = healthSummaryPrimarySignature
+        Self.snapshotPersistQueue.async {
+            HealthDashboardSnapshotStore.save(
+                updated,
+                daySampleSignatures: daySampleSignatures,
+                summaryContextSignature: summaryContextSignature
+            )
+        }
+    }
+
     /// After the workout fetch lands, re-apply the activity drain + morning freeze
     /// to the live readiness using the now-complete workout snapshots, without a
     /// full series rebuild. The dashboard recompute earlier in a refresh runs
@@ -5828,6 +5891,11 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     private func applyPermissionSelectionToCachedData() async {
+        // A toggle can change the Stress record context, and the recompute at
+        // the end of this drops the recorded days it invalidates. Stop the
+        // history walk first, so a chunk scored under the OLD inputs can't land
+        // on top of the freshly dropped records.
+        await cancelStressBackfill()
         // Runs without `isRefreshing` (from a permission toggle), so a Clear
         // Cache can land during the sidecar load / off-actor filter below.
         let epoch = cacheEpoch

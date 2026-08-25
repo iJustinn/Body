@@ -64,11 +64,11 @@ enum StressBand: String, Codable, Equatable, CaseIterable {
         case .rest:
             return String(localized: "stress.band.rest", defaultValue: "Rest", table: "BodyMetricsKit")
         case .low:
-            return String(localized: "stress.band.low", defaultValue: "Low", table: "BodyMetricsKit")
+            return String(localized: "stress.band.low", defaultValue: "Relaxed", table: "BodyMetricsKit")
         case .medium:
-            return String(localized: "stress.band.medium", defaultValue: "Medium", table: "BodyMetricsKit")
+            return String(localized: "stress.band.medium", defaultValue: "Engaged", table: "BodyMetricsKit")
         case .high:
-            return String(localized: "stress.band.high", defaultValue: "High", table: "BodyMetricsKit")
+            return String(localized: "stress.band.high", defaultValue: "Stressed", table: "BodyMetricsKit")
         }
     }
 
@@ -167,6 +167,10 @@ struct StressDaySummary: Codable, Equatable {
     /// Feeds the intraday min-max range band behind the trend charts' average line.
     var minScore: Int?
     var maxScore: Int?
+    /// Minutes masked out as movement (`.activity` windows). Not a band — the day
+    /// breakdown shows it as its own row so the rows account for the whole
+    /// measured day, and the percentages share the scored + activity denominator.
+    var activityMinutes: Int
 
     enum CodingKeys: String, CodingKey {
         case date
@@ -178,6 +182,7 @@ struct StressDaySummary: Codable, Equatable {
         case rmssdDailyMedian
         case minScore
         case maxScore
+        case activityMinutes
     }
 
     init(
@@ -189,7 +194,8 @@ struct StressDaySummary: Codable, Equatable {
         quietHRMedian: Double? = nil,
         rmssdDailyMedian: Double? = nil,
         minScore: Int? = nil,
-        maxScore: Int? = nil
+        maxScore: Int? = nil,
+        activityMinutes: Int = 0
     ) {
         self.date = date
         self.averageScore = averageScore
@@ -200,6 +206,7 @@ struct StressDaySummary: Codable, Equatable {
         self.rmssdDailyMedian = rmssdDailyMedian
         self.minScore = minScore
         self.maxScore = maxScore
+        self.activityMinutes = activityMinutes
     }
 
     var band: StressBand? {
@@ -212,6 +219,12 @@ struct StressDaySummary: Codable, Equatable {
 
     var totalScoredMinutes: Int {
         StressBand.displayOrder.reduce(0) { $0 + minutes(in: $1) }
+    }
+
+    /// Scored plus masked minutes: the denominator the day breakdown's rows share,
+    /// so the four band rows and the Activity row sum to 100%.
+    var totalMeasuredMinutes: Int {
+        totalScoredMinutes + activityMinutes
     }
 
     // MARK: - Codable
@@ -242,6 +255,7 @@ struct StressDaySummary: Codable, Equatable {
         rmssdDailyMedian = try container.decodeIfPresent(Double.self, forKey: .rmssdDailyMedian)
         minScore = try container.decodeIfPresent(Int.self, forKey: .minScore)
         maxScore = try container.decodeIfPresent(Int.self, forKey: .maxScore)
+        activityMinutes = try container.decodeIfPresent(Int.self, forKey: .activityMinutes) ?? 0
     }
 
     func encode(to encoder: Encoder) throws {
@@ -258,5 +272,6 @@ struct StressDaySummary: Codable, Equatable {
         try container.encodeIfPresent(rmssdDailyMedian, forKey: .rmssdDailyMedian)
         try container.encodeIfPresent(minScore, forKey: .minScore)
         try container.encodeIfPresent(maxScore, forKey: .maxScore)
+        try container.encode(activityMinutes, forKey: .activityMinutes)
     }
 }

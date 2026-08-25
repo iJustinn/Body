@@ -167,6 +167,63 @@ extension HealthKitFetchEngine {
         )
     }
 
+    /// Main sleep session per wake day inside one bounded window, keyed by wake
+    /// day — the rest context the progressive Stress history backfill needs for
+    /// the chunk it is about to score.
+    ///
+    /// Deliberately not `fetchDailySleepHistory(hydrateVitals: false)`: that one
+    /// always queries the whole year-long trend interval, so a thirteen-chunk
+    /// walk would re-read every night thirteen times. This reads the chunk only.
+    /// The query starts a day early so a session that began the evening before
+    /// the chunk's first day is still grouped onto it.
+    ///
+    /// `nil` means the query failed (device locked, store unavailable,
+    /// unresolved source selection) rather than "no nights": the caller must
+    /// abandon the chunk instead of scoring it with the sleep mask missing.
+    func fetchStressBackfillSleepIntervals(
+        startDate: Date,
+        endDate: Date,
+        calendar: Calendar
+    ) async -> [Date: DateInterval]? {
+        guard permissionSelection.includes(.sleep),
+              HKObjectType.categoryType(forIdentifier: .sleepAnalysis) != nil else {
+            return [:]
+        }
+        if sourceSelectionUnresolved(for: .sleep) {
+            return nil
+        }
+
+        let queryStart = calendar.date(byAdding: .day, value: -1, to: startDate) ?? startDate
+        let predicate = combinedPredicate(startDate: queryStart, endDate: endDate, sourceKind: .sleep)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+
+        let samplesOutcome = await BodySleepFetch.sleepSamples(
+            store: healthStore,
+            predicate: predicate,
+            sort: sort,
+            onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
+        )
+        guard case .success(let sleepSamples) = samplesOutcome else {
+            return nil
+        }
+
+        let groupings = sleepDayGroupings(
+            from: sleepSamples,
+            calendar: calendar,
+            showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
+            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
+        )
+
+        var intervalsByWakeDay: [Date: DateInterval] = [:]
+        for grouping in groupings {
+            guard let interval = grouping.mainSessionInterval else {
+                continue
+            }
+            intervalsByWakeDay[calendar.startOfDay(for: grouping.day.date)] = interval
+        }
+        return intervalsByWakeDay
+    }
+
     private func hydrateSleepVitals(
         for groupings: [SleepDayGrouping],
         cachedSleepHistory: SleepHistorySnapshot?

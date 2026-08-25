@@ -690,7 +690,8 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "your stress score",
             "Calibrating",
             "stress.status.noData",
-            "Time by Band",
+            "stress.stage.activity",
+            "stress.stage.baselineLegend",
             "No Stress yet today"
         ]
 
@@ -713,7 +714,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "stress.band.medium.explanation",
             "stress.band.high.explanation",
             "About Stress",
-            "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal — the load your body is under — not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any score appears."
+            "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. The variability measure is RMSSD (root mean square of successive differences), computed from the beat to beat heartbeat recordings your Apple Watch saves, with SDNN used as a fallback when those recordings are not available. Your baseline is built from your own history using a robust median and a MAD (median absolute deviation) comparison, so a score reflects how far a moment sits from your normal rather than from anyone else. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal, the load your body is under, not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any score appears."
         ]
 
         try assertKeysTranslated(keys, in: catalog)

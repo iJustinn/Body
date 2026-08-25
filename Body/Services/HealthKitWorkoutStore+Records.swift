@@ -133,7 +133,18 @@ extension HealthKitWorkoutStore {
     /// The fetch runs on the engine actor, so the only main-actor work here is the
     /// ledger fold itself — bounded by one year of workouts, once per install.
     private func runRecordBaselineBackfill(capturedEpoch: Int) async {
-        defer { recordBackfillTask = nil }
+        defer {
+            recordBackfillTask = nil
+            // Re-offer the Stress backfill slot on every exit — success, an
+            // early bail, or a fetch failure — mirroring how the Stress input
+            // load already does when it finishes. `finishRefresh` starts this
+            // scan before calling `scheduleStressBackfillIfNeeded()`, so that
+            // first call always stands down on `recordBackfillTask`, and the
+            // input load's own re-offer usually fires while this multi-year
+            // scan is still running. Without a re-offer here, nothing left
+            // re-checks the guard once both of those moments have passed.
+            scheduleStressBackfillIfNeeded()
+        }
 
         let calendar = Calendar.bodyGregorian
         // A nil earliest date means either "no workouts at all" or "reads we

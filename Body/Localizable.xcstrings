@@ -412,6 +412,22 @@
         }
       }
     },
+    "%@, %@, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, %2$@, %3$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@、%2$@、%3$@"
+          }
+        }
+      }
+    },
     "%@, no activity ring data" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -10276,6 +10292,7 @@
       }
     },
     "Score" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11754,6 +11771,40 @@
         }
       }
     },
+    "stress.stage.activity" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "活动"
+          }
+        }
+      }
+    },
+    "stress.stage.baselineLegend" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personal baseline"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "个人基准"
+          }
+        }
+      }
+    },
     "stress.status.noData" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12203,23 +12254,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "时间"
-          }
-        }
-      }
-    },
-    "Time by Band" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Time by Band"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按等级划分的时长"
           }
         }
       }

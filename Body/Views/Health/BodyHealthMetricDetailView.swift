@@ -1225,13 +1225,6 @@ struct BodyHealthMetricDetailView: View {
         .bodyCardBackground(translucent: true)
     }
 
-    private var stressBandBreakdownCard: some View {
-        BodyStressBandBreakdownChart(summary: selectedStressDaySummary)
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .bodyCardBackground(translucent: true)
-    }
-
     private func cardioFitnessLevelExplanationRow(level: CardioFitnessLevel, isCurrent: Bool) -> some View {
         HStack(alignment: .top, spacing: 12) {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
@@ -1557,9 +1550,6 @@ struct BodyHealthMetricDetailView: View {
             }
             if model.kind == .cardioFitness {
                 cardioFitnessLevelCard(activeLevel: activeCardioFitnessLevel)
-            }
-            if model.kind == .stress {
-                stressBandBreakdownCard
             }
             helpTextCard
             dataSourceFooter
@@ -1985,6 +1975,17 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
+                // Stress folds its old separate "Time by Band" card into this one, so
+                // the day's average heads the card the breakdown rows belong to.
+                if model.kind == .stress, let averageScore = selectedStressDaySummary?.averageScore {
+                    BodyAnimatedMetricValueText(
+                        value: "\(averageScore)",
+                        fontSize: 22,
+                        color: .secondary,
+                        minimumScaleFactor: 0.75
+                    )
+                }
+
                 if !dayComparisonLegendItems.isEmpty {
                     BodyHealthSourceLegend(
                         items: dayComparisonLegendItems,
@@ -1998,19 +1999,19 @@ struct BodyHealthMetricDetailView: View {
                 if model.kind == .stress {
                     // Discrete banded windows (scored / activity / unscored gap)
                     // don't fit the continuous-line day chart, so Stress gets its
-                    // own bar chart instead of `BodyHealthMetricDayChart`.
-                    if selectedStressWindows.contains(where: { $0.isScored || $0.state == .activity }) {
-                        BodyStressIntradayChart(windows: selectedStressWindows)
-                            .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
-                            .transition(dayChartTransition)
-                    } else {
-                        Text("No data for this day")
-                            .font(.system(.body, design: .rounded))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, minHeight: BodyHealthDetailChartLayout.dayChartHeight)
-                            .transition(dayChartTransition)
-                    }
+                    // own Canvas plot instead of `BodyHealthMetricDayChart`. It
+                    // stays mounted on every day — the no-data state is drawn
+                    // inside it, because swapping it for a `Text` (or keying it on
+                    // the day) would tear down the morph coordinator.
+                    BodyStressIntradayPlot(
+                        windows: selectedStressWindows,
+                        dayInterval: selectedMetricDayInterval,
+                        contextIntervals: selectedStressDayContextIntervals,
+                        title: model.title,
+                        floatingCallout: floatingCallout
+                    )
+                    .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
+                    .transition(dayChartTransition)
                 } else if selectedMetricDaySeries.isEmpty && selectedMetricSecondaryDaySeries.isEmpty {
                     Text("No data for this day")
                         .font(.system(.body, design: .rounded))
@@ -2056,6 +2057,17 @@ struct BodyHealthMetricDetailView: View {
                         transaction.animation = nil
                     }
                 }
+            }
+
+            // The band breakdown lives in this card rather than its own: the rows
+            // read the same day the plot above them draws.
+            if model.kind == .stress,
+               selectedStressWindows.contains(where: { $0.isScored || $0.state == .activity }) {
+                BodyStressDayBreakdownRows(
+                    summary: selectedStressDaySummary,
+                    recordedDays: workoutStore.healthTrends.recordedStressDays
+                )
+                .padding(.top, -14)
             }
         }
         .padding(18)
@@ -2305,6 +2317,55 @@ struct BodyHealthMetricDetailView: View {
         default:
             return true
         }
+    }
+
+    /// Sleep and workout shading for the Stress intraday plot. Kept separate from
+    /// `selectedMetricDayContextIntervals` (whose exact source text is guarded by
+    /// `ProjectConfigurationTests`) and deliberately narrower: the plot's marks are
+    /// 15-minute blocks, so per-nap bands would clutter it — the main sleep session
+    /// and each workout are the context that explains a masked or elevated stretch.
+    private var selectedStressDayContextIntervals: [BodyHealthMetricDayContextInterval] {
+        guard model.kind == .stress else {
+            return []
+        }
+
+        let dayInterval = selectedMetricDayInterval
+        var intervals: [BodyHealthMetricDayContextInterval] = []
+
+        if let sleepInterval = sleepSummary(for: selectedMetricDay)?.stageSnapshot.mainSession.dateInterval,
+           let clipped = sleepInterval.clamped(to: dayInterval) {
+            intervals.append(
+                BodyHealthMetricDayContextInterval(
+                    kind: .sleep,
+                    startDate: clipped.start,
+                    endDate: clipped.end,
+                    title: "Sleep",
+                    symbolName: "bed.double.fill",
+                    color: Color(red: 0.20, green: 0.72, blue: 1.00)
+                )
+            )
+        }
+
+        for workout in workouts(on: dayInterval) {
+            // `duration` excludes paused time; the band must match the scoring
+            // mask, which uses the workout's real end.
+            let end = workout.effectiveEndDate
+            guard let clipped = DateInterval(start: workout.startDate, end: end).clamped(to: dayInterval) else {
+                continue
+            }
+            intervals.append(
+                BodyHealthMetricDayContextInterval(
+                    kind: .workout,
+                    startDate: clipped.start,
+                    endDate: clipped.end,
+                    title: workoutStore.workoutCustomNames[workout.id] ?? workout.type.displayName,
+                    symbolName: workout.type.symbolName,
+                    color: workoutColorPalette.color(for: workout.type)
+                )
+            )
+        }
+
+        return intervals.sorted { $0.startDate < $1.startDate }
     }
 
     private var selectedMetricDayContextIntervals: [BodyHealthMetricDayContextInterval] {

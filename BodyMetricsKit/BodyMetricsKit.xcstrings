@@ -6100,13 +6100,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "High"
+            "value" : "Stressed"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "高"
+            "value" : "紧张"
           }
         }
       }
@@ -6134,13 +6134,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Low"
+            "value" : "Relaxed"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "低"
+            "value" : "放松"
           }
         }
       }
@@ -6168,13 +6168,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Medium"
+            "value" : "Engaged"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "中"
+            "value" : "投入"
           }
         }
       }
@@ -6230,19 +6230,19 @@
         }
       }
     },
-    "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal — the load your body is under — not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any score appears." : {
+    "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. The variability measure is RMSSD (root mean square of successive differences), computed from the beat to beat heartbeat recordings your Apple Watch saves, with SDNN used as a fallback when those recordings are not available. Your baseline is built from your own history using a robust median and a MAD (median absolute deviation) comparison, so a score reflects how far a moment sits from your normal rather than from anyone else. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal, the load your body is under, not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any score appears." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal — the load your body is under — not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any score appears."
+            "value" : "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. The variability measure is RMSSD (root mean square of successive differences), computed from the beat to beat heartbeat recordings your Apple Watch saves, with SDNN used as a fallback when those recordings are not available. Your baseline is built from your own history using a robust median and a MAD (median absolute deviation) comparison, so a score reflects how far a moment sits from your normal rather than from anyone else. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal, the load your body is under, not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any score appears."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "压力评分对比一天中相对安静时段的心率和心率变异性与你自己的基准线。运动本身就会提高心率，因此运动和活跃时段会被屏蔽而不参与评分，心率数据不足的时段则留空，而不会被算作平静。\n它是对生理唤醒水平——也就是身体承受负荷程度——的估计，不代表心理压力，也不构成诊断。运动、咖啡因、生病、高温和兴奋都可能使它升高。建立你的基准线大约需要两周的数据，之后才会出现评分。"
+            "value" : "压力评分对比一天中相对安静时段的心率和心率变异性与你自己的基准线。心率变异性采用 RMSSD（相邻心搏间期差值的均方根），由 Apple Watch 记录的逐搏心跳数据算出；当没有逐搏数据时，会自动回退到 SDNN。基准线由你自己的历史数据建立，使用中位数与 MAD（中位数绝对偏差）构成的稳健比较，因此分数反映的是当下与你个人常态的差距，而不是与他人相比。运动本身就会提高心率，因此运动和活跃时段会被屏蔽而不参与评分，心率数据不足的时段则留空，而不会被算作平静。\n它是对生理唤醒水平，也就是身体承受负荷程度的估计，不代表心理压力，也不构成诊断。运动、咖啡因、生病、高温和兴奋都可能使它升高。建立你的基准线大约需要两周的数据，之后才会出现评分。"
           }
         }
       }

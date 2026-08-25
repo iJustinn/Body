@@ -115,6 +115,15 @@ struct HealthTrendSnapshot: Codable, Equatable {
     /// metrics read different inputs, so a change to one must not drop the
     /// other's records (see `recalculatingStress`).
     var recordedStressContext: String
+    /// Exclusive end (start-of-day) of the range the progressive Stress history
+    /// backfill has already walked. `nil` means it has never run, so the walk
+    /// starts at its horizon. Cleared alongside `recordedStressDays` when the
+    /// record context changes, so a permission or source switch rescans.
+    var stressBackfillScannedThrough: Date?
+    /// True once the backfill has walked from its horizon up to the live
+    /// computed window, which the per-refresh recompute keeps current from then
+    /// on. Stops the scan from restarting on every launch.
+    var stressBackfillComplete: Bool
     /// Per-day frozen "morning" readiness records (captured ~10 min after wake).
     /// The charts read these; later intra-day drain never touches them. Carried
     /// forward across refreshes (see HealthKitFetchEngine.fetchHealthTrends).
@@ -179,6 +188,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         stepsDaySamplesSecondary: .empty,
         recordedStressDays: [],
         recordedStressContext: "",
+        stressBackfillScannedThrough: nil,
+        stressBackfillComplete: false,
         recordedReadiness: [],
         recordedReadinessContext: ""
     )
@@ -289,6 +300,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         stepsDaySamplesSecondary: HealthTrendSeries = .empty,
         recordedStressDays: [StressDaySummary] = [],
         recordedStressContext: String = "",
+        stressBackfillScannedThrough: Date? = nil,
+        stressBackfillComplete: Bool = false,
         recordedReadiness: [RecordedReadinessEntry] = [],
         recordedReadinessContext: String = ""
     ) {
@@ -343,6 +356,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.stepsDaySamplesSecondary = stepsDaySamplesSecondary
         self.recordedStressDays = recordedStressDays
         self.recordedStressContext = recordedStressContext
+        self.stressBackfillScannedThrough = stressBackfillScannedThrough
+        self.stressBackfillComplete = stressBackfillComplete
         self.recordedReadiness = recordedReadiness
         self.recordedReadinessContext = recordedReadinessContext
     }
@@ -399,6 +414,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case stepsDaySamplesSecondary
         case recordedStressDays
         case recordedStressContext
+        case stressBackfillScannedThrough
+        case stressBackfillComplete
         case recordedReadiness
         case recordedReadinessContext
     }
@@ -537,6 +554,14 @@ struct HealthTrendSnapshot: Codable, Equatable {
             String.self,
             forKey: .recordedStressContext
         ) ?? ""
+        stressBackfillScannedThrough = try container.decodeIfPresent(
+            Date.self,
+            forKey: .stressBackfillScannedThrough
+        )
+        stressBackfillComplete = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .stressBackfillComplete
+        ) ?? false
         recordedReadiness = try container.decodeIfPresent(
             [RecordedReadinessEntry].self,
             forKey: .recordedReadiness
@@ -902,6 +927,13 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.stress = .empty
             filtered.stressRanges = .empty
             filtered.recordedStressDays = []
+            // The backfill's marker describes the records just dropped above —
+            // leaving it set (especially `stressBackfillComplete`) would permanently
+            // block the walk from rescanning once Heart is re-enabled, because the
+            // context signature it resumes under is unchanged (mirrors the same
+            // reset in `HealthDashboardSnapshot.recalculatingStress`).
+            filtered.stressBackfillScannedThrough = nil
+            filtered.stressBackfillComplete = false
             filtered.sleepHistory = strippingSleepVitals(filtered.sleepHistory) {
                 $0.heartRate = nil
                 $0.heartRateVariability = nil

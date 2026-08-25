@@ -42,7 +42,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
         case .stress:
             return HealthMetricDetailHelpText(
                 title: String(localized: "About Stress", table: "BodyMetricsKit"),
-                body: String(localized: "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal — the load your body is under — not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any score appears.", table: "BodyMetricsKit")
+                body: String(localized: "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. The variability measure is RMSSD (root mean square of successive differences), computed from the beat to beat heartbeat recordings your Apple Watch saves, with SDNN used as a fallback when those recordings are not available. Your baseline is built from your own history using a robust median and a MAD (median absolute deviation) comparison, so a score reflects how far a moment sits from your normal rather than from anyone else. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal, the load your body is under, not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any score appears.", table: "BodyMetricsKit")
             )
         case .sleep:
             return HealthMetricDetailHelpText(
@@ -855,8 +855,23 @@ struct HealthDashboardSnapshot: Codable, Equatable {
     /// recompute at ≤ 34 days × ≤ 100 windows, inside the refresh deadline.
     private static let stressComputedDayLimit = 34
     /// Recorded days outlive the day-sample cache and carry the baseline
-    /// aggregates, so they are kept far longer — but still pruned.
-    static let stressRecordedDayRetention = 120
+    /// aggregates, so they are kept far longer — but still pruned. Wide enough
+    /// for the Year chart (365 days) plus a baseline halo of older days, which
+    /// is what lets the progressive history backfill score its oldest year day
+    /// against real prior history rather than leaving it uncalibrated.
+    static let stressRecordedDayRetention = 400
+
+    /// First day the per-refresh recompute covers. The history backfill stops
+    /// here: everything from this day on is rescanned from the intraday cache on
+    /// every refresh, so walking into it would only overwrite richer records
+    /// (the backfill fetches no beat-to-beat RMSSD) with poorer ones.
+    static func stressComputedWindowStart(scoreDay: Date, calendar: Calendar) -> Date {
+        calendar.date(
+            byAdding: .day,
+            value: -(stressComputedDayLimit - 1),
+            to: calendar.startOfDay(for: scoreDay)
+        ) ?? calendar.startOfDay(for: scoreDay)
+    }
 
     /// Recomputes Stress end to end: today's rollup (`summary.stress`), the daily
     /// history series (`trends.stress`), and the recorded per-day entries whose
@@ -889,6 +904,11 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         if let recordedStressContext, next.trends.recordedStressContext != recordedStressContext {
             next.trends.recordedStressDays = []
             next.trends.recordedStressContext = recordedStressContext
+            // The backfill's marker describes the days it just dropped, so it
+            // has to go with them: leaving it behind would report a completed
+            // history walk over records that no longer exist.
+            next.trends.stressBackfillScannedThrough = nil
+            next.trends.stressBackfillComplete = false
         }
 
         let inputs = next.stressDayInputs(through: scoreDay, workouts: workouts, calendar: calendar)
@@ -925,12 +945,36 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             now: now
         )
 
-        let cutoff = calendar.date(byAdding: .day, value: -Self.stressRecordedDayRetention, to: scoreDay) ?? scoreDay
-        next.trends.recordedStressDays = summaries.filter { calendar.startOfDay(for: $0.date) >= cutoff }
+        next.trends.recordedStressDays = Self.pruningRecordedStressDays(summaries, before: scoreDay, calendar: calendar)
         // Built from the merged summaries rather than a second `dailySeries` call
         // so the windows are scored exactly once per recompute.
-        next.trends.stress = HealthTrendSeries(
-            points: next.trends.recordedStressDays.compactMap { summary in
+        Self.applyStressSeries(to: &next.trends, calendar: calendar)
+        next.summary.stress = next.trends.recordedStressDays.last {
+            calendar.startOfDay(for: $0.date) == scoreDay
+        }
+
+        return next
+    }
+
+    /// Recorded days older than `stressRecordedDayRetention` dropped, sorted.
+    private static func pruningRecordedStressDays(
+        _ summaries: [StressDaySummary],
+        before scoreDay: Date,
+        calendar: Calendar
+    ) -> [StressDaySummary] {
+        let cutoff = calendar.date(byAdding: .day, value: -stressRecordedDayRetention, to: scoreDay) ?? scoreDay
+        return summaries
+            .filter { calendar.startOfDay(for: $0.date) >= cutoff }
+            .sorted { $0.date < $1.date }
+    }
+
+    /// Rebuilds `stress` and `stressRanges` from `recordedStressDays`. They are
+    /// separate stored fields, so anything that changes the records — the
+    /// per-refresh recompute and the history backfill alike — has to run this or
+    /// the charts keep rendering the previous set of days.
+    private static func applyStressSeries(to trends: inout HealthTrendSnapshot, calendar: Calendar) {
+        trends.stress = HealthTrendSeries(
+            points: trends.recordedStressDays.compactMap { summary in
                 summary.averageScore.map {
                     HealthTrendDataPoint(date: calendar.startOfDay(for: summary.date), value: Double($0))
                 }
@@ -938,8 +982,8 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         )
         // Range points only for days with a scored min and max — a day with
         // neither never contributes a zero-width band.
-        next.trends.stressRanges = HealthTrendRangeSeries(
-            points: next.trends.recordedStressDays.compactMap { summary -> HealthTrendRangeDataPoint? in
+        trends.stressRanges = HealthTrendRangeSeries(
+            points: trends.recordedStressDays.compactMap { summary -> HealthTrendRangeDataPoint? in
                 guard let minScore = summary.minScore, let maxScore = summary.maxScore else {
                     return nil
                 }
@@ -952,10 +996,79 @@ struct HealthDashboardSnapshot: Codable, Equatable {
                 )
             }
         )
-        next.summary.stress = next.trends.recordedStressDays.last {
-            calendar.startOfDay(for: $0.date) == scoreDay
+    }
+
+    // MARK: - History backfill
+
+    /// The baseline context one chunk of the progressive history backfill scores
+    /// against: exactly the reduction `recalculatingStress` performs, with the
+    /// chunk's own days folded into the quiet-HR medians.
+    ///
+    /// Folding the whole chunk in at once is what makes the FORWARD walk work.
+    /// `robustBaseline` only ever reads values dated strictly before the day it
+    /// is scoring, so a chunk's later days score against its earlier ones while
+    /// its earlier days score against the records the previous chunks left
+    /// behind — and never against days that are still in the future for them.
+    ///
+    /// SDNN comes from the year-long daily series already in the trends (the
+    /// backfill's transient per-chunk samples would only ever bootstrap 30 days
+    /// of it). RMSSD baselines stay live-window only: backfilled days carry no
+    /// beat-to-beat medians, so historical days score on HR + SDNN.
+    func stressBackfillContext(
+        chunkInputs: [StressDayInput],
+        calendar: Calendar = .bodyGregorian,
+        now: Date = Date()
+    ) -> StressDailySeriesContext {
+        StressDailySeriesContext(
+            quietHeartRateDailyMedians: Self.stressQuietHeartRateDailyMedians(
+                recorded: trends.recordedStressDays,
+                computed: chunkInputs,
+                calendar: calendar,
+                now: now
+            ),
+            sdnnSamples: trends.heartRateVariability.points,
+            rmssdSamples: Self.stressRMSSDDailyMedians(
+                recorded: trends.recordedStressDays,
+                daySamples: trends.heartbeatRMSSDDaySamples,
+                calendar: calendar
+            ),
+            calendar: calendar
+        )
+    }
+
+    /// Folds one backfilled chunk into the snapshot: recorded days upserted (a
+    /// day the live recompute already owns is left alone — it was scored with
+    /// beat-to-beat RMSSD this walk does not fetch), the two stress series
+    /// rebuilt from the result, and the walk marker advanced.
+    ///
+    /// One call so the store publishes and persists all three together: a marker
+    /// that outran its records would leave a permanent hole in the history.
+    /// Never touches `summary.stress` — the backfill only ever scores days older
+    /// than the live computed window.
+    func mergingStressBackfillChunk(
+        _ summaries: [StressDaySummary],
+        scannedThrough: Date,
+        complete: Bool,
+        on date: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> HealthDashboardSnapshot {
+        var next = self
+        var summariesByDay: [Date: StressDaySummary] = [:]
+        for summary in summaries {
+            summariesByDay[calendar.startOfDay(for: summary.date)] = summary
+        }
+        for entry in next.trends.recordedStressDays {
+            summariesByDay[calendar.startOfDay(for: entry.date)] = entry
         }
 
+        next.trends.recordedStressDays = Self.pruningRecordedStressDays(
+            Array(summariesByDay.values),
+            before: calendar.startOfDay(for: date),
+            calendar: calendar
+        )
+        Self.applyStressSeries(to: &next.trends, calendar: calendar)
+        next.trends.stressBackfillScannedThrough = scannedThrough
+        next.trends.stressBackfillComplete = complete
         return next
     }
 
@@ -1063,11 +1176,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         workouts: [WorkoutSummary],
         calendar: Calendar
     ) -> [StressDayInput] {
-        let windowStart = calendar.date(
-            byAdding: .day,
-            value: -(Self.stressComputedDayLimit - 1),
-            to: scoreDay
-        ) ?? scoreDay
+        let windowStart = Self.stressComputedWindowStart(scoreDay: scoreDay, calendar: calendar)
         let heartRateByDay = Self.stressPointsByDay(
             trends.heartRateDaySamples.points,
             from: windowStart,
