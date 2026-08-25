@@ -1,5 +1,10 @@
 # Version History
 
+## 1.0.1 (build 3)
+
+- **Stress day card polish.** The Day View header's average now uses the same "Avg" legend style as the other intraday charts, the workout/sleep symbols sit above the plot edge exactly like the heart-rate day chart's, and the band breakdown gains sleep's Stage/Pct./Duration column titles plus a "Percent of measured time" axis caption. The duration column is wider so Chinese durations like 10小时30分 no longer shrink, and the intraday plot drops its right-hand 0–100 axis labels to span the card's full width.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 3.
+
 ## 1.0.1 (build 2)
 
 - Updated the app, widget, watch, and test bundle version to 1.0.1 build 2.
