@@ -2699,7 +2699,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedDown = BodyHomeCardKind.reordered(order, moving: .sleep, to: .basics)
         XCTAssertEqual(
             Array(movedDown.prefix(9)),
-            [.vitals, .trainingLoad, .basics, .sleep, .heartRate, .heartRateVariability, .readiness, .activeEnergy, .restingEnergy]
+            [.vitals, .trainingLoad, .basics, .sleep, .heartRate, .heartRateVariability, .readiness, .stress, .activeEnergy]
         )
         XCTAssertEqual(movedDown.last, .activityRings)
         XCTAssertEqual(Set(movedDown), Set(order))
@@ -2708,7 +2708,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedUp = BodyHomeCardKind.reordered(order, moving: .activeEnergy, to: .sleep)
         XCTAssertEqual(
             Array(movedUp.prefix(9)),
-            [.activeEnergy, .sleep, .vitals, .trainingLoad, .basics, .heartRate, .heartRateVariability, .readiness, .restingEnergy]
+            [.activeEnergy, .sleep, .vitals, .trainingLoad, .basics, .heartRate, .heartRateVariability, .readiness, .stress]
         )
         XCTAssertEqual(movedUp.last, .activityRings)
         XCTAssertEqual(Set(movedUp), Set(order))
@@ -2782,6 +2782,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             BodyHomeTrendCardKind.defaultOrder.map(\.metricKind),
             [
                 .readiness,
+                .stress,
                 .heartRate,
                 .restingHeartRate,
                 .heartRateVariability,
@@ -3534,6 +3535,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             sourcedKinds,
             [
                 .readiness,
+                .stress,
                 .sleep,
                 .basics,
                 .heartRate,

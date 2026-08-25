@@ -101,6 +101,7 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
         let snapshot = fixtureSnapshot()
         let card = BodyWorkoutShareSummaryCardView(
             summary: WorkoutShareMonthSummary(snapshot: snapshot, initialChartStyle: chartStyle),
+            palette: .builtIn,
             chartStyle: chartStyle,
             showsWeekdayHeader: showsWeekdayHeader,
             metrics: fixtureMetrics(count: metricCount),

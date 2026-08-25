@@ -1336,7 +1336,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(contextBlock.contains(#"symbolName: "moon.zzz.fill""#))
         XCTAssertFalse(contextBlock.contains(#"symbolName: "moon.fill""#))
         XCTAssertTrue(contextBlock.contains("workouts(on: dayInterval)"))
-        XCTAssertTrue(contextBlock.contains("color: workout.type.color"))
+        XCTAssertTrue(contextBlock.contains("color: workoutColorPalette.color(for: workout.type)"))
         XCTAssertFalse(contextBlock.contains("color: Color(red: 1.00, green: 0.38, blue: 0.12)"))
         XCTAssertTrue(chartBlock.contains(".foregroundStyle(interval.color)"))
         XCTAssertFalse(chartBlock.contains("interval.kind == .sleep ? Color.white : interval.color"))
@@ -3274,7 +3274,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
         let project = try text(at: "body.xcodeproj/project.pbxproj")
-        let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, running form, swim strokes, distance, date of birth, and biological sex from Apple Health to power your dashboard, charts, and widgets."
+        let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, beat-to-beat heart rhythm data, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, running form, swim strokes, distance, date of birth, and biological sex from Apple Health to power your dashboard, charts, and widgets."
 
         XCTAssertEqual(project.occurrenceCount(of: usageDescription), 2)
         XCTAssertFalse(project.contains("Body reads workout, sleep, heart, and body measurement data"))
@@ -3587,6 +3587,30 @@ final class ProjectConfigurationTests: XCTestCase {
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
 
         XCTAssertGreaterThanOrEqual(storeSource.occurrenceCount(of: "persistDaySampleSidecar()"), 6)
+    }
+
+    func testBackgroundWarningRefreshIsRegisteredAndScoped() throws {
+        // Info.plist must declare the background mode and the exact task
+        // identifier the scheduler registers/submits, or BGTaskScheduler
+        // silently refuses to run the task on device.
+        let infoPlist = try text(at: "Body/Info.plist")
+        XCTAssertTrue(infoPlist.contains("<string>fetch</string>"))
+        XCTAssertTrue(infoPlist.contains("<string>com.zihengthedeveloper.Body.warningRefresh</string>"))
+
+        let schedulerSource = try text(at: "Body/Services/BodyBackgroundRefreshScheduler.swift")
+        XCTAssertTrue(schedulerSource.contains(#"static let taskIdentifier = "com.zihengthedeveloper.Body.warningRefresh""#))
+        XCTAssertTrue(infoPlist.contains("com.zihengthedeveloper.Body.warningRefresh"))
+        XCTAssertTrue(schedulerSource.contains("com.zihengthedeveloper.Body.warningRefresh"))
+
+        // The background evaluator must stay off the main actor and must not
+        // reach into `HealthKitWorkoutStore`'s @MainActor-isolated store
+        // surface — only its `nonisolated` custom-groups loader, which is the
+        // one piece of that store the evaluator legitimately needs.
+        let evaluatorSource = try text(at: "Body/Services/MetricWarningBackgroundEvaluator.swift")
+        XCTAssertTrue(evaluatorSource.contains("actor MetricWarningBackgroundEvaluator"))
+        XCTAssertFalse(evaluatorSource.contains("@MainActor"))
+        XCTAssertTrue(evaluatorSource.contains("HealthKitWorkoutStore.loadCustomHealthSourceGroups(defaults:"))
+        XCTAssertEqual(evaluatorSource.occurrenceCount(of: "HealthKitWorkoutStore."), 1)
     }
 
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
