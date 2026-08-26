@@ -652,7 +652,13 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = [
             "pr.badge",
             "pr.accessibility.personalRecord",
-            "pr.accessibility.formerPersonalRecord"
+            "pr.accessibility.formerPersonalRecord",
+            // The workout filter sheet's Records section (title, caption, and
+            // its two standing rows).
+            "pr.filter.sectionTitle",
+            "pr.filter.sectionDetail",
+            "pr.filter.current",
+            "pr.filter.former"
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -685,9 +691,9 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
 
         let keys = [
             "Stress",
-            "Stress score trend",
+            "Stress level trend",
             "Stress from heart rate and HRV",
-            "your stress score",
+            "your stress level",
             "Calibrating",
             "stress.status.noData",
             "stress.stage.activity",
@@ -714,8 +720,22 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "stress.band.medium.explanation",
             "stress.band.high.explanation",
             "About Stress",
-            "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. The variability measure is RMSSD (root mean square of successive differences), computed from the beat to beat heartbeat recordings your Apple Watch saves, with SDNN used as a fallback when those recordings are not available. Your baseline is built from your own history using a robust median and a MAD (median absolute deviation) comparison, so a score reflects how far a moment sits from your normal rather than from anyone else. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal, the load your body is under, not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any score appears."
+            "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. The variability measure is RMSSD (root mean square of successive differences), computed from the beat to beat heartbeat recordings your Apple Watch saves, with SDNN used as a fallback when those recordings are not available. Your baseline is built from your own history using a robust median and a MAD (median absolute deviation) comparison, so a level reflects how far a moment sits from your normal rather than from anyone else. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal, the load your body is under, not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any level appears."
         ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    /// `EnergyEquivalent.Food.name` uses `LocalizedStringResource` literals with dotted
+    /// keys, which the source-scraping tests above (regex over `String(localized: "...")`
+    /// calls) cannot see — so the food table's keys are enumerated directly here instead.
+    func testEnergyEquivalentFoodKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = EnergyEquivalent.foods.map(\.name.key)
+        // Guards the enumeration itself: a refactor dropping foods would otherwise
+        // silently check fewer keys and still pass.
+        XCTAssertEqual(keys.count, 12, "expected one key per EnergyEquivalent.Food")
 
         try assertKeysTranslated(keys, in: catalog)
     }

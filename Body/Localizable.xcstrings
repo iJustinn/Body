@@ -1085,6 +1085,23 @@
         }
       }
     },
+    "About the Equivalent Card" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About the Equivalent Card"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于热量等价卡片"
+          }
+        }
+      }
+    },
     "About These Details" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3076,6 +3093,22 @@
         }
       }
     },
+    "Collision Vibration" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collision Vibration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "碰撞震动"
+          }
+        }
+      }
+    },
     "Combine Sources with Same Name" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4313,6 +4346,262 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "数据充足时：只有包含心率数据的运动才会获得预测；没有心率的运动会留空，交由你评分。"
+          }
+        }
+      }
+    },
+    "Equivalent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Equivalent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "热量等价"
+          }
+        }
+      }
+    },
+    "Equivalent turns this workout's active energy into a handful of food emoji, so a calorie count feels more tangible. Each food stands for a fixed estimate rather than something looked up in a nutrition database, so it is only a playful comparison — not dietary advice." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Equivalent turns this workout's active energy into a handful of food emoji, so a calorie count feels more tangible. Each food stands for a fixed estimate rather than something looked up in a nutrition database, so it is only a playful comparison — not dietary advice."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "热量等价把这次运动消耗的活动能量换算成几种食物表情符号，让卡路里数字更直观。每种食物对应一个固定的估算值，而不是查自营养数据库，所以这只是一个有趣的类比，并非饮食建议。"
+          }
+        }
+      }
+    },
+    "equivalent.accessibility.emojis %lld %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld food equivalents: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 种食物等价：%@"
+          }
+        }
+      }
+    },
+    "equivalent.food.avocado" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avocado"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "牛油果"
+          }
+        }
+      }
+    },
+    "equivalent.food.beer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beer"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "啤酒"
+          }
+        }
+      }
+    },
+    "equivalent.food.bread" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bread Slice"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一片面包"
+          }
+        }
+      }
+    },
+    "equivalent.food.burger" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Burger"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "汉堡"
+          }
+        }
+      }
+    },
+    "equivalent.food.chocolate" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chocolate Square"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一块巧克力"
+          }
+        }
+      }
+    },
+    "equivalent.food.dumpling" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dumpling"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "饺子"
+          }
+        }
+      }
+    },
+    "equivalent.food.fries" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fries"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "薯条"
+          }
+        }
+      }
+    },
+    "equivalent.food.iceCream" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ice Cream"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "冰淇淋"
+          }
+        }
+      }
+    },
+    "equivalent.food.kcalFormat %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "≈ %lld kcal"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "约 %lld 千卡"
+          }
+        }
+      }
+    },
+    "equivalent.food.noodles" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noodles"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一碗面"
+          }
+        }
+      }
+    },
+    "equivalent.food.pizza" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pizza Slice"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一块披萨"
+          }
+        }
+      }
+    },
+    "equivalent.food.rice" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rice Bowl"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一碗米饭"
+          }
+        }
+      }
+    },
+    "equivalent.food.sushi" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sushi Roll"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "寿司"
           }
         }
       }
@@ -5678,6 +5967,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "浅色"
+          }
+        }
+      }
+    },
+    "Light haptics when foods bump into each other" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Light haptics when foods bump into each other"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "食物碰撞时轻轻震动"
           }
         }
       }
@@ -9039,6 +9344,74 @@
         }
       }
     },
+    "pr.filter.current" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current Records"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前纪录"
+          }
+        }
+      }
+    },
+    "pr.filter.former" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Former Records"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "曾创纪录"
+          }
+        }
+      }
+    },
+    "pr.filter.sectionDetail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show only workouts with a personal record"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅显示创下个人纪录的运动"
+          }
+        }
+      }
+    },
+    "pr.filter.sectionTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Records"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "纪录"
+          }
+        }
+      }
+    },
     "Pressure" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11770,19 +12143,19 @@
         }
       }
     },
-    "Stress score trend" : {
+    "Stress level trend" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Stress score trend"
+            "value" : "Stress level trend"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "压力评分趋势"
+            "value" : "压力值趋势"
           }
         }
       }
@@ -12019,6 +12392,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "这次训练中你通过运动消耗的能量，即在静息消耗之上多出的部分。这就是「健康」计入你「活动」圆环的数值。"
+          }
+        }
+      }
+    },
+    "The Food Table" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Food Table"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "食物对照表"
           }
         }
       }
@@ -12869,6 +13258,22 @@
         }
       }
     },
+    "Vibration plays a soft tap whenever two foods collide in the Equivalent card. Turn it off if you'd rather the card stay silent." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vibration plays a soft tap whenever two foods collide in the Equivalent card. Turn it off if you'd rather the card stay silent."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每当两种食物在热量等价卡片中碰撞时，都会轻轻震动一下。如果你希望卡片保持安静，可以关闭它。"
+          }
+        }
+      }
+    },
     "Video" : {
       "localizations" : {
         "en" : {
@@ -13346,6 +13751,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此设备不支持运动强度。"
+          }
+        }
+      }
+    },
+    "Workout Equivalents" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout Equivalents"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动热量等价"
           }
         }
       }
@@ -14226,19 +14647,19 @@
         }
       }
     },
-    "your stress score" : {
+    "your stress level" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "your stress score"
+            "value" : "your stress level"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你的压力评分"
+            "value" : "你的压力值"
           }
         }
       }
