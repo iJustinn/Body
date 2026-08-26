@@ -31,6 +31,9 @@ struct BodyWorkoutsView: View {
     @State private var showingMonthPicker = false
     @State private var selectedSortOption: BodyWorkoutListSortOption = .dateDescending
     @State private var selectedWorkoutTypes = Set(BodyWorkoutType.allCases)
+    /// Empty = the records filter is off; otherwise the list narrows to workouts
+    /// whose record standings intersect this set.
+    @State private var selectedRecordStandings: Set<WorkoutRecordStanding> = []
     @State private var selectedWorkoutForDetails: WorkoutSummary?
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
@@ -222,6 +225,7 @@ struct BodyWorkoutsView: View {
             .sheet(isPresented: $showingFilterSheet) {
                 BodyWorkoutFilterView(
                     selectedWorkoutTypes: $selectedWorkoutTypes,
+                    selectedRecordStandings: $selectedRecordStandings,
                     workoutTypes: availableWorkoutTypes
                 )
                 .presentationDetents([.medium, .large])
@@ -310,7 +314,7 @@ struct BodyWorkoutsView: View {
 
         guard !normalizedSearchText.isEmpty else {
             return allWorkouts.filter { workout in
-                selectedWorkoutTypes.contains(workout.type)
+                selectedWorkoutTypes.contains(workout.type) && matchesRecordFilter(workout)
             }
         }
 
@@ -324,7 +328,7 @@ struct BodyWorkoutsView: View {
         )
 
         return allWorkouts.filter { workout in
-            guard selectedWorkoutTypes.contains(workout.type) else {
+            guard selectedWorkoutTypes.contains(workout.type), matchesRecordFilter(workout) else {
                 return false
             }
 
@@ -358,6 +362,19 @@ struct BodyWorkoutsView: View {
 
     private var hasActiveFilters: Bool {
         BodyWorkoutFilterLogic.hasActiveFilters(selectedTypes: selectedWorkoutTypes)
+            || !selectedRecordStandings.isEmpty
+    }
+
+    /// True when the workout passes the records filter: with nothing selected the
+    /// filter is off, otherwise the workout's AGGREGATE standing — the one its row
+    /// badge displays via `rowRecordStanding(for:)` — must be among the selected
+    /// ones. Matching per-metric standings instead would let a workout that holds
+    /// one record but lost another pass the Former filter while wearing a gold
+    /// current-record badge.
+    private func matchesRecordFilter(_ workout: WorkoutSummary) -> Bool {
+        guard !selectedRecordStandings.isEmpty else { return true }
+        guard let standing = workoutStore.rowRecordStanding(for: workout) else { return false }
+        return selectedRecordStandings.contains(standing)
     }
 
     private var localizedMonthTitle: String {
@@ -580,6 +597,7 @@ struct BodyWorkoutsView: View {
 
                 Button {
                     selectedWorkoutTypes = Set(BodyWorkoutType.allCases)
+                    selectedRecordStandings = []
                 } label: {
                     Text("Reset Filters")
                         .foregroundColor(.accentColor)
@@ -1107,6 +1125,8 @@ struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsRouteOnLoad = true
+    @AppStorage(BodyAppearancePreference.workoutEquivalentHapticsEnabledKey) private var workoutEquivalentHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.workoutEquivalentHiddenFoodsKey) private var workoutEquivalentHiddenFoodsRawValue = BodyEquivalentFoodSelection.defaultRawValue
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     /// Where every detail chart's hold-to-scrub callout is published; the overlay
     /// below draws it above the page's Back/Share chrome.
@@ -1166,6 +1186,8 @@ struct BodyWorkoutDetailSheet: View {
     @State private var showsFullScreenRouteMap = false
     @State private var showsShareSheet = false
     @State private var showsDetailsExplanation = false
+    @State private var equivalentEmojis: [String]?
+    @State private var showsEquivalentExplanation = false
     /// Resting content-space y of the metrics column's top — the distance text when
     /// the workout has one, the duration otherwise. Measured in the content coordinate
     /// space (which doesn't move with scroll), so it settles on layout instead of per
@@ -1218,6 +1240,9 @@ struct BodyWorkoutDetailSheet: View {
     /// Invisible slop on all four sides of the Details card's help button, so its
     /// 18 pt glyph still meets the 44 pt minimum target without changing the header.
     private static let detailsHelpTapSlop: CGFloat = 13
+    /// Invisible slop on all four sides of the Equivalent card's help button, mirroring
+    /// `detailsHelpTapSlop`.
+    private static let equivalentHelpTapSlop: CGFloat = 13
 
     private var routeStyle: BodyWorkoutRouteStyle {
         BodyWorkoutRouteStyle(rawValue: workoutRouteStyleRawValue) ?? .defaultValue
@@ -1750,6 +1775,9 @@ struct BodyWorkoutDetailSheet: View {
             VStack(spacing: 18) {
                 topEntryPanel(presentation: presentation, records: records)
                 workoutDetailsCard(presentation: presentation, records: records)
+                if let equivalentEmojis, !equivalentEmojis.isEmpty {
+                    equivalentCard(emojis: equivalentEmojis)
+                }
                 effortCard
                 heartRateSection(presentation: presentation)
                 // Each of these cards exists only once its series (or the route) has
@@ -1815,6 +1843,12 @@ struct BodyWorkoutDetailSheet: View {
             .padding(.top, contentTopPadding)
             .padding(.bottom, 22)
             .readableContentColumn()
+            .task(id: workout.id) {
+                await loadEquivalentEmojis()
+            }
+            .onChange(of: workoutEquivalentHiddenFoodsRawValue) { _, _ in
+                Task { await loadEquivalentEmojis() }
+            }
         }
         .coordinateSpace(.named(Self.contentSpace))
     }
@@ -2117,6 +2151,56 @@ struct BodyWorkoutDetailSheet: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
+    }
+
+    /// The hidden-food set backing the Equivalent card's breakdown and settings sheet.
+    private var equivalentHiddenFoods: Set<String> {
+        BodyEquivalentFoodSelection.storedValue(from: workoutEquivalentHiddenFoodsRawValue).hiddenFoods
+    }
+
+    private func equivalentCard(emojis: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Equivalent")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    showsEquivalentExplanation = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(Self.equivalentHelpTapSlop)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(-Self.equivalentHelpTapSlop)
+                .accessibilityLabel(BodyEnergyEquivalentExplanationSheet.sheetTitle)
+            }
+
+            EnergyEquivalentCardContent(emojis: emojis, hapticsEnabled: workoutEquivalentHapticsEnabled)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity)
+        .bodyCardBackground(cornerRadius: 30, translucent: true)
+        .bodyCardFadeIn()
+        .sheet(isPresented: $showsEquivalentExplanation) {
+            BodyEnergyEquivalentExplanationSheet()
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// Fetches (or recomputes, on a hidden-foods change) the Equivalent breakdown.
+    /// Attached unconditionally in `compactWorkoutContent` — not on `equivalentCard`
+    /// itself — since that card only renders once `equivalentEmojis` is already
+    /// non-empty, so a `.task` scoped to it would never get the first fetch.
+    private func loadEquivalentEmojis() async {
+        equivalentEmojis = await workoutStore.energyEquivalentEmojis(for: workout, hiddenFoods: equivalentHiddenFoods)
     }
 
     /// The effort to display — a rating the user just saved this session (kept on

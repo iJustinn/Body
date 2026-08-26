@@ -314,6 +314,13 @@ extension BodyAppearancePreference {
 
     /// The user's on-device avatar, stored as a small JPEG. Empty `Data` means none.
     static let profileAvatarDataKey = "profileAvatarData"
+
+    /// Whether the workout detail Equivalent card's collision haptics fire. Default true.
+    static let workoutEquivalentHapticsEnabledKey = "workoutEquivalentHapticsEnabled"
+
+    /// Comma-joined emoji of `EnergyEquivalent.Food`s hidden from the Equivalent card.
+    /// Empty string means none are hidden.
+    static let workoutEquivalentHiddenFoodsKey = "workoutEquivalentHiddenFoods"
 }
 
 /// The local-only user profile shown at the top of Settings. Nothing here is
@@ -456,6 +463,46 @@ struct BodySummaryCardSelection: Equatable {
         }
         defaults.set(true, forKey: BodyAppearancePreference.summaryCardStressMigratedKey)
         return migrated
+    }
+}
+
+/// Which `EnergyEquivalent.Food`s are hidden from the workout detail Equivalent
+/// card, stored as a comma-joined emoji string (empty = none hidden — no
+/// separate "none" sentinel is needed since hiding everything just hides the
+/// card entirely).
+struct BodyEquivalentFoodSelection: Equatable {
+    static let defaultValue = BodyEquivalentFoodSelection(hiddenFoods: [])
+    static let defaultRawValue = defaultValue.rawValue
+
+    var hiddenFoods: Set<String>
+
+    var rawValue: String {
+        hiddenFoods.sorted().joined(separator: ",")
+    }
+
+    func isVisible(_ food: EnergyEquivalent.Food) -> Bool {
+        !hiddenFoods.contains(food.emoji)
+    }
+
+    func setting(_ food: EnergyEquivalent.Food, isVisible: Bool) -> BodyEquivalentFoodSelection {
+        var nextHidden = hiddenFoods
+        if isVisible {
+            nextHidden.remove(food.emoji)
+        } else {
+            nextHidden.insert(food.emoji)
+        }
+
+        return BodyEquivalentFoodSelection(hiddenFoods: nextHidden)
+    }
+
+    static func storedValue(from rawValue: String) -> BodyEquivalentFoodSelection {
+        let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedValue.isEmpty else {
+            return defaultValue
+        }
+
+        let emojis = Set(trimmedValue.split(separator: ",").map(String.init))
+        return BodyEquivalentFoodSelection(hiddenFoods: emojis)
     }
 }
 
@@ -1046,7 +1093,7 @@ enum BodyHomeTrendCardKind: String, CaseIterable, Identifiable {
         case .readiness:
             return String(localized: "Readiness score trend")
         case .stress:
-            return String(localized: "Stress score trend")
+            return String(localized: "Stress level trend")
         case .heartRate:
             return String(localized: "Average heart rate trend")
         case .restingHeartRate:
@@ -1358,11 +1405,14 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         }
     }
 
-    var isBeta: Bool {
+    /// Per-kind beta chip label — Readiness keeps the original "v1" chip, Stress
+    /// shows "Beta v1" instead, and every other card carries no chip at all.
+    var betaVersionLabel: LocalizedStringKey? {
         switch self {
-        case .readiness,
-             .stress:
-            return true
+        case .readiness:
+            return "v1"
+        case .stress:
+            return "Beta v1"
         case .vitals,
              .cardioFitness,
              .activityRings,
@@ -1380,8 +1430,12 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
              .respiratoryRate,
              .activeEnergy,
              .restingEnergy:
-            return false
+            return nil
         }
+    }
+
+    var isBeta: Bool {
+        betaVersionLabel != nil
     }
 
     var iconName: String {

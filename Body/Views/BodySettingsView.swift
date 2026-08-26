@@ -38,6 +38,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
+    @AppStorage(BodyAppearancePreference.workoutEquivalentHapticsEnabledKey) private var workoutEquivalentHapticsEnabled = true
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
     // Empty `Data` is "no photo" — `@AppStorage` has no optional-Data overload.
@@ -525,6 +526,21 @@ struct BodySettingsView: View {
             settingsDivider
 
             Button {
+                activeSheet = .workoutEquivalents
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Workout Equivalents",
+                    value: workoutEquivalentHapticsSummaryText,
+                    iconName: "fork.knife",
+                    tintColor: .purple,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
                 activeSheet = .effortSuggestions
             } label: {
                 BodySettingsRowLabel(
@@ -574,6 +590,10 @@ struct BodySettingsView: View {
 
     private var workoutEffortSuggestionsSummaryText: String {
         showWorkoutEffortSuggestions ? String(localized: "On") : String(localized: "Off")
+    }
+
+    private var workoutEquivalentHapticsSummaryText: String {
+        workoutEquivalentHapticsEnabled ? String(localized: "On") : String(localized: "Off")
     }
 
     private var readinessAISummaryText: String {
@@ -837,6 +857,8 @@ struct BodySettingsView: View {
                 autoApply: $autoApplyWorkoutEffort,
                 workoutStore: workoutStore
             )
+        case .workoutEquivalents:
+            BodyWorkoutEquivalentsSettingsSheet(hapticsEnabled: $workoutEquivalentHapticsEnabled)
         case .workoutRouteStyle:
             BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle, drawsRoute: $drawsWorkoutRouteOnLoad)
         case .aiReadiness:
@@ -941,6 +963,7 @@ enum BodySettingsSheet: String, Identifiable {
     case dayView
     case metricWarnings
     case effortSuggestions
+    case workoutEquivalents
     case workoutRouteStyle
     case aiReadiness
     case units
@@ -2984,6 +3007,133 @@ struct BodyEffortSuggestionToggleRow: View {
     }
 }
 
+private struct BodyWorkoutEquivalentsSettingsSheet: View {
+    @Binding var hapticsEnabled: Bool
+    @AppStorage(BodyAppearancePreference.workoutEquivalentHiddenFoodsKey) private var hiddenFoodsRawValue = BodyEquivalentFoodSelection.defaultRawValue
+
+    private var foodSelection: Binding<BodyEquivalentFoodSelection> {
+        Binding {
+            BodyEquivalentFoodSelection.storedValue(from: hiddenFoodsRawValue)
+        } set: { newValue in
+            hiddenFoodsRawValue = newValue.rawValue
+        }
+    }
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Workout Equivalents") {
+            VStack(alignment: .leading, spacing: 12) {
+                BodyWorkoutEquivalentHapticsToggleRow(isEnabled: $hapticsEnabled)
+                    .bodyCardBackground(translucent: true)
+
+                Text("Vibration plays a soft tap whenever two foods collide in the Equivalent card. Turn it off if you'd rather the card stay silent.")
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+
+                VStack(spacing: 0) {
+                    ForEach(EnergyEquivalent.foods) { food in
+                        BodyEquivalentFoodToggleRow(
+                            food: food,
+                            isEnabled: Binding {
+                                foodSelection.wrappedValue.isVisible(food)
+                            } set: { isVisible in
+                                foodSelection.wrappedValue = foodSelection.wrappedValue.setting(food, isVisible: isVisible)
+                            }
+                        )
+
+                        if food.id != EnergyEquivalent.foods.last?.id {
+                            Divider()
+                                .padding(.leading, 76)
+                        }
+                    }
+                }
+                .bodyCardBackground(translucent: true)
+            }
+        }
+    }
+}
+
+private struct BodyWorkoutEquivalentHapticsToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "fork.knife",
+                color: .purple
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Collision Vibration")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Light haptics when foods bump into each other")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Collision Vibration", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyEquivalentFoodToggleRow: View {
+    let food: EnergyEquivalent.Food
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text(food.emoji)
+                .font(.system(size: 30))
+                .frame(width: 44, height: 44)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(food.name)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("equivalent.food.kcalFormat \(Int(food.kilocalories))")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle(isOn: $isEnabled) {
+                Text(food.name)
+            }
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
 private struct BodyReadinessAISettingsSheet: View {
     @Binding var isEnabled: Bool
     let isSupported: Bool
@@ -3125,8 +3275,8 @@ private struct BodySummaryCardToggleRow: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
 
-                    if card.isBeta {
-                        Text("v1")
+                    if let betaVersionLabel = card.betaVersionLabel {
+                        Text(betaVersionLabel)
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.blue)
                             .padding(.horizontal, 7)
