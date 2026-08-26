@@ -111,6 +111,18 @@ extension HealthKitWorkoutStore {
             guard mayApplyStressBackfill(capturedEpoch: capturedEpoch, capturedSignature: capturedSignature) else {
                 return
             }
+            // Stand down BEFORE spending a chunk's queries, not just before its
+            // publish: a user-visible refresh is competing for the same
+            // HealthKit store, and this walk is part of what pushes it toward
+            // the 120s deadline. Best-effort only — a refresh that starts
+            // between this wake and the fetches below still overlaps, and the
+            // post-fetch barrier is what keeps that case correct.
+            while isRefreshing {
+                await awaitNextRefreshCompletion()
+                guard mayApplyStressBackfill(capturedEpoch: capturedEpoch, capturedSignature: capturedSignature) else {
+                    return
+                }
+            }
 
             let chunkEnd = min(
                 calendar.date(byAdding: .day, value: Self.stressBackfillChunkDays, to: cursor) ?? end,
@@ -243,14 +255,12 @@ extension HealthKitWorkoutStore {
             activityRingHistory: activityRingHistory
         )
         return await Task.detached(priority: .utility) {
-            let context = snapshot.stressBackfillContext(chunkInputs: inputs, calendar: calendar, now: now)
-            return inputs.map { input in
-                StressScoreCalculator.daySummary(
-                    for: input,
-                    baselines: context.baselines(for: input.date),
-                    calendar: calendar,
-                    now: now
-                )
+            // Each day scanned once: the same analyses feed the quiet-HR medians
+            // the context reduces and the summaries scored against it.
+            let analyses = inputs.map { StressDayAnalysis(input: $0, calendar: calendar, now: now) }
+            let context = snapshot.stressBackfillContext(chunkAnalyses: analyses, calendar: calendar)
+            return analyses.map { analysis in
+                analysis.summary(baselines: context.baselines(for: analysis.date))
             }
         }.value
     }
