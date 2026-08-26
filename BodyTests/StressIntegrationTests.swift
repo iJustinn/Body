@@ -584,11 +584,143 @@ final class StressIntegrationTests: XCTestCase {
         XCTAssertFalse(decodedLegacy.stressBackfillComplete)
     }
 
+    // MARK: - Current score
+
+    /// The home card's band has to describe RIGHT NOW, so the field carries the
+    /// latest scored window rather than the day average — which on a day that
+    /// started calm and ended tense are different bands.
+    func testRecalculatingStressRecordsLatestWindowAsCurrentScore() throws {
+        let scoringDay = day(2025, 3, 10)
+        let now = scoringDay.addingTimeInterval(12 * 3_600)
+
+        var trends = HealthTrendSnapshot.empty
+        trends.recordedStressDays = recordedBaselineDays(
+            endingBefore: scoringDay,
+            dayCount: 20,
+            quietHRMedian: 60
+        )
+        // Calm morning, tense late morning: the average sits between the two.
+        var samples = heartRateSamples(dayStart: scoringDay, windowRange: 24..<40, value: 60)
+        samples += heartRateSamples(dayStart: scoringDay, windowRange: 40..<48, value: 95)
+        trends.heartRateDaySamples = HealthTrendSeries(points: samples)
+
+        let recomputed = snapshot(trends: trends).recalculatingStress(
+            on: scoringDay,
+            calendar: calendar,
+            now: now
+        )
+
+        let current = try XCTUnwrap(recomputed.summary.stressCurrentScore)
+        let windows = recomputed.stressWindows(for: scoringDay, calendar: calendar, now: now)
+        let latest = try XCTUnwrap(windows.last(where: \.isScored)?.score)
+        XCTAssertEqual(current, Int(latest.rounded()))
+        XCTAssertNotEqual(current, recomputed.summary.stress?.averageScore)
+    }
+
+    /// A reading from hours ago is history: presenting it as the current band
+    /// would tell a user who took the watch off at lunch that they are still
+    /// stressed at bedtime.
+    func testRecalculatingStressDropsStaleCurrentScore() {
+        let scoringDay = day(2025, 3, 10)
+        let now = scoringDay.addingTimeInterval(12 * 3_600)
+
+        var trends = HealthTrendSnapshot.empty
+        trends.recordedStressDays = recordedBaselineDays(
+            endingBefore: scoringDay,
+            dayCount: 20,
+            quietHRMedian: 60
+        )
+        // Coverage stops at 10:00 — two hours before `now`.
+        trends.heartRateDaySamples = HealthTrendSeries(
+            points: heartRateSamples(dayStart: scoringDay, windowRange: 24..<40, value: 95)
+        )
+
+        let recomputed = snapshot(trends: trends).recalculatingStress(
+            on: scoringDay,
+            calendar: calendar,
+            now: now
+        )
+
+        XCTAssertNotNil(recomputed.summary.stress?.averageScore)
+        XCTAssertNil(recomputed.summary.stressCurrentScore)
+    }
+
+    /// The clearing path: no inputs and no records means no stress at all, and
+    /// the current reading has to go with the day summary rather than linger.
+    func testRecalculatingStressWithoutAnyInputClearsCurrentScore() {
+        let scoringDay = day(2025, 3, 10)
+        var summary = HealthSummarySnapshot.empty
+        summary.stress = StressDaySummary(date: scoringDay, averageScore: 40)
+        summary.stressCurrentScore = 71
+
+        let recomputed = snapshot(trends: .empty, summary: summary).recalculatingStress(
+            on: scoringDay,
+            calendar: calendar,
+            now: scoringDay.addingTimeInterval(12 * 3_600)
+        )
+
+        XCTAssertNil(recomputed.summary.stress)
+        XCTAssertNil(recomputed.summary.stressCurrentScore)
+        XCTAssertTrue(recomputed.trends.stress.isEmpty)
+    }
+
+    /// `stressCurrentScore` rides the same three snapshot operations
+    /// `summary.stress` does — a hole in any of them leaves a current band on a
+    /// card whose day summary has been cleared or replaced.
+    func testCurrentScoreFollowsStressThroughSnapshotOperations() throws {
+        var summary = HealthSummarySnapshot.empty
+        summary.stressCurrentScore = 71
+        XCTAssertFalse(summary.isEmpty)
+
+        let withoutHeart = summary.filtered(by: BodyHealthPermissionSelection(enabledPermissions: [.steps]))
+        XCTAssertNil(withoutHeart.stressCurrentScore)
+        XCTAssertTrue(withoutHeart.isEmpty)
+
+        var refreshed = HealthSummarySnapshot.empty
+        refreshed.stress = StressDaySummary(date: day(2025, 3, 10), averageScore: 40)
+        refreshed.stressCurrentScore = 12
+        let replaced = summary.replacingMetric(.stress, with: refreshed)
+        XCTAssertEqual(replaced.stressCurrentScore, 12)
+        XCTAssertEqual(replaced.stress, refreshed.stress)
+        // A refresh that has no current reading must clear the old one, not keep it.
+        XCTAssertNil(replaced.replacingMetric(.stress, with: .empty).stressCurrentScore)
+    }
+
+    /// New optional on a long-lived persisted snapshot: absent decodes to `nil`,
+    /// and an absent value stays absent on the way back out so the store's
+    /// save-if-changed byte compare doesn't see a phantom change.
+    ///
+    /// `stressCurrentScore` is deliberately TRANSIENT: it carries no timestamp,
+    /// so a persisted value reopened hours later couldn't be re-checked against
+    /// `stressCurrentScoreMaxAge` and would present an old reading as the current
+    /// band until the first recompute. It must never survive an encode/decode.
+    func testCurrentScoreIsTransientAcrossCodable() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let decoder = JSONDecoder()
+
+        var withCurrent = HealthSummarySnapshot.empty
+        withCurrent.stressCurrentScore = 71
+        let encoded = try XCTUnwrap(String(data: encoder.encode(withCurrent), encoding: .utf8))
+        XCTAssertFalse(encoded.contains("stressCurrentScore"))
+        XCTAssertNil(
+            try decoder.decode(HealthSummarySnapshot.self, from: encoder.encode(withCurrent)).stressCurrentScore
+        )
+
+        // Even a hand-crafted payload carrying the old key must not restore it.
+        let legacyPayload = try decoder.decode(
+            HealthSummarySnapshot.self,
+            from: Data(#"{"metricWarnings":[],"stressCurrentScore":71}"#.utf8)
+        )
+        XCTAssertNil(legacyPayload.stressCurrentScore)
+    }
+
     // MARK: - Permissions
 
     func testFilteringWithoutHeartStripsStress() {
         var summary = HealthSummarySnapshot.empty
         summary.stress = StressDaySummary(date: day(2025, 3, 10), averageScore: 40)
+        summary.stressCurrentScore = 71
         var trends = HealthTrendSnapshot.empty
         trends.stress = HealthTrendSeries(points: [HealthTrendDataPoint(date: day(2025, 3, 10), value: 40)])
         trends.recordedStressDays = [StressDaySummary(date: day(2025, 3, 10), averageScore: 40)]
@@ -603,6 +735,7 @@ final class StressIntegrationTests: XCTestCase {
 
         let withoutHeart = summary.filtered(by: BodyHealthPermissionSelection(enabledPermissions: [.steps]))
         XCTAssertNil(withoutHeart.stress)
+        XCTAssertNil(withoutHeart.stressCurrentScore)
 
         let filteredTrends = trends.filtered(by: BodyHealthPermissionSelection(enabledPermissions: [.steps]))
         XCTAssertTrue(filteredTrends.stress.isEmpty)
@@ -988,4 +1121,341 @@ final class StressIntegrationTests: XCTestCase {
         XCTAssertEqual(half.tracks[0].opacity, 0.5, accuracy: 0.0001)
         XCTAssertEqual(half.tracks[1].opacity, 0.5, accuracy: 0.0001)
     }
+
+    // MARK: - Golden oracle
+
+    /// A fixed multi-day fixture: 18 days of intraday heart rate inside the
+    /// computed window (rising afternoons, a hot evening block), SDNN and
+    /// beat-to-beat RMSSD on some of them, an hourly step spike and a workout as
+    /// the two activity masks, and 25 older recorded days feeding the cross-day
+    /// robust baseline.
+    private func goldenFixture() -> (snapshot: HealthDashboardSnapshot, scoringDay: Date, workouts: [WorkoutSummary], now: Date) {
+        let scoringDay = day(2025, 3, 10)
+        let now = scoringDay.addingTimeInterval(14 * 3_600 + 30 * 60)
+        let windowStart = calendar.date(byAdding: .day, value: -17, to: scoringDay) ?? scoringDay
+
+        var trends = HealthTrendSnapshot.empty
+        trends.recordedStressDays = recordedBaselineDays(
+            endingBefore: windowStart,
+            dayCount: 25,
+            quietHRMedian: 61
+        )
+
+        var heartRate: [HealthTrendDataPoint] = []
+        var sdnn: [HealthTrendDataPoint] = []
+        var rmssd: [HealthTrendDataPoint] = []
+        var steps: [HealthTrendDataPoint] = []
+        var dailySDNN: [HealthTrendDataPoint] = []
+        var workouts: [WorkoutSummary] = []
+
+        for offset in stride(from: 17, through: 0, by: -1) {
+            guard let dayStart = calendar.date(byAdding: .day, value: -offset, to: scoringDay) else {
+                continue
+            }
+            let quiet = 58 + Double((offset * 7) % 11)
+            heartRate += heartRateSamples(dayStart: dayStart, windowRange: 24..<40, value: quiet)
+            heartRate += heartRateSamples(dayStart: dayStart, windowRange: 40..<56, value: quiet + Double(offset % 5) * 4)
+            heartRate += heartRateSamples(dayStart: dayStart, windowRange: 56..<64, value: quiet + 17)
+            dailySDNN.append(HealthTrendDataPoint(date: dayStart.addingTimeInterval(3 * 3_600), value: 44 - Double(offset % 7)))
+
+            if offset % 3 == 0 {
+                sdnn.append(HealthTrendDataPoint(date: dayStart.addingTimeInterval(11 * 3_600), value: 40 - Double(offset % 9)))
+            }
+            if offset % 4 == 1 {
+                rmssd.append(HealthTrendDataPoint(date: dayStart.addingTimeInterval(13 * 3_600), value: 33 + Double(offset % 6)))
+            }
+            if offset % 5 == 2 {
+                // One hour past the movement threshold — the coarse mask.
+                steps.append(HealthTrendDataPoint(date: dayStart.addingTimeInterval(12 * 3_600), value: 900))
+            }
+            if offset % 6 == 3 {
+                let start = dayStart.addingTimeInterval(9 * 3_600)
+                workouts.append(
+                    WorkoutSummary(
+                        type: .running,
+                        startDate: start,
+                        duration: 3_600,
+                        endDate: start.addingTimeInterval(3_600)
+                    )
+                )
+            }
+        }
+
+        trends.heartRateDaySamples = HealthTrendSeries(points: heartRate)
+        trends.heartRateVariabilityDaySamples = HealthTrendSeries(points: sdnn)
+        trends.heartbeatRMSSDDaySamples = HealthTrendSeries(points: rmssd)
+        trends.stepsDaySamples = HealthTrendSeries(points: steps)
+        trends.heartRateVariability = HealthTrendSeries(points: dailySDNN)
+
+        return (snapshot(trends: trends), scoringDay, workouts, now)
+    }
+
+    /// One line per recorded day and per scored window — everything the pipeline
+    /// derives, in a form a diff can point at.
+    private func goldenDigest(
+        for recomputed: HealthDashboardSnapshot,
+        scoringDay: Date,
+        workouts: [WorkoutSummary],
+        now: Date
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MM-dd"
+
+        func number(_ value: Double?) -> String {
+            value.map { String(format: "%.4f", $0) } ?? "-"
+        }
+
+        var lines: [String] = []
+        for entry in recomputed.trends.recordedStressDays {
+            let bands = StressBand.displayOrder
+                .map { "\($0.rawValue):\(entry.minutes(in: $0))" }
+                .joined(separator: ",")
+            lines.append(
+                [
+                    "day \(formatter.string(from: entry.date))",
+                    "avg=\(entry.averageScore.map(String.init) ?? "-")",
+                    "min=\(entry.minScore.map(String.init) ?? "-")",
+                    "max=\(entry.maxScore.map(String.init) ?? "-")",
+                    "scored=\(entry.scoredWindowCount)",
+                    "hrv=\(entry.hrvCoveredWindowCount)",
+                    "quiet=\(number(entry.quietHRMedian))",
+                    "rmssd=\(number(entry.rmssdDailyMedian))",
+                    "activity=\(entry.activityMinutes)",
+                    bands
+                ].joined(separator: " ")
+            )
+        }
+        lines.append("series=\(recomputed.trends.stress.points.count)")
+        for point in recomputed.trends.stress.points {
+            lines.append("point \(formatter.string(from: point.date)) \(number(point.value))")
+        }
+        for point in recomputed.trends.stressRanges.points {
+            lines.append(
+                "range \(formatter.string(from: point.date)) \(number(point.lowValue)) \(number(point.highValue)) \(number(point.averageValue))"
+            )
+        }
+
+        formatter.dateFormat = "MM-dd HH:mm"
+        let windows = recomputed.stressWindows(
+            for: scoringDay,
+            workouts: workouts,
+            calendar: calendar,
+            now: now
+        )
+        lines.append("windows=\(windows.count)")
+        for window in windows {
+            let state: String
+            switch window.state {
+            case let .scored(score, hrOnly):
+                state = "scored \(number(score)) hrOnly=\(hrOnly)"
+            case .activity:
+                state = "activity"
+            case .unscored:
+                state = "unscored"
+            }
+            lines.append("w \(formatter.string(from: window.interval.start)) \(state)")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    /// The equivalence oracle for refactors of the scoring pipeline: the whole
+    /// `recalculatingStress` + `stressWindows` output on a fixed fixture, frozen
+    /// as a literal. The behavioural tests above assert relationships; this one
+    /// asserts the exact numbers, so a restructuring that changes any score,
+    /// aggregate, mask decision, or series point fails here even when every
+    /// relationship still holds.
+    func testStressPipelineMatchesGoldenOutput() throws {
+        let fixture = goldenFixture()
+        let recomputed = fixture.snapshot.recalculatingStress(
+            on: fixture.scoringDay,
+            workouts: fixture.workouts,
+            calendar: calendar,
+            now: fixture.now
+        )
+
+        let digest = goldenDigest(
+            for: recomputed,
+            scoringDay: fixture.scoringDay,
+            workouts: fixture.workouts,
+            now: fixture.now
+        )
+
+        let expected = Self.stressGoldenDigest.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let actual = digest.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        XCTAssertEqual(actual.count, expected.count, "line count drifted")
+        for (index, line) in actual.enumerated() where index < expected.count {
+            XCTAssertEqual(line, expected[index], "line \(index)")
+        }
+    }
+
+    private static let stressGoldenDigest = """
+    day 01-27 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 01-28 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 01-29 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 01-30 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 01-31 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-01 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-02 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-03 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-04 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-05 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-06 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-07 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-08 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-09 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-10 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-11 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-12 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-13 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-14 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-15 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-16 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-17 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-18 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-19 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-20 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
+    day 02-21 avg=82 min=62 max=100 scored=36 hrv=0 quiet=75.0000 rmssd=38.0000 activity=60 rest:0,low:0,medium:240,high:300
+    day 02-22 avg=40 min=14 max=98 scored=40 hrv=0 quiet=64.0000 rmssd=- activity=0 rest:240,low:240,medium:0,high:120
+    day 02-23 avg=52 min=38 max=99 scored=34 hrv=0 quiet=64.0000 rmssd=- activity=90 rest:0,low:390,medium:0,high:120
+    day 02-24 avg=88 min=70 max=100 scored=40 hrv=0 quiet=84.0000 rmssd=- activity=0 rest:0,low:0,medium:240,high:360
+    day 02-25 avg=64 min=18 max=98 scored=40 hrv=0 quiet=73.0000 rmssd=34.0000 activity=0 rest:240,low:0,medium:0,high:360
+    day 02-26 avg=73 min=46 max=100 scored=36 hrv=0 quiet=73.0000 rmssd=- activity=60 rest:0,low:240,medium:0,high:300
+    day 02-27 avg=32 min=8 max=96 scored=40 hrv=0 quiet=62.0000 rmssd=- activity=0 rest:480,low:0,medium:0,high:120
+    day 02-28 avg=39 min=24 max=99 scored=40 hrv=0 quiet=62.0000 rmssd=- activity=0 rest:480,low:0,medium:0,high:120
+    day 03-01 avg=84 min=54 max=100 scored=34 hrv=0 quiet=82.0000 rmssd=36.0000 activity=90 rest:0,low:0,medium:180,high:330
+    day 03-02 avg=58 min=10 max=97 scored=40 hrv=0 quiet=71.0000 rmssd=- activity=0 rest:240,low:0,medium:0,high:360
+    day 03-03 avg=64 min=30 max=99 scored=36 hrv=0 quiet=71.0000 rmssd=- activity=60 rest:0,low:240,medium:0,high:300
+    day 03-04 avg=79 min=62 max=100 scored=40 hrv=0 quiet=71.0000 rmssd=- activity=0 rest:0,low:0,medium:240,high:360
+    day 03-05 avg=31 min=14 max=98 scored=40 hrv=0 quiet=60.0000 rmssd=38.0000 activity=0 rest:480,low:0,medium:0,high:120
+    day 03-06 avg=75 min=38 max=99 scored=40 hrv=0 quiet=80.0000 rmssd=- activity=0 rest:0,low:240,medium:0,high:360
+    day 03-07 avg=87 min=70 max=100 scored=34 hrv=5 quiet=80.0000 rmssd=- activity=90 rest:0,low:0,medium:180,high:330
+    day 03-08 avg=55 min=18 max=98 scored=36 hrv=0 quiet=69.0000 rmssd=- activity=60 rest:240,low:0,medium:0,high:300
+    day 03-09 avg=69 min=46 max=100 scored=40 hrv=0 quiet=69.0000 rmssd=34.0000 activity=0 rest:0,low:240,medium:0,high:360
+    day 03-10 avg=13 min=8 max=96 scored=34 hrv=6 quiet=58.0000 rmssd=- activity=0 rest:480,low:0,medium:0,high:30
+    series=43
+    point 01-27 30.0000
+    point 01-28 30.0000
+    point 01-29 30.0000
+    point 01-30 30.0000
+    point 01-31 30.0000
+    point 02-01 30.0000
+    point 02-02 30.0000
+    point 02-03 30.0000
+    point 02-04 30.0000
+    point 02-05 30.0000
+    point 02-06 30.0000
+    point 02-07 30.0000
+    point 02-08 30.0000
+    point 02-09 30.0000
+    point 02-10 30.0000
+    point 02-11 30.0000
+    point 02-12 30.0000
+    point 02-13 30.0000
+    point 02-14 30.0000
+    point 02-15 30.0000
+    point 02-16 30.0000
+    point 02-17 30.0000
+    point 02-18 30.0000
+    point 02-19 30.0000
+    point 02-20 30.0000
+    point 02-21 82.0000
+    point 02-22 40.0000
+    point 02-23 52.0000
+    point 02-24 88.0000
+    point 02-25 64.0000
+    point 02-26 73.0000
+    point 02-27 32.0000
+    point 02-28 39.0000
+    point 03-01 84.0000
+    point 03-02 58.0000
+    point 03-03 64.0000
+    point 03-04 79.0000
+    point 03-05 31.0000
+    point 03-06 75.0000
+    point 03-07 87.0000
+    point 03-08 55.0000
+    point 03-09 69.0000
+    point 03-10 13.0000
+    range 02-21 62.0000 100.0000 82.0000
+    range 02-22 14.0000 98.0000 40.0000
+    range 02-23 38.0000 99.0000 52.0000
+    range 02-24 70.0000 100.0000 88.0000
+    range 02-25 18.0000 98.0000 64.0000
+    range 02-26 46.0000 100.0000 73.0000
+    range 02-27 8.0000 96.0000 32.0000
+    range 02-28 24.0000 99.0000 39.0000
+    range 03-01 54.0000 100.0000 84.0000
+    range 03-02 10.0000 97.0000 58.0000
+    range 03-03 30.0000 99.0000 64.0000
+    range 03-04 62.0000 100.0000 79.0000
+    range 03-05 14.0000 98.0000 31.0000
+    range 03-06 38.0000 99.0000 75.0000
+    range 03-07 70.0000 100.0000 87.0000
+    range 03-08 18.0000 98.0000 55.0000
+    range 03-09 46.0000 100.0000 69.0000
+    range 03-10 8.0000 96.0000 13.0000
+    windows=58
+    w 03-10 00:00 unscored
+    w 03-10 00:15 unscored
+    w 03-10 00:30 unscored
+    w 03-10 00:45 unscored
+    w 03-10 01:00 unscored
+    w 03-10 01:15 unscored
+    w 03-10 01:30 unscored
+    w 03-10 01:45 unscored
+    w 03-10 02:00 unscored
+    w 03-10 02:15 unscored
+    w 03-10 02:30 unscored
+    w 03-10 02:45 unscored
+    w 03-10 03:00 unscored
+    w 03-10 03:15 unscored
+    w 03-10 03:30 unscored
+    w 03-10 03:45 unscored
+    w 03-10 04:00 unscored
+    w 03-10 04:15 unscored
+    w 03-10 04:30 unscored
+    w 03-10 04:45 unscored
+    w 03-10 05:00 unscored
+    w 03-10 05:15 unscored
+    w 03-10 05:30 unscored
+    w 03-10 05:45 unscored
+    w 03-10 06:00 scored 7.5858 hrOnly=true
+    w 03-10 06:15 scored 7.5858 hrOnly=true
+    w 03-10 06:30 scored 7.5858 hrOnly=true
+    w 03-10 06:45 scored 7.5858 hrOnly=true
+    w 03-10 07:00 scored 7.5858 hrOnly=true
+    w 03-10 07:15 scored 7.5858 hrOnly=true
+    w 03-10 07:30 scored 7.5858 hrOnly=true
+    w 03-10 07:45 scored 7.5858 hrOnly=true
+    w 03-10 08:00 scored 7.5858 hrOnly=true
+    w 03-10 08:15 scored 7.5858 hrOnly=true
+    w 03-10 08:30 scored 7.5858 hrOnly=true
+    w 03-10 08:45 scored 7.5858 hrOnly=true
+    w 03-10 09:00 scored 7.5858 hrOnly=true
+    w 03-10 09:15 scored 7.5858 hrOnly=true
+    w 03-10 09:30 scored 7.5858 hrOnly=true
+    w 03-10 09:45 scored 7.5858 hrOnly=true
+    w 03-10 10:00 scored 7.5858 hrOnly=true
+    w 03-10 10:15 scored 8.3926 hrOnly=false
+    w 03-10 10:30 scored 10.0062 hrOnly=false
+    w 03-10 10:45 scored 11.6198 hrOnly=false
+    w 03-10 11:00 scored 11.6198 hrOnly=false
+    w 03-10 11:15 scored 10.0062 hrOnly=false
+    w 03-10 11:30 scored 8.3926 hrOnly=false
+    w 03-10 11:45 scored 7.5858 hrOnly=true
+    w 03-10 12:00 scored 7.5858 hrOnly=true
+    w 03-10 12:15 scored 7.5858 hrOnly=true
+    w 03-10 12:30 scored 7.5858 hrOnly=true
+    w 03-10 12:45 scored 7.5858 hrOnly=true
+    w 03-10 13:00 scored 7.5858 hrOnly=true
+    w 03-10 13:15 scored 7.5858 hrOnly=true
+    w 03-10 13:30 scored 7.5858 hrOnly=true
+    w 03-10 13:45 scored 7.5858 hrOnly=true
+    w 03-10 14:00 scored 95.9560 hrOnly=true
+    w 03-10 14:15 scored 95.9560 hrOnly=true
+    """
 }

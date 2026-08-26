@@ -62,7 +62,7 @@ enum StressBand: String, Codable, Equatable, CaseIterable {
     var title: String {
         switch self {
         case .rest:
-            return String(localized: "stress.band.rest", defaultValue: "Rest", table: "BodyMetricsKit")
+            return String(localized: "stress.band.rest", defaultValue: "Peace", table: "BodyMetricsKit")
         case .low:
             return String(localized: "stress.band.low", defaultValue: "Relaxed", table: "BodyMetricsKit")
         case .medium:

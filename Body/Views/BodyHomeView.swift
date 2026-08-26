@@ -748,6 +748,7 @@ struct BodyHomeView: View {
             ),
             stressMetric(
                 summary: summary.stress,
+                currentScore: summary.stressCurrentScore,
                 chartPreview: trends.series(for: .stress)
             ),
             metric(
@@ -998,10 +999,15 @@ struct BodyHomeView: View {
 
     private func stressMetric(
         summary: StressDaySummary?,
+        currentScore: Int?,
         chartPreview: HealthTrendSeries
     ) -> BodyHealthMetricCard.Model {
         let scoreText = summary?.averageScore.map { "\($0)" } ?? "--"
-        let bandDisplay = summary?.band.map {
+        // Band follows the CURRENT stress reading when one is fresh (see
+        // `stressCurrentScore`'s staleness guard), falling back to the day
+        // average so the card still shows a band once any score exists.
+        let bandScore = currentScore ?? summary?.averageScore
+        let bandDisplay = bandScore.map { StressBand.band(for: $0) }.map {
             BodyMetricDisplayValue(title: "Band", value: $0.title, unit: "")
         }
 
@@ -1723,6 +1729,7 @@ struct BodyHomeView: View {
                 symbolName: "flame.fill",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .bar,
+                sleepHistory: trends.sleepHistory,
                 valueTransform: {
                     BodyValueFormat.energyValue(
                         kilocalories: $0,
@@ -1807,7 +1814,7 @@ struct BodyHomeView: View {
                 sleepScore: nil,
                 sleepVitals: nil,
                 sleepDuration: nil,
-                sleepHistory: .empty,
+                sleepHistory: trends.sleepHistory,
                 chartStyle: .line,
                 highlightedRange: BodyStressBandPresentation.make(
                     for: summary.stress?.averageScore.map(Double.init)

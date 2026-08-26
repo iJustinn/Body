@@ -304,7 +304,7 @@ enum BodyHomeTrendCardFactory {
                 symbolName: "brain.head.profile.fill",
                 symbolColor: Color(red: 0.90, green: 0.35, blue: 0.75),
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
-                messageStyle: .average(subject: "your stress score")
+                messageStyle: .average(subject: "your stress level")
             )
         case .heartRate:
             return Configuration(

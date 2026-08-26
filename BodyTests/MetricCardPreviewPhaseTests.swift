@@ -99,4 +99,31 @@ final class MetricCardPreviewPhaseTests: XCTestCase {
             XCTAssertEqual(Phase.resolved(for: model, isRefreshing: true), .data)
         }
     }
+
+    /// Vitals' "Typical"/"Below Average" and Stress's band word both render
+    /// through `BodyMetricStatusValueText`, not the numeric-value text a kind
+    /// like Heart Rate uses.
+    func testStressAndVitalsUseWordValueButHeartRateDoesNot() {
+        let stressModel = BodyHealthMetricCard.Model(
+            kind: .stress,
+            title: "Stress",
+            value: "42",
+            unit: "",
+            symbolName: "brain.head.profile.fill",
+            symbolColor: .pink
+        )
+        let vitalsModel = vitalsModel(dotEntries: [])
+        let heartRateModel = BodyHealthMetricCard.Model(
+            kind: .heartRate,
+            title: "Heart Rate",
+            value: "68",
+            unit: "bpm",
+            symbolName: "heart.fill",
+            symbolColor: .red
+        )
+
+        XCTAssertTrue(stressModel.usesWordValue)
+        XCTAssertTrue(vitalsModel.usesWordValue)
+        XCTAssertFalse(heartRateModel.usesWordValue)
+    }
 }

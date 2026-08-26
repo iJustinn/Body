@@ -154,6 +154,57 @@ struct StressBaselines: Equatable {
     }
 }
 
+/// One calendar day of stress inputs scanned exactly once.
+///
+/// The window grid, its activity/sleep mask, and each window's median heart rate
+/// do not depend on the baselines the day is scored against — but the quiet-HR
+/// prepass, the day summary, and the window list each derived them separately,
+/// so one recompute scanned every one of its ~34 days three times. The analysis
+/// holds that single scan, and `quietHRMedian` is a stored value rather than
+/// something a consumer can recompute, so the prepass that feeds the baselines
+/// and the summary that records the day can never disagree about it.
+///
+/// Deliberately NOT a filter on the day set: the scanned days are all still
+/// scored, because `robustBaseline` reads across them.
+struct StressDayAnalysis {
+    let input: StressDayInput
+    /// Start of the analysed calendar day.
+    let date: Date
+    /// The day's quiet-HR estimand from this scan — the median of unmasked, awake
+    /// window-median heart rates. `nil` when the day has no such coverage.
+    let quietHRMedian: Double?
+    fileprivate let scans: [StressScoreCalculator.WindowScan]
+
+    init(input: StressDayInput, calendar: Calendar = .bodyGregorian, now: Date = Date()) {
+        self.input = input
+        date = calendar.startOfDay(for: input.date)
+        let scans = StressScoreCalculator.windowScans(for: input, calendar: calendar, now: now)
+        self.scans = scans
+        quietHRMedian = StressScoreCalculator.median(
+            scans.compactMap { scan -> Double? in
+                guard !scan.isActivity, !scan.isAsleep else {
+                    return nil
+                }
+
+                return scan.medianHeartRate
+            }
+        )
+    }
+
+    func windows(baselines: StressBaselines) -> [StressWindow] {
+        StressScoreCalculator.windows(scans: scans, input: input, baselines: baselines)
+    }
+
+    func summary(baselines: StressBaselines) -> StressDaySummary {
+        StressScoreCalculator.daySummary(
+            windows: windows(baselines: baselines),
+            date: date,
+            quietHRMedian: quietHRMedian,
+            rmssdDailyMedian: StressScoreCalculator.median(input.rmssdSamples.map(\.value).filter(\.isFinite))
+        )
+    }
+}
+
 /// Baseline inputs reduced once and reused across every day of a series (mirrors
 /// `ReadinessScoreCalculator`'s daily-series context: the per-day aggregation is the
 /// expensive part, and it does not depend on the day being scored).
@@ -277,7 +328,7 @@ enum StressScoreCalculator {
 
     // MARK: - Windows
 
-    private struct WindowScan {
+    fileprivate struct WindowScan {
         var interval: DateInterval
         var isActivity: Bool
         var isAsleep: Bool
@@ -285,21 +336,33 @@ enum StressScoreCalculator {
         var medianHeartRate: Double?
     }
 
+    /// Scans the day and scores it. Callers holding a `StressDayAnalysis` should
+    /// go through `analysis.windows(baselines:)` instead — this rescans.
     static func windows(
         for input: StressDayInput,
         baselines: StressBaselines,
         calendar: Calendar = .bodyGregorian,
         now: Date = Date()
     ) -> [StressWindow] {
-        let scans = windowScans(for: input, calendar: calendar, now: now)
+        windows(
+            scans: windowScans(for: input, calendar: calendar, now: now),
+            input: input,
+            baselines: baselines
+        )
+    }
 
+    fileprivate static func windows(
+        scans: [WindowScan],
+        input: StressDayInput,
+        baselines: StressBaselines
+    ) -> [StressWindow] {
         // No quiet-HR baseline yet: the metric is still building its baseline, so nothing
         // is scored (rather than scored against a stand-in that would be wrong).
         guard let heartRateBaseline = baselines.quietHeartRate else {
             return scans.map { StressWindow(interval: $0.interval, state: .unscored) }
         }
 
-        let hrvSamplesByKind = calibratedHRVSamples(input: input, baselines: baselines, calendar: calendar)
+        let hrvSamplesByKind = calibratedHRVSamples(input: input, baselines: baselines)
 
         return scans.map { scan in
             if scan.isActivity {
@@ -340,25 +403,17 @@ enum StressScoreCalculator {
 
     /// The day's quiet-HR estimand: the median of unmasked, awake window-median heart
     /// rates. Computable without any baseline, so it both bootstraps the baseline from
-    /// history and accumulates into the recorded days.
+    /// history and accumulates into the recorded days. Scans the day — callers holding
+    /// a `StressDayAnalysis` read its stored `quietHRMedian` instead.
     static func quietHeartRateDailyMedian(
         for input: StressDayInput,
         calendar: Calendar = .bodyGregorian,
         now: Date = Date()
     ) -> Double? {
-        let values = windowScans(for: input, calendar: calendar, now: now)
-            .compactMap { scan -> Double? in
-                guard !scan.isActivity, !scan.isAsleep else {
-                    return nil
-                }
-
-                return scan.medianHeartRate
-            }
-
-        return median(values)
+        StressDayAnalysis(input: input, calendar: calendar, now: now).quietHRMedian
     }
 
-    private static func windowScans(
+    fileprivate static func windowScans(
         for input: StressDayInput,
         calendar: Calendar,
         now: Date
@@ -422,8 +477,7 @@ enum StressScoreCalculator {
     /// sample never discards the day's SDNN coverage.
     private static func calibratedHRVSamples(
         input: StressDayInput,
-        baselines: StressBaselines,
-        calendar: Calendar
+        baselines: StressBaselines
     ) -> [HRVKind: [HealthTrendDataPoint]] {
         var samplesByKind: [HRVKind: [HealthTrendDataPoint]] = [:]
         for kind in HRVKind.allCases where baselines.baseline(for: kind) != nil {
@@ -529,20 +583,15 @@ enum StressScoreCalculator {
         )
     }
 
+    /// Scans the day and summarises it. Callers holding a `StressDayAnalysis`
+    /// should go through `analysis.summary(baselines:)` instead — this rescans.
     static func daySummary(
         for input: StressDayInput,
         baselines: StressBaselines,
         calendar: Calendar = .bodyGregorian,
         now: Date = Date()
     ) -> StressDaySummary {
-        let dayWindows = windows(for: input, baselines: baselines, calendar: calendar, now: now)
-
-        return daySummary(
-            windows: dayWindows,
-            date: calendar.startOfDay(for: input.date),
-            quietHRMedian: quietHeartRateDailyMedian(for: input, calendar: calendar, now: now),
-            rmssdDailyMedian: median(input.rmssdSamples.map(\.value).filter(\.isFinite))
-        )
+        StressDayAnalysis(input: input, calendar: calendar, now: now).summary(baselines: baselines)
     }
 
     // MARK: - Daily series
@@ -551,26 +600,38 @@ enum StressScoreCalculator {
     /// from the recorded days, which outlive the ~32-day intraday sample cache.
     static func daySummaries(
         recorded: [StressDaySummary],
-        computedWindowDays: [StressDayInput],
+        computedWindowDays: [StressDayAnalysis],
         context: StressDailySeriesContext,
-        calendar: Calendar = .bodyGregorian,
-        now: Date = Date()
+        calendar: Calendar = .bodyGregorian
     ) -> [StressDaySummary] {
         var summariesByDay: [Date: StressDaySummary] = [:]
         for entry in recorded {
             summariesByDay[calendar.startOfDay(for: entry.date)] = entry
         }
-        for input in computedWindowDays {
-            let summary = daySummary(
-                for: input,
-                baselines: context.baselines(for: input.date),
-                calendar: calendar,
-                now: now
-            )
-            summariesByDay[calendar.startOfDay(for: input.date)] = summary
+        for analysis in computedWindowDays {
+            summariesByDay[analysis.date] = analysis.summary(baselines: context.baselines(for: analysis.date))
         }
 
         return summariesByDay.values.sorted { $0.date < $1.date }
+    }
+
+    /// Convenience for callers that hold raw inputs; scans each day once via the
+    /// analyses it builds.
+    static func daySummaries(
+        recorded: [StressDaySummary],
+        computedWindowDays: [StressDayInput],
+        context: StressDailySeriesContext,
+        calendar: Calendar = .bodyGregorian,
+        now: Date = Date()
+    ) -> [StressDaySummary] {
+        daySummaries(
+            recorded: recorded,
+            computedWindowDays: computedWindowDays.map {
+                StressDayAnalysis(input: $0, calendar: calendar, now: now)
+            },
+            context: context,
+            calendar: calendar
+        )
     }
 
     static func dailySeries(

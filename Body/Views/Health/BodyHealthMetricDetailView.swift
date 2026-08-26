@@ -1967,7 +1967,12 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var metricDayChartCard: some View {
-        VStack(alignment: .leading, spacing: 32) {
+        // Computed once per body evaluation and shared below: `selectedStressWindows`
+        // re-scores the day's windows against the live snapshot, and the plot and
+        // the breakdown-rows gate both need it.
+        let stressWindows = selectedStressWindows
+
+        return VStack(alignment: .leading, spacing: 32) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Day View")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
@@ -2007,7 +2012,7 @@ struct BodyHealthMetricDetailView: View {
                     // inside it, because swapping it for a `Text` (or keying it on
                     // the day) would tear down the morph coordinator.
                     BodyStressIntradayPlot(
-                        windows: selectedStressWindows,
+                        windows: stressWindows,
                         dayInterval: selectedMetricDayInterval,
                         contextIntervals: selectedStressDayContextIntervals,
                         title: model.title,
@@ -2068,7 +2073,7 @@ struct BodyHealthMetricDetailView: View {
             // The band breakdown lives in this card rather than its own: the rows
             // read the same day the plot above them draws.
             if model.kind == .stress,
-               selectedStressWindows.contains(where: { $0.isScored || $0.state == .activity }) {
+               stressWindows.contains(where: { $0.isScored || $0.state == .activity }) {
                 BodyStressDayBreakdownRows(
                     summary: selectedStressDaySummary,
                     recordedDays: workoutStore.healthTrends.recordedStressDays
