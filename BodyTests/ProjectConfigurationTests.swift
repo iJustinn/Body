@@ -353,6 +353,8 @@ final class ProjectConfigurationTests: XCTestCase {
             // The Details explanation sheet likewise lives in its own file, so the
             // workouts file above can keep its own backdrop and a count of zero.
             ("Body/Views/BodyWorkoutDetailsExplanationSheet.swift", 1, 0),
+            // The Equivalent card's explanation sheet, same reasoning as the Details one.
+            ("Body/Views/BodyEnergyEquivalentExplanationSheet.swift", 1, 0),
             // The readiness Impact by Activity explainer, likewise in its own file so the
             // metric detail view keeps no backdrop of its own.
             ("Body/Views/Health/BodyReadinessImpactExplanationSheet.swift", 1, 0),
@@ -1340,6 +1342,23 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(contextBlock.contains("color: Color(red: 1.00, green: 0.38, blue: 0.12)"))
         XCTAssertTrue(chartBlock.contains(".foregroundStyle(interval.color)"))
         XCTAssertFalse(chartBlock.contains("interval.kind == .sleep ? Color.white : interval.color"))
+    }
+
+    func testStressAndActiveEnergyDetailModelsPassSleepHistoryForContextBands() throws {
+        let source = try bodyHomeViewText()
+        let activeEnergyStart = try XCTUnwrap(source.range(of: "case .activeEnergy:")?.lowerBound)
+        let activeEnergyEnd = try XCTUnwrap(
+            source.range(of: "case .restingEnergy:", range: activeEnergyStart..<source.endIndex)?.lowerBound
+        )
+        let activeEnergyBlock = String(source[activeEnergyStart..<activeEnergyEnd])
+
+        let stressStart = try XCTUnwrap(source.range(of: "case .stress:")?.lowerBound)
+        let stressBlock = String(source[stressStart...].prefix(2_500))
+
+        XCTAssertTrue(activeEnergyBlock.contains("sleepHistory: trends.sleepHistory"))
+        XCTAssertFalse(activeEnergyBlock.contains("sleepHistory: .empty"))
+        XCTAssertTrue(stressBlock.contains("sleepHistory: trends.sleepHistory"))
+        XCTAssertFalse(stressBlock.contains("sleepHistory: .empty"))
     }
 
     func testMetricCardPreviewStylesMatchRequestedChartKinds() throws {
@@ -2449,6 +2468,22 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(engineSource.contains("let cachedHeartbeatRMSSDDaySamples = cachedTrends.heartbeatRMSSDDaySamples"))
     }
 
+    /// The same regression one layer up: neither readiness nor stress is fetched,
+    /// so the summary leaf of the progressive publish always carries them empty.
+    /// Publishing it as-is blanked the card for the length of every refresh —
+    /// both must be carried over from the cached summary until
+    /// `updateHealthDashboardSnapshot` recomputes them.
+    func testProgressiveSummaryPublishCarriesDerivedMetricsForward() throws {
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let publishStart = try XCTUnwrap(
+            storeSource.range(of: "healthSummary = result.summary")?.lowerBound
+        )
+        let publishBlock = String(storeSource[publishStart...].prefix(200))
+
+        XCTAssertTrue(publishBlock.contains(".replacingMetric(.readiness, with: healthSummary)"))
+        XCTAssertTrue(publishBlock.contains(".replacingMetric(.stress, with: healthSummary)"))
+    }
+
     func testSecondarySleepStageHistorySkipsVitalsHydration() throws {
         let sleepSource = try text(at: "Body/Services/HealthKitFetchEngine+Sleep.swift")
         let secondarySource = try text(at: "Body/Services/HealthKitFetchEngine+Secondary.swift")
@@ -2858,12 +2893,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.1;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 4;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.1;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 3;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 4;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2898,7 +2933,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 3)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 4)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 25)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 23)**"))
@@ -3017,6 +3053,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 4)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 4."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 3."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 2)"))
@@ -3656,7 +3694,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 3)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 4)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.1 build 3)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 2)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 25)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 23)"))
@@ -4059,13 +4098,15 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("ForEach(BodyHomeTrendCardKind.defaultOrder)"))
         XCTAssertTrue(settingsSource.contains("BodySummaryCardToggleRow("))
         XCTAssertTrue(settingsSource.contains("BodyHomeTrendCardToggleRow("))
+        XCTAssertTrue(appearanceSource.contains("var betaVersionLabel: LocalizedStringKey?"))
         XCTAssertTrue(appearanceSource.contains("var isBeta: Bool"))
         XCTAssertTrue(appearanceSource.contains("case .readiness:"))
-        XCTAssertTrue(settingsSource.contains("if card.isBeta"))
-        XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v1")"#), 2)
+        XCTAssertTrue(settingsSource.contains("if let betaVersionLabel = card.betaVersionLabel"))
+        XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v1")"#), 1)
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v2")"#), 0)
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v3")"#), 1)
-        // The Readiness AI sheet's toggle row carries the only Beta v2 badge.
+        // The Readiness AI sheet's toggle row carries the only Beta v2 badge; the
+        // Stress summary-card row carries its own "Beta v1" chip via betaVersionLabel.
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("Beta v2")"#), 1)
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.defaultTrendRangeKey)"))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey)"))

@@ -1,5 +1,9 @@
 # Version History
 
+## 1.0.1 (build 4)
+
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 4.
+
 ## 1.0.1 (build 3)
 
 - **Stress day card polish.** The Day View header's average now uses the same "Avg" legend style as the other intraday charts, the workout/sleep symbols sit above the plot edge exactly like the heart-rate day chart's, and the band breakdown gains sleep's Stage/Pct./Duration column titles plus a "Percent of measured time" axis caption. The duration column is wider so Chinese durations like 10小时30分 no longer shrink, and the intraday plot drops its right-hand 0–100 axis labels to span the card's full width.
@@ -9,7 +13,7 @@
 
 - Updated the app, widget, watch, and test bundle version to 1.0.1 build 2.
 
-- **Personal record badges.** Body now tracks all-time per-workout-type records — best pace/speed, longest duration/distance, and highest elevation — and marks the record-holding workout with a trophy.fill "PR" capsule on the detail sheet's stat tiles, a bare trophy glyph on workout list rows, and a pill on share cards (not monthly-summary cards). A workout that has since been beaten keeps its badge in a dimmed neutral gray, so a superseded record still reads as an achievement without being mistaken for the live one; share cards show only records still held, and every badge fades in rather than popping in. A metric needs at least 4 comparable same-type workouts before any PR badge appears. The baseline history scan runs once in the background after the first refresh; Settings > Cache > Clear Cache resets it so it re-scans on the next refresh.
+- **Personal record badges.** Body now tracks all-time per-workout-type records — best pace/speed, longest duration/distance, and highest elevation — and marks the record-holding workout with a trophy.fill "PR" capsule on the detail sheet's stat tiles, a bare trophy glyph on workout list rows, and a pill on share cards (not monthly-summary cards). A workout that has since been beaten keeps its badge in a dimmed neutral gray, so a superseded record still reads as an achievement without being mistaken for the live one; share cards show only records still held, and every badge fades in rather than popping in. A metric needs at least 4 comparable same-type workouts before any PR badge appears. The workout filter sheet gains a Records section above the type list with Current Records and Former Records options, narrowing the month to record-holding workouts. The baseline history scan runs once in the background after the first refresh; Settings > Cache > Clear Cache resets it so it re-scans on the next refresh.
 
 ## 1.0.0 (build 25)
 
