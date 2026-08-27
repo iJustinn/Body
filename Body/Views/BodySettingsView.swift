@@ -3281,10 +3281,13 @@ private struct BodyWorkoutEquivalentEmojiSizeRow: View {
                 Slider(value: $scale, in: 0.7...1.3) {
                     Text("Emoji Size")
                 } minimumValueLabel: {
-                    Text("🍔")
+                    // `verbatim` keeps the decorative emoji out of the string
+                    // catalog; the LocalizedStringKey initializer extracts it as a
+                    // translatable key with no localizations.
+                    Text(verbatim: "🍔")
                         .font(.system(size: 13))
                 } maximumValueLabel: {
-                    Text("🍔")
+                    Text(verbatim: "🍔")
                         .font(.system(size: 22))
                 }
             }
