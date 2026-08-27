@@ -8,6 +8,8 @@ import UIKit
 struct EnergyEquivalentCardContent: View {
     let emojis: [String]
     let hapticsEnabled: Bool
+    /// User-set emoji scale (0.7…1.3, 1 = default size).
+    var emojiScale: CGFloat = 1
 
     private static let physicsHeight: CGFloat = 140
 
@@ -31,7 +33,7 @@ struct EnergyEquivalentCardContent: View {
 
     private var staticRow: some View {
         Text(emojis.joined(separator: " "))
-            .font(.system(size: 30))
+            .font(.system(size: 36 * emojiScale))
             .lineLimit(2)
             .minimumScaleFactor(0.4)
             .multilineTextAlignment(.center)
@@ -44,6 +46,7 @@ struct EnergyEquivalentCardContent: View {
                 .onAppear {
                     scene.size = CGSize(width: proxy.size.width, height: Self.physicsHeight)
                     scene.hapticsEnabled = hapticsEnabled
+                    scene.emojiScale = emojiScale
                     scene.updateEmojis(emojis)
                     updateRunState()
                 }
@@ -59,6 +62,10 @@ struct EnergyEquivalentCardContent: View {
         .onChange(of: scenePhase) { _, _ in updateRunState() }
         .onChange(of: emojis) { _, newValue in scene.updateEmojis(newValue) }
         .onChange(of: hapticsEnabled) { _, newValue in scene.hapticsEnabled = newValue }
+        .onChange(of: emojiScale) { _, newValue in
+            scene.emojiScale = newValue
+            scene.rebuildEmojis()
+        }
         .onDisappear { scene.stop() }
     }
 
@@ -77,10 +84,18 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         static let wall: UInt32 = 1 << 1
     }
 
-    private static let glyphRadius: CGFloat = 20
+    private static let baseGlyphRadius: CGFloat = 24
+    private static let baseFontSize: CGFloat = 42
+
+    /// User-set emoji scale; `rebuildEmojis()` applies a change to live nodes.
+    var emojiScale: CGFloat = 1
+
+    private var glyphRadius: CGFloat { Self.baseGlyphRadius * emojiScale }
     private static let hapticImpulseThreshold: CGFloat = 1.5
     private static let hapticImpulseCap: CGFloat = 25
     private static let hapticMinimumInterval: TimeInterval = 0.08
+    /// Above real-world 9.8 so the toy feels lively at card scale.
+    private static let gravityScale: Double = 15
 
     var hapticsEnabled = true
 
@@ -100,7 +115,7 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         motionQueue.maxConcurrentOperationCount = 1
         motionQueue.qualityOfService = .userInitiated
         physicsWorld.contactDelegate = self
-        physicsWorld.gravity = CGVector(dx: 0, dy: -9.8)
+        physicsWorld.gravity = CGVector(dx: 0, dy: -Self.gravityScale)
     }
 
     @available(*, unavailable)
@@ -132,6 +147,39 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         if let gravity {
             physicsWorld.gravity = gravity
         }
+
+        // Uniform gravity accelerates every body identically, so per-food feel
+        // needs an extra push: heavier (higher-kcal) foods get a boost along the
+        // current gravity vector, lighter ones ride gravity alone (their higher
+        // damping already makes them the slowest — see `updateEmojis`).
+        let currentGravity = physicsWorld.gravity
+        for node in children {
+            guard let label = node as? SKLabelNode, let body = label.physicsBody, let emoji = label.text else { continue }
+            let boost = Self.weight(of: emoji) * 0.8
+            guard boost > 0 else { continue }
+            body.applyForce(CGVector(
+                dx: currentGravity.dx * body.mass * boost,
+                dy: currentGravity.dy * body.mass * boost
+            ))
+        }
+    }
+
+    /// 0…1 by the food's kcal in the fixed table (unknown emoji read as
+    /// mid-weight), driving both the gravity boost and the damping spread.
+    private static func weight(of emoji: String) -> CGFloat {
+        if emoji == EnergyEquivalent.iceCube.emoji { return 0.1 }
+        guard let food = EnergyEquivalent.foods.first(where: { $0.emoji == emoji }),
+              let heaviest = EnergyEquivalent.foods.first?.kilocalories, heaviest > 0 else {
+            return 0.5
+        }
+        return CGFloat(food.kilocalories / heaviest)
+    }
+
+    /// Respawns the current emoji set — used when the size setting changes.
+    func rebuildEmojis() {
+        let emojis = currentEmojis
+        currentEmojis = []
+        updateEmojis(emojis)
     }
 
     func updateEmojis(_ emojis: [String]) {
@@ -142,21 +190,27 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
 
         for (index, emoji) in emojis.enumerated() {
             let node = SKLabelNode(text: emoji)
-            node.fontSize = 34
+            node.fontSize = Self.baseFontSize * emojiScale
             node.verticalAlignmentMode = .center
             node.horizontalAlignmentMode = .center
             node.position = spawnPosition(index: index, count: emojis.count)
             node.alpha = 0
 
-            let body = SKPhysicsBody(circleOfRadius: Self.glyphRadius)
+            let body = SKPhysicsBody(circleOfRadius: glyphRadius)
             body.restitution = 0.4
-            body.linearDamping = 0.35
-            body.angularDamping = 0.6
-            body.allowsRotation = false
+            // Heavier foods coast, light ones stop quickly — this damping spread
+            // (with the per-food gravity boost applied in `update`) is what makes
+            // each food accelerate at its own pace under the same tilt.
+            body.linearDamping = 0.1 + (1 - Self.weight(of: emoji)) * 0.35
+            body.angularDamping = 0.4
+            body.allowsRotation = true
             body.categoryBitMask = Category.emoji
             body.collisionBitMask = Category.emoji | Category.wall
             body.contactTestBitMask = Category.emoji | Category.wall
             node.physicsBody = body
+            // A gentle alternating starting spin so the glyphs tumble instead of
+            // sliding upright; collisions take over from there.
+            body.angularVelocity = index.isMultiple(of: 2) ? 1.2 : -1.2
 
             addChild(node)
             node.run(.sequence([
@@ -179,7 +233,7 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         motionManager.deviceMotionUpdateInterval = 1.0 / 30.0
         motionManager.startDeviceMotionUpdates(to: motionQueue) { [weak self] motion, _ in
             guard let self, let motion else { return }
-            let gravity = CGVector(dx: motion.gravity.x * 9.8, dy: motion.gravity.y * 9.8)
+            let gravity = CGVector(dx: motion.gravity.x * Self.gravityScale, dy: motion.gravity.y * Self.gravityScale)
             gravityLock.lock()
             pendingGravity = gravity
             gravityLock.unlock()
@@ -214,12 +268,12 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func spawnPosition(index: Int, count: Int) -> CGPoint {
-        let columns = max(1, Int((size.width / (Self.glyphRadius * 2.4)).rounded(.down)))
+        let columns = max(1, Int((size.width / (glyphRadius * 2.4)).rounded(.down)))
         let column = index % columns
         let row = index / columns
         let spacing = size.width / CGFloat(columns)
         let x = spacing * (CGFloat(column) + 0.5)
-        let y = size.height - Self.glyphRadius - CGFloat(row) * Self.glyphRadius * 2.2
-        return CGPoint(x: x, y: max(Self.glyphRadius, y))
+        let y = size.height - glyphRadius - CGFloat(row) * glyphRadius * 2.2
+        return CGPoint(x: x, y: max(glyphRadius, y))
     }
 }

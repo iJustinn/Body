@@ -40,7 +40,9 @@ struct BodyEnergyEquivalentExplanationSheet: View {
     private var introCard: some View {
         explanationCard(
             title: Self.sheetTitle,
-            body: String(localized: "Equivalent turns this workout's active energy into a handful of food emoji, so a calorie count feels more tangible. Each food stands for a fixed estimate rather than something looked up in a nutrition database, so it is only a playful comparison — not dietary advice.")
+            // Wording stays source-neutral: the card can be computed from active
+            // or total energy depending on the Total Energy setting.
+            body: String(localized: "Equivalent turns this workout's burned energy into a handful of food emoji, so a calorie count feels more tangible. Each food stands for a fixed estimate rather than something looked up in a nutrition database, so it is only a playful comparison, not dietary advice.")
         )
     }
 
@@ -51,7 +53,9 @@ struct BodyEnergyEquivalentExplanationSheet: View {
                 .foregroundColor(.primary)
 
             VStack(alignment: .leading, spacing: 14) {
-                ForEach(EnergyEquivalent.foods) { food in
+                // The zero-kcal ice-cube filler pads sparse breakdowns, so the
+                // table explains it alongside the real foods.
+                ForEach(EnergyEquivalent.foods + [EnergyEquivalent.iceCube]) { food in
                     HStack(spacing: 12) {
                         Text(food.emoji)
                             .font(.system(size: 26))

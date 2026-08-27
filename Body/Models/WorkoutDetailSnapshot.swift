@@ -72,6 +72,10 @@ struct PersistedEnergyEquivalent: Codable, Equatable, Sendable {
     let tuningVersion: Int
     let kilocalories: Double
     let hiddenFoods: [String]
+    /// Whether the breakdown preferred many small foods over few large ones.
+    /// Optional so payloads written before the setting existed decode (nil
+    /// reads as false, the setting's default).
+    var prefersMoreItems: Bool?
     let emojis: [String]
 }
 
