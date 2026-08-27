@@ -199,6 +199,14 @@ actor HealthKitFetchEngine {
 
     static let trainingLoadSummaryDayCount = TrainingLoadCalculator.summaryWindowDayCount
 
+    /// Sleep-history window when no card renders sleep and it is fetched only as
+    /// a Stress input: the 56-day readiness/sleep-score vitals baseline plus the
+    /// ~34-day recomputed-day reach, plus margin. The contract is query days —
+    /// the oldest wake day may lose the leading samples of its prior evening at
+    /// the boundary (the Stress backfill queries one day early for exactly that,
+    /// `+Sleep.swift`), which the margin covers for every consumer.
+    static let stressInputSleepHistoryDays = 100
+
     init(
         permission: BodyHealthPermissionSelection,
         healthDataSourceSelection: BodyHealthDataSourceSelection,
@@ -660,13 +668,26 @@ actor HealthKitFetchEngine {
         return await fetchIfPermitted(permission, default: defaultValue, operation: operation)
     }
 
+    /// Whether a leaf runs for a kind the layout fetches only as a Stress
+    /// scoring input. `.fullOnly` is the default so a newly added leaf is
+    /// suppressed for input-only kinds until it deliberately opts in.
+    enum DashboardPayloadRequirement {
+        case fullOnly
+        case inputCapable
+    }
+
     private func fetchDashboardMetricIfNeeded<Value>(
         _ kind: HealthMetricKind,
         selection: BodyDashboardFetchSelection,
+        payload: DashboardPayloadRequirement = .fullOnly,
         default defaultValue: Value,
         operation: () async -> Value
     ) async -> Value {
-        guard selection.includes(kind) else {
+        let isNeeded = switch payload {
+        case .fullOnly: selection.includesFullPayload(kind)
+        case .inputCapable: selection.includes(kind)
+        }
+        guard isNeeded else {
             return defaultValue
         }
 
@@ -700,7 +721,9 @@ actor HealthKitFetchEngine {
         default defaultValue: Value,
         operation: () async -> Value
     ) async -> Value {
-        guard selection.includes(kind) else {
+        // Always full-payload: Stress reads no secondary (comparison) series, so
+        // an input-only kind never needs one fetched.
+        guard selection.includesFullPayload(kind) else {
             return defaultValue
         }
 
@@ -2536,7 +2559,10 @@ actor HealthKitFetchEngine {
         async let activityRings: QueryOutcome<ActivityRingSummary> = fetchDashboardActivityRingsIfNeeded(selection: selection, default: .success(nil)) {
             await fetchActivityRingSummary(calendar: calendar)
         }
-        async let sleep: QueryOutcome<SleepSummary> = fetchDashboardMetricIfNeeded(.sleep, selection: selection, default: .success(nil)) {
+        // Input-capable: Stress's today rest context falls back to
+        // `summary.sleep` when the sleep history query fails, and the sleep
+        // widget reads the summary too.
+        async let sleep: QueryOutcome<SleepSummary> = fetchDashboardMetricIfNeeded(.sleep, selection: selection, payload: .inputCapable, default: .success(nil)) {
             await fetchSleepSummary(calendar: calendar)
         }
         async let heartRate: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.heartRate, selection: selection, default: .success(nil)) {
@@ -2768,8 +2794,15 @@ actor HealthKitFetchEngine {
         let cachedStressBackfillScannedThrough = cachedTrends.stressBackfillScannedThrough
         let cachedStressBackfillComplete = cachedTrends.stressBackfillComplete
 
-        async let sleepHistory: SleepHistoryFetchResult = fetchDashboardMetricIfNeeded(.sleep, selection: selection, default: .empty) {
-            await fetchDailySleepHistory(calendar: calendar, cachedSleepHistory: cachedTrends.sleepHistory)
+        // Input-capable: Stress scores its rest mask from `trends.sleepHistory`
+        // (and the day picker reads it), so an input-only sleep still fetches —
+        // over the reduced window below rather than the full year.
+        async let sleepHistory: SleepHistoryFetchResult = fetchDashboardMetricIfNeeded(.sleep, selection: selection, payload: .inputCapable, default: .empty) {
+            await fetchDailySleepHistory(
+                calendar: calendar,
+                maxDays: selection.includesFullPayload(.sleep) ? nil : Self.stressInputSleepHistoryDays,
+                cachedSleepHistory: cachedTrends.sleepHistory
+            )
         }
         async let sleepHistorySecondary: SleepHistorySnapshot? = fetchSecondaryDashboardMetricIfNeeded(
             for: .sleep,
@@ -2835,9 +2868,13 @@ actor HealthKitFetchEngine {
                 valueTransform: Self.normalizedPercentDisplayValue
             )
         }
+        // Input-capable: Stress scoring, its history backfill context, and the
+        // Stress detail all read the primary HRV points, which this pair query
+        // produces inseparably from the range series.
         async let heartRateVariabilityPair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDashboardMetricIfNeeded(
             .heartRateVariability,
             selection: selection,
+            payload: .inputCapable,
             default: (HealthTrendSeries.empty, HealthTrendRangeSeries.empty)
         ) {
             await fetchDailyQuantityAverageAndRangeSeries(

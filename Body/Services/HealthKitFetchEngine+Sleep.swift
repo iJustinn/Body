@@ -86,6 +86,7 @@ extension HealthKitFetchEngine {
         calendar: Calendar,
         sourceOption: BodyHealthDataSourceOption? = nil,
         hydrateVitals: Bool = true,
+        maxDays: Int? = nil,
         cachedSleepHistory: SleepHistorySnapshot? = nil
     ) async -> SleepHistoryFetchResult {
         Self.timeZoneLedger.recordCurrentZone()
@@ -101,8 +102,17 @@ extension HealthKitFetchEngine {
         }
 
         let interval = recentHealthTrendInterval(calendar: calendar)
+        // Whole-window refetch (the assembled history replaces the cached one),
+        // so clamping the start simply shortens the window rather than leaving a
+        // hole. `maxDays` counts query days back from the interval end.
+        var startDate = interval.start
+        if let maxDays,
+           let clampedStart = calendar.date(byAdding: .day, value: -maxDays, to: interval.end),
+           clampedStart > startDate {
+            startDate = clampedStart
+        }
         let predicate = combinedPredicate(
-            startDate: interval.start,
+            startDate: startDate,
             endDate: interval.end,
             sourceKind: .sleep,
             sourceOption: sourceOption
