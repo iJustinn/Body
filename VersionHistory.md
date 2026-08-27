@@ -1,5 +1,10 @@
 # Version History
 
+## 1.0.1 (build 7)
+
+- **New default colors for Run, Tennis, and Pickleball.** Run is now a brighter blue (#335BB0), Tennis a soft violet (#8C6BAA), and Pickleball a deeper indigo (#635995), each split out of the palette group it used to share. Any workout type you customized in Settings > Appearance > Workouts keeps your own color.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 7.
+
 ## 1.0.1 (build 6)
 
 - **Effort card on/off.** Settings > Workouts > Effort Suggestions is now **Workout Effort**, and the sheet opens with a new **Effort Card** toggle (on by default): off, the Effort card is hidden on every workout detail page and the Effort Suggestions and Auto-Apply Effort settings below it grey out and stop running — no prediction is computed and auto-apply writes nothing. The settings row's On/Off value now follows the card toggle.

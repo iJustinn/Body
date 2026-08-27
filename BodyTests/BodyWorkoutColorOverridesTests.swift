@@ -31,7 +31,8 @@ final class BodyWorkoutColorOverridesTests: XCTestCase {
     }
 
     func testDuplicateKeyResolvingBackToDefaultIsDropped() {
-        let parsed = BodyWorkoutColorOverrides.overrides(from: "running:112233,running:1B305D")
+        let defaultHex = BodyWorkoutColorOverrides.hexText(from: BodyWorkoutType.running.colorHex)
+        let parsed = BodyWorkoutColorOverrides.overrides(from: "running:112233,running:\(defaultHex)")
 
         XCTAssertTrue(parsed.isEmpty)
     }
@@ -50,7 +51,8 @@ final class BodyWorkoutColorOverridesTests: XCTestCase {
     }
 
     func testEntriesMatchingTheBuiltInDefaultAreDropped() {
-        let parsed = BodyWorkoutColorOverrides.overrides(from: "running:1B305D,cycling:AABBCC")
+        let defaultHex = BodyWorkoutColorOverrides.hexText(from: BodyWorkoutType.running.colorHex)
+        let parsed = BodyWorkoutColorOverrides.overrides(from: "running:\(defaultHex),cycling:AABBCC")
 
         XCTAssertEqual(parsed, [.cycling: 0xAABBCC])
     }

@@ -2996,12 +2996,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.1;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 6;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 7;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.1;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 6;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 7;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -3036,7 +3036,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 6)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 7)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 4)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 3)**"))
@@ -3158,6 +3159,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 7."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 6)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 6."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 5)"))
@@ -3803,7 +3806,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 6)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 7)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.1 build 6)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 5)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 4)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 3)"))

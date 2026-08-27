@@ -8,7 +8,7 @@ import SwiftUI
 /// Codec for the persisted per-workout-type color customization.
 ///
 /// The stored form is a flat `"<workoutRawValue>:<RRGGBB>"` list joined by commas
-/// (e.g. `"cycling:EE9D58,running:1B305D"`) so it round-trips through `@AppStorage`
+/// (e.g. `"cycling:EE9D58,running:335BB0"`) so it round-trips through `@AppStorage`
 /// and the App Group defaults shared with the widget and watch targets.
 enum BodyWorkoutColorOverrides {
     /// Defensive cap: a corrupt or adversarially large defaults value is treated as
