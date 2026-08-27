@@ -9,6 +9,9 @@ enum WorkoutTypeBreakdownDisplayStyle: Equatable {
     case app
     case widgetMedium
     case widgetLarge
+    /// The month-summary share card: the app's type and bar widths on a leaner row, so
+    /// a 360 pt exported card reads like the Workouts page rather than like a widget.
+    case shareCard
 }
 
 struct WorkoutTypeBreakdownRowPresentation: Equatable {
@@ -93,7 +96,7 @@ struct WorkoutTypeBreakdownView: View {
         }
         .frame(
             maxWidth: .infinity,
-            maxHeight: style.isWidget ? .infinity : nil,
+            maxHeight: style == .app ? nil : .infinity,
             alignment: .topLeading
         )
         .task(id: snapshot.workoutTypeBreakdown) {
@@ -307,7 +310,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private func maximumBarWidth(for availableWidth: CGFloat, reservedTrailingWidth: CGFloat = 0) -> CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             // `detailReserveWidth` still reads the FULL width, so reserving the
             // control's slot never squeezes the activity name.
             return max(92, availableWidth - reservedTrailingWidth - detailReserveWidth(for: availableWidth))
@@ -324,7 +327,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private var minimumBarWidth: CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             return 92
         case .widgetMedium:
             return 72
@@ -341,6 +344,8 @@ struct WorkoutTypeBreakdownView: View {
             return 44
         case .widgetLarge:
             return 48
+        case .shareCard:
+            return 42
         }
     }
 
@@ -350,7 +355,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private var rowHorizontalSpacing: CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             return 12
         case .widgetMedium:
             return 10
@@ -367,6 +372,8 @@ struct WorkoutTypeBreakdownView: View {
             return 15
         case .widgetLarge:
             return 18
+        case .shareCard:
+            return 14
         }
     }
 
@@ -378,12 +385,14 @@ struct WorkoutTypeBreakdownView: View {
             return 20
         case .widgetLarge:
             return 25
+        case .shareCard:
+            return 19
         }
     }
 
     private var detailSpacing: CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             return 9
         case .widgetMedium:
             return 9
@@ -394,7 +403,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private var iconFontSize: CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             return 22
         case .widgetMedium:
             return 23
@@ -409,7 +418,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private var iconFrameSide: CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             return 30
         case .widgetMedium:
             return 30
@@ -430,6 +439,8 @@ struct WorkoutTypeBreakdownView: View {
             return 16
         case .widgetLarge:
             return 18
+        case .shareCard:
+            return 13
         }
     }
 
@@ -441,6 +452,8 @@ struct WorkoutTypeBreakdownView: View {
             return 12
         case .widgetLarge:
             return 14
+        case .shareCard:
+            return 11
         }
     }
 
@@ -462,6 +475,8 @@ struct WorkoutTypeBreakdownView: View {
             return 2
         case .widgetLarge:
             return 5
+        case .shareCard:
+            return 5
         }
     }
 }
@@ -469,7 +484,7 @@ struct WorkoutTypeBreakdownView: View {
 private extension WorkoutTypeBreakdownDisplayStyle {
     var isWidget: Bool {
         switch self {
-        case .app:
+        case .app, .shareCard:
             return false
         case .widgetMedium, .widgetLarge:
             return true

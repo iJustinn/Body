@@ -1555,12 +1555,12 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
     /// Reads as the same air the title has above the totals: the title's glyphs carry
     /// leading the metric labels don't, so the number is larger than `titleGap`.
     private static let chartGap: CGFloat = 14
-    /// The bars take less than the full width — at 320 pt the rows read oversized.
-    private static let barWidthFraction: CGFloat = 0.86
-    /// One `WorkoutTypeBreakdownView` row and the gap under it.
-    private static let barRowHeight: CGFloat = 48
+    /// One `WorkoutTypeBreakdownView` row and the gap under it, at `.shareCard`'s
+    /// row height — leaner than the Workouts page's own 50 pt so the exported bars
+    /// don't read fat on a 360 pt card.
+    private static let barRowHeight: CGFloat = 42
     private static let barRowSpacing: CGFloat = 12
-    /// `.widgetLarge`'s own ceiling — asking for more rows than the view will ever
+    /// `.shareCard`'s own ceiling — asking for more rows than the view will ever
     /// draw would only make the limit meaningless.
     private static let maximumBarRows = 5
     /// The calendar grid's fixed furniture: the weekday band (18 pt of type plus its
@@ -1634,7 +1634,9 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
             // the totals instead of centering themselves down a tall region.
             let rows = CGFloat(barRowLimit)
             let natural = rows * Self.barRowHeight + (rows - 1) * Self.barRowSpacing
-            return CGSize(width: chartRect.width * Self.barWidthFraction, height: min(chartRect.height, natural))
+            // Full content width: the bars start and end where the title and the
+            // totals do, rather than being inset into a narrower box of their own.
+            return CGSize(width: chartRect.width, height: min(chartRect.height, natural))
         case .calendar:
             let headerHeight = showsWeekdayHeader ? Self.calendarHeaderHeight : 0
             let cellSide = max(
@@ -1651,8 +1653,9 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
         }
     }
 
-    /// How many activity rows the breakdown chart may draw here — five on the portrait
-    /// cards, four on the square, where the chart region is 284 pt tall.
+    /// How many activity rows the breakdown chart may draw here — five on every
+    /// supported ratio, including the square, whose 284 pt chart region fits five
+    /// 42 pt rows with room to spare.
     var barRowLimit: Int {
         let rows = Int((chartRect.height + Self.barRowSpacing) / (Self.barRowHeight + Self.barRowSpacing))
         return min(Self.maximumBarRows, max(1, rows))

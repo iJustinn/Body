@@ -7,7 +7,8 @@
 //  pinned wordmark, `ImageRenderer.scale = 3`), with a month's chart where a single
 //  workout's route trace would be. Its content is a title, one to five metric blocks,
 //  and either the calendar grid or the activity breakdown — the very views the
-//  Workouts page draws, in their `.widgetLarge` guise.
+//  Workouts page draws: the calendar in its `.widgetLarge` guise, the breakdown in
+//  its `.shareCard` one (the page's own type on a leaner bar row).
 //  No layout number is written here: `WorkoutShareSummaryCardGeometry` derives every
 //  rect from the ratio and the metric count, so the card and its render tests can't
 //  drift apart. Unlike the workout card this one is *not* fully
@@ -264,9 +265,10 @@ struct BodyWorkoutShareSummaryCardView: View {
         }
     }
 
-    /// The page's own charts, in the guise the large widget uses: capped rows, no
-    /// switch control, nothing selectable. They colour their type off `.primary` /
-    /// `.secondary`, which the sheet's inverted `colorScheme` resolves for the ink.
+    /// The page's own charts, capped rows, no switch control, nothing selectable —
+    /// the calendar in the large widget's guise, the breakdown in the share card's.
+    /// They colour their type off `.primary` / `.secondary`, which the sheet's
+    /// inverted `colorScheme` resolves for the ink.
     @ViewBuilder
     private var chart: some View {
         switch chartStyle {
@@ -289,7 +291,7 @@ struct BodyWorkoutShareSummaryCardView: View {
             WorkoutTypeBreakdownView(
                 snapshot: summary.snapshot,
                 palette: palette,
-                style: .widgetLarge,
+                style: .shareCard,
                 rowLimit: geometry.barRowLimit,
                 onSelectType: nil,
                 onSwitchChart: nil
