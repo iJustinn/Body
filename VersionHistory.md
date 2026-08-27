@@ -1,5 +1,16 @@
 # Version History
 
+## 1.0.1 (build 6)
+
+- **Effort card on/off.** Settings > Workouts > Effort Suggestions is now **Workout Effort**, and the sheet opens with a new **Effort Card** toggle (on by default): off, the Effort card is hidden on every workout detail page and the Effort Suggestions and Auto-Apply Effort settings below it grey out and stop running — no prediction is computed and auto-apply writes nothing. The settings row's On/Off value now follows the card toggle.
+- **Swipe between months on the workouts charts.** A new Settings > Workouts > Swipe Between Months option (off by default) lets a left/right swipe on the workouts calendar or type-breakdown chart move to the next/previous month — the same month switch as the picker above, clamped to the picker's reachable range. Only clearly horizontal swipes count, so vertical scrolling and pull-to-refresh are unaffected. Also fixes a race where a stale pending month load could snap the page back after a newer selection.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 6.
+
+## 1.0.1 (build 5)
+
+- **Energy Equivalent card.** A new Equivalent card on the workout detail page (between Details and Effort) turns a workout's active energy into food emoji from a fixed 28-food kcal table (Asian foods, fruits, and drinks included; the mix drawn from similar-kcal foods with a kcal-seeded generator, and sparse breakdowns padded with zero-kcal 🧊 ice cubes), rolling around the card as a gyroscope-driven physics toy: each food accelerates and tumbles at its own weight, and collisions play light haptic taps. An ⓘ sheet lists every food's kcal estimate, breakdowns are cached in the workout's on-disk detail snapshot, and Settings > Workouts > Workout Equivalents adds an Equivalent Card on/off toggle, an Emoji Size slider, a Collision Vibration toggle, a Total Energy switch (represent total burn instead of active energy), a More Food Items switch (many small foods instead of a few large ones), and per-food show/hide toggles.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 5.
+
 ## 1.0.1 (build 4)
 
 - Updated the app, widget, watch, and test bundle version to 1.0.1 build 4.

@@ -135,6 +135,25 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(store.contains("BodyAppearancePreference.autoApplyWorkoutEffortKey"))
     }
 
+    func testWorkoutsChartSwipeMonthSettingIsWiredAndDefaultsOff() throws {
+        let keys = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
+        let settings = try text(at: "Body/Views/BodySettingsView.swift")
+        let workouts = try text(at: "Body/Views/BodyWorkoutsView.swift")
+
+        XCTAssertTrue(keys.contains(#"static let workoutsChartSwipeSwitchesMonthKey = "workoutsChartSwipeSwitchesMonth""#))
+        XCTAssertTrue(settings.contains("@AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = false"))
+        XCTAssertTrue(settings.contains("BodyWorkoutMonthSwipeSettingsSheet("))
+        XCTAssertTrue(settings.contains("BodyWorkoutMonthSwipeToggleRow("))
+        // The setting must gate the actual gesture on the workouts charts,
+        // not just render a toggle in Settings.
+        XCTAssertTrue(workouts.contains("@AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = false"))
+        XCTAssertTrue(workouts.contains("switchMonthForChartSwipe(translation:"))
+        // The swipe must reuse the async month-selection path (loading badge,
+        // dedup, timeout) rather than applying the month directly.
+        XCTAssertTrue(workouts.contains("BodyWorkoutChartSwipe.adjacentMonthYear("))
+        XCTAssertTrue(workouts.contains("requestMonthYearSelection("))
+    }
+
     func testReadinessAICommentSettingIsWiredAndDefaultsOn() throws {
         let keys = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
         let settings = try text(at: "Body/Views/BodySettingsView.swift")
@@ -615,10 +634,18 @@ final class ProjectConfigurationTests: XCTestCase {
         let breakdownSource = try text(at: "BodyShared/Components/WorkoutTypeBreakdownView.swift")
         XCTAssertTrue(breakdownSource.contains("rowLimit: Int? = nil"))
 
+        // The breakdown on the card is NOT the large widget's guise: it carries the
+        // Workouts page's type on a leaner 42 pt row, across the full content width
+        // (the bars start and end where the title and totals do).
+        XCTAssertTrue(breakdownSource.contains("case shareCard"))
+        XCTAssertTrue(shareCardSource.contains("private static let barRowHeight: CGFloat = 42"))
+        XCTAssertFalse(shareCardSource.contains("barWidthFraction"))
+
         // The new summary card view and the branding row it shares with the workout
         // card view (extracted so both cards draw the same wordmark/attribution).
         let summaryCardViewSource = try text(at: "Body/Views/Health/BodyWorkoutShareSummaryCardView.swift")
         XCTAssertTrue(summaryCardViewSource.contains("struct BodyWorkoutShareSummaryCardView: View"))
+        XCTAssertTrue(summaryCardViewSource.contains("style: .shareCard,"))
         XCTAssertTrue(summaryCardViewSource.contains("WorkoutShareBrandingRow("))
         let cardViewSource = try text(at: "Body/Views/Health/BodyWorkoutShareCardView.swift")
         XCTAssertTrue(cardViewSource.contains("struct WorkoutShareBrandingRow: View"))
@@ -2506,6 +2533,82 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(fetchSecondarySleepBlock.contains("hydrateVitals: false"))
     }
 
+    /// Regression guard for the Stress input-only fetch tier: `.fullOnly` must
+    /// stay the DEFAULT payload requirement, so a newly added dashboard leaf is
+    /// suppressed for input-only kinds until it deliberately opts in with
+    /// `.inputCapable`. Flipping the default (or dropping it) would silently
+    /// re-fetch every stress dependency's full year payload again.
+    func testDashboardMetricFetchDefaultsToFullPayloadOnly() throws {
+        let engineSource = try healthKitFetchEngineText()
+
+        XCTAssertTrue(engineSource.contains("payload: DashboardPayloadRequirement = .fullOnly"))
+        XCTAssertTrue(engineSource.contains("case .fullOnly: selection.includesFullPayload(kind)"))
+        XCTAssertTrue(engineSource.contains("case .inputCapable: selection.includes(kind)"))
+    }
+
+    /// The secondary (comparison-series) helper has no `.inputCapable` opt-in at
+    /// all — Stress never reads a secondary series — so it must always gate on
+    /// `includesFullPayload`, never the looser `includes`.
+    func testSecondaryDashboardMetricFetchAlwaysRequiresFullPayload() throws {
+        let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
+        let fetchSecondaryStart = try XCTUnwrap(
+            engineSource.range(of: "func fetchSecondaryDashboardMetricIfNeeded")?.lowerBound
+        )
+        let fetchSecondaryBlock = String(engineSource[fetchSecondaryStart...].prefix(800))
+
+        XCTAssertTrue(fetchSecondaryBlock.contains("guard selection.includesFullPayload(kind) else {"))
+        XCTAssertFalse(fetchSecondaryBlock.contains(".inputCapable"))
+    }
+
+    /// Exactly three leaves opt into the input-capable tier (sleep summary,
+    /// daily sleep history, and the HRV year pair) — the full set Stress needs
+    /// beyond what its full-payload dependents already fetch. A fourth
+    /// occurrence means a leaf was opted in without updating this guard (or the
+    /// plan); a count under three means one of the three was dropped.
+    func testExactlyThreeLeavesOptIntoInputCapablePayload() throws {
+        let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
+
+        XCTAssertEqual(engineSource.occurrenceCount(of: "payload: .inputCapable"), 3)
+    }
+
+    /// The reduced-window sleep fetch: full-payload layouts still refetch the
+    /// whole year (`nil`), but an input-only (stress-only) layout clamps to
+    /// `stressInputSleepHistoryDays` — sized to cover the 56-day vitals
+    /// baseline + recomputed-day reach with margin, ~3.6x less than the full
+    /// year. `hydrateVitals` is untouched by this parameter and must stay on in
+    /// both modes, or Readiness/sleep-score baselines would degrade for
+    /// stress-only layouts.
+    func testSleepHistoryFetchClampsToStressInputWindowWhenNotFullPayload() throws {
+        let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
+
+        XCTAssertTrue(engineSource.contains(
+            "maxDays: selection.includesFullPayload(.sleep) ? nil : Self.stressInputSleepHistoryDays,"
+        ))
+        XCTAssertTrue(engineSource.contains("static let stressInputSleepHistoryDays = 100"))
+    }
+
+    /// `refreshFetchedStressInputKinds` in `HealthKitWorkoutStore` must track the
+    /// exact set of engine `.inputCapable` leaves that fetch during the
+    /// dashboard refresh itself (sleep + HRV) — the third `.inputCapable` leaf,
+    /// the sleep *summary*, doesn't add a new kind. The Stress input loader
+    /// (heart-gated) is the only other path that ever reads a Stress
+    /// dependency, so any kind missing from this set falsely reports
+    /// "not fetched" for the permission sheet whenever Heart is off.
+    func testRefreshFetchedStressInputKindsMatchesInputCapableAnnotations() throws {
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let setRange = try XCTUnwrap(
+            storeSource.range(of: "private static let refreshFetchedStressInputKinds: Set<HealthMetricKind> = [")
+        )
+        let closeRange = try XCTUnwrap(storeSource.range(of: "]", range: setRange.upperBound..<storeSource.endIndex))
+        let setBody = storeSource[setRange.upperBound..<closeRange.lowerBound]
+        let kinds = setBody
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        XCTAssertEqual(Set(kinds), [".sleep", ".heartRateVariability"])
+    }
+
     func testMetricDetailScreensPullToRefreshOnlyCurrentMetric() throws {
         let homeSource = try bodyHomeViewText()
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
@@ -2893,12 +2996,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.1;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 4;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 6;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.1;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 4;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 6;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -2933,7 +3036,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 4)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 6)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 4)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.0 (build 25)**"))
@@ -3053,6 +3158,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 6)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 6."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 5)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 5."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 4)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 4."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 3)"))
@@ -3694,7 +3803,9 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 4)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 6)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.1 build 5)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.1 build 4)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 3)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 2)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.0 build 25)"))
