@@ -195,7 +195,10 @@ struct BodyStressPlotSide: Equatable {
             }
         }
 
-        let bands = contextIntervals.map { interval in
+        // Ordinal assignment makes the ids day-stable (kind-title-ordinal, the
+        // Swift Charts day charts' rule), which is what lets a same-type band
+        // pair across a day switch and morph in place instead of crossfading.
+        let bands = BodyHealthMetricDayChart.assigningOrdinals(to: contextIntervals).map { interval in
             BodyStressPlotContextBand(
                 id: interval.id,
                 xStart: BodyStressIntradayPlot.fraction(for: interval.startDate, in: dayInterval),
@@ -298,10 +301,43 @@ struct BodyStressPlotSide: Equatable {
             }
         }
 
-        // Context bands always crossfade, each drawn in its own day's fractions —
-        // a sleep band that shifted by two hours should dissolve, not slide.
-        let bands = from.contextBands.map { $0.fading(to: 1 - progress) }
-            + to.contextBands.map { $0.fading(to: progress, variantOffset: 1) }
+        // Context bands morph like the Swift Charts day charts': a band with the
+        // same day-stable id (kind-title-ordinal) on both sides slides and
+        // resizes in place — Sleep to Sleep, Run to Run — while an unmatched one
+        // crossfades. Under Reduce Motion everything crossfades, matching the
+        // tracks above.
+        let bands: [BodyStressPlotContextBand]
+        if reduceMotion {
+            bands = from.contextBands.map { $0.fading(to: 1 - progress) }
+                + to.contextBands.map { $0.fading(to: progress, variantOffset: 1) }
+        } else {
+            var incomingByID: [String: BodyStressPlotContextBand] = [:]
+            for band in to.contextBands {
+                incomingByID[band.id] = band
+            }
+            var merged: [BodyStressPlotContextBand] = []
+            merged.reserveCapacity(from.contextBands.count + to.contextBands.count)
+            var pairedIDs: Set<String> = []
+            for outgoing in from.contextBands {
+                // First occurrence only: a rebase from a crossfading side can
+                // carry two copies of one id, and only one may claim the pair.
+                if let incoming = incomingByID[outgoing.id], !pairedIDs.contains(outgoing.id) {
+                    pairedIDs.insert(outgoing.id)
+                    var band = incoming
+                    band.xStart = interpolate(outgoing.xStart, incoming.xStart, progress)
+                    band.xEnd = interpolate(outgoing.xEnd, incoming.xEnd, progress)
+                    band.fillOpacity = interpolate(outgoing.fillOpacity, incoming.fillOpacity, progress)
+                    band.opacity = interpolate(outgoing.opacity, incoming.opacity, progress)
+                    merged.append(band)
+                } else {
+                    merged.append(outgoing.fading(to: 1 - progress))
+                }
+            }
+            for incoming in to.contextBands where !pairedIDs.contains(incoming.id) {
+                merged.append(incoming.fading(to: progress, variantOffset: 1))
+            }
+            bands = merged
+        }
 
         let timeMarks: [BodyStressPlotTimeMark]
         if from.timeMarks.map(\.label) == to.timeMarks.map(\.label),
