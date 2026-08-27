@@ -22,8 +22,13 @@ enum BodyAppearancePreference {
     static let showsSubMinuteAwakeSleepStagesKey = "showsSubMinuteAwakeSleepStages"
     static let showsLeadingTrailingAwakeSleepStagesKey = "showsLeadingTrailingAwakeSleepStages"
     static let showSleepScoreKey = "showSleepScore"
+    /// Whether the Effort card shows on workout detail pages at all. Off, the
+    /// card is hidden everywhere and the effort settings below it do nothing.
+    /// Default true.
+    static let workoutEffortCardEnabledKey = "workoutEffortCardEnabled"
     static let showWorkoutEffortSuggestionsKey = "showWorkoutEffortSuggestions"
     static let autoApplyWorkoutEffortKey = "autoApplyWorkoutEffort"
+    static let workoutsChartSwipeSwitchesMonthKey = "workoutsChartSwipeSwitchesMonth"
     static let showReadinessAICommentKey = "showReadinessAIComment"
     static let workoutRouteStyleKey = "workoutRouteStyle"
     static let drawsWorkoutRouteOnLoadKey = "drawsWorkoutRouteOnLoad"

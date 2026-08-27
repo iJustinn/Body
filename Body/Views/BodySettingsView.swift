@@ -33,12 +33,15 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricWarningThresholdsKey) private var metricWarningThresholdsRawValue = BodyMetricWarningThresholds.defaultRawValue
+    @AppStorage(BodyAppearancePreference.workoutEffortCardEnabledKey) private var workoutEffortCardEnabled = true
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
+    @AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = false
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentHapticsEnabledKey) private var workoutEquivalentHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
     // Empty `Data` is "no photo" — `@AppStorage` has no optional-Data overload.
@@ -530,7 +533,7 @@ struct BodySettingsView: View {
             } label: {
                 BodySettingsRowLabel(
                     title: "Workout Equivalents",
-                    value: workoutEquivalentHapticsSummaryText,
+                    value: workoutEquivalentsSummaryText,
                     iconName: "fork.knife",
                     tintColor: .purple,
                     accessory: .chevron
@@ -544,10 +547,25 @@ struct BodySettingsView: View {
                 activeSheet = .effortSuggestions
             } label: {
                 BodySettingsRowLabel(
-                    title: "Effort Suggestions",
-                    value: workoutEffortSuggestionsSummaryText,
+                    title: "Workout Effort",
+                    value: workoutEffortSummaryText,
                     iconName: "speedometer",
                     tintColor: .purple,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
+                activeSheet = .workoutMonthSwipe
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Swipe Between Months",
+                    value: workoutsChartSwipeSummaryText,
+                    iconName: "arrow.left.arrow.right",
+                    tintColor: .indigo,
                     accessory: .chevron
                 )
             }
@@ -588,12 +606,20 @@ struct BodySettingsView: View {
         homeBackgroundEnabled ? String(localized: "On") : String(localized: "Off")
     }
 
-    private var workoutEffortSuggestionsSummaryText: String {
-        showWorkoutEffortSuggestions ? String(localized: "On") : String(localized: "Off")
+    // The row's summary reflects the card toggle — the sheet's master switch —
+    // not the suggestion sub-settings.
+    private var workoutEffortSummaryText: String {
+        workoutEffortCardEnabled ? String(localized: "On") : String(localized: "Off")
     }
 
-    private var workoutEquivalentHapticsSummaryText: String {
-        workoutEquivalentHapticsEnabled ? String(localized: "On") : String(localized: "Off")
+    private var workoutsChartSwipeSummaryText: String {
+        workoutsChartSwipeSwitchesMonth ? String(localized: "On") : String(localized: "Off")
+    }
+
+    // The row's summary reflects the card toggle — the sheet's master switch —
+    // not the vibration sub-setting.
+    private var workoutEquivalentsSummaryText: String {
+        workoutEquivalentCardEnabled ? String(localized: "On") : String(localized: "Off")
     }
 
     private var readinessAISummaryText: String {
@@ -852,7 +878,8 @@ struct BodySettingsView: View {
                 workoutStore: workoutStore
             )
         case .effortSuggestions:
-            BodyEffortSuggestionsSettingsSheet(
+            BodyWorkoutEffortSettingsSheet(
+                cardEnabled: $workoutEffortCardEnabled,
                 isEnabled: $showWorkoutEffortSuggestions,
                 autoApply: $autoApplyWorkoutEffort,
                 workoutStore: workoutStore
@@ -861,6 +888,8 @@ struct BodySettingsView: View {
             BodyWorkoutEquivalentsSettingsSheet(hapticsEnabled: $workoutEquivalentHapticsEnabled)
         case .workoutRouteStyle:
             BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle, drawsRoute: $drawsWorkoutRouteOnLoad)
+        case .workoutMonthSwipe:
+            BodyWorkoutMonthSwipeSettingsSheet(isEnabled: $workoutsChartSwipeSwitchesMonth)
         case .aiReadiness:
             BodyReadinessAISettingsSheet(
                 isEnabled: $showReadinessAIComment,
@@ -965,6 +994,7 @@ enum BodySettingsSheet: String, Identifiable {
     case effortSuggestions
     case workoutEquivalents
     case workoutRouteStyle
+    case workoutMonthSwipe
     case aiReadiness
     case units
     case source
@@ -2857,7 +2887,8 @@ private struct BodySleepScoreToggleRow: View {
     }
 }
 
-private struct BodyEffortSuggestionsSettingsSheet: View {
+private struct BodyWorkoutEffortSettingsSheet: View {
+    @Binding var cardEnabled: Bool
     @Binding var isEnabled: Bool
     @Binding var autoApply: Bool
     @ObservedObject var workoutStore: HealthKitWorkoutStore
@@ -2868,13 +2899,30 @@ private struct BodyEffortSuggestionsSettingsSheet: View {
     @State private var autoApplyTask: Task<Void, Never>?
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Effort Suggestions") {
+        BodySettingsAboutSheetScaffold(title: "Workout Effort") {
             VStack(alignment: .leading, spacing: 22) {
                 // Each setting sits in its own section so its footer explains only that
                 // option.
                 VStack(alignment: .leading, spacing: 12) {
-                    BodySettingsCardSection("Workout Effort") {
+                    BodySettingsCardSection("Effort Card") {
+                        BodyWorkoutEffortCardToggleRow(isEnabled: $cardEnabled)
+                    }
+
+                    Text("Show the Effort card on workout detail pages. Off, the card disappears everywhere and nothing below applies.")
+                        .font(.system(.footnote, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    BodySettingsCardSection("Effort Suggestions") {
                         BodyEffortSuggestionToggleRow(isEnabled: $isEnabled)
+                            // Subordinate to the Effort card: nowhere to show a
+                            // prediction while the card is hidden.
+                            .disabled(!cardEnabled)
+                            .opacity(cardEnabled ? 1 : 0.4)
                     }
 
                     Text("When on, Body estimates a 1-10 effort for each workout from available workout, heart-rate, recent history, and readiness data. The suggestion appears on workout details and pre-fills unrated effort edits; your saved ratings stay in control, and unchanged accepted suggestions are excluded from future calibration.")
@@ -2889,9 +2937,9 @@ private struct BodyEffortSuggestionsSettingsSheet: View {
                     BodySettingsCardSection("Auto-Apply Effort") {
                         BodyAutoApplyEffortToggleRow(isEnabled: $autoApply)
                             // Subordinate to Effort Suggestions: no prediction to apply
-                            // while suggestions are off.
-                            .disabled(!isEnabled)
-                            .opacity(isEnabled ? 1 : 0.4)
+                            // while suggestions (or the card above them) are off.
+                            .disabled(!autoApplyAvailable)
+                            .opacity(autoApplyAvailable ? 1 : 0.4)
                     }
                     // Request write access at the moment of intent. If the user denies it,
                     // reset the toggle and explain; otherwise fill eligible recent workouts
@@ -2930,6 +2978,10 @@ private struct BodyEffortSuggestionsSettingsSheet: View {
         }
     }
 
+    private var autoApplyAvailable: Bool {
+        cardEnabled && isEnabled
+    }
+
     // Spells out the auto-apply eligibility rules so it's clear why some unrated
     // workouts get filled and others are left blank.
     private var autoApplyExplanation: some View {
@@ -2954,6 +3006,46 @@ private struct BodyEffortSuggestionsSettingsSheet: View {
             Text(verbatim: "•")
             Text(text)
         }
+    }
+}
+
+private struct BodyWorkoutEffortCardToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "rectangle.portrait.on.rectangle.portrait.fill",
+                color: .purple
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Effort Card")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Show effort on workout details")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Effort Card", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
@@ -3010,6 +3102,10 @@ struct BodyEffortSuggestionToggleRow: View {
 private struct BodyWorkoutEquivalentsSettingsSheet: View {
     @Binding var hapticsEnabled: Bool
     @AppStorage(BodyAppearancePreference.workoutEquivalentHiddenFoodsKey) private var hiddenFoodsRawValue = BodyEquivalentFoodSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.workoutEquivalentPrefersMoreItemsKey) private var prefersMoreItems = false
+    @AppStorage(BodyAppearancePreference.workoutEquivalentUsesTotalEnergyKey) private var usesTotalEnergy = false
+    @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var cardEnabled = true
+    @AppStorage(BodyAppearancePreference.workoutEquivalentEmojiScaleKey) private var emojiScale = 1.0
 
     private var foodSelection: Binding<BodyEquivalentFoodSelection> {
         Binding {
@@ -3022,10 +3118,40 @@ private struct BodyWorkoutEquivalentsSettingsSheet: View {
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Workout Equivalents") {
             VStack(alignment: .leading, spacing: 12) {
+                BodyWorkoutEquivalentCardToggleRow(isEnabled: $cardEnabled)
+                    .bodyCardBackground(translucent: true)
+
+                Text("Show the Equivalent card on workout detail pages. Off, the card disappears everywhere and nothing below applies.")
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+
+                BodyWorkoutEquivalentEmojiSizeRow(scale: $emojiScale)
+                    .bodyCardBackground(translucent: true)
+
                 BodyWorkoutEquivalentHapticsToggleRow(isEnabled: $hapticsEnabled)
                     .bodyCardBackground(translucent: true)
 
                 Text("Vibration plays a soft tap whenever two foods collide in the Equivalent card. Turn it off if you'd rather the card stay silent.")
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+
+                BodyWorkoutEquivalentTotalEnergyToggleRow(isEnabled: $usesTotalEnergy)
+                    .bodyCardBackground(translucent: true)
+
+                Text("Total Energy represents everything the workout burned, resting energy included. Off, the card shows only the active energy the workout itself added.")
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+
+                BodyWorkoutEquivalentMoreItemsToggleRow(isEnabled: $prefersMoreItems)
+                    .bodyCardBackground(translucent: true)
+
+                Text("More Food Items fills the card with more, smaller foods, like five snacks instead of one burger. Off, the card shows the fewest foods that cover the workout's energy.")
                     .font(.system(.footnote, design: .rounded))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -3094,6 +3220,162 @@ private struct BodyWorkoutEquivalentHapticsToggleRow: View {
     }
 }
 
+private struct BodyWorkoutEquivalentCardToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "rectangle.portrait.on.rectangle.portrait.fill",
+                color: .purple
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Equivalent Card")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Show food equivalents on workout details")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Equivalent Card", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyWorkoutEquivalentEmojiSizeRow: View {
+    @Binding var scale: Double
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "textformat.size",
+                color: .purple
+            )
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Emoji Size")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Slider(value: $scale, in: 0.7...1.3) {
+                    Text("Emoji Size")
+                } minimumValueLabel: {
+                    Text("🍔")
+                        .font(.system(size: 13))
+                } maximumValueLabel: {
+                    Text("🍔")
+                        .font(.system(size: 22))
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyWorkoutEquivalentTotalEnergyToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "flame.fill",
+                color: .purple
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Total Energy")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Include resting energy, not just the active burn")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Total Energy", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyWorkoutEquivalentMoreItemsToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "circle.hexagongrid.fill",
+                color: .purple
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("More Food Items")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Prefer many small foods over a few large ones")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("More Food Items", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
 private struct BodyEquivalentFoodToggleRow: View {
     let food: EnergyEquivalent.Food
     @Binding var isEnabled: Bool
@@ -3123,6 +3405,67 @@ private struct BodyEquivalentFoodToggleRow: View {
             Toggle(isOn: $isEnabled) {
                 Text(food.name)
             }
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyWorkoutMonthSwipeSettingsSheet: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Swipe Between Months") {
+            VStack(alignment: .leading, spacing: 12) {
+                BodySettingsCardSection("Workouts Chart") {
+                    BodyWorkoutMonthSwipeToggleRow(isEnabled: $isEnabled)
+                }
+
+                Text("When on, swiping left or right on the workouts calendar or type breakdown switches to the next or previous month, the same as the month picker. When off, the chart ignores horizontal swipes.")
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+}
+
+private struct BodyWorkoutMonthSwipeToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "arrow.left.arrow.right",
+                color: .indigo
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Swipe Between Months")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Swipe the chart to change month")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Swipe Between Months", isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")

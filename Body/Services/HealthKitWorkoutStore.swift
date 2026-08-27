@@ -1435,6 +1435,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     func autoApplyPredictedEffortIfNeeded(monthKeys: [BodyWorkoutMonthKey]) async {
         let defaults = UserDefaults.standard
         guard defaults.bool(forKey: BodyAppearancePreference.autoApplyWorkoutEffortKey),
+              defaults.object(forKey: BodyAppearancePreference.workoutEffortCardEnabledKey) as? Bool ?? true,
               defaults.object(forKey: BodyAppearancePreference.showWorkoutEffortSuggestionsKey) as? Bool ?? true,
               permissionSelection.includes(.workouts),
               !isAutoApplyingEffort else {
@@ -1534,11 +1535,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             maxWrites: Self.maxAutoAppliedEffortPerRefresh,
             writer: writer,
             shouldContinue: {
-                // Stop mid-batch if Auto-Apply (or its parent suggestions
-                // toggle) was switched off, or the running task was cancelled
-                // (Settings retains and cancels this task on OFF/onDisappear).
+                // Stop mid-batch if Auto-Apply (or either toggle above it —
+                // suggestions, or the Effort card itself) was switched off, or the
+                // running task was cancelled (Settings retains and cancels this
+                // task on OFF/onDisappear).
                 !Task.isCancelled
                     && UserDefaults.standard.bool(forKey: BodyAppearancePreference.autoApplyWorkoutEffortKey)
+                    && (UserDefaults.standard.object(forKey: BodyAppearancePreference.workoutEffortCardEnabledKey) as? Bool ?? true)
                     && (UserDefaults.standard.object(forKey: BodyAppearancePreference.showWorkoutEffortSuggestionsKey) as? Bool ?? true)
             }
         )
@@ -1903,22 +1906,32 @@ final class HealthKitWorkoutStore: ObservableObject {
     ///
     /// Invalidation rule: the cached/persisted breakdown is reused iff its
     /// `kilocalories` matches the workout's current active energy AND its
-    /// `hiddenFoods` matches `hiddenFoods` exactly. `tuningVersion` is
-    /// forensic metadata only and never invalidates — bumping it recomputes
-    /// nothing on its own. A mismatch (kcal restated by HealthKit, or the
-    /// user changed which foods are hidden) recomputes and re-persists.
-    func energyEquivalentEmojis(for workout: WorkoutSummary, hiddenFoods: Set<String>) async -> [String]? {
+    /// `hiddenFoods` matches `hiddenFoods` exactly AND it was computed under
+    /// the same `prefersMoreItems` choice (older payloads without the flag
+    /// read as false). `tuningVersion` is forensic metadata only and never
+    /// invalidates — bumping it recomputes nothing on its own. A mismatch
+    /// (kcal restated by HealthKit, or the user changed which foods are hidden
+    /// or the representation style) recomputes and re-persists.
+    func energyEquivalentEmojis(for workout: WorkoutSummary, hiddenFoods: Set<String>, prefersMoreItems: Bool, usesTotalEnergy: Bool) async -> [String]? {
         await hydrateWorkoutDetailIfNeeded(for: workout)
 
+        // The source-kcal choice needs no field of its own in the payload — a
+        // switch between active and total shows up as a kilocalories mismatch.
+        let sourceKilocalories = usesTotalEnergy
+            ? (workout.totalEnergyKilocalories ?? workout.activeEnergyKilocalories)
+            : workout.activeEnergyKilocalories
+
         if let cached = energyEquivalentCache[workout.id],
-           cached.kilocalories == workout.activeEnergyKilocalories,
-           Set(cached.hiddenFoods) == hiddenFoods {
+           cached.kilocalories == sourceKilocalories,
+           Set(cached.hiddenFoods) == hiddenFoods,
+           (cached.prefersMoreItems ?? false) == prefersMoreItems {
             return cached.emojis
         }
 
         guard let foods = EnergyEquivalent.decompose(
-            kilocalories: workout.activeEnergyKilocalories,
-            excluding: hiddenFoods
+            kilocalories: sourceKilocalories,
+            excluding: hiddenFoods,
+            preferringMoreItems: prefersMoreItems
         ) else {
             return nil
         }
@@ -1926,8 +1939,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         let emojis = foods.map { $0.emoji }
         let payload = PersistedEnergyEquivalent(
             tuningVersion: EnergyEquivalent.tuningVersion,
-            kilocalories: workout.activeEnergyKilocalories ?? 0,
+            kilocalories: sourceKilocalories ?? 0,
             hiddenFoods: hiddenFoods.sorted(),
+            prefersMoreItems: prefersMoreItems,
             emojis: emojis
         )
         energyEquivalentCache[workout.id] = payload
@@ -3367,6 +3381,22 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
+    /// The Stress-input kinds the dashboard refresh fetches itself (the engine's
+    /// `.inputCapable` leaves), as opposed to the ones only the Stress input
+    /// loader reads.
+    private static let refreshFetchedStressInputKinds: Set<HealthMetricKind> = [
+        .sleep,
+        .heartRateVariability
+    ]
+
+    /// The categories the Stress input loader reads (HR/HRV day samples, the
+    /// beat-to-beat series, and the coarse steps/energy movement mask).
+    private static let stressInputLoadPermissions: Set<BodyHealthPermission> = [
+        .heart,
+        .steps,
+        .energy
+    ]
+
     /// Whether the current Home-card layout actually fetches this category.
     ///
     /// `BodyDashboardFetchSelection` is built from the selected Summary and Trend
@@ -3389,9 +3419,30 @@ final class HealthKitWorkoutStore: ObservableObject {
         default:
             return HealthMetricKind.allCases.contains {
                 HealthKitFetchEngine.healthPermission(forMetric: $0) == permission
-                    && selection.includes($0)
+                    && isFetchedForDashboard($0, selection: selection)
             }
         }
+    }
+
+    /// A kind fetched only as a Stress input counts as fetched just when
+    /// something will actually query it. The refresh itself still fetches the
+    /// engine's `.inputCapable` leaves; the rest reach HealthKit only through
+    /// the Stress input loader, which is heart-gated
+    /// (`startStressInputLoadIfNeeded`) — with Heart off those are never read
+    /// and the sheet must not claim they are.
+    private func isFetchedForDashboard(
+        _ kind: HealthMetricKind,
+        selection: BodyDashboardFetchSelection
+    ) -> Bool {
+        if selection.includesFullPayload(kind) {
+            return true
+        }
+
+        guard selection.isInputOnly(kind) else {
+            return false
+        }
+
+        return Self.refreshFetchedStressInputKinds.contains(kind) || permissionSelection.includes(.heart)
     }
 
     /// Whether Body currently holds data for this category.
@@ -3460,6 +3511,13 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// has already gone false).
     private func isHealthPermissionLoadInFlight(_ permission: BodyHealthPermission) -> Bool {
         if isRefreshing {
+            return true
+        }
+
+        // Same shape for the Stress input loader: it also lands after the refresh
+        // completes, so the categories it fills are still being checked rather
+        // than missing.
+        if stressInputLoadTask != nil, Self.stressInputLoadPermissions.contains(permission) {
             return true
         }
 

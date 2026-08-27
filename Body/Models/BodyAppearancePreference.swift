@@ -321,6 +321,22 @@ extension BodyAppearancePreference {
     /// Comma-joined emoji of `EnergyEquivalent.Food`s hidden from the Equivalent card.
     /// Empty string means none are hidden.
     static let workoutEquivalentHiddenFoodsKey = "workoutEquivalentHiddenFoods"
+
+    /// Whether the Equivalent card fills with many small foods instead of the
+    /// fewest large ones. Default false (fewest items).
+    static let workoutEquivalentPrefersMoreItemsKey = "workoutEquivalentPrefersMoreItems"
+
+    /// Whether the Equivalent card represents the workout's total energy
+    /// (active + resting) rather than active energy alone. Default false.
+    static let workoutEquivalentUsesTotalEnergyKey = "workoutEquivalentUsesTotalEnergy"
+
+    /// Whether the Equivalent card shows on workout detail pages at all.
+    /// Default true.
+    static let workoutEquivalentCardEnabledKey = "workoutEquivalentCardEnabled"
+
+    /// Scale factor applied to the Equivalent card's emoji (0.7…1.3, default
+    /// 1 — the slider's midpoint).
+    static let workoutEquivalentEmojiScaleKey = "workoutEquivalentEmojiScale"
 }
 
 /// The local-only user profile shown at the top of Settings. Nothing here is
@@ -904,6 +920,10 @@ private extension JSONEncoder {
     }
 }
 
+/// Synthesized `Equatable` compares provenance too: two layouts that fetch the
+/// same kinds but for different reasons (rendered card vs. stress input) are
+/// unequal. Intentional — no consumer compares selections, and conflating the
+/// two would hide the distinction the fetch gating turns on.
 struct BodyDashboardFetchSelection: Equatable {
     private static let basicsMetricKinds: Set<HealthMetricKind> = [
         .bodyMass,
@@ -938,6 +958,11 @@ struct BodyDashboardFetchSelection: Equatable {
     )
 
     let includesActivityRings: Bool
+    /// Kinds some card actually renders — their full card payload (summary
+    /// headline, warnings, year trend, secondary series) is worth fetching.
+    private let fullPayloadKinds: Set<HealthMetricKind>
+    /// Union of `fullPayloadKinds` and the stress dependencies no card renders;
+    /// the latter are fetched only as scoring inputs.
     private let metricKinds: Set<HealthMetricKind>
 
     init(
@@ -967,19 +992,34 @@ struct BodyDashboardFetchSelection: Equatable {
             metrics.formUnion(Self.readinessDependencyKinds)
         }
 
-        if metrics.contains(.stress) {
-            metrics.formUnion(Self.stressDependencyKinds)
-        }
-
         if metrics.contains(.vitals) {
             metrics.formUnion(Self.vitalsMetricKinds)
         }
 
-        metricKinds = metrics
+        // Stress expands LAST, and only into what is still missing: a dependency
+        // some other card renders keeps its full payload, while the rest are
+        // input-only. No other expansion can add a meta kind, so closing the
+        // full-payload set first is order-independent.
+        let inputOnlyKinds: Set<HealthMetricKind> = metrics.contains(.stress)
+            ? Self.stressDependencyKinds.subtracting(metrics)
+            : []
+
+        fullPayloadKinds = metrics
+        metricKinds = metrics.union(inputOnlyKinds)
     }
 
     func includes(_ kind: HealthMetricKind) -> Bool {
         metricKinds.contains(kind)
+    }
+
+    /// Whether the layout renders this kind's card payload, as opposed to
+    /// fetching it only to score Stress.
+    func includesFullPayload(_ kind: HealthMetricKind) -> Bool {
+        fullPayloadKinds.contains(kind)
+    }
+
+    func isInputOnly(_ kind: HealthMetricKind) -> Bool {
+        metricKinds.contains(kind) && !fullPayloadKinds.contains(kind)
     }
 
     static func load(defaults: UserDefaults = .standard) -> BodyDashboardFetchSelection {

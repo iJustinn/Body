@@ -857,6 +857,9 @@
         }
       }
     },
+    "🍔" : {
+
+    },
     "1 day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4251,6 +4254,22 @@
         }
       }
     },
+    "Effort Card" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Effort Card"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "强度卡片"
+          }
+        }
+      }
+    },
     "Effort Suggestions" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4264,6 +4283,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "强度建议"
+          }
+        }
+      }
+    },
+    "Emoji Size" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emoji Size"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表情大小"
           }
         }
       }
@@ -4366,18 +4401,34 @@
         }
       }
     },
-    "Equivalent turns this workout's active energy into a handful of food emoji, so a calorie count feels more tangible. Each food stands for a fixed estimate rather than something looked up in a nutrition database, so it is only a playful comparison — not dietary advice." : {
+    "Equivalent Card" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Equivalent turns this workout's active energy into a handful of food emoji, so a calorie count feels more tangible. Each food stands for a fixed estimate rather than something looked up in a nutrition database, so it is only a playful comparison — not dietary advice."
+            "value" : "Equivalent Card"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "热量等价把这次运动消耗的活动能量换算成几种食物表情符号，让卡路里数字更直观。每种食物对应一个固定的估算值，而不是查自营养数据库，所以这只是一个有趣的类比，并非饮食建议。"
+            "value" : "热量等价卡片"
+          }
+        }
+      }
+    },
+    "Equivalent turns this workout's burned energy into a handful of food emoji, so a calorie count feels more tangible. Each food stands for a fixed estimate rather than something looked up in a nutrition database, so it is only a playful comparison, not dietary advice." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Equivalent turns this workout's burned energy into a handful of food emoji, so a calorie count feels more tangible. Each food stands for a fixed estimate rather than something looked up in a nutrition database, so it is only a playful comparison, not dietary advice."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "热量等价把这次运动消耗的能量换算成几种食物表情符号，让卡路里数字更直观。每种食物对应一个固定的估算值，而不是查自营养数据库，所以这只是一个有趣的类比，并非饮食建议。"
           }
         }
       }
@@ -4398,6 +4449,22 @@
         }
       }
     },
+    "equivalent.food.apple" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "苹果"
+          }
+        }
+      }
+    },
     "equivalent.food.avocado" : {
       "localizations" : {
         "en" : {
@@ -4410,6 +4477,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "牛油果"
+          }
+        }
+      }
+    },
+    "equivalent.food.banana" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Banana"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "香蕉"
           }
         }
       }
@@ -4446,6 +4529,22 @@
         }
       }
     },
+    "equivalent.food.bubbleTea" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bubble Tea"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "珍珠奶茶"
+          }
+        }
+      }
+    },
     "equivalent.food.burger" : {
       "localizations" : {
         "en" : {
@@ -4474,6 +4573,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "一块巧克力"
+          }
+        }
+      }
+    },
+    "equivalent.food.cookie" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cookie"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "曲奇"
+          }
+        }
+      }
+    },
+    "equivalent.food.croissant" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Croissant"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "羊角包"
+          }
+        }
+      }
+    },
+    "equivalent.food.donut" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Donut"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "甜甜圈"
           }
         }
       }
@@ -4510,6 +4657,38 @@
         }
       }
     },
+    "equivalent.food.grapes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grapes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "葡萄"
+          }
+        }
+      }
+    },
+    "equivalent.food.hotDog" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hot Dog"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "热狗"
+          }
+        }
+      }
+    },
     "equivalent.food.iceCream" : {
       "localizations" : {
         "en" : {
@@ -4526,6 +4705,22 @@
         }
       }
     },
+    "equivalent.food.iceCube" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ice Cube"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "冰块"
+          }
+        }
+      }
+    },
     "equivalent.food.kcalFormat %lld" : {
       "localizations" : {
         "en" : {
@@ -4537,7 +4732,39 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "约 %lld 千卡"
+            "value" : "≈ %lld kcal"
+          }
+        }
+      }
+    },
+    "equivalent.food.latte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latte"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拿铁"
+          }
+        }
+      }
+    },
+    "equivalent.food.mango" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mango"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "芒果"
           }
         }
       }
@@ -4554,6 +4781,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "一碗面"
+          }
+        }
+      }
+    },
+    "equivalent.food.orange" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Orange"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "橙子"
           }
         }
       }
@@ -4590,6 +4833,38 @@
         }
       }
     },
+    "equivalent.food.riceBall" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rice Ball"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "饭团"
+          }
+        }
+      }
+    },
+    "equivalent.food.soda" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Soda"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "汽水"
+          }
+        }
+      }
+    },
     "equivalent.food.sushi" : {
       "localizations" : {
         "en" : {
@@ -4602,6 +4877,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "寿司"
+          }
+        }
+      }
+    },
+    "equivalent.food.taco" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Taco"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "塔可"
+          }
+        }
+      }
+    },
+    "equivalent.food.watermelon" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Watermelon Slice"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "西瓜"
+          }
+        }
+      }
+    },
+    "equivalent.food.wine" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glass of Wine"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "葡萄酒"
           }
         }
       }
@@ -5586,6 +5909,22 @@
         }
       }
     },
+    "Include resting energy, not just the active burn" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Include resting energy, not just the active burn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "包含静息热量，而不仅是运动消耗"
+          }
+        }
+      }
+    },
     "Include very short Awake intervals in sleep stages" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6545,6 +6884,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更多 Body Pro 功能将在未来更新中加入。"
+          }
+        }
+      }
+    },
+    "More Food Items" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More Food Items"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更多食物"
+          }
+        }
+      }
+    },
+    "More Food Items fills the card with more, smaller foods, like five snacks instead of one burger. Off, the card shows the fewest foods that cover the workout's energy." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More Food Items fills the card with more, smaller foods, like five snacks instead of one burger. Off, the card shows the fewest foods that cover the workout's energy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启「更多食物」后，卡片会用更多小份食物来填满，比如五份小食而不是一个汉堡。关闭时，卡片用最少的食物来覆盖这次运动的热量。"
           }
         }
       }
@@ -9412,6 +9783,22 @@
         }
       }
     },
+    "Prefer many small foods over a few large ones" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prefer many small foods over a few large ones"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用更多小份食物代替少量大份食物"
+          }
+        }
+      }
+    },
     "Pressure" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11204,6 +11591,22 @@
         }
       }
     },
+    "Show effort on workout details" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show effort on workout details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在运动详情页显示强度"
+          }
+        }
+      }
+    },
     "Show Fewer Trends" : {
       "localizations" : {
         "en" : {
@@ -11216,6 +11619,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "收起趋势"
+          }
+        }
+      }
+    },
+    "Show food equivalents on workout details" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show food equivalents on workout details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在运动详情页显示食物热量等价"
           }
         }
       }
@@ -11264,6 +11683,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示分隔符"
+          }
+        }
+      }
+    },
+    "Show the Effort card on workout detail pages. Off, the card disappears everywhere and nothing below applies." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show the Effort card on workout detail pages. Off, the card disappears everywhere and nothing below applies."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在运动详情页显示强度卡片。关闭后，卡片将不再显示，下方设置也不再生效。"
+          }
+        }
+      }
+    },
+    "Show the Equivalent card on workout detail pages. Off, the card disappears everywhere and nothing below applies." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show the Equivalent card on workout detail pages. Off, the card disappears everywhere and nothing below applies."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在运动详情页显示热量等价卡片。关闭后，卡片将不再显示，下方设置也不再生效。"
           }
         }
       }
@@ -12261,6 +12712,40 @@
         }
       }
     },
+    "Swipe Between Months" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swipe Between Months"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "滑动切换月份"
+          }
+        }
+      }
+    },
+    "Swipe the chart to change month" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swipe the chart to change month"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "滑动图表即可切换月份"
+          }
+        }
+      }
+    },
     "Switches between stage durations and optimal ranges" : {
       "localizations" : {
         "en" : {
@@ -12725,6 +13210,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "总计"
+          }
+        }
+      }
+    },
+    "Total Energy" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total Energy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总热量"
+          }
+        }
+      }
+    },
+    "Total Energy represents everything the workout burned, resting energy included. Off, the card shows only the active energy the workout itself added." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total Energy represents everything the workout burned, resting energy included. Off, the card shows only the active energy the workout itself added."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启「总热量」后，卡片代表这次运动消耗的全部热量（含静息热量）。关闭时，卡片只显示运动本身额外燃烧的主动热量。"
           }
         }
       }
@@ -13637,6 +14154,23 @@
         }
       }
     },
+    "When on, swiping left or right on the workouts calendar or type breakdown switches to the next or previous month, the same as the month picker. When off, the chart ignores horizontal swipes." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When on, swiping left or right on the workouts calendar or type breakdown switches to the next or previous month, the same as the month picker. When off, the chart ignores horizontal swipes."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后，在运动日历或类型分布图上向左或向右滑动即可切换到下一个月或上一个月，效果与月份选择器相同。关闭后，图表将忽略横向滑动。"
+          }
+        }
+      }
+    },
     "White" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14173,6 +14707,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "运动"
+          }
+        }
+      }
+    },
+    "Workouts Chart" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workouts Chart"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动图表"
           }
         }
       }

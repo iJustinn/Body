@@ -3583,6 +3583,58 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(states[.sleep], .noData)
     }
 
+    /// Stress-only layout, Heart on: sleep and HRV are fetched by the dashboard
+    /// refresh itself (`.inputCapable`), and with Heart enabled the heart-gated
+    /// Stress input loader also queries heart rate/steps/active energy — so all
+    /// three report as used by the dashboard, not `.notUsedByDashboard`.
+    @MainActor
+    func testStressOnlyLayoutWithHeartOnMarksInputDependenciesDashboardUsed() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+        HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+
+        let store = accessStateStore(ringHistory: .empty)
+        let stressOnly = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: [.stress]),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [])
+        )
+
+        let states = store.healthPermissionAccessStates(dashboardFetchSelection: stressOnly)
+
+        XCTAssertNotEqual(states[.heart], .notUsedByDashboard)
+        XCTAssertNotEqual(states[.steps], .notUsedByDashboard)
+        XCTAssertNotEqual(states[.energy], .notUsedByDashboard)
+    }
+
+    /// Stress-only layout, Heart off: the Stress input loader is heart-gated
+    /// (`startStressInputLoadIfNeeded`), so with Heart off it never queries
+    /// steps/energy — they must report `.notUsedByDashboard`, not a false
+    /// "no data". Sleep is unaffected: it's one of the engine's own
+    /// `.inputCapable` leaves, refresh-fetched regardless of Heart.
+    @MainActor
+    func testStressOnlyLayoutWithHeartOffLeavesStepsAndEnergyNotDashboardUsed() throws {
+        let preserved = preserveInitialHealthLoadDefaults()
+        defer { preserved() }
+        HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+
+        let store = accessStateStore(
+            ringHistory: .empty,
+            permissionSelection: BodyHealthPermissionSelection(
+                enabledPermissions: Set(BodyHealthPermission.allCases).subtracting([.heart])
+            )
+        )
+        let stressOnly = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: [.stress]),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [])
+        )
+
+        let states = store.healthPermissionAccessStates(dashboardFetchSelection: stressOnly)
+
+        XCTAssertEqual(states[.steps], .notUsedByDashboard)
+        XCTAssertEqual(states[.energy], .notUsedByDashboard)
+        XCTAssertNotEqual(states[.sleep], .notUsedByDashboard)
+    }
+
     /// Every row must resolve to something. A missing entry would render a row
     /// with no footer at all, which reads as a layout bug rather than a state.
     @MainActor

@@ -16,6 +16,62 @@ enum BodyWorkoutRouteHeroAnchor {
     }
 }
 
+/// Swipe-to-switch-month on the Workouts chart card. Pure so the thresholds and
+/// the range clamp can be unit-tested without the view.
+enum BodyWorkoutChartSwipe {
+    /// Where the drag starts being tracked at all.
+    static let minimumDragDistance: CGFloat = 25
+    /// How far a finished drag must travel horizontally to commit a month switch.
+    static let commitDistance: CGFloat = 40
+
+    enum Direction {
+        case previous
+        case next
+    }
+
+    /// The month switch a finished drag asks for, or nil when it was too short
+    /// or too diagonal. The angle test matters as much as the distance one: the
+    /// chart sits inside the scroll view whose pull-to-refresh fires at ~70 pt
+    /// down, so a diagonal drag must not do both.
+    static func direction(forTranslation translation: CGSize) -> Direction? {
+        guard abs(translation.width) > commitDistance,
+              abs(translation.width) > 2 * abs(translation.height) else {
+            return nil
+        }
+
+        return translation.width < 0 ? .next : .previous
+    }
+
+    /// The month one step from `current`, or nil when that step leaves the
+    /// picker's reachable range — past the current month at one end, before the
+    /// oldest entry of its month list at the other. Walks that same list rather
+    /// than re-deriving the window, so the two can't disagree.
+    static func adjacentMonthYear(
+        from current: BodyMonthYear,
+        direction: Direction,
+        monthsToShow: Int = 36,
+        relativeTo date: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> BodyMonthYear? {
+        let reachable = BodyMonthYearPicker.monthYearList(
+            monthsToShow: monthsToShow,
+            relativeTo: date,
+            calendar: calendar
+        )
+
+        guard let index = reachable.firstIndex(of: current) else {
+            return nil
+        }
+
+        let targetIndex = index + (direction == .next ? 1 : -1)
+        guard reachable.indices.contains(targetIndex) else {
+            return nil
+        }
+
+        return reachable[targetIndex]
+    }
+}
+
 struct BodyWorkoutsView: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -41,6 +97,7 @@ struct BodyWorkoutsView: View {
     @State private var searchCorpusCache = BodyWorkoutSearchCorpusCache()
     @State private var monthSummaryShareRequest: MonthSummaryShareRequest?
     @AppStorage(BodyAppearancePreference.workoutsChartShowsTypeBreakdownKey) private var workoutsChartShowsTypeBreakdown = false
+    @AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = false
     @Namespace private var workoutZoom
     @FocusState private var isSearchFocused: Bool
 
@@ -131,6 +188,19 @@ struct BodyWorkoutsView: View {
                                         .id("chart-\(monthIdentity)")
                                 }
                             }
+                            // Simultaneous, and never sequenced or high-priority:
+                            // the chart sits inside the vertical ScrollView, and
+                            // anything stronger would swallow scrolling over the
+                            // card. The mask — not a conditional gesture — is what
+                            // the setting switches off, so the card's own taps
+                            // (day cells, bars) keep working either way.
+                            .simultaneousGesture(
+                                DragGesture(minimumDistance: BodyWorkoutChartSwipe.minimumDragDistance)
+                                    .onEnded { value in
+                                        switchMonthForChartSwipe(translation: value.translation)
+                                    },
+                                including: workoutsChartSwipeSwitchesMonth ? .all : .subviews
+                            )
 
                             Group {
                                 if visibleWorkouts.isEmpty {
@@ -623,7 +693,28 @@ struct BodyWorkoutsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Swipe left for the next month, right for the previous one. Routed through
+    /// `requestMonthYearSelection` like every other month switch, so an unloaded
+    /// month gets the same async load, loading badge, and 15s timeout.
+    private func switchMonthForChartSwipe(translation: CGSize) {
+        guard let direction = BodyWorkoutChartSwipe.direction(forTranslation: translation),
+              let target = BodyWorkoutChartSwipe.adjacentMonthYear(
+                  from: BodyMonthYear(month: selectedMonth, year: selectedYear),
+                  direction: direction
+              ) else {
+            return
+        }
+
+        _ = requestMonthYearSelection(target)
+    }
+
     private func requestMonthYearSelection(_ monthYear: BodyMonthYear) -> Bool {
+        // Every request supersedes any earlier one, including the ones that return
+        // below without starting a load: leaving a previous token alive would let a
+        // slow earlier load land later and yank the page to a month the user has
+        // since navigated away from.
+        pendingMonthSelection = nil
+
         guard selectedMonth != monthYear.month || selectedYear != monthYear.year else {
             return true
         }
@@ -1122,11 +1213,16 @@ struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.workoutEffortCardEnabledKey) private var workoutEffortCardEnabled = true
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsRouteOnLoad = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentHapticsEnabledKey) private var workoutEquivalentHapticsEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentHiddenFoodsKey) private var workoutEquivalentHiddenFoodsRawValue = BodyEquivalentFoodSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.workoutEquivalentPrefersMoreItemsKey) private var workoutEquivalentPrefersMoreItems = false
+    @AppStorage(BodyAppearancePreference.workoutEquivalentUsesTotalEnergyKey) private var workoutEquivalentUsesTotalEnergy = false
+    @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
+    @AppStorage(BodyAppearancePreference.workoutEquivalentEmojiScaleKey) private var workoutEquivalentEmojiScale = 1.0
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
     /// Where every detail chart's hold-to-scrub callout is published; the overlay
     /// below draws it above the page's Back/Share chrome.
@@ -1607,6 +1703,7 @@ struct BodyWorkoutDetailSheet: View {
             heartRateRecoveryBPM = resolvedHeartRateRecovery
         }
         .onChange(of: showWorkoutEffortSuggestions) { refreshPrediction() }
+        .onChange(of: workoutEffortCardEnabled) { refreshPrediction() }
         .onChange(of: effectiveRoutePresence.reservesHero) { _, reservesHero in
             // The gap above the content is open only while the hero band is reserved, so
             // a reserved measurement doesn't apply once it collapses. The arrival
@@ -1775,10 +1872,12 @@ struct BodyWorkoutDetailSheet: View {
             VStack(spacing: 18) {
                 topEntryPanel(presentation: presentation, records: records)
                 workoutDetailsCard(presentation: presentation, records: records)
-                if let equivalentEmojis, !equivalentEmojis.isEmpty {
+                if workoutEquivalentCardEnabled, let equivalentEmojis, !equivalentEmojis.isEmpty {
                     equivalentCard(emojis: equivalentEmojis)
                 }
-                effortCard
+                if workoutEffortCardEnabled {
+                    effortCard
+                }
                 heartRateSection(presentation: presentation)
                 // Each of these cards exists only once its series (or the route) has
                 // loaded, so they arrive after the page is already on screen —
@@ -1847,6 +1946,15 @@ struct BodyWorkoutDetailSheet: View {
                 await loadEquivalentEmojis()
             }
             .onChange(of: workoutEquivalentHiddenFoodsRawValue) { _, _ in
+                Task { await loadEquivalentEmojis() }
+            }
+            .onChange(of: workoutEquivalentPrefersMoreItems) { _, _ in
+                Task { await loadEquivalentEmojis() }
+            }
+            .onChange(of: workoutEquivalentUsesTotalEnergy) { _, _ in
+                Task { await loadEquivalentEmojis() }
+            }
+            .onChange(of: workoutEquivalentCardEnabled) { _, _ in
                 Task { await loadEquivalentEmojis() }
             }
         }
@@ -2181,7 +2289,11 @@ struct BodyWorkoutDetailSheet: View {
                 .accessibilityLabel(BodyEnergyEquivalentExplanationSheet.sheetTitle)
             }
 
-            EnergyEquivalentCardContent(emojis: emojis, hapticsEnabled: workoutEquivalentHapticsEnabled)
+            EnergyEquivalentCardContent(
+                emojis: emojis,
+                hapticsEnabled: workoutEquivalentHapticsEnabled,
+                emojiScale: workoutEquivalentEmojiScale
+            )
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
@@ -2200,7 +2312,16 @@ struct BodyWorkoutDetailSheet: View {
     /// itself — since that card only renders once `equivalentEmojis` is already
     /// non-empty, so a `.task` scoped to it would never get the first fetch.
     private func loadEquivalentEmojis() async {
-        equivalentEmojis = await workoutStore.energyEquivalentEmojis(for: workout, hiddenFoods: equivalentHiddenFoods)
+        guard workoutEquivalentCardEnabled else {
+            equivalentEmojis = nil
+            return
+        }
+        equivalentEmojis = await workoutStore.energyEquivalentEmojis(
+            for: workout,
+            hiddenFoods: equivalentHiddenFoods,
+            prefersMoreItems: workoutEquivalentPrefersMoreItems,
+            usesTotalEnergy: workoutEquivalentUsesTotalEnergy
+        )
     }
 
     /// The effort to display — a rating the user just saved this session (kept on
@@ -2220,8 +2341,14 @@ struct BodyWorkoutDetailSheet: View {
     /// number crossfades into place instead of the line appearing from nothing. It's
     /// dropped only once the inputs have settled without an estimate (a workout with
     /// no usable signal), or when suggestions are off.
+    /// Suggestions are subordinate to the Effort card: with the card hidden there
+    /// is nowhere to show a prediction and nothing to pre-fill.
+    private var effortSuggestionsActive: Bool {
+        workoutEffortCardEnabled && showWorkoutEffortSuggestions
+    }
+
     private var showsEffortPredictionLine: Bool {
-        showWorkoutEffortSuggestions && (prediction != nil || !predictionInputsSettled)
+        effortSuggestionsActive && (prediction != nil || !predictionInputsSettled)
     }
 
     /// Tapping the card expands it in place to reveal the editing controls — no
@@ -2399,7 +2526,7 @@ struct BodyWorkoutDetailSheet: View {
     private func beginEditingEffort() {
         // Pre-fill from the already-settled prediction — estimating here again could
         // publish a provisional number on a fast tap before the inputs load.
-        let estimate = showWorkoutEffortSuggestions ? prediction : nil
+        let estimate = effortSuggestionsActive ? prediction : nil
         if let effortLevel {
             // A logged workout opens at its saved value — the pre-fill is only for
             // workouts the user hasn't rated yet.
@@ -2417,7 +2544,7 @@ struct BodyWorkoutDetailSheet: View {
             editorPrefilledFromSuggestion = false
             // Tapped before the prediction settled: the 5 is a stand-in, so let the
             // settled prediction re-fill the untouched editor when it lands.
-            editorAwaitingPrediction = showWorkoutEffortSuggestions && !predictionInputsSettled
+            editorAwaitingPrediction = effortSuggestionsActive && !predictionInputsSettled
         }
         withAnimation(.snappy(duration: 0.3)) { isEditingEffort = true }
     }
@@ -2464,7 +2591,7 @@ struct BodyWorkoutDetailSheet: View {
     /// so there's no provisional flash.
     private func refreshPrediction() {
         guard predictionInputsSettled else { return }
-        prediction = showWorkoutEffortSuggestions
+        prediction = effortSuggestionsActive
             ? WorkoutEffortEstimator.estimate(for: effortEstimateInput())
             : nil
         // An editor opened on the placeholder 5 before the inputs settled (and untouched

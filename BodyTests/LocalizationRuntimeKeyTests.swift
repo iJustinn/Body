@@ -382,6 +382,22 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    func testWorkoutMonthSwipeKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // Settings › Workouts › Swipe Between Months: the row title (reused as the
+        // sheet title and its toggle label), the sheet's card-section title, the
+        // toggle subtitle, and the footnote explanation.
+        let keys = [
+            "Swipe Between Months",
+            "Workouts Chart",
+            "Swipe the chart to change month",
+            "When on, swiping left or right on the workouts calendar or type breakdown switches to the next or previous month, the same as the month picker. When off, the chart ignores horizontal swipes."
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
     func testChartScrubCalloutRowTitlesResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
@@ -732,10 +748,10 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
     func testEnergyEquivalentFoodKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
-        let keys = EnergyEquivalent.foods.map(\.name.key)
+        let keys = EnergyEquivalent.foods.map(\.name.key) + [EnergyEquivalent.iceCube.name.key]
         // Guards the enumeration itself: a refactor dropping foods would otherwise
         // silently check fewer keys and still pass.
-        XCTAssertEqual(keys.count, 12, "expected one key per EnergyEquivalent.Food")
+        XCTAssertEqual(keys.count, 29, "expected one key per EnergyEquivalent.Food plus the ice cube")
 
         try assertKeysTranslated(keys, in: catalog)
     }
