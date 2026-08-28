@@ -98,14 +98,19 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
     private static let gravityScale: Double = 15
     /// Below this delta in raw g-components, a new motion sample is noise, not a
     /// real tilt; ignoring it lets the scene actually go quiet while held still.
-    private static let gravityDeadband: Double = 0.02
-    /// Boost forces wake every body, so settling requires gravity to have been
-    /// quiet for a stretch before bodies are even considered for rest.
-    private static let settleGravityQuietDuration: TimeInterval = 0.5
+    private static let gravityDeadband: Double = 0.04
     private static let settleLinearSpeedThreshold: CGFloat = 6
     private static let settleRimSpeedThreshold: CGFloat = 6
-    /// Consecutive qualifying frames required before bodies are frozen.
-    private static let settleDwellFrames = 30
+    /// userAcceleration magnitude (g) above which the device counts as moving;
+    /// generous enough that hand tremor while "holding still" doesn't count.
+    private static let stillAccelerationThreshold: Double = 0.06
+    /// rotationRate magnitude (rad/s) above which the device counts as moving.
+    private static let stillRotationThreshold: Double = 0.25
+    /// How long the device must be still before bodies are eligible to settle.
+    private static let settleDelay: TimeInterval = 0.5
+    /// Failsafe: force settle after this long still, even if a body is still
+    /// creeping (e.g. resting against another body under residual damping).
+    private static let settleFailsafeDelay: TimeInterval = 2.0
 
     var hapticsEnabled = true
 
@@ -123,8 +128,9 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
     private var lastHapticTime: TimeInterval = 0
     private var currentEmojis: [String] = []
     private var isRunning = false
-    private var lastGravityAppliedTime: TimeInterval?
-    private var settleDwellCount = 0
+    /// CACurrentMediaTime() of the last device-motion sample that counted as
+    /// moving; stamped by the motion queue, read by the scene under `gravityLock`.
+    private var lastDeviceMovementTime: TimeInterval?
     private var isSettled = false
 
     override init() {
@@ -170,15 +176,21 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         gravityLock.unlock()
         if let gravity {
             physicsWorld.gravity = gravity
-            lastGravityAppliedTime = currentTime
-            // A real tilt just landed: wake everything back up.
-            isSettled = false
-            settleDwellCount = 0
         }
 
-        if isSettled {
-            // Settled bodies get no boost — that force is exactly what was
-            // keeping them from ever coming to rest.
+        gravityLock.lock()
+        let movementTime = lastDeviceMovementTime
+        gravityLock.unlock()
+        // Use CACurrentMediaTime() (not `currentTime`) so this stays comparable
+        // with the timestamp the motion queue stamps under the same lock.
+        let deviceStill = movementTime.map { CACurrentMediaTime() - $0 >= Self.settleDelay } ?? true
+
+        if !deviceStill {
+            physicsWorld.speed = 1
+            isSettled = false
+        } else if isSettled {
+            // Settled bodies get no boost, and the world itself is paused, so
+            // there is nothing left to do until the device moves again.
             return
         }
 
@@ -186,36 +198,47 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         // needs an extra push: heavier (higher-kcal) foods get a boost along the
         // current gravity vector, lighter ones ride gravity alone (their higher
         // damping already makes them the slowest — see `updateEmojis`).
-        let currentGravity = physicsWorld.gravity
         var allSlow = true
-        for node in children {
-            guard let label = node as? SKLabelNode, let body = label.physicsBody, let emoji = label.text else { continue }
-            let linearSpeed = hypot(body.velocity.dx, body.velocity.dy)
-            let rimSpeed = abs(body.angularVelocity) * glyphRadius
-            if linearSpeed >= Self.settleLinearSpeedThreshold || rimSpeed >= Self.settleRimSpeedThreshold {
-                allSlow = false
-            }
-            let boost = Self.weight(of: emoji) * 0.8
-            guard boost > 0 else { continue }
-            body.applyForce(CGVector(
-                dx: currentGravity.dx * body.mass * boost,
-                dy: currentGravity.dy * body.mass * boost
-            ))
-        }
-
-        let gravityQuiet = lastGravityAppliedTime.map { currentTime - $0 >= Self.settleGravityQuietDuration } ?? true
-        if gravityQuiet, allSlow {
-            settleDwellCount += 1
-            if settleDwellCount >= Self.settleDwellFrames {
-                isSettled = true
-                for node in children {
-                    guard let label = node as? SKLabelNode, let body = label.physicsBody else { continue }
-                    body.velocity = .zero
-                    body.angularVelocity = 0
+        if !deviceStill {
+            let currentGravity = physicsWorld.gravity
+            for node in children {
+                guard let label = node as? SKLabelNode, let body = label.physicsBody, let emoji = label.text else { continue }
+                let linearSpeed = hypot(body.velocity.dx, body.velocity.dy)
+                let rimSpeed = abs(body.angularVelocity) * glyphRadius
+                if linearSpeed >= Self.settleLinearSpeedThreshold || rimSpeed >= Self.settleRimSpeedThreshold {
+                    allSlow = false
                 }
+                let boost = Self.weight(of: emoji) * 0.8
+                guard boost > 0 else { continue }
+                body.applyForce(CGVector(
+                    dx: currentGravity.dx * body.mass * boost,
+                    dy: currentGravity.dy * body.mass * boost
+                ))
             }
         } else {
-            settleDwellCount = 0
+            // Device is still: skip the boost and let existing damping decay
+            // the bodies naturally instead of fighting to keep them moving.
+            for node in children {
+                guard let label = node as? SKLabelNode, let body = label.physicsBody else { continue }
+                let linearSpeed = hypot(body.velocity.dx, body.velocity.dy)
+                let rimSpeed = abs(body.angularVelocity) * glyphRadius
+                if linearSpeed >= Self.settleLinearSpeedThreshold || rimSpeed >= Self.settleRimSpeedThreshold {
+                    allSlow = false
+                }
+            }
+        }
+
+        guard deviceStill else { return }
+
+        let stillDuration = movementTime.map { CACurrentMediaTime() - $0 } ?? .greatestFiniteMagnitude
+        if allSlow || stillDuration >= Self.settleFailsafeDelay {
+            isSettled = true
+            for node in children {
+                guard let label = node as? SKLabelNode, let body = label.physicsBody else { continue }
+                body.velocity = .zero
+                body.angularVelocity = 0
+            }
+            physicsWorld.speed = 0
         }
     }
 
@@ -244,7 +267,7 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         rebuildWalls()
         // Freshly spawned bodies carry a spawn spin and must not be frozen.
         isSettled = false
-        settleDwellCount = 0
+        physicsWorld.speed = 1
 
         for (index, emoji) in emojis.enumerated() {
             let node = SKLabelNode(text: emoji)
@@ -282,6 +305,12 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         guard !isRunning else { return }
         isRunning = true
         isPaused = false
+        physicsWorld.speed = 1
+        isSettled = false
+        gravityLock.lock()
+        // So the scene runs lively on (re)appear even before motion arrives.
+        lastDeviceMovementTime = CACurrentMediaTime()
+        gravityLock.unlock()
         if hapticsEnabled {
             feedback.prepare()
         }
@@ -293,13 +322,27 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
             guard let self, let motion else { return }
             let g = (x: motion.gravity.x, y: motion.gravity.y)
             let gravity = CGVector(dx: g.x * Self.gravityScale, dy: g.y * Self.gravityScale)
+            let a = motion.userAcceleration
+            let accelMagnitude = sqrt(a.x * a.x + a.y * a.y + a.z * a.z)
+            let r = motion.rotationRate
+            let rotationMagnitude = sqrt(r.x * r.x + r.y * r.y + r.z * r.z)
+            let isMoving = accelMagnitude > Self.stillAccelerationThreshold
+                || rotationMagnitude > Self.stillRotationThreshold
             gravityLock.lock()
+            if isMoving {
+                lastDeviceMovementTime = CACurrentMediaTime()
+            }
             // Held still, the raw g-components jitter within noise; only enqueue a
             // sample that represents a real tilt, so the scene can actually go quiet.
-            let delta = lastAppliedGravityG.map { hypot(g.x - $0.x, g.y - $0.y) }
-            if delta == nil || delta! > Self.gravityDeadband {
-                pendingGravity = gravity
-                pendingGravityG = g
+            // While the device is still, gravity deltas are noise and must not
+            // reach the physics world at all.
+            let hasBaseline = lastAppliedGravityG != nil
+            if isMoving || !hasBaseline {
+                let delta = lastAppliedGravityG.map { hypot(g.x - $0.x, g.y - $0.y) }
+                if delta == nil || delta! > Self.gravityDeadband {
+                    pendingGravity = gravity
+                    pendingGravityG = g
+                }
             }
             gravityLock.unlock()
         }
