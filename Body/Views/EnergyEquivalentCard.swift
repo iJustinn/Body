@@ -96,6 +96,16 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
     private static let hapticMinimumInterval: TimeInterval = 0.08
     /// Above real-world 9.8 so the toy feels lively at card scale.
     private static let gravityScale: Double = 15
+    /// Below this delta in raw g-components, a new motion sample is noise, not a
+    /// real tilt; ignoring it lets the scene actually go quiet while held still.
+    private static let gravityDeadband: Double = 0.02
+    /// Boost forces wake every body, so settling requires gravity to have been
+    /// quiet for a stretch before bodies are even considered for rest.
+    private static let settleGravityQuietDuration: TimeInterval = 0.5
+    private static let settleLinearSpeedThreshold: CGFloat = 6
+    private static let settleRimSpeedThreshold: CGFloat = 6
+    /// Consecutive qualifying frames required before bodies are frozen.
+    private static let settleDwellFrames = 30
 
     var hapticsEnabled = true
 
@@ -104,9 +114,18 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
     private let feedback = UIImpactFeedbackGenerator(style: .light)
     private let gravityLock = NSLock()
     private var pendingGravity: CGVector?
+    /// Unscaled g-components paired with `pendingGravity`, applied to
+    /// `lastAppliedGravityG` when the vector is actually assigned in `update(_:)`.
+    private var pendingGravityG: (x: Double, y: Double)?
+    /// Unscaled g-components of the last gravity actually applied to the world;
+    /// the deadband compares new samples against this, not the scaled vector.
+    private var lastAppliedGravityG: (x: Double, y: Double)?
     private var lastHapticTime: TimeInterval = 0
     private var currentEmojis: [String] = []
     private var isRunning = false
+    private var lastGravityAppliedTime: TimeInterval?
+    private var settleDwellCount = 0
+    private var isSettled = false
 
     override init() {
         super.init(size: CGSize(width: 320, height: 140))
@@ -142,10 +161,25 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         // keeps every physicsWorld mutation on the scene's own thread.
         gravityLock.lock()
         let gravity = pendingGravity
+        if let gravityG = pendingGravityG {
+            // The motion callback reads this baseline under the same lock.
+            lastAppliedGravityG = gravityG
+        }
         pendingGravity = nil
+        pendingGravityG = nil
         gravityLock.unlock()
         if let gravity {
             physicsWorld.gravity = gravity
+            lastGravityAppliedTime = currentTime
+            // A real tilt just landed: wake everything back up.
+            isSettled = false
+            settleDwellCount = 0
+        }
+
+        if isSettled {
+            // Settled bodies get no boost — that force is exactly what was
+            // keeping them from ever coming to rest.
+            return
         }
 
         // Uniform gravity accelerates every body identically, so per-food feel
@@ -153,14 +187,35 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         // current gravity vector, lighter ones ride gravity alone (their higher
         // damping already makes them the slowest — see `updateEmojis`).
         let currentGravity = physicsWorld.gravity
+        var allSlow = true
         for node in children {
             guard let label = node as? SKLabelNode, let body = label.physicsBody, let emoji = label.text else { continue }
+            let linearSpeed = hypot(body.velocity.dx, body.velocity.dy)
+            let rimSpeed = abs(body.angularVelocity) * glyphRadius
+            if linearSpeed >= Self.settleLinearSpeedThreshold || rimSpeed >= Self.settleRimSpeedThreshold {
+                allSlow = false
+            }
             let boost = Self.weight(of: emoji) * 0.8
             guard boost > 0 else { continue }
             body.applyForce(CGVector(
                 dx: currentGravity.dx * body.mass * boost,
                 dy: currentGravity.dy * body.mass * boost
             ))
+        }
+
+        let gravityQuiet = lastGravityAppliedTime.map { currentTime - $0 >= Self.settleGravityQuietDuration } ?? true
+        if gravityQuiet, allSlow {
+            settleDwellCount += 1
+            if settleDwellCount >= Self.settleDwellFrames {
+                isSettled = true
+                for node in children {
+                    guard let label = node as? SKLabelNode, let body = label.physicsBody else { continue }
+                    body.velocity = .zero
+                    body.angularVelocity = 0
+                }
+            }
+        } else {
+            settleDwellCount = 0
         }
     }
 
@@ -187,6 +242,9 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         currentEmojis = emojis
         removeAllChildren()
         rebuildWalls()
+        // Freshly spawned bodies carry a spawn spin and must not be frozen.
+        isSettled = false
+        settleDwellCount = 0
 
         for (index, emoji) in emojis.enumerated() {
             let node = SKLabelNode(text: emoji)
@@ -233,9 +291,16 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         motionManager.deviceMotionUpdateInterval = 1.0 / 30.0
         motionManager.startDeviceMotionUpdates(to: motionQueue) { [weak self] motion, _ in
             guard let self, let motion else { return }
-            let gravity = CGVector(dx: motion.gravity.x * Self.gravityScale, dy: motion.gravity.y * Self.gravityScale)
+            let g = (x: motion.gravity.x, y: motion.gravity.y)
+            let gravity = CGVector(dx: g.x * Self.gravityScale, dy: g.y * Self.gravityScale)
             gravityLock.lock()
-            pendingGravity = gravity
+            // Held still, the raw g-components jitter within noise; only enqueue a
+            // sample that represents a real tilt, so the scene can actually go quiet.
+            let delta = lastAppliedGravityG.map { hypot(g.x - $0.x, g.y - $0.y) }
+            if delta == nil || delta! > Self.gravityDeadband {
+                pendingGravity = gravity
+                pendingGravityG = g
+            }
             gravityLock.unlock()
         }
     }
@@ -244,6 +309,13 @@ final class EnergyEquivalentScene: SKScene, SKPhysicsContactDelegate {
         isRunning = false
         motionManager.stopDeviceMotionUpdates()
         isPaused = true
+        gravityLock.lock()
+        pendingGravity = nil
+        pendingGravityG = nil
+        // Reset the baseline so the first sample after resume is always accepted,
+        // instead of being compared against stale pre-background gravity.
+        lastAppliedGravityG = nil
+        gravityLock.unlock()
     }
 
     func didBegin(_ contact: SKPhysicsContact) {
