@@ -6834,6 +6834,23 @@
         }
       }
     },
+    "Month Swipe" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Month Swipe"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月份切换"
+          }
+        }
+      }
+    },
     "months" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12705,23 +12722,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "摘要卡片"
-          }
-        }
-      }
-    },
-    "Swipe Between Months" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swipe Between Months"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "滑动切换月份"
           }
         }
       }

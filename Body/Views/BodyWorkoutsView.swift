@@ -97,7 +97,7 @@ struct BodyWorkoutsView: View {
     @State private var searchCorpusCache = BodyWorkoutSearchCorpusCache()
     @State private var monthSummaryShareRequest: MonthSummaryShareRequest?
     @AppStorage(BodyAppearancePreference.workoutsChartShowsTypeBreakdownKey) private var workoutsChartShowsTypeBreakdown = false
-    @AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = false
+    @AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = true
     @Namespace private var workoutZoom
     @FocusState private var isSearchFocused: Bool
 

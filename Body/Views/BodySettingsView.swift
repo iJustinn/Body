@@ -36,7 +36,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.workoutEffortCardEnabledKey) private var workoutEffortCardEnabled = true
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
-    @AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = false
+    @AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = true
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
@@ -562,7 +562,7 @@ struct BodySettingsView: View {
                 activeSheet = .workoutMonthSwipe
             } label: {
                 BodySettingsRowLabel(
-                    title: "Swipe Between Months",
+                    title: "Month Swipe",
                     value: workoutsChartSwipeSummaryText,
                     iconName: "arrow.left.arrow.right",
                     tintColor: .indigo,
@@ -3423,7 +3423,7 @@ private struct BodyWorkoutMonthSwipeSettingsSheet: View {
     @Binding var isEnabled: Bool
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Swipe Between Months") {
+        BodySettingsAboutSheetScaffold(title: "Month Swipe") {
             VStack(alignment: .leading, spacing: 12) {
                 BodySettingsCardSection("Workouts Chart") {
                     BodyWorkoutMonthSwipeToggleRow(isEnabled: $isEnabled)
@@ -3451,7 +3451,7 @@ private struct BodyWorkoutMonthSwipeToggleRow: View {
             )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Swipe Between Months")
+                Text("Month Swipe")
                     .font(.system(.headline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
@@ -3468,7 +3468,7 @@ private struct BodyWorkoutMonthSwipeToggleRow: View {
 
             Spacer(minLength: 12)
 
-            Toggle("Swipe Between Months", isOn: $isEnabled)
+            Toggle("Month Swipe", isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")

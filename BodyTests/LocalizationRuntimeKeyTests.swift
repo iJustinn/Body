@@ -385,11 +385,11 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
     func testWorkoutMonthSwipeKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
-        // Settings › Workouts › Swipe Between Months: the row title (reused as the
+        // Settings › Workouts › Month Swipe: the row title (reused as the
         // sheet title and its toggle label), the sheet's card-section title, the
         // toggle subtitle, and the footnote explanation.
         let keys = [
-            "Swipe Between Months",
+            "Month Swipe",
             "Workouts Chart",
             "Swipe the chart to change month",
             "When on, swiping left or right on the workouts calendar or type breakdown switches to the next or previous month, the same as the month picker. When off, the chart ignores horizontal swipes."
