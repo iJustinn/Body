@@ -2,6 +2,7 @@
 
 ## 1.0.1 (build 7)
 
+- **Weekly Exercise Minutes on the Lock Screen and the watch face.** A new rectangular **Exercise Minutes** widget shows a bolt header with your total minutes for the rolling last 7 days over seven daily bars, today rightmost, with single-letter weekday labels that rotate with the date. The iPhone Lock Screen version is **Body Pro** (a compact lock placeholder without it) and renders in the Lock Screen's vibrant monochrome, so the bars take the wallpaper's tint. The Apple Watch complication is **free**, draws its bars in RGB(1, 47, 167) on full-color faces and in the Smart Stack, and is recolored by tinted watch faces like the other complications. Both read the cached snapshot, so a Summary layout without the **Exercise Minutes** card leaves them showing stub bars until that card is turned back on.
 - **New default colors for Run, Tennis, and Pickleball.** Run is now a brighter blue (#335BB0), Tennis a soft violet (#8C6BAA), and Pickleball a deeper indigo (#635995), each split out of the palette group it used to share. Any workout type you customized in Settings > Appearance > Workouts keeps your own color.
 - Updated the app, widget, watch, and test bundle version to 1.0.1 build 7.
 
