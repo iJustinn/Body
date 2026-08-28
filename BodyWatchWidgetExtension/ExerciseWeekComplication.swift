@@ -71,28 +71,30 @@ private struct ExerciseWeekComplicationView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.primary)
-
-            Text("\(totalMinutes) MIN THIS WEEK")
-                .font(.system(size: 11, weight: .heavy, design: .rounded))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
+        Text("\(totalMinutes) MIN THIS WEEK")
+            .font(.system(size: 11, design: .rounded))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 
     private var barsRow: some View {
         GeometryReader { proxy in
             HStack(alignment: .bottom, spacing: Self.barSpacing) {
                 ForEach(0..<weekly.count, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .foregroundStyle(Self.barColor)
-                        .opacity((weekly[index] ?? 0) > 0 ? 1 : 0.3)
-                        .frame(height: barHeight(for: weekly[index], in: proxy.size.height))
-                        .frame(maxWidth: .infinity)
+                    Group {
+                        if let value = weekly[index], value > 0 {
+                            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                .foregroundStyle(Self.barColor)
+                                .frame(height: barHeight(for: value, in: proxy.size.height))
+                        } else {
+                            // A day with no exercise draws nothing; the clear
+                            // spacer keeps the column widths (and the weekday
+                            // labels below) aligned.
+                            Color.clear.frame(height: 1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -112,8 +114,8 @@ private struct ExerciseWeekComplicationView: View {
         .textCase(.uppercase)
     }
 
-    private func barHeight(for value: Double?, in height: CGFloat) -> CGFloat {
-        guard let value, value > 0, weekMax > 0 else { return 3 }
+    private func barHeight(for value: Double, in height: CGFloat) -> CGFloat {
+        guard weekMax > 0 else { return 3 }
         let normalized = value / weekMax
         return max(height * CGFloat(normalized), 3)
     }
