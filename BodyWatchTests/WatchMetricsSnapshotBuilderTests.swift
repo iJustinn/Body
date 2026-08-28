@@ -155,6 +155,52 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         XCTAssertNil(readiness?.weeklyCurrentValue)
     }
 
+    // MARK: - Exercise Minutes (complication-only kind)
+
+    private func exerciseTrends() -> HealthTrendSnapshot {
+        var trends = HealthTrendSnapshot.empty
+        trends.exerciseMinutes = HealthTrendSeries(
+            points: (1...7).map { HealthTrendDataPoint(date: day($0), value: Double($0) * 10) }
+        )
+        return trends
+    }
+
+    private func exerciseSnapshot(
+        permissionSelection: BodyHealthPermissionSelection
+    ) -> WatchMetricsSnapshot {
+        WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: .placeholder,
+            trends: exerciseTrends(),
+            lastRefreshDate: nil,
+            permissionSelection: permissionSelection,
+            temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600,
+            now: day(7)
+        )
+    }
+
+    func testExerciseMinutesMetricCarriesSevenWeeklyValues() {
+        let metric = exerciseSnapshot(permissionSelection: .defaultValue)
+            .metric(forKind: WatchMetricKindKey.exerciseMinutes)
+
+        // The complication draws one bar per weekly slot, so a short or missing
+        // array silently changes the chart's shape.
+        XCTAssertEqual(metric?.weekly?.count, 7)
+        XCTAssertEqual(metric?.weekly?.compactMap { $0 }, [10, 20, 30, 40, 50, 60, 70])
+        // Today is the last slot, and matches the headline value.
+        XCTAssertEqual(metric?.displayValue, "70")
+    }
+
+    func testExerciseMinutesMetricIsOmittedWhenThePermissionIsOff() {
+        let selection = BodyHealthPermissionSelection.defaultValue
+            .setting(.exerciseMinutes, isEnabled: false)
+
+        XCTAssertNil(
+            exerciseSnapshot(permissionSelection: selection)
+                .metric(forKind: WatchMetricKindKey.exerciseMinutes)
+        )
+    }
+
     func testSanitizeBlanksSleepWhenLegacySnapshotHasNoNight() {
         // A snapshot built before `sleepNight` existed (or by an older phone)
         // decodes with a nil night: we can't verify it belongs to today, so it's

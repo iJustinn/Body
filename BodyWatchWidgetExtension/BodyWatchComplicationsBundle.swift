@@ -3,12 +3,13 @@
 //  BodyWatchWidgetExtension
 //
 //  One ring-style complication per metric (matches the existing iOS
-//  BodyWidgetExtensionBundle's static-per-widget pattern). Each supports the
-//  circular ring, the rectangular row, and the corner gauge.
+//  BodyWidgetExtensionBundle's static-per-widget pattern), each supporting
+//  the circular ring, the rectangular row, and the corner gauge, plus a
+//  rectangular-only bar-chart complication for weekly Exercise Minutes.
 //
 //  Note: full magenta renders in the Smart Stack and full-color faces; in
-//  tinted watch-face accessory slots the system recolors the ring to the face
-//  tint — expected watchOS behavior.
+//  tinted watch-face accessory slots the system recolors the ring (or bars)
+//  to the face tint — expected watchOS behavior.
 //
 
 import SwiftUI
@@ -24,6 +25,7 @@ struct BodyWatchComplicationsBundle: WidgetBundle {
         RestingHeartRateComplication()
         TrainingLoadComplication()
         SkinTemperatureComplication()
+        ExerciseWeekComplication()
     }
 }
 

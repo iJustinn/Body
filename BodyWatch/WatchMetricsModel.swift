@@ -714,7 +714,12 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             // (its headline is the seeded daily summary — the watch refetches
             // only the trend series behind readiness), so a compute can never
             // freshen it. Scanning it would make this gate permanently true.
-            isMetricVisible($0.kind) && $0.kind != WatchMetricKindKey.wristTemperature
+            isMetricVisible($0.kind)
+                && $0.kind != WatchMetricKindKey.wristTemperature
+                // Exercise Minutes exists only for the weekly complication and is
+                // likewise never stamped in `dataAsOf`, so a compute can't
+                // freshen it either.
+                && $0.kind != WatchMetricKindKey.exerciseMinutes
         }
         let anyVisibleMetricStale = visibleMetrics.contains { metric in
             guard let measuredAt = metric.liveUpdatedAt ?? metric.computedAt else { return true }

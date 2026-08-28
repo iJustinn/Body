@@ -3029,6 +3029,15 @@ final class ProjectConfigurationTests: XCTestCase {
             XCTAssertEqual(Double(components[1]), tint.green, accuracy: 0.001, kind)
             XCTAssertEqual(Double(components[2]), tint.blue, accuracy: 0.001, kind)
         }
+
+        // Exercise Minutes rides the watch snapshot for the rectangular
+        // complication only: it has no dashboard card, no detail page and no
+        // ring, so it must stay out of `displayOrder` (which drives
+        // `orderedMetrics` everywhere in the watch app UI). Its key still has
+        // to match the iOS widget metric's raw value, because the phone-side
+        // trend lookup keys off it.
+        XCTAssertFalse(WatchMetricKindKey.displayOrder.contains(WatchMetricKindKey.exerciseMinutes))
+        XCTAssertEqual(WatchMetricKindKey.exerciseMinutes, HealthWidgetMetric.exerciseMinutes.rawValue)
     }
 
     func testVersionDocumentationAndSettingsFallbackMatchCurrentRelease() throws {
@@ -4552,6 +4561,37 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(breakdownSource.contains("return 2"))
         XCTAssertTrue(breakdownSource.contains("case .widgetLarge:"))
         XCTAssertTrue(breakdownSource.contains("return 5"))
+    }
+
+    func testExerciseWeekWidgetsArePinnedToAccessoryRectangular() throws {
+        let phoneSource = try text(at: "BodyWidgetExtension/ExerciseWeekWidget.swift")
+        let watchSource = try text(at: "BodyWatchWidgetExtension/ExerciseWeekComplication.swift")
+        let phoneBundle = try text(at: "BodyWidgetExtension/BodyWidgetExtensionBundle.swift")
+        let watchBundle = try text(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
+
+        // Both are lock screen / rectangular-slot only. Widening either family
+        // list silently ships an unlaid-out bar chart into a circular or corner
+        // slot, so the pin is asserted exactly once per file.
+        XCTAssertEqual(phoneSource.occurrenceCount(of: ".supportedFamilies([.accessoryRectangular])"), 1)
+        XCTAssertEqual(watchSource.occurrenceCount(of: ".supportedFamilies([.accessoryRectangular])"), 1)
+
+        // The iPhone widget is Pro-gated; the watch complication is deliberately
+        // free, which also keeps the watch extension free of App Group
+        // UserDefaults reads (its PrivacyInfo.xcprivacy is pinned to
+        // FileTimestamp only, guarded above).
+        XCTAssertTrue(phoneSource.contains("BodyProEntitlement.isUnlocked"))
+        XCTAssertFalse(watchSource.contains("BodyProEntitlement"))
+
+        // RGB(1, 47, 167) bars in full-color contexts; tinted faces recolor.
+        XCTAssertTrue(watchSource.contains("1.0/255.0"))
+        XCTAssertTrue(watchSource.contains("47.0/255.0"))
+        XCTAssertTrue(watchSource.contains("167.0/255.0"))
+
+        // A widget type that is never registered in its bundle compiles and
+        // ships, but never appears in the gallery — the silent failure this
+        // pair of assertions exists to catch.
+        XCTAssertTrue(phoneBundle.contains("BodyExerciseWeekWidget()"))
+        XCTAssertTrue(watchBundle.contains("ExerciseWeekComplication()"))
     }
 
     func testProjectDeclaresSimplifiedChineseLocalization() throws {

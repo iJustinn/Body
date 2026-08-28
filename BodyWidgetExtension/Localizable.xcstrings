@@ -17,6 +17,23 @@
         }
       }
     },
+    "%lld MIN THIS WEEK": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld MIN THIS WEEK"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本周运动 %lld 分钟"
+          }
+        }
+      }
+    },
     "Active Energy": {
       "extractionState": "manual",
       "localizations": {
@@ -519,6 +536,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "系统"
+          }
+        }
+      }
+    },
+    "This week's daily exercise minutes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This week's daily exercise minutes."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本周每日运动时长。"
           }
         }
       }
