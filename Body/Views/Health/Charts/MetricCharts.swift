@@ -814,6 +814,12 @@ struct BodyHealthMetricDayChart: View {
     init(
         series: HealthTrendSeries,
         secondarySeries: HealthTrendSeries = .empty,
+        // Whether a second source is being compared at all, which an empty
+        // `secondarySeries` cannot say: it reads the same whether no second
+        // source is picked or the picked one is simply silent today. Only the
+        // second case wants placeholder marks to fade the previous day's line
+        // and dots out.
+        hasConfiguredSecondary: Bool = false,
         day: Date,
         title: String,
         color: Color,
@@ -863,14 +869,20 @@ struct BodyHealthMetricDayChart: View {
         let calendar = Calendar.bodyGregorian
         let dayStart = calendar.startOfDay(for: day)
         self.dayStart = dayStart
-        self.lineSegments = Self.makeLineSegments(from: allEntries, dayStart: dayStart)
+        let configuredRoles: Set<BodyHealthSourceRole> = hasConfiguredSecondary ? [.primary, .secondary] : [.primary]
+        self.lineSegments = Self.makeLineSegments(
+            from: allEntries,
+            dayStart: dayStart,
+            configuredRoles: configuredRoles
+        )
         let visibleDots = collapsesUnchangedPoints
             ? Self.collapsingUnchangedRunPoints(allEntries)
             : allEntries
         self.pointMarkEntries = Self.addingPlaceholderDots(
             to: visibleDots,
             fullEntries: allEntries,
-            dayStart: dayStart
+            dayStart: dayStart,
+            configuredRoles: configuredRoles
         )
         self.finiteEntries = allEntries.filter { $0.averageValue.isFinite }
         self.primaryEntriesByDate = Dictionary(uniqueKeysWithValues: primaryEntries.map { ($0.plotDate, $0) })
@@ -1193,19 +1205,46 @@ struct BodyHealthMetricDayChart: View {
     /// exist on both days morph in place; hours without a pair carry an
     /// invisible zero-length placeholder (at the hour's own reading if it has
     /// one, else the nearest hour's) so a vanishing stretch of line fades out
-    /// where it stood instead of freezing.
+    /// where it stood instead of freezing. A source in `configuredRoles` with
+    /// no readings today is all placeholders, pinned to the other source's
+    /// line, so the line it drew on the previous day fades out too.
     static func makeLineSegments(
         from entries: [BodyHealthMetricDayChartEntry],
-        dayStart: Date
+        dayStart: Date,
+        configuredRoles: Set<BodyHealthSourceRole> = [.primary]
     ) -> [BodyHealthMetricDayLineSegmentMark] {
         let entriesByRole = Dictionary(grouping: entries, by: \.sourceRole)
+        let hours = hourIndices(forDayStartingAt: dayStart)
+        let anchors = anchorEntriesByHour(in: entries)
+        let anchorHours = anchors.keys.sorted()
 
-        return entriesByRole.keys.sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHealthMetricDayLineSegmentMark] in
+        return configuredRoles.union(entriesByRole.keys).sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHealthMetricDayLineSegmentMark] in
             let finite = (entriesByRole[role] ?? [])
                 .filter { $0.averageValue.isFinite }
                 .sorted { $0.plotDate < $1.plotDate }
             guard !finite.isEmpty else {
-                return []
+                // Nothing of this source's own to fade through, so its hours
+                // ride the other source's line — the ids stay in the chart and
+                // animate to opacity 0 instead of being dropped and popped.
+                return hours.compactMap { hour -> BodyHealthMetricDayLineSegmentMark? in
+                    guard let source = anchorEntry(
+                        forHour: hour,
+                        in: anchors,
+                        sortedHours: anchorHours
+                    ) else {
+                        return nil
+                    }
+                    let plotDate = dayStart.addingTimeInterval(TimeInterval(hour) * 3_600 + 1_800)
+                    return BodyHealthMetricDayLineSegmentMark(
+                        sourceRole: role,
+                        hourIndex: hour,
+                        startPlotDate: plotDate,
+                        startValue: source.averageValue,
+                        endPlotDate: plotDate,
+                        endValue: source.averageValue,
+                        isPlaceholder: true
+                    )
+                }
             }
 
             var segments: [BodyHealthMetricDayLineSegmentMark] = []
@@ -1231,11 +1270,14 @@ struct BodyHealthMetricDayChart: View {
                 uniquingKeysWith: { first, _ in first }
             )
             let finiteHours = finiteByHour.keys.sorted()
-            let placeholders = (0..<24)
+            let placeholders = hours
                 .filter { !pairStartHours.contains($0) }
                 .compactMap { hour -> BodyHealthMetricDayLineSegmentMark? in
-                    let nearestHour = finiteHours.min { (abs($0 - hour), $0) < (abs($1 - hour), $1) }
-                    guard let source = finiteByHour[hour] ?? nearestHour.flatMap({ finiteByHour[$0] }) else {
+                    guard let source = anchorEntry(
+                        forHour: hour,
+                        in: finiteByHour,
+                        sortedHours: finiteHours
+                    ) else {
                         return nil
                     }
                     let plotDate = finiteByHour[hour]?.plotDate
@@ -1259,37 +1301,47 @@ struct BodyHealthMetricDayChart: View {
     /// those rather than fading them. Hours without a visible dot get an
     /// invisible placeholder pinned at that hour's own value (a collapsed flat
     /// run) or the nearest hour's value, so a dot with no counterpart on the
-    /// other day fades in or out in place. A source with no data at all adds
-    /// no placeholders — there is no value to fade through.
+    /// other day fades in or out in place. A source in `configuredRoles` with
+    /// no readings today borrows the other source's values instead, so its
+    /// dots fade out where they stood rather than being dropped from the chart
+    /// (Swift Charts freezes those, then pops them). With no readings anywhere
+    /// there is nothing to fade through and no placeholder is made.
     static func addingPlaceholderDots(
         to visibleEntries: [BodyHealthMetricDayChartEntry],
         fullEntries: [BodyHealthMetricDayChartEntry],
-        dayStart: Date
+        dayStart: Date,
+        configuredRoles: Set<BodyHealthSourceRole> = [.primary]
     ) -> [BodyHealthMetricDayChartEntry] {
         let visibleByRole = Dictionary(grouping: visibleEntries, by: \.sourceRole)
         let fullByRole = Dictionary(grouping: fullEntries, by: \.sourceRole)
+        let hours = hourIndices(forDayStartingAt: dayStart)
+        let anchors = anchorEntriesByHour(in: fullEntries)
 
-        return fullByRole.keys.sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHealthMetricDayChartEntry] in
+        return configuredRoles.union(fullByRole.keys).sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHealthMetricDayChartEntry] in
             let visible = visibleByRole[role] ?? []
-            let finiteByHour = Dictionary(
+            let ownFiniteByHour = Dictionary(
                 (fullByRole[role] ?? [])
                     .filter { $0.averageValue.isFinite }
                     .map { ($0.bucket.hourStart.bodyHourOfDayIndex, $0) },
                 uniquingKeysWith: { first, _ in first }
             )
+            let finiteByHour = ownFiniteByHour.isEmpty ? anchors : ownFiniteByHour
             guard !finiteByHour.isEmpty else {
                 return visible
             }
 
             let visibleHours = Set(visible.map { $0.bucket.hourStart.bodyHourOfDayIndex })
             let finiteHours = finiteByHour.keys.sorted()
-            let placeholders = (0..<24)
+            let placeholders = hours
                 .filter { !visibleHours.contains($0) }
                 .compactMap { hour -> BodyHealthMetricDayChartEntry? in
                     // A collapsed-away hour fades at its own value; a truly
                     // empty hour borrows the nearest hour's (earlier on ties).
-                    let nearestHour = finiteHours.min { (abs($0 - hour), $0) < (abs($1 - hour), $1) }
-                    guard let source = finiteByHour[hour] ?? nearestHour.flatMap({ finiteByHour[$0] }) else {
+                    guard let source = anchorEntry(
+                        forHour: hour,
+                        in: finiteByHour,
+                        sortedHours: finiteHours
+                    ) else {
                         return nil
                     }
                     return BodyHealthMetricDayChartEntry(
@@ -1306,6 +1358,46 @@ struct BodyHealthMetricDayChart: View {
                 }
             return visible + placeholders
         }
+    }
+
+    /// The day's hour indices, taken from the real calendar day so a DST
+    /// transition day carries its own 23 or 25 marks — the same elapsed-hour
+    /// count the marks' `bodyHourOfDayIndex` keys are built on.
+    private static func hourIndices(forDayStartingAt dayStart: Date) -> Range<Int> {
+        let nextDayStart = Calendar.bodyGregorian.date(byAdding: .day, value: 1, to: dayStart)
+            ?? dayStart.addingTimeInterval(86_400)
+        let hourCount = Int((nextDayStart.timeIntervalSince(dayStart) / 3_600).rounded())
+        return 0..<max(hourCount, 1)
+    }
+
+    /// Every role's readings keyed by hour, which is what a configured source
+    /// with nothing of its own to plot today pins its placeholders to. Sorted
+    /// by role so the anchor for an hour both sources read is stable.
+    private static func anchorEntriesByHour(
+        in entries: [BodyHealthMetricDayChartEntry]
+    ) -> [Int: BodyHealthMetricDayChartEntry] {
+        Dictionary(
+            entries
+                .filter { $0.averageValue.isFinite }
+                .sorted { ($0.sourceRole.rawValue, $0.plotDate) < ($1.sourceRole.rawValue, $1.plotDate) }
+                .map { ($0.bucket.hourStart.bodyHourOfDayIndex, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    /// The reading a placeholder at `hour` fades through: that hour's own, or
+    /// the nearest hour's (earlier on ties).
+    private static func anchorEntry(
+        forHour hour: Int,
+        in entriesByHour: [Int: BodyHealthMetricDayChartEntry],
+        sortedHours: [Int]
+    ) -> BodyHealthMetricDayChartEntry? {
+        if let own = entriesByHour[hour] {
+            return own
+        }
+
+        let nearestHour = sortedHours.min { (abs($0 - hour), $0) < (abs($1 - hour), $1) }
+        return nearestHour.flatMap { entriesByHour[$0] }
     }
 
     /// Keeps only the informative dots when a series holds flat runs: within

@@ -936,6 +936,19 @@ struct BodyHealthMetricDetailView: View {
         return daySeriesCache.daySeries(from: liveSecondaryDaySeries, on: selectedMetricDay, slot: .secondary)
     }
 
+    /// Whether the Day View is comparing two sources at all. The day slice
+    /// above is empty both when no comparison source is picked and when the
+    /// picked one has no readings on the selected day, so the chart reads this
+    /// off the unsliced series instead: only a real second source wants its
+    /// marks kept (invisibly) on a day it is silent, so they fade out.
+    private var hasComparedSecondaryDaySource: Bool {
+        guard isBodyProUnlocked, model.kind.usesSourceComparisonDayLineChart else {
+            return false
+        }
+
+        return !liveSecondaryDaySeries.isEmpty
+    }
+
     private var selectedMetricWarnings: [MetricWarningEvent] {
         let selection = BodyMetricWarningSelection.storedValue(from: metricWarningSelectionRawValue)
         // Kinds that exclude in-workout readings need workout coverage; with the
@@ -2034,6 +2047,7 @@ struct BodyHealthMetricDetailView: View {
                     BodyHealthMetricDayChart(
                         series: selectedMetricDaySeries,
                         secondarySeries: selectedMetricSecondaryDaySeries,
+                        hasConfiguredSecondary: hasComparedSecondaryDaySource,
                         day: selectedMetricDay,
                         title: model.title,
                         color: model.symbolColor,
