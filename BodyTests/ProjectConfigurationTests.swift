@@ -135,18 +135,18 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(store.contains("BodyAppearancePreference.autoApplyWorkoutEffortKey"))
     }
 
-    func testWorkoutsChartSwipeMonthSettingIsWiredAndDefaultsOff() throws {
+    func testWorkoutsChartSwipeMonthSettingIsWiredAndDefaultsOn() throws {
         let keys = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
         let settings = try text(at: "Body/Views/BodySettingsView.swift")
         let workouts = try text(at: "Body/Views/BodyWorkoutsView.swift")
 
         XCTAssertTrue(keys.contains(#"static let workoutsChartSwipeSwitchesMonthKey = "workoutsChartSwipeSwitchesMonth""#))
-        XCTAssertTrue(settings.contains("@AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = false"))
+        XCTAssertTrue(settings.contains("@AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = true"))
         XCTAssertTrue(settings.contains("BodyWorkoutMonthSwipeSettingsSheet("))
         XCTAssertTrue(settings.contains("BodyWorkoutMonthSwipeToggleRow("))
         // The setting must gate the actual gesture on the workouts charts,
         // not just render a toggle in Settings.
-        XCTAssertTrue(workouts.contains("@AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = false"))
+        XCTAssertTrue(workouts.contains("@AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = true"))
         XCTAssertTrue(workouts.contains("switchMonthForChartSwipe(translation:"))
         // The swipe must reuse the async month-selection path (loading badge,
         // dedup, timeout) rather than applying the month directly.
@@ -2996,12 +2996,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.1;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 7;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 8;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.1;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 7;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 8;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -3045,7 +3045,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 7)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 8)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 4)**"))
@@ -3168,6 +3169,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 8."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 7)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 7."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 6)"))
@@ -3815,7 +3818,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 7)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 8)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.1 build 7)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 6)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 5)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 4)"))

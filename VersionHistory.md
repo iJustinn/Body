@@ -1,15 +1,19 @@
 # Version History
 
+## 1.0.1 (build 8)
+
+- **Weekly Exercise Minutes on the Lock Screen and the watch face.** A new rectangular **Exercise Minutes** widget shows a header with your total minutes for the rolling last 7 days over seven daily bars, today rightmost, with single-letter weekday labels that rotate with the date. The iPhone Lock Screen version is **Body Pro** (a compact lock placeholder without it) and renders in the Lock Screen's vibrant monochrome, so the bars take the wallpaper's tint. The Apple Watch complication is **free**, draws its bars in RGB(1, 47, 167) on full-color faces and in the Smart Stack, and is recolored by tinted watch faces like the other complications. Both read the cached snapshot, so a Summary layout without the **Exercise Minutes** card leaves them showing only the header and weekday labels until that card is turned back on. Days without exercise draw no bar at all.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 8.
+
 ## 1.0.1 (build 7)
 
-- **Weekly Exercise Minutes on the Lock Screen and the watch face.** A new rectangular **Exercise Minutes** widget shows a bolt header with your total minutes for the rolling last 7 days over seven daily bars, today rightmost, with single-letter weekday labels that rotate with the date. The iPhone Lock Screen version is **Body Pro** (a compact lock placeholder without it) and renders in the Lock Screen's vibrant monochrome, so the bars take the wallpaper's tint. The Apple Watch complication is **free**, draws its bars in RGB(1, 47, 167) on full-color faces and in the Smart Stack, and is recolored by tinted watch faces like the other complications. Both read the cached snapshot, so a Summary layout without the **Exercise Minutes** card leaves them showing stub bars until that card is turned back on.
 - **New default colors for Run, Tennis, and Pickleball.** Run is now a brighter blue (#335BB0), Tennis a soft violet (#8C6BAA), and Pickleball a deeper indigo (#635995), each split out of the palette group it used to share. Any workout type you customized in Settings > Appearance > Workouts keeps your own color.
 - Updated the app, widget, watch, and test bundle version to 1.0.1 build 7.
 
 ## 1.0.1 (build 6)
 
 - **Effort card on/off.** Settings > Workouts > Effort Suggestions is now **Workout Effort**, and the sheet opens with a new **Effort Card** toggle (on by default): off, the Effort card is hidden on every workout detail page and the Effort Suggestions and Auto-Apply Effort settings below it grey out and stop running — no prediction is computed and auto-apply writes nothing. The settings row's On/Off value now follows the card toggle.
-- **Swipe between months on the workouts charts.** A new Settings > Workouts > Swipe Between Months option (off by default) lets a left/right swipe on the workouts calendar or type-breakdown chart move to the next/previous month — the same month switch as the picker above, clamped to the picker's reachable range. Only clearly horizontal swipes count, so vertical scrolling and pull-to-refresh are unaffected. Also fixes a race where a stale pending month load could snap the page back after a newer selection.
+- **Swipe between months on the workouts charts.** A new Settings > Workouts > Month Swipe option (on by default) lets a left/right swipe on the workouts calendar or type-breakdown chart move to the next/previous month — the same month switch as the picker above, clamped to the picker's reachable range. Only clearly horizontal swipes count, so vertical scrolling and pull-to-refresh are unaffected. Also fixes a race where a stale pending month load could snap the page back after a newer selection.
 - Updated the app, widget, watch, and test bundle version to 1.0.1 build 6.
 
 ## 1.0.1 (build 5)
