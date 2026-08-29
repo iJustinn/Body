@@ -1,5 +1,13 @@
 # Version History
 
+## 1.0.1 (build 9)
+
+- **Faster data refresh.** The Summary refresh now fetches the recent weeks of each chart first and quietly backfills the full year in the background, remembers workout effort scores between launches instead of re-asking HealthKit for every workout, reuses cadence and distance for workouts older than a day, computes the Stress score once per refresh instead of twice, writes the dashboard cache once per refresh instead of three times, and caps how many HealthKit queries run at once so the visible cards are not stuck behind background work. Pull to refresh still re-checks the months you are viewing plus anything from the last two days, so edits made in Apple Fitness keep converging. Charts, scores, and widgets show the same data as before, just sooner.
+- **Snappier launch.** The dashboard cache is decoded once instead of twice at startup, and the readiness rebuild that could previously run during launch now happens in the background after the first frame.
+- **Widget System background now follows the device appearance.** The System choice previously drew a black background in both appearances, which made widget text unreadable on iPhones in light mode, including the Body Pro placeholder card. It now uses white in light appearance and black in dark; the Black and White choices are unchanged.
+- Added debug-only refresh profiling (per-metric timings, query concurrency peaks) to support future tuning.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 9.
+
 ## 1.0.1 (build 8)
 
 - **Weekly Exercise Minutes on the Lock Screen and the watch face.** A new rectangular **Exercise Minutes** widget shows a header with your total minutes for the rolling last 7 days over seven daily bars, today rightmost, with single-letter weekday labels that rotate with the date. The iPhone Lock Screen version is **Body Pro** (a compact lock placeholder without it) and renders in the Lock Screen's vibrant monochrome, so the bars take the wallpaper's tint. The Apple Watch complication is **free**, draws its bars in RGB(1, 47, 167) on full-color faces and in the Smart Stack, and is recolored by tinted watch faces like the other complications. Both read the cached snapshot, so a Summary layout without the **Exercise Minutes** card leaves them showing only the header and weekday labels until that card is turned back on. Days without exercise draw no bar at all.

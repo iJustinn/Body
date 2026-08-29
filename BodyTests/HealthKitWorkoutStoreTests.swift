@@ -2740,6 +2740,68 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(confirmed, [oldUnrated])
     }
 
+    /// Only aged entries persist: the trailing window is re-queried every launch
+    /// so a rating added right after a workout still converges, and anything past
+    /// the 408-day training-load window is pruned so the file can't grow forever.
+    func testPersistableEffortLedgerKeepsOnlyAgedEntriesInsideTheTrainingLoadWindow() {
+        let now = Date()
+        let aged = UUID()
+        let agedUnrated = UUID()
+        let recent = UUID()
+        let expired = UUID()
+
+        func range(daysAgo: Double) -> WorkoutEffortDateRange {
+            let start = now.addingTimeInterval(-daysAgo * 24 * 60 * 60)
+            return WorkoutEffortDateRange(startDate: start, endDate: start.addingTimeInterval(3_600))
+        }
+
+        let ledger = HealthKitFetchEngine.persistableEffortLedger(
+            effortLevels: [aged: 6, recent: 8, expired: 4],
+            confirmedNoEffortIDs: [agedUnrated],
+            dates: [
+                aged: range(daysAgo: 30),
+                agedUnrated: range(daysAgo: 45),
+                recent: range(daysAgo: 1),
+                expired: range(daysAgo: 500)
+            ],
+            now: now
+        )
+
+        XCTAssertEqual(Set(ledger.entries.keys), [aged, agedUnrated])
+        XCTAssertEqual(ledger.entries[aged]?.effort, 6)
+        // A confirmed absence is worth persisting too — it also skips a query.
+        XCTAssertNil(ledger.entries[agedUnrated]?.effort)
+    }
+
+    /// Pull-to-refresh drops the displayed months plus the unconfirmable trailing
+    /// window, and keeps the aged rest of the training-load window.
+    func testScopedEffortClearCoversDisplayedMonthsAndTheTrailingWindow() {
+        let calendar = Calendar.bodyGregorian
+        let now = calendar.date(from: DateComponents(year: 2025, month: 6, day: 20, hour: 12))!
+        let displayedMonth = UUID()
+        let recent = UUID()
+        let aged = UUID()
+
+        func range(_ start: Date) -> WorkoutEffortDateRange {
+            WorkoutEffortDateRange(startDate: start, endDate: start.addingTimeInterval(3_600))
+        }
+
+        let cleared = HealthKitFetchEngine.effortIDsClearedByScopedRefresh(
+            dates: [
+                displayedMonth: range(calendar.date(from: DateComponents(year: 2025, month: 5, day: 2))!),
+                recent: range(now.addingTimeInterval(-3 * 60 * 60)),
+                aged: range(calendar.date(from: DateComponents(year: 2025, month: 1, day: 9))!)
+            ],
+            // Deliberately omits the current month, so `recent` can only be
+            // cleared by the trailing-window clause.
+            monthKeys: [BodyWorkoutMonthKey(month: 5, year: 2025)],
+            calendar: calendar,
+            now: now
+        )
+
+        XCTAssertEqual(cleared, [displayedMonth, recent])
+    }
+
     func testHeartRateReuseEligibilityRequiresMatchingFinishedCachedWorkout() {
         let now = Date()
         let duration: TimeInterval = 3_600
@@ -2797,6 +2859,54 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(eligibleIDs, [eligible])
+    }
+
+    func testDetailMetricReuseRequiresAgedWorkoutWithNonNilCachedField() {
+        let now = Date()
+        let duration: TimeInterval = 3_600
+        let agedStart = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let recentStart = now.addingTimeInterval(-2 * 60 * 60)
+
+        func cachedSummary(id: UUID, startDate: Date, cadence: Double?) -> WorkoutSummary {
+            WorkoutSummary(
+                id: id,
+                type: .running,
+                startDate: startDate,
+                duration: duration,
+                averageStepCadenceSPM: cadence
+            )
+        }
+
+        let reusable = UUID()
+        // Cached before the field existed (or genuinely value-less) — both
+        // decode as nil and must be re-queried, never reused.
+        let nilField = UUID()
+        let dateMismatch = UUID()
+        let tooRecent = UUID()
+        let uncached = UUID()
+
+        let workouts: [(id: UUID, startDate: Date, duration: TimeInterval)] = [
+            (reusable, agedStart, duration),
+            (nilField, agedStart, duration),
+            (dateMismatch, agedStart, duration),
+            (tooRecent, recentStart, duration),
+            (uncached, agedStart, duration)
+        ]
+        let cachedSummaries: [UUID: WorkoutSummary] = [
+            reusable: cachedSummary(id: reusable, startDate: agedStart, cadence: 168),
+            nilField: cachedSummary(id: nilField, startDate: agedStart, cadence: nil),
+            dateMismatch: cachedSummary(id: dateMismatch, startDate: agedStart.addingTimeInterval(5), cadence: 170),
+            tooRecent: cachedSummary(id: tooRecent, startDate: recentStart, cadence: 172)
+        ]
+
+        let reusableValues = HealthKitFetchEngine.reusableWorkoutDetailMetricValues(
+            workouts: workouts,
+            cachedSummaries: cachedSummaries,
+            now: now,
+            cachedValue: \.averageStepCadenceSPM
+        )
+
+        XCTAssertEqual(reusableValues, [reusable: 168])
     }
 
     func testReusingHeartRateSummaryCopiesCachedHeartRateAndTakesFreshMetadata() throws {

@@ -2471,6 +2471,49 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(engineSource.contains("fetched: resolvedWorkoutDistance[workout.uuid]"))
     }
 
+    /// Clearing the effort cache while the per-workout fan-out is suspended used
+    /// to let the post-gather block repopulate the maps and enqueue a save AFTER
+    /// the clear's ledger delete, recreating the file the user just wiped. Both
+    /// clears must bump `effortCacheGeneration`, and `fetchEffortLevels` must
+    /// capture it before the fan-out and skip the cache write when it changed.
+    func testEffortFetchCannotResurrectAClearedLedger() throws {
+        let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
+
+        XCTAssertTrue(engineSource.contains("private var effortCacheGeneration = 0"))
+        // Once in each clear (full and scoped).
+        XCTAssertEqual(engineSource.occurrenceCount(of: "effortCacheGeneration += 1"), 2)
+        XCTAssertTrue(engineSource.contains("let generation = effortCacheGeneration"))
+        XCTAssertTrue(engineSource.contains("guard effortCacheGeneration == generation else {"))
+    }
+
+    /// The tracked query wrappers hold a budget permit across their await, so a
+    /// HealthKit callback that never arrives must not pin one until relaunch.
+    /// BOTH wrappers resume with `cancelledValue` through `TrackedQueryResumeBox`
+    /// on cancellation and both bail right after `acquire()` when the waiter was
+    /// already cancelled; the semaphore's own wait stays uncancellable by design,
+    /// so the bail must live in the wrappers. `trackedExternalHealthQuery` can't
+    /// interrupt the other module's continuation, so it runs its body
+    /// unstructured (hence `@Sendable`) and lets the orphan resume into the box's
+    /// drop branch — a pre-query bail alone would still pin a permit for the
+    /// whole of a stalled sleep/effort/daily-metric fetch.
+    func testTrackedQueryWrappersReleaseTheirPermitOnCancellation() throws {
+        let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
+        let budgetSource = try text(at: "Body/Services/HealthKitQueryBudget.swift")
+
+        XCTAssertTrue(engineSource.contains("final class TrackedQueryResumeBox<Value>: @unchecked Sendable {"))
+        XCTAssertTrue(engineSource.contains(
+            "try await trackedHealthQuery(cancelledValue: .failure(CancellationError()), body).get()"
+        ))
+        XCTAssertTrue(engineSource.contains("_ body: @escaping @Sendable () async -> Value"))
+        // One post-acquire bail and one cancellation resume per wrapper.
+        XCTAssertEqual(engineSource.occurrenceCount(of: "if Task.isCancelled {"), 2)
+        XCTAssertEqual(engineSource.occurrenceCount(of: "box.cancel(cancelledValue: cancelledValue())"), 2)
+        XCTAssertFalse(budgetSource.contains("Task.isCancelled"))
+        // The external bodies must not reach back into engine state, or the
+        // unstructured hop would be an actor-isolation violation.
+        XCTAssertFalse(engineSource.contains("store: healthStore,"))
+    }
+
     /// Regression guard: Stress is DERIVED, never fetched, so `fetchHealthTrends`
     /// is the sole custodian of its state between refreshes. Every stress field
     /// used to default to empty in the snapshot it assembles, which silently
@@ -2509,6 +2552,45 @@ final class ProjectConfigurationTests: XCTestCase {
 
         XCTAssertTrue(publishBlock.contains(".replacingMetric(.readiness, with: healthSummary)"))
         XCTAssertTrue(publishBlock.contains(".replacingMetric(.stress, with: healthSummary)"))
+    }
+
+    /// The full refresh runs the stress recompute ONCE, in the tail where the
+    /// activity mask finally has workouts, and coalesces the three snapshot
+    /// writes it used to perform into one after that tail settles. Both rest on
+    /// the same carry: a fetched summary has no stress, so the dashboard publish
+    /// must bring the live values forward or the Stress card blanks and the
+    /// coalesced (or abandonment) write persists the blank.
+    func testFullRefreshRecomputesStressOnceAndWritesOnce() throws {
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let refreshStart = try XCTUnwrap(
+            storeSource.range(of: "private func refreshRecentMonths(")?.lowerBound
+        )
+        let refreshEnd = try XCTUnwrap(
+            storeSource.range(
+                of: "    private func refresh(\n        month: Int,",
+                range: refreshStart..<storeSource.endIndex
+            )?.lowerBound
+        )
+        let refreshBlock = String(storeSource[refreshStart..<refreshEnd])
+        let updateStart = try XCTUnwrap(
+            storeSource.range(of: "private func updateHealthDashboardSnapshot(")?.lowerBound
+        )
+        let updateBlock = String(storeSource[updateStart...].prefix(3_000))
+
+        XCTAssertTrue(refreshBlock.contains("recomputesStress: false"))
+        XCTAssertTrue(refreshBlock.contains("await recomputeStress(on: date, calendar: calendar, persists: false)"))
+        XCTAssertTrue(
+            refreshBlock.contains(
+                "await reapplyActivityReadinessAfterWorkouts(date: date, calendar: calendar, persists: false)"
+            )
+        )
+        XCTAssertEqual(refreshBlock.components(separatedBy: "persistDashboardSnapshot()").count - 1, 1)
+        XCTAssertEqual(refreshBlock.components(separatedBy: "saveHealthWidgetSnapshot()").count - 1, 1)
+        XCTAssertTrue(
+            updateBlock.contains(
+                "let carriedSummary = recomputesStress ? summary : summary.replacingMetric(.stress, with: healthSummary)"
+            )
+        )
     }
 
     func testSecondarySleepStageHistorySkipsVitalsHydration() throws {
@@ -2571,20 +2653,56 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(engineSource.occurrenceCount(of: "payload: .inputCapable"), 3)
     }
 
-    /// The reduced-window sleep fetch: full-payload layouts still refetch the
-    /// whole year (`nil`), but an input-only (stress-only) layout clamps to
-    /// `stressInputSleepHistoryDays` — sized to cover the 56-day vitals
+    /// The reduced-window sleep fetch: an input-only (stress-only) layout clamps
+    /// to `stressInputSleepHistoryDays` — sized to cover the 56-day vitals
     /// baseline + recomputed-day reach with margin, ~3.6x less than the full
-    /// year. `hydrateVitals` is untouched by this parameter and must stay on in
-    /// both modes, or Readiness/sleep-score baselines would degrade for
-    /// stress-only layouts.
+    /// year — and that clamp REPLACES the cached history, so it stays ahead of
+    /// the phase-1 trend window (which merges instead) rather than combining
+    /// with it. A full-payload layout takes the phase-1 window, or the whole
+    /// year when there is no cached history to merge the window into.
+    /// `hydrateVitals` is untouched by this parameter and must stay on in both
+    /// modes, or Readiness/sleep-score baselines would degrade for stress-only
+    /// layouts.
     func testSleepHistoryFetchClampsToStressInputWindowWhenNotFullPayload() throws {
         let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
 
         XCTAssertTrue(engineSource.contains(
-            "maxDays: selection.includesFullPayload(.sleep) ? nil : Self.stressInputSleepHistoryDays,"
+            """
+            maxDays: selection.includesFullPayload(.sleep)
+                                ? (cachedTrends.sleepHistory.isEmpty ? nil : trendWindowDays)
+                                : Self.stressInputSleepHistoryDays,
+            """
         ))
         XCTAssertTrue(engineSource.contains("static let stressInputSleepHistoryDays = 100"))
+    }
+
+    /// The two-phase trend window (RefreshOptimizationPlan-02 P0-A) rests on the
+    /// merge living INSIDE the fetch layer: `fetchHealthTrends` splices the
+    /// cached older-than-window points back on before it returns, so the
+    /// readiness/stress recompute, the widget builder and the watch seed always
+    /// see a full-span series. A windowed series escaping to the store would
+    /// collapse the readiness chart and — via the abandonment path — persist the
+    /// collapse. Phase 2 only runs when phase 1 actually shortened the window.
+    func testPhaseOneTrendWindowMergesInsideTheFetchLayer() throws {
+        let engineSource = try text(at: "Body/Services/HealthKitFetchEngine.swift")
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let fetchStart = try XCTUnwrap(engineSource.range(of: "func fetchHealthTrends(")?.lowerBound)
+        let fetchEnd = try XCTUnwrap(
+            engineSource.range(of: "return HealthTrendFetchResult(", range: fetchStart..<engineSource.endIndex)?.lowerBound
+        )
+        let fetchBlock = String(engineSource[fetchStart..<fetchEnd])
+
+        XCTAssertTrue(fetchBlock.contains("trendWindowDays: Int? = nil"))
+        XCTAssertTrue(fetchBlock.contains("Self.mergeWindowedTrend("))
+        XCTAssertTrue(fetchBlock.contains("Self.mergeWindowedTrendRange("))
+        XCTAssertTrue(fetchBlock.contains("Self.mergeWindowedSleepHistory("))
+
+        // Phase 2 is fired, never awaited, and only after a windowed phase 1.
+        XCTAssertTrue(storeSource.contains("if fetchedPartialTrendWindow {"))
+        XCTAssertTrue(
+            storeSource.contains("startFullTrendWindowLoadIfNeeded(selection: dashboardFetchSelection)")
+        )
+        XCTAssertTrue(storeSource.contains("trendWindowDays: nil"))
     }
 
     /// `refreshFetchedStressInputKinds` in `HealthKitWorkoutStore` must track the
@@ -2996,12 +3114,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.1;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 8;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 9;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.1;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 8;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 9;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -3045,7 +3163,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 8)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 9)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 5)**"))
@@ -3169,6 +3288,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 9)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 9."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 8)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 8."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 7)"))
@@ -3818,7 +3939,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 8)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 9)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.1 build 8)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 7)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 6)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 5)"))

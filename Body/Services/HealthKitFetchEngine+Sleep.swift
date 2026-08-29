@@ -32,12 +32,15 @@ extension HealthKitFetchEngine {
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
-        let samplesOutcome = await BodySleepFetch.sleepSamples(
-            store: healthStore,
-            predicate: predicate,
-            sort: sort,
-            onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
-        )
+        let store = healthStore
+        let samplesOutcome = await trackedExternalHealthQuery(cancelledValue: .failure) {
+            await BodySleepFetch.sleepSamples(
+                store: store,
+                predicate: predicate,
+                sort: sort,
+                onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
+            )
+        }
 
         guard case .success(let sleepSamples) = samplesOutcome else {
             return .failure
@@ -121,12 +124,15 @@ extension HealthKitFetchEngine {
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
-        let samplesOutcome = await BodySleepFetch.sleepSamples(
-            store: healthStore,
-            predicate: predicate,
-            sort: sort,
-            onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
-        )
+        let store = healthStore
+        let samplesOutcome = await trackedExternalHealthQuery(cancelledValue: .failure) {
+            await BodySleepFetch.sleepSamples(
+                store: store,
+                predicate: predicate,
+                sort: sort,
+                onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
+            )
+        }
 
         guard case .success(let sleepSamples) = samplesOutcome else {
             return SleepHistoryFetchResult(history: nil, vitalsHadFailure: false)
@@ -207,12 +213,15 @@ extension HealthKitFetchEngine {
         let predicate = combinedPredicate(startDate: queryStart, endDate: endDate, sourceKind: .sleep)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
 
-        let samplesOutcome = await BodySleepFetch.sleepSamples(
-            store: healthStore,
-            predicate: predicate,
-            sort: sort,
-            onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
-        )
+        let store = healthStore
+        let samplesOutcome = await trackedExternalHealthQuery(cancelledValue: .failure) {
+            await BodySleepFetch.sleepSamples(
+                store: store,
+                predicate: predicate,
+                sort: sort,
+                onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
+            )
+        }
         guard case .success(let sleepSamples) = samplesOutcome else {
             return nil
         }
@@ -396,15 +405,21 @@ extension HealthKitFetchEngine {
             return .failure
         }
 
-        switch await BodySleepFetch.vitalWindowSamples(
-            store: healthStore,
-            quantityType: quantityType,
-            intervals: intervals,
-            sourcePredicate: sourceKind.flatMap { combinedPredicate(sourceKind: $0) },
-            unit: unit,
-            valueTransform: valueTransform,
-            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
-        ) {
+        // Hoisted off the actor: `body` runs unstructured and `@Sendable`, so both
+        // the store and the source predicate have to be resolved up front.
+        let store = healthStore
+        let sourcePredicate = sourceKind.flatMap { combinedPredicate(sourceKind: $0) }
+        switch await trackedExternalHealthQuery(cancelledValue: .failure, {
+            await BodySleepFetch.vitalWindowSamples(
+                store: store,
+                quantityType: quantityType,
+                intervals: intervals,
+                sourcePredicate: sourcePredicate,
+                unit: unit,
+                valueTransform: valueTransform,
+                onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+            )
+        }) {
         case .failure:
             return .failure
         case .success(let windowSamples):

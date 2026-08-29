@@ -131,11 +131,17 @@ extension HealthKitWorkoutStore {
             // A failed leaf leaves the marker where it is and never finalizes:
             // scoring a chunk with, say, the step mask missing would persist
             // wrongly-scored days for the rest of the retention window.
-            guard let summaries = await stressBackfillChunkSummaries(
-                from: cursor,
-                to: chunkEnd,
-                calendar: calendar
-            ) else {
+            // The chunk's fetches reuse the same engine functions the refresh
+            // does, so the background budget is bound here rather than inside
+            // them: the stand-down above is best effort, and this is what keeps
+            // an overlapping refresh's visible leaves off this walk's queue.
+            guard let summaries = await withBackgroundQueryPool({
+                await stressBackfillChunkSummaries(
+                    from: cursor,
+                    to: chunkEnd,
+                    calendar: calendar
+                )
+            }) else {
                 return
             }
 
@@ -281,14 +287,18 @@ extension HealthKitFetchEngine {
             return nil
         }
 
-        return await runCancellableQuery(cancelledValue: Date?.none) { resume in
-            HKSampleQuery(
-                sampleType: quantityType,
-                predicate: nil,
-                limit: 1,
-                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
-            ) { _, samples, _ in
-                resume(samples?.first?.startDate)
+        // Only the Stress history walk asks for this floor, so it always spends
+        // the background budget.
+        return await withBackgroundQueryPool {
+            await runCancellableQuery(cancelledValue: Date?.none) { resume in
+                HKSampleQuery(
+                    sampleType: quantityType,
+                    predicate: nil,
+                    limit: 1,
+                    sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+                ) { _, samples, _ in
+                    resume(samples?.first?.startDate)
+                }
             }
         }
     }

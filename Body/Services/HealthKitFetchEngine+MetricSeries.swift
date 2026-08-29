@@ -298,20 +298,20 @@ extension HealthKitFetchEngine {
         unit: HKUnit,
         predicate: NSPredicate
     ) async throws -> (average: Double?, maximum: Double?) {
-        try await withCheckedThrowingContinuation { continuation in
+        try await trackedThrowingHealthQuery { resume in
             let query = HKStatisticsQuery(
                 quantityType: quantityType,
                 quantitySamplePredicate: predicate,
                 options: [.discreteAverage, .discreteMax]
             ) { _, statistics, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    resume(.failure(error))
                     return
                 }
-                continuation.resume(returning: (
+                resume(.success((
                     average: statistics?.averageQuantity()?.doubleValue(for: unit),
                     maximum: statistics?.maximumQuantity()?.doubleValue(for: unit)
-                ))
+                )))
             }
             healthStore.execute(query)
         }

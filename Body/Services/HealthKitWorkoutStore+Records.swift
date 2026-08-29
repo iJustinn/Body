@@ -174,12 +174,17 @@ extension HealthKitWorkoutStore {
                 // only way an associated-sample distance (no `totalDistance`
                 // aggregate) is resolved — without it the distance and pace records
                 // would permanently miss those workouts.
-                workouts = try await engine.fetchWorkoutSummaries(
-                    startDate: cursor,
-                    endDate: chunkEnd,
-                    includesHeartRateSamples: false,
-                    includesDetailMetrics: true
-                )
+                // Multi-year chunks of the same shared fetch the refresh runs,
+                // so the chunk spends the background budget: this scan must
+                // never queue ahead of a visible dashboard leaf.
+                workouts = try await withBackgroundQueryPool {
+                    try await engine.fetchWorkoutSummaries(
+                        startDate: cursor,
+                        endDate: chunkEnd,
+                        includesHeartRateSamples: false,
+                        includesDetailMetrics: true
+                    )
+                }
             } catch {
                 // A failed or cancelled chunk leaves `scannedThrough` where it is
                 // and never finalizes; the next refresh resumes from here.
@@ -248,14 +253,18 @@ extension HealthKitFetchEngine {
     /// to walk up from, and walking back from today until a chunk comes up empty
     /// would either stop early on a gap year or never stop at all.
     func earliestWorkoutStartDate() async -> Date? {
-        await runCancellableQuery(cancelledValue: Date?.none) { resume in
-            HKSampleQuery(
-                sampleType: HKObjectType.workoutType(),
-                predicate: nil,
-                limit: 1,
-                sortDescriptors: [BodyWorkoutFetch.startDateAscendingSort]
-            ) { _, samples, _ in
-                resume((samples?.first as? HKWorkout)?.startDate)
+        // Only the record baseline scan asks for this floor, so it always spends
+        // the background budget.
+        await withBackgroundQueryPool {
+            await runCancellableQuery(cancelledValue: Date?.none) { resume in
+                HKSampleQuery(
+                    sampleType: HKObjectType.workoutType(),
+                    predicate: nil,
+                    limit: 1,
+                    sortDescriptors: [BodyWorkoutFetch.startDateAscendingSort]
+                ) { _, samples, _ in
+                    resume((samples?.first as? HKWorkout)?.startDate)
+                }
             }
         }
     }

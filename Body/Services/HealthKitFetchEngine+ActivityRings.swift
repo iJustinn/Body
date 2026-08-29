@@ -407,17 +407,26 @@ extension HealthKitFetchEngine {
     ) async -> ActivityRingDayQueryOutcome {
         let queryTask = Task { () -> ActivityRingDayQueryOutcome in
             let predicate = HKQuery.predicate(forActivitySummariesBetweenStart: start, end: end)
-            return await self.runCancellableQuery(cancelledValue: ActivityRingDayQueryOutcome.stopped) { resume in
-                HKActivitySummaryQuery(predicate: predicate) { _, summaries, error in
-                    guard let summaries else {
-                        Self.logTrendQueryFailure(context, error: error)
-                        // Unlike sample queries, a denied ring read reports an
-                        // authorization error instead of coming back empty.
-                        resume(error.map { Self.isAuthorizationDenial($0) ? .denied : .failed } ?? .failed)
-                        return
-                    }
+            // Every caller of this query is off the refresh path — the ten-year
+            // backfill, the recent-window read that resumes it, older-month
+            // pagination, and the era probe — and the backfill in particular
+            // "can run for minutes or hang outright". So it always spends the
+            // background budget, never a permit the visible leaves need. (The
+            // refresh's own ring read, `fetchActivityRingSummary`, goes through
+            // `HKActivitySummaryQueryDescriptor` and never lands here.)
+            return await withBackgroundQueryPool {
+                await self.runCancellableQuery(cancelledValue: ActivityRingDayQueryOutcome.stopped) { resume in
+                    HKActivitySummaryQuery(predicate: predicate) { _, summaries, error in
+                        guard let summaries else {
+                            Self.logTrendQueryFailure(context, error: error)
+                            // Unlike sample queries, a denied ring read reports an
+                            // authorization error instead of coming back empty.
+                            resume(error.map { Self.isAuthorizationDenial($0) ? .denied : .failed } ?? .failed)
+                            return
+                        }
 
-                    resume(.days(Self.activityRingDays(from: summaries, calendar: calendar)))
+                        resume(.days(Self.activityRingDays(from: summaries, calendar: calendar)))
+                    }
                 }
             }
         }
