@@ -1,5 +1,9 @@
 # Version History
 
+## 1.0.2 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 1.0.2 build 1.
+
 ## 1.0.1 (build 9)
 
 - **Faster data refresh.** The Summary refresh now fetches the recent weeks of each chart first and quietly backfills the full year in the background, remembers workout effort scores between launches instead of re-asking HealthKit for every workout, reuses cadence and distance for workouts older than a day, computes the Stress score once per refresh instead of twice, writes the dashboard cache once per refresh instead of three times, and caps how many HealthKit queries run at once so the visible cards are not stuck behind background work. Pull to refresh still re-checks the months you are viewing plus anything from the last two days, so edits made in Apple Fitness keep converging. Charts, scores, and widgets show the same data as before, just sooner.
