@@ -32,12 +32,15 @@ extension HealthKitFetchEngine {
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
-        let samplesOutcome = await BodySleepFetch.sleepSamples(
-            store: healthStore,
-            predicate: predicate,
-            sort: sort,
-            onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
-        )
+        let store = healthStore
+        let samplesOutcome = await trackedExternalHealthQuery(cancelledValue: .failure) {
+            await BodySleepFetch.sleepSamples(
+                store: store,
+                predicate: predicate,
+                sort: sort,
+                onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
+            )
+        }
 
         guard case .success(let sleepSamples) = samplesOutcome else {
             return .failure
@@ -86,6 +89,7 @@ extension HealthKitFetchEngine {
         calendar: Calendar,
         sourceOption: BodyHealthDataSourceOption? = nil,
         hydrateVitals: Bool = true,
+        maxDays: Int? = nil,
         cachedSleepHistory: SleepHistorySnapshot? = nil
     ) async -> SleepHistoryFetchResult {
         Self.timeZoneLedger.recordCurrentZone()
@@ -101,8 +105,17 @@ extension HealthKitFetchEngine {
         }
 
         let interval = recentHealthTrendInterval(calendar: calendar)
+        // Whole-window refetch (the assembled history replaces the cached one),
+        // so clamping the start simply shortens the window rather than leaving a
+        // hole. `maxDays` counts query days back from the interval end.
+        var startDate = interval.start
+        if let maxDays,
+           let clampedStart = calendar.date(byAdding: .day, value: -maxDays, to: interval.end),
+           clampedStart > startDate {
+            startDate = clampedStart
+        }
         let predicate = combinedPredicate(
-            startDate: interval.start,
+            startDate: startDate,
             endDate: interval.end,
             sourceKind: .sleep,
             sourceOption: sourceOption
@@ -111,12 +124,15 @@ extension HealthKitFetchEngine {
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
-        let samplesOutcome = await BodySleepFetch.sleepSamples(
-            store: healthStore,
-            predicate: predicate,
-            sort: sort,
-            onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
-        )
+        let store = healthStore
+        let samplesOutcome = await trackedExternalHealthQuery(cancelledValue: .failure) {
+            await BodySleepFetch.sleepSamples(
+                store: store,
+                predicate: predicate,
+                sort: sort,
+                onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
+            )
+        }
 
         guard case .success(let sleepSamples) = samplesOutcome else {
             return SleepHistoryFetchResult(history: nil, vitalsHadFailure: false)
@@ -165,6 +181,66 @@ extension HealthKitFetchEngine {
             showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages,
             timeZoneIdentifier: { Self.timeZoneLedger.zoneIdentifier(on: $0) }
         )
+    }
+
+    /// Main sleep session per wake day inside one bounded window, keyed by wake
+    /// day — the rest context the progressive Stress history backfill needs for
+    /// the chunk it is about to score.
+    ///
+    /// Deliberately not `fetchDailySleepHistory(hydrateVitals: false)`: that one
+    /// always queries the whole year-long trend interval, so a thirteen-chunk
+    /// walk would re-read every night thirteen times. This reads the chunk only.
+    /// The query starts a day early so a session that began the evening before
+    /// the chunk's first day is still grouped onto it.
+    ///
+    /// `nil` means the query failed (device locked, store unavailable,
+    /// unresolved source selection) rather than "no nights": the caller must
+    /// abandon the chunk instead of scoring it with the sleep mask missing.
+    func fetchStressBackfillSleepIntervals(
+        startDate: Date,
+        endDate: Date,
+        calendar: Calendar
+    ) async -> [Date: DateInterval]? {
+        guard permissionSelection.includes(.sleep),
+              HKObjectType.categoryType(forIdentifier: .sleepAnalysis) != nil else {
+            return [:]
+        }
+        if sourceSelectionUnresolved(for: .sleep) {
+            return nil
+        }
+
+        let queryStart = calendar.date(byAdding: .day, value: -1, to: startDate) ?? startDate
+        let predicate = combinedPredicate(startDate: queryStart, endDate: endDate, sourceKind: .sleep)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+
+        let store = healthStore
+        let samplesOutcome = await trackedExternalHealthQuery(cancelledValue: .failure) {
+            await BodySleepFetch.sleepSamples(
+                store: store,
+                predicate: predicate,
+                sort: sort,
+                onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) }
+            )
+        }
+        guard case .success(let sleepSamples) = samplesOutcome else {
+            return nil
+        }
+
+        let groupings = sleepDayGroupings(
+            from: sleepSamples,
+            calendar: calendar,
+            showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
+            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
+        )
+
+        var intervalsByWakeDay: [Date: DateInterval] = [:]
+        for grouping in groupings {
+            guard let interval = grouping.mainSessionInterval else {
+                continue
+            }
+            intervalsByWakeDay[calendar.startOfDay(for: grouping.day.date)] = interval
+        }
+        return intervalsByWakeDay
     }
 
     private func hydrateSleepVitals(
@@ -329,15 +405,21 @@ extension HealthKitFetchEngine {
             return .failure
         }
 
-        switch await BodySleepFetch.vitalWindowSamples(
-            store: healthStore,
-            quantityType: quantityType,
-            intervals: intervals,
-            sourcePredicate: sourceKind.flatMap { combinedPredicate(sourceKind: $0) },
-            unit: unit,
-            valueTransform: valueTransform,
-            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
-        ) {
+        // Hoisted off the actor: `body` runs unstructured and `@Sendable`, so both
+        // the store and the source predicate have to be resolved up front.
+        let store = healthStore
+        let sourcePredicate = sourceKind.flatMap { combinedPredicate(sourceKind: $0) }
+        switch await trackedExternalHealthQuery(cancelledValue: .failure, {
+            await BodySleepFetch.vitalWindowSamples(
+                store: store,
+                quantityType: quantityType,
+                intervals: intervals,
+                sourcePredicate: sourcePredicate,
+                unit: unit,
+                valueTransform: valueTransform,
+                onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+            )
+        }) {
         case .failure:
             return .failure
         case .success(let windowSamples):

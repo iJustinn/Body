@@ -11,23 +11,37 @@ import SwiftUI
 
 struct BodyWorkoutFilterView: View {
     @Binding var selectedWorkoutTypes: Set<BodyWorkoutType>
+    /// Which record standings the list is narrowed to. Empty means the records
+    /// filter is off and every workout passes; `.current`/`.former` restrict the
+    /// list to workouts holding (or having once held) an all-time record.
+    @Binding var selectedRecordStandings: Set<WorkoutRecordStanding>
     let workoutTypes: [BodyWorkoutType]
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.workoutColorPalette) private var workoutColorPalette
 
     @State private var tempSelectedWorkoutTypes: Set<BodyWorkoutType>
+    @State private var tempSelectedRecordStandings: Set<WorkoutRecordStanding>
 
-    init(selectedWorkoutTypes: Binding<Set<BodyWorkoutType>>, workoutTypes: [BodyWorkoutType]) {
+    init(
+        selectedWorkoutTypes: Binding<Set<BodyWorkoutType>>,
+        selectedRecordStandings: Binding<Set<WorkoutRecordStanding>>,
+        workoutTypes: [BodyWorkoutType]
+    ) {
         self._selectedWorkoutTypes = selectedWorkoutTypes
+        self._selectedRecordStandings = selectedRecordStandings
         self.workoutTypes = workoutTypes
         self._tempSelectedWorkoutTypes = State(initialValue: selectedWorkoutTypes.wrappedValue)
+        self._tempSelectedRecordStandings = State(initialValue: selectedRecordStandings.wrappedValue)
     }
 
     var body: some View {
         NavigationStack {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
+                    recordsSection
+
                     typesSection
                 }
                 .padding(.horizontal, 16)
@@ -49,6 +63,7 @@ struct BodyWorkoutFilterView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Apply") {
                         selectedWorkoutTypes = tempSelectedWorkoutTypes
+                        selectedRecordStandings = tempSelectedRecordStandings
                         dismiss()
                     }
                     .font(.system(.body, design: .rounded))
@@ -56,6 +71,67 @@ struct BodyWorkoutFilterView: View {
                 }
             }
         }
+    }
+
+    private var recordsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(
+                title: "pr.filter.sectionTitle",
+                detail: "pr.filter.sectionDetail"
+            )
+
+            VStack(spacing: 10) {
+                recordRow(.current)
+                recordRow(.former)
+            }
+        }
+    }
+
+    /// Mirrors `typeRow`, with the badge's own colours standing in for the
+    /// workout tint: gold for a live record, the dimmed gray for a beaten one.
+    private func recordRow(_ standing: WorkoutRecordStanding) -> some View {
+        let isSelected = tempSelectedRecordStandings.contains(standing)
+        let tint: Color = standing == .current ? .bodyPRGold : .secondary
+        let title: LocalizedStringKey = standing == .current ? "pr.filter.current" : "pr.filter.former"
+        return Button {
+            animated {
+                if isSelected {
+                    tempSelectedRecordStandings.remove(standing)
+                } else {
+                    tempSelectedRecordStandings.insert(standing)
+                }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundColor(tint)
+                    .frame(width: 34, height: 34)
+                    .background(tint.opacity(0.13))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityHidden(true)
+
+                Text(title)
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+
+                Spacer(minLength: 8)
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundColor(isSelected ? tint : Color.secondary.opacity(0.35))
+                    .accessibilityHidden(true)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var typesSection: some View {
@@ -114,9 +190,9 @@ struct BodyWorkoutFilterView: View {
             HStack(spacing: 12) {
                 Image(systemName: workoutType.symbolName)
                     .font(.system(size: 19, weight: .semibold))
-                    .foregroundColor(workoutType.color)
+                    .foregroundColor(workoutColorPalette.color(for: workoutType))
                     .frame(width: 34, height: 34)
-                    .background(workoutType.color.opacity(0.13))
+                    .background(workoutColorPalette.color(for: workoutType).opacity(0.13))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .accessibilityHidden(true)
 
@@ -131,7 +207,7 @@ struct BodyWorkoutFilterView: View {
                 // space, so the row's tap affordance reads without a selection.
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 21, weight: .semibold))
-                    .foregroundColor(isSelected ? workoutType.color : Color.secondary.opacity(0.35))
+                    .foregroundColor(isSelected ? workoutColorPalette.color(for: workoutType) : Color.secondary.opacity(0.35))
                     .accessibilityHidden(true)
             }
             .padding(14)

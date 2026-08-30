@@ -7,7 +7,8 @@
 //  pinned wordmark, `ImageRenderer.scale = 3`), with a month's chart where a single
 //  workout's route trace would be. Its content is a title, one to five metric blocks,
 //  and either the calendar grid or the activity breakdown — the very views the
-//  Workouts page draws, in their `.widgetLarge` guise.
+//  Workouts page draws: the calendar in its `.widgetLarge` guise, the breakdown in
+//  its `.shareCard` one (the page's own type on a leaner bar row).
 //  No layout number is written here: `WorkoutShareSummaryCardGeometry` derives every
 //  rect from the ratio and the metric count, so the card and its render tests can't
 //  drift apart. Unlike the workout card this one is *not* fully
@@ -21,6 +22,11 @@ import UIKit
 
 struct BodyWorkoutShareSummaryCardView: View {
     let summary: WorkoutShareMonthSummary
+    /// Resolved workout colors (built-in defaults plus any Pro customization), passed in
+    /// like every other value here rather than read from the environment — an
+    /// `ImageRenderer` root doesn't inherit it. Also handed to the calendar/breakdown
+    /// charts below, which render in the app and the widget extension alike.
+    let palette: BodyWorkoutColorPalette
     /// Which chart the card draws. Session state on the sheet — changing it here never
     /// moves the Workouts page's own toggle.
     let chartStyle: WorkoutSummaryChartStyle
@@ -62,7 +68,15 @@ struct BodyWorkoutShareSummaryCardView: View {
         switch background {
         case .preset(let preset): return preset.ink
         case .photo, .map, .video: return .light
+        case .transparent(let ink): return ink
         }
+    }
+
+    /// A transparent export has nothing behind its text, so a scrim would be the one
+    /// part of it that isn't see-through. Same rule as the workout card's.
+    private var drawsScrims: Bool {
+        if case .transparent = background { return false }
+        return true
     }
 
     var body: some View {
@@ -93,7 +107,7 @@ struct BodyWorkoutShareSummaryCardView: View {
         let size = geometry.size
         switch background {
         case .preset(let preset):
-            preset.gradient(tint: summary.tintType.color)
+            preset.gradient(tint: palette.color(for: summary.tintType))
         case .photo(let image):
             // Scale then offset, then clip: the fill's overhang beyond the card must
             // survive until after the transform, because the clamp lets the photo pan
@@ -110,37 +124,42 @@ struct BodyWorkoutShareSummaryCardView: View {
             // Unreachable: the sheet never offers the map tile in summary mode (there
             // is no route to snapshot). Drawn as Midnight rather than left empty so an
             // impossible state still produces a legible card instead of a bare frame.
-            BodyWorkoutSharePreset.midnight.gradient(tint: summary.tintType.color)
-        case .video:
+            BodyWorkoutSharePreset.midnight.gradient(tint: palette.color(for: summary.tintType))
+        case .video, .transparent:
             // Deliberately empty, sized so the ZStack still gets the card's frame from
             // its background layer. `ImageRenderer.isOpaque` is false, so the rendered
-            // overlay keeps this transparency and the video shows through it.
+            // overlay keeps this transparency — the video shows through it for `.video`,
+            // and for `.transparent` it *is* the export's alpha channel.
             Color.clear
                 .frame(width: size.width, height: size.height)
         }
     }
 
     /// The workout card's scrims, at the same heights and opacities — `isMap: false`
-    /// always, since a summary card never carries map tiles.
+    /// always, since a summary card never carries map tiles. A transparent card draws
+    /// none: see `drawsScrims`.
+    @ViewBuilder
     private var scrims: some View {
         let scrim = ink.scrim
 
-        return VStack(spacing: 0) {
-            LinearGradient(
-                colors: [scrim.opacity(0.45), scrim.opacity(0)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: cardGeometry.topScrimHeight(isMap: false))
+        if drawsScrims {
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [scrim.opacity(0.45), scrim.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: cardGeometry.topScrimHeight(isMap: false))
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-            LinearGradient(
-                colors: [scrim.opacity(0), scrim.opacity(0.5)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: cardGeometry.bottomScrimHeight(isMap: false))
+                LinearGradient(
+                    colors: [scrim.opacity(0), scrim.opacity(0.5)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: cardGeometry.bottomScrimHeight(isMap: false))
+            }
         }
     }
 
@@ -246,9 +265,10 @@ struct BodyWorkoutShareSummaryCardView: View {
         }
     }
 
-    /// The page's own charts, in the guise the large widget uses: capped rows, no
-    /// switch control, nothing selectable. They colour their type off `.primary` /
-    /// `.secondary`, which the sheet's inverted `colorScheme` resolves for the ink.
+    /// The page's own charts, capped rows, no switch control, nothing selectable —
+    /// the calendar in the large widget's guise, the breakdown in the share card's.
+    /// They colour their type off `.primary` / `.secondary`, which the sheet's
+    /// inverted `colorScheme` resolves for the ink.
     @ViewBuilder
     private var chart: some View {
         switch chartStyle {
@@ -258,6 +278,7 @@ struct BodyWorkoutShareSummaryCardView: View {
             // The grid sits centered in the frame's width-driven square cells.
             WorkoutCalendarView(
                 snapshot: summary.snapshot,
+                palette: palette,
                 style: .widgetLarge,
                 fillsAvailableHeight: false,
                 scalesGlyphsToFit: true,
@@ -269,7 +290,8 @@ struct BodyWorkoutShareSummaryCardView: View {
         case .bar:
             WorkoutTypeBreakdownView(
                 snapshot: summary.snapshot,
-                style: .widgetLarge,
+                palette: palette,
+                style: .shareCard,
                 rowLimit: geometry.barRowLimit,
                 onSelectType: nil,
                 onSwitchChart: nil
@@ -305,6 +327,7 @@ private func previewSummaryCard(
     )
     return BodyWorkoutShareSummaryCardView(
         summary: WorkoutShareMonthSummary(snapshot: snapshot, initialChartStyle: chartStyle),
+        palette: .builtIn,
         chartStyle: chartStyle,
         showsWeekdayHeader: true,
         metrics: Array(options.prefix(metricCount)),

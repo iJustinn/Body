@@ -322,7 +322,9 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
             return 0x662249
         case .walking, .wheelchairWalkPace:
             return 0x0D9099
-        case .running, .wheelchairRunPace, .trackAndField:
+        case .running:
+            return 0x335BB0
+        case .wheelchairRunPace, .trackAndField:
             return 0x1B305D
         case .cycling, .handCycling:
             return 0xEE9D58
@@ -350,7 +352,11 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
             return 0xFEA382
         case .americanFootball, .australianFootball, .cricket, .hockey, .lacrosse, .rugby, .soccer:
             return 0x274E61
-        case .badminton, .pickleball, .racquetball, .squash, .tableTennis, .tennis:
+        case .pickleball:
+            return 0x635995
+        case .tennis:
+            return 0x8C6BAA
+        case .badminton, .racquetball, .squash, .tableTennis:
             return 0x423B63
         case .rowing:
             return 0x032E30
@@ -482,10 +488,12 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
         0x011230, 0x1B305D, 0x423B63, 0xAF7DAC, 0xF5DADF, 0xF2926E,
         0x021716, 0x032E30, 0x0A6F73, 0x0D9099, 0x6AA4BE, 0x274E61,
         0x19192F, 0x252F47, 0x373F5B, 0xFEA382, 0xB7172D, 0x55152B,
-        0x150017, 0x2A104B, 0x522C5C, 0x835061, 0xE3B6B1, 0xFEE4D9
+        0x150017, 0x2A104B, 0x522C5C, 0x835061, 0xE3B6B1, 0xFEE4D9,
+        0x335BB0, 0x635995, 0x8C6BAA
     ]
 
-    private static func attachedWorkoutColor(hex: UInt32) -> Color {
+    /// Shared with `BodyWorkoutColorPalette` so customized colors render identically.
+    static func attachedWorkoutColor(hex: UInt32) -> Color {
         Color(
             red: Double((hex >> 16) & 0xFF) / 255,
             green: Double((hex >> 8) & 0xFF) / 255,
@@ -493,7 +501,7 @@ enum BodyWorkoutType: String, Codable, CaseIterable, Identifiable {
         )
     }
 
-    private static func luminance(hex: UInt32) -> Double {
+    static func luminance(hex: UInt32) -> Double {
         let red = Double((hex >> 16) & 0xFF) / 255
         let green = Double((hex >> 8) & 0xFF) / 255
         let blue = Double(hex & 0xFF) / 255

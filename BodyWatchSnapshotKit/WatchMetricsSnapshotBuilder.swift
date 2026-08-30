@@ -92,6 +92,12 @@ enum WatchMetricsSnapshotBuilder {
         if permissionSelection.includes(.workouts) {
             metrics.append(trainingLoadMetric(summary.trainingLoad.value))
         }
+        if permissionSelection.includes(.exerciseMinutes) {
+            // Complication-only: no ring, no dashboard card. Today's value is
+            // the recent week's last day, the same series the stamping below
+            // carries as `weekly`.
+            metrics.append(exerciseMinutesMetric(weekly(trends.exerciseMinutes, now: now).last ?? nil))
+        }
         if permissionSelection.includes(.wristTemperature) {
             metrics.append(skinTempMetric(
                 summary.wristTemperature.value,
@@ -112,6 +118,7 @@ enum WatchMetricsSnapshotBuilder {
             case WatchMetricKindKey.heartRateVariability: return weekly(trends.heartRateVariability, now: now)
             case WatchMetricKindKey.restingHeartRate: return weekly(trends.restingHeartRate, now: now)
             case WatchMetricKindKey.trainingLoad: return weekly(trends.trainingLoad, now: now)
+            case WatchMetricKindKey.exerciseMinutes: return weekly(trends.exerciseMinutes, now: now)
             case WatchMetricKindKey.wristTemperature:
                 // Match the card's display unit so the detail stats agree.
                 return weekly(trends.wristTemperature, now: now).map { day in
@@ -290,6 +297,20 @@ enum WatchMetricsSnapshotBuilder {
                     min: $0.lowerBound, max: $0.upperBound,
                     label: $0.title)
             }
+        )
+    }
+
+    /// Whole minutes for the day, matching the iPhone card's 0-decimal, unitless
+    /// formatting. No ring is drawn for this kind (the complication renders the
+    /// carried `weekly` bars), so the fill stays 0.
+    private static func exerciseMinutesMetric(_ minutes: Double?) -> WatchMetric {
+        WatchMetric(
+            kind: WatchMetricKindKey.exerciseMinutes,
+            title: String(localized: "Exercise Minutes", table: "BodyWatchSnapshotKit"),
+            displayValue: minutes.map { BodyValueFormat.numberText($0, decimals: 0) } ?? "--",
+            unit: "",
+            score: nil,
+            fillFraction: 0
         )
     }
 

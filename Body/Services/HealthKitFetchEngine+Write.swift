@@ -248,6 +248,22 @@ extension HealthKitFetchEngine {
 
         workoutEffortWriteLogger.debug("effort write: \("cleaning up prior samples", privacy: .public)")
         await deleteEffortSamples(staleEffortSamples)
+
+        // Write through to the effort cache (and its persisted ledger): the
+        // score we just saved is authoritative, and for an aged workout nothing
+        // would otherwise re-query it. Auto-apply writes land here too, via
+        // `autoApplyWorkoutEffort`. Hydrate first — the ledger is rewritten from
+        // the in-memory maps, so persisting before the file has been read would
+        // drop every aged entry it holds.
+        await hydratePersistedEffortLedgerIfNeeded()
+        effortLevelsByWorkoutID[workoutID] = clampedScore
+        confirmedNoEffortWorkoutIDs.remove(workoutID)
+        effortWorkoutDatesByID[workoutID] = WorkoutEffortDateRange(
+            startDate: workout.startDate,
+            endDate: workout.endDate
+        )
+        persistEffortLedger()
+
         workoutEffortWriteLogger.debug("effort write: \("completed", privacy: .public)")
     }
 
@@ -288,7 +304,7 @@ extension HealthKitFetchEngine {
     // genuinely absent workout (`nil` without error); route/splits propagate
     // that error rather than caching a false empty.
     func fetchWorkout(id: UUID) async throws -> HKWorkout? {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HKWorkout?, Error>) in
+        try await trackedThrowingHealthQuery { (resume: @escaping (Result<HKWorkout?, Error>) -> Void) in
             let query = HKSampleQuery(
                 sampleType: HKObjectType.workoutType(),
                 predicate: HKQuery.predicateForObject(with: id),
@@ -296,10 +312,10 @@ extension HealthKitFetchEngine {
                 sortDescriptors: nil
             ) { _, samples, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    resume(.failure(error))
                     return
                 }
-                continuation.resume(returning: samples?.first as? HKWorkout)
+                resume(.success(samples?.first as? HKWorkout))
             }
             healthStore.execute(query)
         }
@@ -311,14 +327,16 @@ extension HealthKitFetchEngine {
     /// later timestamp makes Body's read prefer it instead.
     private func ownRelatedEffortSamples(for workout: HKWorkout, effortType: HKQuantityType) async -> [HKSample] {
         let predicate = HKQuery.predicateForWorkoutEffortSamplesRelated(workout: workout, activity: nil)
-        let samples: [HKSample] = await withCheckedContinuation { (continuation: CheckedContinuation<[HKSample], Never>) in
+        // A cancelled query deletes nothing, which is the same best-effort
+        // outcome as a failed one: the new sample's later timestamp still wins.
+        let samples: [HKSample] = await trackedHealthQuery(cancelledValue: []) { resume in
             let query = HKSampleQuery(
                 sampleType: effortType,
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: nil
             ) { _, samples, _ in
-                continuation.resume(returning: samples ?? [])
+                resume(samples ?? [])
             }
             healthStore.execute(query)
         }

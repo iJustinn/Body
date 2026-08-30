@@ -246,6 +246,42 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// per-render `FileManager` stat calls on the main thread.
     @Published private(set) var cacheDiskSizeBytes: Int64 = 0
 
+    /// All-time personal-record contributions, hydrated from disk at init and
+    /// folded forward as months load. Reads go through `personalRecords(for:)`,
+    /// which stays empty until the baseline scan has covered the whole history.
+    /// The lifecycle lives in `HealthKitWorkoutStore+Records.swift`; stored state
+    /// has to sit here because a Swift extension can't declare it.
+    @Published private(set) var recordLedger = WorkoutRecordLedger()
+    /// The one-time baseline scan. Retained so a Clear Cache can cancel it and
+    /// await its exit before wiping the ledger it would otherwise re-persist.
+    var recordBackfillTask: Task<Void, Never>?
+
+    /// The one-time Stress history walk. Same rationale as `recordBackfillTask`
+    /// — its lifecycle lives in `HealthKitWorkoutStore+StressBackfill.swift`,
+    /// but an extension can't declare stored state.
+    var stressBackfillTask: Task<Void, Never>?
+
+    /// The in-flight post-refresh Stress input load, for the backfill's
+    /// serialization: the two must not fetch and merge Stress state at once.
+    var pendingStressInputLoadTask: Task<Void, Never>? { stressInputLoadTask }
+
+    /// The live Stress record context, for the backfill's per-chunk guard —
+    /// `stressRecordContextSignature()` itself stays private to this file.
+    var currentStressRecordContextSignature: String { stressRecordContextSignature() }
+
+    /// `recordLedger` is `private(set)` so nothing outside this type writes it;
+    /// the records extension lives in another file, so it publishes through here.
+    func publishRecordLedger(_ ledger: WorkoutRecordLedger) {
+        recordLedger = ledger
+    }
+
+    /// The current cache generation, for the records extension's epoch guard —
+    /// `cacheEpoch` itself stays private to this file.
+    var currentCacheEpoch: Int { cacheEpoch }
+
+    /// Whether a Clear Cache is running, for the records extension's start guard.
+    var isClearingLocalCache: Bool { isClearingCache }
+
     /// Months beyond this cap are evicted (least recently loaded first) so
     /// browsing years of history doesn't accumulate every month's workouts
     /// (with up to 96 heart-rate samples each) in memory for the app's
@@ -253,7 +289,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// evict.
     nonisolated static let maximumCachedMonthSnapshots = 12
 
-    private let engine: HealthKitFetchEngine
+    // Internal (not `private`) so `HealthKitWorkoutStore+Records.swift` can run
+    // the baseline scan's queries through the same engine.
+    let engine: HealthKitFetchEngine
     /// Backing store for `workoutCustomNames` — injectable so tests can use an
     /// isolated suite.
     private let customNameDefaults: UserDefaults
@@ -295,6 +333,12 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// the watch writes the recovery sample a minute after the workout ends, so a
     /// just-finished workout must be re-read on the next sheet open.
     private var heartRateRecoveryCache: [UUID: Double?] = [:]
+    /// Session cache of a workout's persisted energy-equivalent breakdown,
+    /// keyed by UUID. The full payload (not just the emojis) is kept so
+    /// `energyEquivalentEmojis(for:hiddenFoods:)` can compare its kcal and
+    /// hidden-food inputs against the current ones to decide whether the
+    /// cached emojis are still valid.
+    private var energyEquivalentCache: [UUID: PersistedEnergyEquivalent] = [:]
     /// In-flight (or finished) disk hydrations of the persisted per-workout detail
     /// snapshot, keyed by workout UUID. A task map rather than a "done" flag Set
     /// because the detail sheet fires the route probe, the route load, the series
@@ -314,6 +358,12 @@ final class HealthKitWorkoutStore: ObservableObject {
     private let refreshCompletionWaiters = RefreshCompletionWaiters()
     private var monthLoadContinuations: [BodyWorkoutMonthKey: [CheckedContinuation<Void, Never>]] = [:]
     private var persistedDaySamplesHydration: Task<HealthTrendDaySampleSnapshot?, Never>?
+    /// The in-flight post-refresh Stress input load, so overlapping refreshes
+    /// don't stack heartbeat-series scans.
+    private var stressInputLoadTask: Task<Void, Never>?
+    /// The in-flight phase-2 full-window trend load, so overlapping refreshes
+    /// don't stack year-long trend refetches.
+    private var fullTrendWindowLoadTask: Task<Void, Never>?
     /// Retains the Body Pro entitlement observer so secondary-source gating (which this
     /// store resolves from `BodyProEntitlement`, not the SwiftUI environment) recomputes
     /// when the entitlement flips.
@@ -369,10 +419,25 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     private func finishRefresh() {
         isRefreshing = false
+        // Measurement only (RefreshOptimizationPlan-02 §6): logs the per-leaf
+        // table, the refresh wall time, the HealthKit concurrency high-water
+        // mark, and the effort candidate count. DEBUG-only inside, and it
+        // clears the table so the next refresh starts from zero.
+        BodyRefreshProfile.shared.dumpAndReset()
         refreshCompletionWaiters.resumeAll()
+        // Off the refresh path by construction: the refresh is already finished
+        // and this only starts a detached, cancellable scan (see
+        // `HealthKitWorkoutStore+Records.swift`).
+        scheduleRecordBaselineBackfillIfNeeded()
+        // Same slot, same rule — and it chains itself behind the record scan and
+        // the Stress input load rather than racing them (see
+        // `HealthKitWorkoutStore+StressBackfill.swift`).
+        scheduleStressBackfillIfNeeded()
     }
 
-    private func awaitNextRefreshCompletion() async {
+    /// Internal so the Stress backfill extension can park on the same refresh
+    /// barrier the intraday loads use before publishing a chunk.
+    func awaitNextRefreshCompletion() async {
         guard isRefreshing, !Task.isCancelled else {
             return
         }
@@ -563,8 +628,8 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     init(
         initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrEmpty(),
-        initialHealthDashboardSnapshot: HealthDashboardSnapshot = HealthDashboardSnapshotStore.loadOrEmpty(),
-        initialSummaryContextSignature: String? = HealthDashboardSnapshotStore.loadSummaryContextSignature(),
+        initialHealthDashboardSnapshot: HealthDashboardSnapshot? = nil,
+        initialSummaryContextSignature: String? = nil,
         initialPermissionSelection: BodyHealthPermissionSelection = BodyHealthPermissionSelection.load(),
         initialHealthDataSourceSelection: BodyHealthDataSourceSelection = BodyHealthDataSourceSelection.load(),
         initialSecondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection = BodyHealthSecondaryDataSourceSelection.load(),
@@ -592,6 +657,18 @@ final class HealthKitWorkoutStore: ObservableObject {
             combinesHealthDataSourcesByName: initialCombinesHealthDataSourcesByName,
             customHealthSourceGroups: initialCustomHealthSourceGroups
         )
+        // One decode, not two: the persisted envelope carries the snapshot and
+        // the summary-context signature written beside it, but Swift evaluates
+        // default arguments independently — a loader per default read and
+        // decoded the largest cache twice on the main thread before the first
+        // frame. Callers that inject a snapshot (tests, previews) pass the
+        // signature alongside it.
+        let loadedDashboard = initialHealthDashboardSnapshot.map {
+            HealthDashboardSnapshotStore.LoadedSnapshot(
+                snapshot: $0,
+                summaryContextSignature: initialSummaryContextSignature
+            )
+        } ?? HealthDashboardSnapshotStore.loadOrEmptyWithContext()
         // Skip the readiness recompute at init: it's a per-day iteration over up
         // to ~365 trend points that would block the first frame. The cached
         // `summary.readiness` value was correct when written; the next refresh
@@ -600,9 +677,13 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Exception: when frozen morning records exist but were captured under a
         // different readiness input context (source, permission, or grouping
         // changed while the app was closed, or the prior refresh failed before
-        // re-saving), the persisted chart overlay is stale. Recompute once here so
-        // the records are dropped and the series rebuilt under the current inputs,
-        // durably and without depending on the next refresh succeeding.
+        // re-saving), the persisted chart overlay is stale. The cache is still
+        // published without a recompute here; dropping those records and
+        // rebuilding the series under the current inputs is deferred to
+        // `rebuildStaleReadinessOverlay` at the end of init, which runs off the
+        // main actor and saves its result — so the fix stays durable without
+        // depending on the next refresh succeeding, and without the first frame
+        // paying for it.
         let initialIdealSleepDuration = Self.storedIdealSleepDuration()
         let initialReadinessContext = Self.readinessRecordContextSignature(
             permissionSelection: initialPermissionSelection,
@@ -613,16 +694,11 @@ final class HealthKitWorkoutStore: ObservableObject {
             showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(),
             customSourceGroupsSignatureSuffix: initialCustomSourceGroupsSuffix
         )
-        let initialTrends = initialHealthDashboardSnapshot.trends
+        let initialTrends = loadedDashboard.snapshot.trends
         let hasStaleReadinessOverlay = !initialTrends.recordedReadiness.isEmpty
             && initialTrends.recordedReadinessContext != initialReadinessContext
-        let filteredHealthDashboardSnapshot = hasStaleReadinessOverlay
-            ? initialHealthDashboardSnapshot.filtered(
-                by: initialPermissionSelection,
-                idealSleepDuration: initialIdealSleepDuration,
-                recordedReadinessContext: initialReadinessContext
-            )
-            : initialHealthDashboardSnapshot.filteredWithoutReadinessRecompute(by: initialPermissionSelection)
+        let filteredHealthDashboardSnapshot = loadedDashboard.snapshot
+            .filteredWithoutReadinessRecompute(by: initialPermissionSelection)
         let startingSnapshot: WorkoutMonthSnapshot
         if !initialPermissionSelection.includes(.workouts) {
             startingSnapshot = WorkoutMonthSnapshot.make(
@@ -656,6 +732,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             Self.snapshotPersistQueue.async {
                 if !initialPermissionSelection.includes(.workouts) {
                     WorkoutDetailSnapshotStore.deleteAll()
+                    // The record and effort ledgers are derived workout data, so
+                    // they follow the detail files out on a Workouts opt-out.
+                    // (Safe to delete the effort ledger from this queue at launch:
+                    // the engine only reads it on its first effort fetch, which
+                    // can't have run before init returns.)
+                    WorkoutRecordLedgerStore.deleteAll()
+                    WorkoutEffortLedgerStore.deleteAll()
                 } else if !initialPermissionSelection.includes(.workoutMetrics) {
                     WorkoutDetailSnapshotStore.stripWorkoutMetricsPayloads()
                 }
@@ -668,11 +751,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         monthSnapshots = [
             BodyWorkoutMonthKey(month: startingSnapshot.month, year: startingSnapshot.year): startingSnapshot
         ]
+        // Seeds the color editor's known-workout-types census from the persisted
+        // snapshot at launch; `refresh(monthKeys:calendar:)` keeps it current as
+        // further months load.
+        BodyWorkoutColorStore.mergeKnownWorkoutTypes(Set(startingSnapshot.days.flatMap(\.workouts).map(\.type)))
         healthSummary = filteredHealthDashboardSnapshot.summary
         // Restore the summary-reuse gate from the persisted envelope (H2a) so a
         // cold-start failed summary leaf can reuse the hydrated value only while
         // the current selection/prefs still match the ones it was saved under.
-        healthSummaryPrimarySignature = initialSummaryContextSignature
+        healthSummaryPrimarySignature = loadedDashboard.summaryContextSignature
         let storedSecondarySignature = HealthDashboardSnapshotStore.loadSecondarySelectionSignature()
         if storedSecondarySignature != initialSecondaryHealthDataSourceSelection.signature + initialCustomSourceGroupsSuffix {
             healthTrends = filteredHealthDashboardSnapshot.trends.clearingSecondarySeries()
@@ -721,7 +808,18 @@ final class HealthKitWorkoutStore: ObservableObject {
         // cost-gated on the dashboard actually fetching Training Load). The
         // persisted `through` keeps the watch's coverage gate honest.
         cachedComputeTrainingLoadSeed = HealthDashboardSnapshotStore.loadWatchTrainingLoadSeed()
+        // Personal records hydrate before any view can read them; a missing or
+        // schema-stale file yields a fresh ledger, which simply rescans.
+        if initialPermissionSelection.includes(.workouts) {
+            recordLedger = WorkoutRecordLedgerStore.load() ?? WorkoutRecordLedger()
+        }
         Task { await self.refreshCacheDiskSize() }
+        if hasStaleReadinessOverlay {
+            rebuildStaleReadinessOverlay(
+                idealSleepDuration: initialIdealSleepDuration,
+                recordedReadinessContext: initialReadinessContext
+            )
+        }
 
         // When Body Pro unlocks (or is revoked/refunded), re-fetch so the secondary-source
         // comparison — gated deep in this store and the fetch engine, beyond SwiftUI's
@@ -761,6 +859,55 @@ final class HealthKitWorkoutStore: ObservableObject {
                 // is a sheet over that view and never unmounts it.
                 await self.requestAuthorizationAndRefresh()
             }
+        }
+    }
+
+    /// Rebuilds the persisted readiness overlay when the frozen morning records
+    /// at rest were captured under a different input context (see the exception
+    /// in `init`). Same shape as the refresh path's recompute: `Task.detached`
+    /// off the main actor, `cacheEpoch` rechecked before anything is applied.
+    /// The save at the end is what makes the drop durable, since init itself
+    /// never writes the snapshot back.
+    private func rebuildStaleReadinessOverlay(
+        idealSleepDuration: TimeInterval,
+        recordedReadinessContext: String
+    ) {
+        Task {
+            let epoch = self.cacheEpoch
+            // A refresh can rebuild the overlay under the current inputs before
+            // this task gets its turn; its result is the fresher one, so there
+            // is nothing stale left to fix.
+            guard self.healthTrends.recordedReadinessContext != recordedReadinessContext else {
+                return
+            }
+
+            let permissionSelection = self.permissionSelection
+            let rawSnapshot = HealthDashboardSnapshot(
+                summary: self.healthSummary,
+                trends: self.healthTrends,
+                activityRingHistory: self.activityRingHistory
+            )
+            let filtered = await Task.detached(priority: .userInitiated) {
+                let signpostState = BodyPerformanceSignposts.signposter.beginInterval("ReadinessRecompute")
+                defer { BodyPerformanceSignposts.signposter.endInterval("ReadinessRecompute", signpostState) }
+                return rawSnapshot.filtered(
+                    by: permissionSelection,
+                    idealSleepDuration: idealSleepDuration,
+                    recordedReadinessContext: recordedReadinessContext
+                )
+            }.value
+
+            // A Clear Cache that landed while the recompute ran must win, and so
+            // must a refresh that rebuilt the overlay first: either way this
+            // result is the stale one now.
+            guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: self.cacheEpoch),
+                  self.healthTrends.recordedReadinessContext != recordedReadinessContext else {
+                return
+            }
+
+            self.healthSummary = filtered.summary
+            self.healthTrends = filtered.trends
+            await self.persistPublishedDashboardSnapshot()
         }
     }
 
@@ -838,6 +985,8 @@ final class HealthKitWorkoutStore: ObservableObject {
                 + HealthDashboardSnapshotStore.totalDiskSizeBytes
                 + HealthWidgetSnapshotStore.totalDiskSizeBytes
                 + WorkoutDetailSnapshotStore.totalDiskSizeBytes()
+                + WorkoutRecordLedgerStore.totalDiskSizeBytes()
+                + WorkoutEffortLedgerStore.totalDiskSizeBytes()
         }.value
         cacheDiskSizeBytes = size
     }
@@ -927,9 +1076,12 @@ final class HealthKitWorkoutStore: ObservableObject {
         calendar: Calendar
     ) async {
         if kind == .trainingLoad {
-            // The detail pull is an explicit gesture: drop the per-workout
-            // effort cache so a re-rated workout reconciles into the
-            // training-load fetch.
+            // The detail pull is an explicit gesture on the metric whose window
+            // IS the 408 days: drop the per-workout effort cache in full (memory
+            // and persisted ledger) so a re-rated workout anywhere in the window
+            // reconciles into the training-load fetch. The month-scoped clear
+            // used by pull-to-refresh would miss exactly the older workouts this
+            // pull exists to reconcile.
             await engine.clearWorkoutEffortCache()
         }
         await fetchHealthDataSourceOptions(calendar: calendar)
@@ -969,7 +1121,8 @@ final class HealthKitWorkoutStore: ObservableObject {
             summary: nextSummary,
             trends: nextTrends,
             activityRingHistory: activityRingHistory,
-            recomputesReadiness: Self.readinessInputMetricKinds.contains(kind)
+            recomputesReadiness: Self.readinessInputMetricKinds.contains(kind),
+            recomputesStress: Self.stressInputMetricKinds.contains(kind)
         )
         authorizationState = .authorized
         if !metricFetch.hadQueryFailure, metricFetch.ranQueries {
@@ -1364,6 +1517,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     func autoApplyPredictedEffortIfNeeded(monthKeys: [BodyWorkoutMonthKey]) async {
         let defaults = UserDefaults.standard
         guard defaults.bool(forKey: BodyAppearancePreference.autoApplyWorkoutEffortKey),
+              defaults.object(forKey: BodyAppearancePreference.workoutEffortCardEnabledKey) as? Bool ?? true,
               defaults.object(forKey: BodyAppearancePreference.showWorkoutEffortSuggestionsKey) as? Bool ?? true,
               permissionSelection.includes(.workouts),
               !isAutoApplyingEffort else {
@@ -1463,11 +1617,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             maxWrites: Self.maxAutoAppliedEffortPerRefresh,
             writer: writer,
             shouldContinue: {
-                // Stop mid-batch if Auto-Apply (or its parent suggestions
-                // toggle) was switched off, or the running task was cancelled
-                // (Settings retains and cancels this task on OFF/onDisappear).
+                // Stop mid-batch if Auto-Apply (or either toggle above it —
+                // suggestions, or the Effort card itself) was switched off, or the
+                // running task was cancelled (Settings retains and cancels this
+                // task on OFF/onDisappear).
                 !Task.isCancelled
                     && UserDefaults.standard.bool(forKey: BodyAppearancePreference.autoApplyWorkoutEffortKey)
+                    && (UserDefaults.standard.object(forKey: BodyAppearancePreference.workoutEffortCardEnabledKey) as? Bool ?? true)
                     && (UserDefaults.standard.object(forKey: BodyAppearancePreference.showWorkoutEffortSuggestionsKey) as? Bool ?? true)
             }
         )
@@ -1826,6 +1982,55 @@ final class HealthKitWorkoutStore: ObservableObject {
         return recovery
     }
 
+    /// Returns the food-emoji breakdown of a workout's active-energy
+    /// kilocalories for the "Equivalent" card, or nil when there is nothing
+    /// meaningful to show (see `EnergyEquivalent.decompose`).
+    ///
+    /// Invalidation rule: the cached/persisted breakdown is reused iff its
+    /// `kilocalories` matches the workout's current active energy AND its
+    /// `hiddenFoods` matches `hiddenFoods` exactly AND it was computed under
+    /// the same `prefersMoreItems` choice (older payloads without the flag
+    /// read as false). `tuningVersion` is forensic metadata only and never
+    /// invalidates — bumping it recomputes nothing on its own. A mismatch
+    /// (kcal restated by HealthKit, or the user changed which foods are hidden
+    /// or the representation style) recomputes and re-persists.
+    func energyEquivalentEmojis(for workout: WorkoutSummary, hiddenFoods: Set<String>, prefersMoreItems: Bool, usesTotalEnergy: Bool) async -> [String]? {
+        await hydrateWorkoutDetailIfNeeded(for: workout)
+
+        // The source-kcal choice needs no field of its own in the payload — a
+        // switch between active and total shows up as a kilocalories mismatch.
+        let sourceKilocalories = usesTotalEnergy
+            ? (workout.totalEnergyKilocalories ?? workout.activeEnergyKilocalories)
+            : workout.activeEnergyKilocalories
+
+        if let cached = energyEquivalentCache[workout.id],
+           cached.kilocalories == sourceKilocalories,
+           Set(cached.hiddenFoods) == hiddenFoods,
+           (cached.prefersMoreItems ?? false) == prefersMoreItems {
+            return cached.emojis
+        }
+
+        guard let foods = EnergyEquivalent.decompose(
+            kilocalories: sourceKilocalories,
+            excluding: hiddenFoods,
+            preferringMoreItems: prefersMoreItems
+        ) else {
+            return nil
+        }
+
+        let emojis = foods.map { $0.emoji }
+        let payload = PersistedEnergyEquivalent(
+            tuningVersion: EnergyEquivalent.tuningVersion,
+            kilocalories: sourceKilocalories ?? 0,
+            hiddenFoods: hiddenFoods.sorted(),
+            prefersMoreItems: prefersMoreItems,
+            emojis: emojis
+        )
+        energyEquivalentCache[workout.id] = payload
+        persistWorkoutDetail(for: workout) { $0.energyEquivalent = payload }
+        return emojis
+    }
+
     /// Seeds the per-workout detail session caches from the workout's persisted
     /// snapshot, so reopening a settled workout after a cold launch paints its map,
     /// charts and recovery tile without re-scanning HealthKit. Idempotent;
@@ -1883,6 +2088,13 @@ final class HealthKitWorkoutStore: ObservableObject {
            heartRateRecoveryCache[workout.id] == nil,
            permissionSelection.includes(.heart) {
             heartRateRecoveryCache[workout.id] = .some(bpm)
+        }
+        // Energy equivalent derives from active-energy kilocalories, which rides
+        // the Workouts permission like the route and split caches above.
+        if let energyEquivalent = snapshot?.energyEquivalent,
+           energyEquivalentCache[workout.id] == nil,
+           permissionSelection.includes(.workouts) {
+            energyEquivalentCache[workout.id] = energyEquivalent
         }
     }
 
@@ -1966,6 +2178,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         distanceSampleCache.removeAll()
         metricSeriesCache.removeAll()
         heartRateRecoveryCache.removeAll()
+        energyEquivalentCache.removeAll()
         // Safe to re-hydrate from disk right away: the files hold only positives,
         // so nothing they seed can contradict the fresh authorization.
         detailHydrations = [:]
@@ -2056,6 +2269,11 @@ final class HealthKitWorkoutStore: ObservableObject {
             usesHourlyBuckets = false
         case .activeEnergy, .steps:
             usesHourlyBuckets = true
+        case .stress:
+            // Stress reads four series plus the beat-to-beat scan and then
+            // recomputes, so it has its own loader (with the same guards).
+            await loadStressInputSamples()
+            return
         default:
             return
         }
@@ -2126,22 +2344,29 @@ final class HealthKitWorkoutStore: ObservableObject {
         // A `nil` result means the sample query failed (device locked, XPC drop,
         // unresolved source) — keep the cached series; a successful empty result
         // still replaces it.
-        let primarySamples = await engine.fetchIntradayDaySamples(
-            for: kind,
-            calendar: calendar,
-            startDate: primaryFetchStart,
-            endDate: interval.end
-        )
+        //
+        // This is a lazy day-chart fill behind a metric detail view, not part of
+        // the refresh, so it spends the background budget.
+        let primarySamples = await withBackgroundQueryPool {
+            await engine.fetchIntradayDaySamples(
+                for: kind,
+                calendar: calendar,
+                startDate: primaryFetchStart,
+                endDate: interval.end
+            )
+        }
         let secondarySamples: HealthTrendSeries?
         if secondaryIsDisabled {
             secondarySamples = .empty
         } else {
-            secondarySamples = await engine.fetchSecondaryDaySamples(
-                for: kind,
-                calendar: calendar,
-                startDate: secondaryFetchStart,
-                endDate: interval.end
-            )
+            secondarySamples = await withBackgroundQueryPool {
+                await engine.fetchSecondaryDaySamples(
+                    for: kind,
+                    calendar: calendar,
+                    startDate: secondaryFetchStart,
+                    endDate: interval.end
+                )
+            }
         }
 
         // A refresh may have started while the engine fetches above were
@@ -2233,6 +2458,268 @@ final class HealthKitWorkoutStore: ObservableObject {
         persistDaySampleSidecar()
     }
 
+    /// Post-refresh continuation for Stress. Two reasons it can't ride the
+    /// refresh itself: the beat-to-beat scan is a fan-out of streaming queries
+    /// that the 120 s refresh deadline must never wait on, and the intraday
+    /// series Stress scores from are carried forward from cache by
+    /// `fetchHealthTrends` rather than refetched. Fired, never awaited.
+    ///
+    /// Gated on the card actually being on screen somewhere: an invisible metric
+    /// is not worth a heartbeat-series scan on every refresh.
+    private func startStressInputLoadIfNeeded() {
+        guard permissionSelection.includes(.heart),
+              BodyDashboardFetchSelection.load().includes(.stress),
+              stressInputLoadTask == nil else {
+            return
+        }
+
+        stressInputLoadTask = Task { [weak self] in
+            await self?.loadStressInputSamples()
+            self?.stressInputLoadTask = nil
+            // The history walk stands down while this load holds the slot, and
+            // `finishRefresh` has long since run — so hand the slot over here.
+            self?.scheduleStressBackfillIfNeeded()
+        }
+    }
+
+    /// Fetches the intraday inputs Stress scores from — HR/HRV day samples, the
+    /// coarse steps/active-energy movement mask, and the beat-to-beat RMSSD
+    /// series — then recomputes. Every fetch is incremental against the cached
+    /// series and bounded to the intraday day-sample window, so today's curve
+    /// stays current without re-pulling a month of samples.
+    private func loadStressInputSamples() async {
+        let epoch = cacheEpoch
+        await hydratePersistedDaySamplesIfNeeded()
+        await awaitNextRefreshCompletion()
+        guard !Task.isCancelled,
+              permissionSelection.includes(.heart),
+              HKHealthStore.isHealthDataAvailable() else {
+            return
+        }
+
+        do {
+            // Background fill: never worth a permission sheet.
+            guard try await requestHealthKitAuthorization(allowPrompt: false) else {
+                return
+            }
+        } catch {
+            return
+        }
+
+        let calendar = Calendar.bodyGregorian
+        let interval = HealthKitFetchEngine.intradayDaySampleInterval(calendar: calendar, anchor: nil)
+        let capturedDaySampleSignatures = currentDaySampleSignatures()
+
+        var fetched: [HealthMetricKind: (samples: HealthTrendSeries, refetchStart: Date)] = [:]
+        for kind in Self.stressIntradaySampleKinds
+        where permissionSelection.includes(HealthKitFetchEngine.healthPermission(forMetric: kind)) {
+            var fetchStart = HealthKitFetchEngine.incrementalFetchStart(
+                after: healthTrends.daySeries(for: kind),
+                windowStart: interval.start
+            )
+            // Hourly cumulative buckets overlap on their own day and the merge
+            // has no bucket dedupe, so restart at that day's midnight.
+            if kind == .steps || kind == .activeEnergy {
+                fetchStart = max(interval.start, calendar.startOfDay(for: fetchStart))
+            }
+            guard fetchStart < interval.end else {
+                continue
+            }
+            // A `nil` result is a failed query, not an empty day: skip the kind
+            // and keep its cached series. Post-refresh continuation, so it
+            // spends the background budget.
+            guard let samples = await withBackgroundQueryPool({
+                await engine.fetchIntradayDaySamples(
+                    for: kind,
+                    calendar: calendar,
+                    startDate: fetchStart,
+                    endDate: interval.end
+                )
+            }) else {
+                continue
+            }
+            fetched[kind] = (samples, fetchStart)
+        }
+
+        let rmssdFetchStart = HealthKitFetchEngine.incrementalFetchStart(
+            after: healthTrends.heartbeatRMSSDDaySamples,
+            windowStart: interval.start
+        )
+        // The beat-to-beat scan is a fan-out of streaming queries the refresh
+        // deliberately never waits on, so it is the other query the background
+        // budget exists for.
+        let rmssdSamples: HealthTrendSeries? = rmssdFetchStart < interval.end
+            ? await withBackgroundQueryPool({
+                await engine.fetchHeartbeatRMSSDSamples(startDate: rmssdFetchStart, endDate: interval.end)
+            })
+            : nil
+
+        // Same hazard as `loadIntradayMetricSamplesIfNeeded`: a refresh that
+        // started while the fetches were suspended captured `healthTrends`
+        // before these samples existed and would overwrite the merge below.
+        while isRefreshing {
+            await awaitNextRefreshCompletion()
+            guard !Task.isCancelled else {
+                return
+            }
+        }
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+              currentDaySampleSignatures() == capturedDaySampleSignatures else {
+            return
+        }
+
+        var trends = healthTrends
+        for (kind, result) in fetched {
+            let merged = HealthKitFetchEngine.mergeIntradaySamples(
+                existing: trends.daySeries(for: kind),
+                incoming: result.samples,
+                windowStart: interval.start,
+                refetchStart: result.refetchStart
+            )
+            switch kind {
+            case .heartRate:
+                trends.heartRateDaySamples = merged
+            case .heartRateVariability:
+                trends.heartRateVariabilityDaySamples = merged
+            case .steps:
+                trends.stepsDaySamples = merged
+            case .activeEnergy:
+                trends.activeEnergyDaySamples = merged
+            default:
+                break
+            }
+        }
+        if let rmssdSamples {
+            trends.heartbeatRMSSDDaySamples = HealthKitFetchEngine.mergeIntradaySamples(
+                existing: trends.heartbeatRMSSDDaySamples,
+                incoming: rmssdSamples,
+                windowStart: interval.start,
+                refetchStart: rmssdFetchStart
+            )
+        }
+        healthTrends = trends
+        persistDaySampleSidecar()
+        await recomputeStress(on: Date(), calendar: calendar)
+    }
+
+    /// Phase 2 of the two-phase trend window (RefreshOptimizationPlan-02 P0-A).
+    /// The refresh publishes a snapshot whose windowed leaves were queried over
+    /// the user's own chart range and merged with the cached year; this refetches
+    /// those leaves over the full year in the background, so a cached point that
+    /// went stale (or was deleted) beyond the window still reconciles — just not
+    /// on the refresh's clock. Fired, never awaited.
+    private func startFullTrendWindowLoadIfNeeded(selection: BodyDashboardFetchSelection) {
+        guard fullTrendWindowLoadTask == nil else {
+            return
+        }
+
+        fullTrendWindowLoadTask = Task { [weak self] in
+            await self?.loadFullTrendWindow(selection: selection)
+            self?.fullTrendWindowLoadTask = nil
+        }
+    }
+
+    private func loadFullTrendWindow(selection: BodyDashboardFetchSelection) async {
+        let epoch = cacheEpoch
+        // The refresh that fired this is still running; its own publish must
+        // land first, and the fetch below must not spend interactive permits
+        // alongside it.
+        await awaitNextRefreshCompletion()
+        guard !Task.isCancelled, HKHealthStore.isHealthDataAvailable() else {
+            return
+        }
+
+        do {
+            // Background fill: never worth a permission sheet.
+            guard try await requestHealthKitAuthorization(allowPrompt: false) else {
+                return
+            }
+        } catch {
+            return
+        }
+
+        let calendar = Calendar.bodyGregorian
+        let capturedSignature = currentPrimarySummarySignature()
+        let capturedRefreshDate = lastSuccessfulRefreshDate
+        let cachedTrends = healthTrends
+        // `trendWindowDays: nil` — the whole year, no merge. Off the refresh
+        // path, so it spends the background budget.
+        let result = await withBackgroundQueryPool {
+            await engine.fetchHealthTrends(
+                calendar: calendar,
+                cachedTrends: cachedTrends,
+                selection: selection,
+                trendWindowDays: nil
+            )
+        }
+
+        // A refresh that started while the fetch was in flight owns the
+        // dashboard: wait it out, then stand down entirely — its data is newer
+        // than this fetch's everywhere the two overlap, and the merge it
+        // published keeps the older-than-window points this pass would have
+        // reconciled. The next refresh fires phase 2 again.
+        while isRefreshing {
+            await awaitNextRefreshCompletion()
+            guard !Task.isCancelled else {
+                return
+            }
+        }
+        // A query failure means some leaf resolved to its cached (possibly
+        // merged) value, which is exactly what is already published — nothing
+        // to gain, and a partial year is worse than the merge it replaces.
+        guard !result.hadQueryFailure,
+              Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+              lastSuccessfulRefreshDate == capturedRefreshDate,
+              currentPrimarySummarySignature() == capturedSignature else {
+            return
+        }
+
+        // Atomic hand-off: the year-long series replace what phase 1 published,
+        // and everything this fetch merely carried forward from the copy it
+        // captured — day samples, Stress state, recorded readiness — stays as
+        // the LIVE snapshot has it, because the Stress input load and the
+        // history backfill mutate exactly those fields while this runs.
+        await updateHealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: Self.applyingFullWindowTrendSeries(from: result.trends, to: healthTrends),
+            activityRingHistory: activityRingHistory
+        )
+    }
+
+    /// Copies the daily trend series phase 2 refetched onto the live snapshot.
+    /// Deliberately field-by-field rather than wholesale: this is the exact set
+    /// of leaves `fetchHealthTrends` windows in phase 1, and every other field
+    /// of a fetched snapshot is either carried forward from a now-stale captured
+    /// copy or derived (Stress, readiness) by the recompute this feeds.
+    private static func applyingFullWindowTrendSeries(
+        from fetched: HealthTrendSnapshot,
+        to live: HealthTrendSnapshot
+    ) -> HealthTrendSnapshot {
+        var next = live
+        next.sleep = fetched.sleep
+        next.sleepHistory = fetched.sleepHistory
+        next.heartRate = fetched.heartRate
+        next.heartRateRanges = fetched.heartRateRanges
+        next.restingHeartRate = fetched.restingHeartRate
+        next.bodyMass = fetched.bodyMass
+        next.bodyFatPercentage = fetched.bodyFatPercentage
+        next.bodyMassIndex = fetched.bodyMassIndex
+        next.heartRateVariability = fetched.heartRateVariability
+        next.heartRateVariabilityRanges = fetched.heartRateVariabilityRanges
+        next.respiratoryRate = fetched.respiratoryRate
+        next.respiratoryRateRanges = fetched.respiratoryRateRanges
+        next.oxygenSaturation = fetched.oxygenSaturation
+        next.oxygenSaturationRanges = fetched.oxygenSaturationRanges
+        next.activeEnergy = fetched.activeEnergy
+        next.restingEnergy = fetched.restingEnergy
+        next.exerciseMinutes = fetched.exerciseMinutes
+        next.wristTemperature = fetched.wristTemperature
+        next.timeInDaylight = fetched.timeInDaylight
+        next.steps = fetched.steps
+        next.cardioFitness = fetched.cardioFitness
+        return next
+    }
+
     func refreshWorkoutMonth(month: Int, year: Int, intent: BodyWorkoutRefreshIntent = .userInitiated) async {
         guard !isRefreshing else {
             return
@@ -2254,7 +2741,13 @@ final class HealthKitWorkoutStore: ObservableObject {
                 return
             }
             if intent == .userInitiated {
-                await engine.clearWorkoutEffortCache()
+                // Scoped to the month being pulled, for the same reason as
+                // `refreshRecentMonths`: this gesture reconciles the workouts on
+                // screen, not the whole training-load window.
+                await engine.clearWorkoutEffortCache(
+                    scopedTo: [BodyWorkoutMonthKey(month: month, year: year)],
+                    calendar: calendar
+                )
             }
             // Clock starts after the authorization sheet, as above.
             await runRefreshWithDeadline {
@@ -2286,6 +2779,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             distanceSampleCache.removeAll()
                 metricSeriesCache.removeAll()
             heartRateRecoveryCache.removeAll()
+            energyEquivalentCache.removeAll()
             detailHydrations = [:]
         } else if permission == .heart {
             // Heart-rate recovery rides the Heart toggle; drop it rather than
@@ -2307,11 +2801,22 @@ final class HealthKitWorkoutStore: ObservableObject {
             // opt-out too, same rationale as `sanitizeWorkoutSnapshots`. Awaited on
             // the serial queue (like the clear-cache flow) so the opt-out only
             // completes once the strip has actually landed.
+            // A Workouts opt-out wipes the record ledger too, so cancel the
+            // baseline scan first — otherwise a suspended chunk re-persists the
+            // ledger right after the delete.
+            if permission == .workouts {
+                await cancelRecordBaselineBackfill()
+                publishRecordLedger(WorkoutRecordLedger())
+                // The effort ledger is derived workout data too; the engine owns
+                // both its memory copy and its file, and awaits the delete.
+                await engine.clearWorkoutEffortCache()
+            }
             await withCheckedContinuation { continuation in
                 Self.snapshotPersistQueue.async {
                     switch permission {
                     case .workouts:
                         WorkoutDetailSnapshotStore.deleteAll()
+                        WorkoutRecordLedgerStore.deleteAll()
                     case .workoutMetrics:
                         WorkoutDetailSnapshotStore.stripWorkoutMetricsPayloads()
                     case .heart:
@@ -2361,6 +2866,35 @@ final class HealthKitWorkoutStore: ObservableObject {
             }
             await self?.refreshHealthMetric(metric)
         }
+    }
+
+    /// Records the warnings the user has just been shown on screen, so the
+    /// background pass doesn't re-notify them later the same day.
+    ///
+    /// The store only sees the refresh's AGGREGATE `hadQueryFailure`, not the
+    /// per-kind warning outcomes, so seeding is conservative: any leaf failure
+    /// anywhere in the refresh means a published warning could be stale cache
+    /// rather than a fresh read, and nothing is seeded. A missed seed only costs
+    /// one duplicate notification; a wrong seed silences a real one.
+    private func seedMetricWarningNotificationLedger(hadQueryFailure: Bool, calendar: Calendar) async {
+        guard !hadQueryFailure else {
+            return
+        }
+
+        let today = Date()
+        let todaysEvents = healthSummary.metricWarnings.filter {
+            calendar.isDate($0.startDate, inSameDayAs: today)
+        }
+        guard !todaysEvents.isEmpty else {
+            return
+        }
+
+        await MetricWarningBackgroundEvaluator.shared.seed(
+            kinds: Dictionary(
+                todaysEvents.map { ($0.kind, $0.startDate) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        )
     }
 
     func healthDataSourceOptions(for kind: HealthMetricKind) -> [BodyHealthDataSourceOption] {
@@ -3071,6 +3605,22 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
+    /// The Stress-input kinds the dashboard refresh fetches itself (the engine's
+    /// `.inputCapable` leaves), as opposed to the ones only the Stress input
+    /// loader reads.
+    private static let refreshFetchedStressInputKinds: Set<HealthMetricKind> = [
+        .sleep,
+        .heartRateVariability
+    ]
+
+    /// The categories the Stress input loader reads (HR/HRV day samples, the
+    /// beat-to-beat series, and the coarse steps/energy movement mask).
+    private static let stressInputLoadPermissions: Set<BodyHealthPermission> = [
+        .heart,
+        .steps,
+        .energy
+    ]
+
     /// Whether the current Home-card layout actually fetches this category.
     ///
     /// `BodyDashboardFetchSelection` is built from the selected Summary and Trend
@@ -3093,9 +3643,30 @@ final class HealthKitWorkoutStore: ObservableObject {
         default:
             return HealthMetricKind.allCases.contains {
                 HealthKitFetchEngine.healthPermission(forMetric: $0) == permission
-                    && selection.includes($0)
+                    && isFetchedForDashboard($0, selection: selection)
             }
         }
+    }
+
+    /// A kind fetched only as a Stress input counts as fetched just when
+    /// something will actually query it. The refresh itself still fetches the
+    /// engine's `.inputCapable` leaves; the rest reach HealthKit only through
+    /// the Stress input loader, which is heart-gated
+    /// (`startStressInputLoadIfNeeded`) — with Heart off those are never read
+    /// and the sheet must not claim they are.
+    private func isFetchedForDashboard(
+        _ kind: HealthMetricKind,
+        selection: BodyDashboardFetchSelection
+    ) -> Bool {
+        if selection.includesFullPayload(kind) {
+            return true
+        }
+
+        guard selection.isInputOnly(kind) else {
+            return false
+        }
+
+        return Self.refreshFetchedStressInputKinds.contains(kind) || permissionSelection.includes(.heart)
     }
 
     /// Whether Body currently holds data for this category.
@@ -3164,6 +3735,13 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// has already gone false).
     private func isHealthPermissionLoadInFlight(_ permission: BodyHealthPermission) -> Bool {
         if isRefreshing {
+            return true
+        }
+
+        // Same shape for the Stress input loader: it also lands after the refresh
+        // completes, so the categories it fills are still being checked rather
+        // than missing.
+        if stressInputLoadTask != nil, Self.stressInputLoadPermissions.contains(permission) {
             return true
         }
 
@@ -3646,7 +4224,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         distanceSampleCache.removeAll()
         metricSeriesCache.removeAll()
         heartRateRecoveryCache.removeAll()
+        energyEquivalentCache.removeAll()
         detailHydrations = [:]
+        // The ledger describes workouts this clear is wiping; an emptied ledger
+        // also re-arms the baseline scan for the next refresh.
+        recordLedger = WorkoutRecordLedger()
         healthSummary = .empty
         // Drop the summary-reuse signature so a post-clear failed leaf resolves
         // to empty rather than reusing anything against the wiped summary.
@@ -3691,8 +4273,19 @@ final class HealthKitWorkoutStore: ObservableObject {
         // this clear just wiped, and would otherwise reappear on relaunch.
         ReadinessCommentCache.clear()
 
+        // Cancel and AWAIT the baseline record scan before the file deletions
+        // below. The epoch bump already stops it republishing, but the scan owns
+        // a persist enqueue of its own — awaiting its exit is what guarantees no
+        // ledger write is still queued behind the delete.
+        await cancelRecordBaselineBackfill()
+        // Same barrier for the Stress history walk: it owns a snapshot persist
+        // enqueue of its own, which must not land behind the delete below.
+        await cancelStressBackfill()
+
         // Await the engine cache clears (previously fire-and-forget) so a refresh
         // started right after this can't race a half-cleared source/effort cache.
+        // The effort clear owns its persisted ledger and awaits that delete on
+        // its own persist queue, so no queued effort save survives the wipe.
         await engine.clearSourceCache()
         await engine.clearWorkoutEffortCache()
 
@@ -3712,6 +4305,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 HealthDashboardSnapshotStore.clearActivityRingBackfillState()
                 HealthWidgetSnapshotStore.delete()
                 WorkoutDetailSnapshotStore.deleteAll()
+                WorkoutRecordLedgerStore.deleteAll()
                 continuation.resume()
             }
         }
@@ -3744,6 +4338,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     private func refreshRecentMonths(date: Date = Date(), intent: BodyWorkoutRefreshIntent = .userInitiated) async {
         let signpostState = BodyPerformanceSignposts.signposter.beginInterval("RefreshRecentMonths")
         defer { BodyPerformanceSignposts.signposter.endInterval("RefreshRecentMonths", signpostState) }
+        // Measurement only (RefreshOptimizationPlan-02 §6): starts the per-leaf
+        // table `finishRefresh()` dumps in DEBUG builds.
+        BodyRefreshProfile.shared.beginRefresh()
 
         await hydratePersistedDaySamplesIfNeeded()
         await engine.setHealthTrendAnchorDate(date)
@@ -3776,12 +4373,16 @@ final class HealthKitWorkoutStore: ObservableObject {
             clearWorkoutSnapshots(calendar: calendar)
         }
 
-        // Explicit refreshes reconcile everything: drop the per-workout
-        // effort/HR caches before any fetch starts so re-rated efforts and
-        // edited workouts re-query (this also makes the dashboard's
-        // training-load fetch re-ask effort for its whole window).
+        // Explicit refreshes reconcile what the user is looking at: drop the
+        // per-workout effort cache for the months this refresh is about to fetch
+        // (plus anything too young to be confirmed), so a re-rated workout in a
+        // displayed month re-queries. The aged entries for the rest of the
+        // 408-day training-load window are kept — re-asking effort for ~300
+        // immutable workouts is the bulk of a pull-to-refresh. A score edited in
+        // Apple Fitness on an older workout converges when its month is
+        // displayed, or via Clear Cache in Settings.
         if intent == .userInitiated {
-            await engine.clearWorkoutEffortCache()
+            await engine.clearWorkoutEffortCache(scopedTo: Array(keys), calendar: calendar, now: date)
         }
 
         // Fetch the Workouts-tab months concurrently with source discovery and
@@ -3797,13 +4398,22 @@ final class HealthKitWorkoutStore: ObservableObject {
             )
         }()
 
+        // The dashboard publish, the readiness reapply, and the stress recompute
+        // below each used to encode and write the whole snapshot; this path
+        // defers all three to one write once the tail has settled. `persistEpoch`
+        // keeps a Clear Cache that landed mid-refresh from being written back,
+        // and a pass abandoned at the deadline persists what it had published
+        // through `persistPublishedDashboardSnapshot` instead.
+        let persistEpoch = cacheEpoch
+        var publishedDashboard = false
+
         do {
             // Source discovery must finish before any dashboard query — the
             // per-source predicate reads `healthSourcesByKind`, so racing it
             // would silently fetch all-source data for custom-source users.
             await fetchHealthDataSourceOptions(calendar: calendar)
 
-            let (fetchedHealthSummary, fetchedHealthTrends, hadQueryFailure) =
+            let (fetchedHealthSummary, fetchedHealthTrends, hadQueryFailure, fetchedPartialTrendWindow) =
                 await fetchDashboardSnapshotProgressively(
                     calendar: calendar,
                     selection: dashboardFetchSelection
@@ -3812,11 +4422,17 @@ final class HealthKitWorkoutStore: ObservableObject {
             // Ring history is whatever the out-of-band ring load has published
             // so far; passing the live value keeps the save from dropping the
             // months already merged into it.
+            // The stress recompute is skipped here and run once in the tail
+            // below: its activity mask needs the workouts this fetch is still
+            // racing, so the pass done here would be thrown away.
             await updateHealthDashboardSnapshot(
                 summary: fetchedHealthSummary,
                 trends: fetchedHealthTrends,
-                activityRingHistory: activityRingHistory
+                activityRingHistory: activityRingHistory,
+                recomputesStress: false,
+                persists: false
             )
+            publishedDashboard = true
 
             // Join the workout fetch. Its success gates the freshness timestamp:
             // a workout failure must re-run the full refresh on the next
@@ -3851,15 +4467,37 @@ final class HealthKitWorkoutStore: ObservableObject {
             // HealthKit query ran, so the badge must not confirm "Health data
             // updated" for this no-op.
             markRefreshSucceeded(date: date, refreshedVitals: true, publishesWatch: false, hadQueryFailure: hadQueryFailure, advancesSyncBadge: true, ranQueries: permissionSelectionCanRunQueries)
+            await seedMetricWarningNotificationLedger(hadQueryFailure: hadQueryFailure, calendar: calendar)
             updateCurrentMonthSnapshot(date: date, calendar: calendar)
-            await reapplyActivityReadinessAfterWorkouts(date: date, calendar: calendar)
+            await reapplyActivityReadinessAfterWorkouts(date: date, calendar: calendar, persists: false)
+            // Same ordering fix, for Stress's activity mask.
+            await recomputeStress(on: date, calendar: calendar, persists: false)
             publishWatchSnapshot()
+            startStressInputLoadIfNeeded()
+            // Phase 2 of the two-phase trend window, and only when phase 1
+            // actually fetched a short one. Fired, never awaited: it parks on
+            // this refresh finishing before it queries anything.
+            if fetchedPartialTrendWindow {
+                startFullTrendWindowLoadIfNeeded(selection: dashboardFetchSelection)
+            }
             updateHealthDataNotice()
             // Workouts + dashboard have both committed here, so resting-HR / readiness
             // inputs are current for the estimator.
             await autoApplyPredictedEffortIfNeeded(monthKeys: Array(keys))
         } catch {
             handleRefreshError(error)
+        }
+        // The single dashboard write for this pass, deferred from the publish
+        // and the tail above. Runs on the failure path too — a workout fetch
+        // that threw still leaves freshly published dashboard state that has to
+        // become durable. Skipped when the publish never happened, when a newer
+        // refresh (or the deadline) has taken over, or when a Clear Cache landed
+        // mid-pass and this would write the wiped state back.
+        if publishedDashboard,
+           mayApplyRefreshResults,
+           Self.mayApplyLoad(capturedEpoch: persistEpoch, currentEpoch: cacheEpoch) {
+            persistDashboardSnapshot()
+            saveHealthWidgetSnapshot()
         }
         // A body abandoned at the refresh deadline must not clear the anchor a
         // NEWER refresh has since set; that path resets it itself.
@@ -3909,17 +4547,19 @@ final class HealthKitWorkoutStore: ObservableObject {
         }()
 
         var hadQueryFailure = false
+        var fetchedPartialTrendWindow = false
         let dashboardFetchSelection = BodyDashboardFetchSelection.load()
         do {
             if updatesHealthSummary {
                 await fetchHealthDataSourceOptions(calendar: calendar)
 
-                let (fetchedHealthSummary, fetchedHealthTrends, leafFailure) =
+                let (fetchedHealthSummary, fetchedHealthTrends, leafFailure, partialTrendWindow) =
                     await fetchDashboardSnapshotProgressively(
                         calendar: calendar,
                         selection: dashboardFetchSelection
                     )
                 hadQueryFailure = leafFailure
+                fetchedPartialTrendWindow = partialTrendWindow
 
                 // Live ring history, for the reason in `refreshRecentMonths`.
                 await updateHealthDashboardSnapshot(
@@ -3962,7 +4602,14 @@ final class HealthKitWorkoutStore: ObservableObject {
             markRefreshSucceeded(date: refreshDate, refreshedVitals: updatesHealthSummary, publishesWatch: false, hadQueryFailure: hadQueryFailure, advancesSyncBadge: true, ranQueries: ranQueries)
             updateCurrentMonthSnapshot(date: refreshDate, calendar: calendar)
             await reapplyActivityReadinessAfterWorkouts(date: refreshDate, calendar: calendar)
+            await recomputeStress(on: refreshDate, calendar: calendar)
             publishWatchSnapshot()
+            startStressInputLoadIfNeeded()
+            // Phase 2 of the two-phase trend window, same rule as
+            // `refreshRecentMonths`: only when phase 1 fetched a short one.
+            if fetchedPartialTrendWindow {
+                startFullTrendWindowLoadIfNeeded(selection: dashboardFetchSelection)
+            }
             updateHealthDataNotice()
             // Auto-apply for the refreshed month on every path (dashboard refresh AND the
             // Workouts-tab / warm-resume `refreshWorkoutMonth`, which passes
@@ -3994,7 +4641,8 @@ final class HealthKitWorkoutStore: ObservableObject {
     ) async -> (
         summary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
-        hadQueryFailure: Bool
+        hadQueryFailure: Bool,
+        fetchedPartialTrendWindow: Bool
     ) {
         let cachedTrendsAtStart = healthTrends
         var fetchedSummary = healthSummary
@@ -4014,6 +4662,18 @@ final class HealthKitWorkoutStore: ObservableObject {
         let currentSignature = currentPrimarySummarySignature()
         let cachedSummaryForReuse: HealthSummarySnapshot? =
             healthSummaryPrimarySignature == currentSignature ? healthSummary : nil
+
+        // Phase 1 of the two-phase trend window (RefreshOptimizationPlan-02
+        // P0-A). The merge that keeps the windowed leaves full-span happens
+        // inside `fetchHealthTrends` and splices in CACHED points, so it is only
+        // sound while those cached points were fetched under the selection that
+        // is current now — the same gate the summary reuse above uses, since
+        // that signature is stamped on the same publish the trends ride. On a
+        // mismatch (or a stored range that already spans the year) phase 1
+        // fetches the full window and no phase 2 is needed.
+        let trendWindowDays: Int? = healthSummaryPrimarySignature == currentSignature
+            ? HealthKitFetchEngine.phaseOneTrendWindowDays()
+            : nil
 
         let engine = self.engine
         await withTaskGroup(of: DashboardFetchUnit.self) { group in
@@ -4035,7 +4695,8 @@ final class HealthKitWorkoutStore: ObservableObject {
                     await engine.fetchHealthTrends(
                         calendar: calendar,
                         cachedTrends: cachedTrendsAtStart,
-                        selection: selection
+                        selection: selection,
+                        trendWindowDays: trendWindowDays
                     )
                 )
             }
@@ -4050,10 +4711,15 @@ final class HealthKitWorkoutStore: ObservableObject {
                 case .summary(let result):
                     fetchedSummary = result.summary
                     hadQueryFailure = hadQueryFailure || result.hadQueryFailure
-                    // Keep the cached `readiness` visible during the progressive
-                    // publish — the final filtered+recomputed snapshot overrides
-                    // it in `updateHealthDashboardSnapshot`.
-                    healthSummary = result.summary.replacingMetric(.readiness, with: healthSummary)
+                    // Keep the cached `readiness` AND `stress` visible during the
+                    // progressive publish — the final filtered+recomputed
+                    // snapshot overrides both in `updateHealthDashboardSnapshot`.
+                    // Neither is fetched (both are derived), so a fetched summary
+                    // always carries them empty: publishing it as-is blanked the
+                    // Stress card for the length of every refresh.
+                    healthSummary = result.summary
+                        .replacingMetric(.readiness, with: healthSummary)
+                        .replacingMetric(.stress, with: healthSummary)
                 case .trends(let result):
                     hadQueryFailure = hadQueryFailure || result.hadQueryFailure
                     let t = result.trends
@@ -4068,7 +4734,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             }
         }
 
-        return (fetchedSummary, fetchedTrends, hadQueryFailure)
+        return (fetchedSummary, fetchedTrends, hadQueryFailure, trendWindowDays != nil)
     }
 
     /// The out-of-band activity-ring history load, and the one at a time
@@ -4448,7 +5114,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             guard try await requestHealthKitAuthorization(allowPrompt: allowPrompt) else {
                 return
             }
-            try await refresh(monthKeys: keysToLoad, calendar: .bodyGregorian)
+            // Scroll- and navigation-driven month loads run outside
+            // `isRefreshing` and nothing on the Home dashboard waits for them,
+            // so they spend the background budget even though `refresh(monthKeys:)`
+            // is the same fetch the refresh path uses.
+            try await withBackgroundQueryPool {
+                try await refresh(monthKeys: keysToLoad, calendar: .bodyGregorian)
+            }
             guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
                 return
             }
@@ -4484,10 +5156,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         ) { group in
             for key in orderedKeys {
                 // Always hand the engine the month's cached summaries so the
-                // effort / HR failure fallback can reuse them; HR-payload REUSE
-                // (skipping the batched HR query for aged workouts) stays gated
-                // on `allowsHeartRateReuse` — passive resumes only, so every
-                // user-initiated pull-to-refresh remains a full HR reconcile.
+                // effort / HR failure fallback can reuse them; REUSE proper
+                // (skipping the batched HR query, and the cadence/distance
+                // query pools, for aged workouts) stays gated on
+                // `allowsCachedWorkoutReuse` — passive resumes only, so every
+                // user-initiated pull-to-refresh remains a full reconcile.
                 let reusableSummariesByID: [UUID: WorkoutSummary]
                 if let cachedDays = monthSnapshots[key]?.days {
                     reusableSummariesByID = Dictionary(
@@ -4497,13 +5170,13 @@ final class HealthKitWorkoutStore: ObservableObject {
                 } else {
                     reusableSummariesByID = [:]
                 }
-                let allowsHeartRateReuse = reusesCachedWorkoutHeartRate
+                let allowsCachedWorkoutReuse = reusesCachedWorkoutHeartRate
                 group.addTask {
                     let workouts = try await engine.fetchWorkouts(
                         month: key.month,
                         year: key.year,
                         calendar: calendar,
-                        allowsHeartRateReuse: allowsHeartRateReuse,
+                        allowsCachedWorkoutReuse: allowsCachedWorkoutReuse,
                         reusableSummariesByID: reusableSummariesByID
                     )
                     return (key, workouts)
@@ -4524,6 +5197,14 @@ final class HealthKitWorkoutStore: ObservableObject {
                 )
                 loadedMonthKeys.insert(key)
                 noteMonthSnapshotStored(key)
+                // Keeps the color editor's known-workout-types census current as months
+                // load; the merge itself is a no-op write when nothing new appears.
+                BodyWorkoutColorStore.mergeKnownWorkoutTypes(Set(workouts.map(\.type)))
+                // Fold the month into the record ledger here rather than at the
+                // persist step: this is the one place every freshly fetched month
+                // passes through, so retroactive imports, late-arriving distances
+                // and deletions inside a loaded month all self-repair.
+                foldMonthIntoRecordLedger(key: key, workouts: workouts, calendar: calendar)
             }
         }
     }
@@ -4631,19 +5312,67 @@ final class HealthKitWorkoutStore: ObservableObject {
         .wristTemperature
     ]
 
+    /// Metric kinds whose data feeds the Stress score. Refreshing one of them
+    /// changes a Stress input, so the recompute has to re-run. Deliberately its
+    /// own set rather than an addition to `readinessInputMetricKinds` — that set
+    /// means "recompute Readiness", and the two metrics read different inputs.
+    /// Resting heart rate is absent on purpose: Stress scores against the
+    /// quiet-HR baseline it derives itself, not against daily RHR.
+    nonisolated static let stressInputMetricKinds: Set<HealthMetricKind> = [
+        .stress,
+        .heartRate,
+        .heartRateVariability,
+        .sleep,
+        .steps,
+        .activeEnergy
+    ]
+
+    /// Permissions whose data feeds Stress. Toggling one changes the input set,
+    /// so the recorded days — accumulated under the previous inputs, and
+    /// carrying the baseline aggregates — are dropped and re-accumulate.
+    nonisolated static let stressInputPermissions: Set<BodyHealthPermission> = [
+        .heart,
+        .sleep,
+        .steps,
+        .energy,
+        .workouts
+    ]
+
+    /// The intraday day-sample series Stress scores from. The dashboard refresh
+    /// carries these forward from cache without refetching, so the Stress loader
+    /// is what keeps them (and therefore today's curve) current.
+    nonisolated static let stressIntradaySampleKinds: [HealthMetricKind] = [
+        .heartRate,
+        .heartRateVariability,
+        .steps,
+        .activeEnergy
+    ]
+
     private func updateHealthDashboardSnapshot(
         summary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
         activityRingHistory: ActivityRingHistorySnapshot,
-        recomputesReadiness: Bool = true
+        recomputesReadiness: Bool = true,
+        recomputesStress: Bool = true,
+        persists: Bool = true
     ) async {
         let epoch = cacheEpoch
         let calendar = Calendar.bodyGregorian
         let anchorDate = await engine.healthTrendAnchorDate ?? Date()
         let permissionSelection = self.permissionSelection
         let idealSleepDuration = Self.storedIdealSleepDuration()
+        // Stress is derived, never fetched, so a freshly fetched summary always
+        // carries it empty (same reason `fetchDashboardSnapshotProgressively`
+        // preserves it during the progressive publish). When this pass skips the
+        // recompute — the full refresh runs it once after the workout join,
+        // where the activity mask finally has workouts — carry the live values
+        // in ahead of the filter, or the publish below (and anything the
+        // abandonment path persists from it) blanks the Stress card until
+        // `recomputeStress` lands. The trend side is already carried forward by
+        // the engine's `cachedStress*` assembly.
+        let carriedSummary = recomputesStress ? summary : summary.replacingMetric(.stress, with: healthSummary)
         let rawSnapshot = HealthDashboardSnapshot(
-            summary: summary,
+            summary: carriedSummary,
             trends: trends,
             activityRingHistory: activityRingHistory
         )
@@ -4659,23 +5388,34 @@ final class HealthKitWorkoutStore: ObservableObject {
         let wakeTime = Self.freezeWakeTime(sleepEnd: sleepEnd, scoringDay: anchorDate, now: now, calendar: calendar)
         let todaysWorkouts = currentWakeCycleWorkouts(now: now, sleepEnd: sleepEnd, calendar: calendar)
         let recordedReadinessContext = readinessRecordContextSignature()
+        let recordedStressContext = stressRecordContextSignature()
+        let stressWorkouts = stressWindowWorkouts(through: anchorDate, calendar: calendar)
         let filteredSnapshot = await Task.detached(priority: .userInitiated) {
             let signpostState = BodyPerformanceSignposts.signposter.beginInterval("ReadinessRecompute")
             defer { BodyPerformanceSignposts.signposter.endInterval("ReadinessRecompute", signpostState) }
-            let filtered = rawSnapshot.filteredWithoutReadinessRecompute(by: permissionSelection)
-            guard recomputesReadiness else {
-                return filtered
+            var filtered = rawSnapshot.filteredWithoutReadinessRecompute(by: permissionSelection)
+            if recomputesReadiness {
+                filtered = filtered.recalculatingReadiness(
+                    on: anchorDate,
+                    idealSleepDuration: idealSleepDuration,
+                    calendar: calendar,
+                    todaysWorkouts: todaysWorkouts,
+                    wakeTime: wakeTime,
+                    now: now,
+                    freezesRecordedReadiness: recomputesReadiness,
+                    recordedReadinessContext: recordedReadinessContext
+                )
             }
-            return filtered.recalculatingReadiness(
-                on: anchorDate,
-                idealSleepDuration: idealSleepDuration,
-                calendar: calendar,
-                todaysWorkouts: todaysWorkouts,
-                wakeTime: wakeTime,
-                now: now,
-                freezesRecordedReadiness: recomputesReadiness,
-                recordedReadinessContext: recordedReadinessContext
-            )
+            if recomputesStress {
+                filtered = filtered.recalculatingStress(
+                    on: anchorDate,
+                    workouts: stressWorkouts,
+                    calendar: calendar,
+                    now: now,
+                    recordedStressContext: recordedStressContext
+                )
+            }
+            return filtered
         }.value
 
         // A Clear Cache that landed while the off-actor recompute ran must win:
@@ -4702,16 +5442,32 @@ final class HealthKitWorkoutStore: ObservableObject {
         exhaustedActivityRingMonthKeys.removeAll()
         hasMoreActivityRingHistory = true
 
+        // `persists: false` defers this to the caller's single end-of-refresh
+        // write (see `refreshRecentMonths`); the state published above is what
+        // that write encodes.
+        guard persists else {
+            return
+        }
+        persistDashboardSnapshot()
+        saveHealthWidgetSnapshot()
+    }
+
+    /// Encodes and writes the live dashboard snapshot (summary + trends + ring
+    /// history) plus the signatures that gate its reuse. Split out of
+    /// `updateHealthDashboardSnapshot` so the full refresh can coalesce that
+    /// publish, the readiness reapply, and the stress recompute into ONE write
+    /// after the tail settles instead of three full encodes per pass.
+    private func persistDashboardSnapshot() {
         let snapshotToSave = HealthDashboardSnapshot(
-            summary: filteredSnapshot.summary,
-            trends: filteredSnapshot.trends,
-            activityRingHistory: nextActivityRingHistory
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
         )
         let secondarySignature = currentSecondarySelectionSignature()
         let daySampleSignatures = currentDaySampleSignatures()
-        // Persist the summary-context signature just stamped above so a cold
-        // start can gate the summary reuse (H2a). Rides inside the snapshot, so
-        // it saves atomically with the data on every path.
+        // Persist the summary-context signature stamped at publish time so a
+        // cold start can gate the summary reuse (H2a). Rides inside the
+        // snapshot, so it saves atomically with the data on every path.
         let summaryContextSignature = healthSummaryPrimarySignature
         Self.snapshotPersistQueue.async {
             HealthDashboardSnapshotStore.save(
@@ -4722,7 +5478,6 @@ final class HealthKitWorkoutStore: ObservableObject {
             HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
             Task { @MainActor in await self.refreshCacheDiskSize() }
         }
-        saveHealthWidgetSnapshot()
     }
 
     /// Wake time valid for freezing the scoring day's morning record. Delegates to
@@ -4765,12 +5520,187 @@ final class HealthKitWorkoutStore: ObservableObject {
         )
     }
 
+    /// Workouts across the whole window Stress scans, not just the current wake
+    /// cycle: they are the fine activity mask, and every scanned day needs one.
+    /// A day wider than the scan so a session that started before its first
+    /// midnight still masks that day's opening windows.
+    private func stressWindowWorkouts(through date: Date, calendar: Calendar) -> [WorkoutSummary] {
+        let scoreDay = calendar.startOfDay(for: date)
+        let start = calendar.date(byAdding: .day, value: -35, to: scoreDay) ?? scoreDay
+        return monthSnapshots.values
+            .flatMap(\.days)
+            .flatMap(\.workouts)
+            .filter { $0.startDate >= start }
+    }
+
+    /// Intraday Stress windows for one calendar day, for the detail day view.
+    /// Read-only — scores against the live cached snapshot without persisting
+    /// anything, using the same wide workout window (fine activity mask) the
+    /// background recompute scans.
+    func stressWindows(for day: Date, calendar: Calendar = .bodyGregorian) -> [StressWindow] {
+        guard permissionSelection.includes(.heart) else {
+            return []
+        }
+
+        return HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        ).stressWindows(
+            for: day,
+            workouts: stressWindowWorkouts(through: Date(), calendar: calendar),
+            calendar: calendar,
+            now: Date()
+        )
+    }
+
+    /// Re-derives Stress from the currently cached snapshot and persists it when
+    /// it moved. Used after the workout join — the dashboard recompute runs
+    /// before workouts are available (they fetch concurrently), so a fresh,
+    /// edited, or deleted workout would otherwise leave the activity mask
+    /// wrong — and after the post-refresh intraday/RMSSD load.
+    ///
+    /// Async because the scoring itself — ~34 days × up to ~100 fifteen-minute
+    /// windows — is the second-heaviest per-refresh CPU spike after the readiness
+    /// recompute, and it used to run synchronously on the main actor inside the
+    /// refresh deadline. Callers still AWAIT it: an unawaited detached recompute
+    /// could publish over newer state (a landed input load, a backfill chunk, a
+    /// later refresh) and persist that rollback, and neither the refresh
+    /// generation nor the cache epoch can tell two ordinary recomputes apart.
+    private func recomputeStress(on date: Date, calendar: Calendar, persists: Bool = true) async {
+        guard permissionSelection.includes(.heart) else {
+            return
+        }
+
+        let epoch = cacheEpoch
+        let now = Date()
+        let captured = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        )
+        let workouts = stressWindowWorkouts(through: date, calendar: calendar)
+        let recordedStressContext = stressRecordContextSignature()
+        let recomputed = await Task.detached(priority: .userInitiated) {
+            captured.recalculatingStress(
+                on: date,
+                workouts: workouts,
+                calendar: calendar,
+                now: now,
+                recordedStressContext: recordedStressContext
+            )
+        }.value
+
+        // Same rule as `updateHealthDashboardSnapshot`: a Clear Cache that landed
+        // while the off-actor scoring ran must win, and a refresh abandoned at
+        // `healthRefreshDeadline` must not publish over a newer one's state.
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch), mayApplyRefreshResults else {
+            return
+        }
+
+        // A backfill chunk can publish during the off-actor hop (only outside a
+        // refresh — the walk parks while one runs, but the input loader's call
+        // happens after). Its recorded days and markers are newer than what this
+        // pass computed from the capture; merging ours would roll the chunk back
+        // and persist the rollback. Stand down instead — the chunk's own publish
+        // already rebuilt the stress trend, and the next recompute reconciles.
+        guard healthTrends.recordedStressDays == captured.trends.recordedStressDays,
+              healthTrends.stressBackfillScannedThrough == captured.trends.stressBackfillScannedThrough,
+              healthTrends.stressBackfillComplete == captured.trends.stressBackfillComplete else {
+            return
+        }
+
+        // Merge only the stress-owned fields into the CURRENT live snapshot. The
+        // captured one is stale by whatever published during the hop — the
+        // intraday day samples the input loader merges, a dashboard leaf, a ring
+        // month — so republishing it wholesale would roll those back and then
+        // persist the rollback.
+        var summary = healthSummary
+        summary.stress = recomputed.summary.stress
+        summary.stressCurrentScore = recomputed.summary.stressCurrentScore
+        var trends = healthTrends
+        trends.stress = recomputed.trends.stress
+        trends.stressRanges = recomputed.trends.stressRanges
+        trends.recordedStressDays = recomputed.trends.recordedStressDays
+        trends.recordedStressContext = recomputed.trends.recordedStressContext
+        trends.stressBackfillScannedThrough = recomputed.trends.stressBackfillScannedThrough
+        trends.stressBackfillComplete = recomputed.trends.stressBackfillComplete
+
+        let stressChanged = summary.stress != healthSummary.stress
+            || summary.stressCurrentScore != healthSummary.stressCurrentScore
+            || trends.stress != healthTrends.stress
+            || trends.recordedStressDays != healthTrends.recordedStressDays
+        healthSummary = summary
+        healthTrends = trends
+        // `persists: false` defers to the caller's single end-of-refresh write,
+        // which encodes the state just published above.
+        guard stressChanged, persists else {
+            return
+        }
+
+        let snapshotToSave = HealthDashboardSnapshot(
+            summary: summary,
+            trends: trends,
+            activityRingHistory: activityRingHistory
+        )
+        let daySampleSignatures = currentDaySampleSignatures()
+        // Carry the current summary-context signature so this save doesn't
+        // clobber the persisted one back to nil (H2a), as in the readiness
+        // reapply below.
+        let summaryContextSignature = healthSummaryPrimarySignature
+        Self.snapshotPersistQueue.async {
+            HealthDashboardSnapshotStore.save(
+                snapshotToSave,
+                daySampleSignatures: daySampleSignatures,
+                summaryContextSignature: summaryContextSignature
+            )
+        }
+    }
+
+    /// Publishes one chunk of the Stress history backfill: the scored days
+    /// upserted into `recordedStressDays`, both stress series rebuilt from the
+    /// result, and the walk marker advanced — one publish, one persist, so a
+    /// kill between chunks can never leave the marker ahead of the records it
+    /// claims to describe. Called only from
+    /// `HealthKitWorkoutStore+StressBackfill.swift`, which owns the guards.
+    func applyStressBackfillChunk(
+        summaries: [StressDaySummary],
+        scannedThrough: Date,
+        complete: Bool,
+        calendar: Calendar
+    ) {
+        let updated = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        ).mergingStressBackfillChunk(
+            summaries,
+            scannedThrough: scannedThrough,
+            complete: complete,
+            on: Date(),
+            calendar: calendar
+        )
+        healthTrends = updated.trends
+
+        let daySampleSignatures = currentDaySampleSignatures()
+        // Same reason as `recomputeStress`: carry the current summary-context
+        // signature so this save doesn't clobber the persisted one back to nil.
+        let summaryContextSignature = healthSummaryPrimarySignature
+        Self.snapshotPersistQueue.async {
+            HealthDashboardSnapshotStore.save(
+                updated,
+                daySampleSignatures: daySampleSignatures,
+                summaryContextSignature: summaryContextSignature
+            )
+        }
+    }
+
     /// After the workout fetch lands, re-apply the activity drain + morning freeze
     /// to the live readiness using the now-complete workout snapshots, without a
     /// full series rebuild. The dashboard recompute earlier in a refresh runs
     /// before workouts are available (they fetch concurrently), so this catches
     /// today's just-finished session.
-    private func reapplyActivityReadinessAfterWorkouts(date: Date, calendar: Calendar) async {
+    private func reapplyActivityReadinessAfterWorkouts(date: Date, calendar: Calendar, persists: Bool = true) async {
         guard permissionSelection.includes(.workouts) else {
             return
         }
@@ -4814,7 +5744,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             || updated.trends.recordedReadiness != healthTrends.recordedReadiness
         healthSummary = updated.summary
         healthTrends = updated.trends
-        guard readinessChanged else {
+        // `persists: false` defers to the caller's single end-of-refresh write
+        // (and its widget push), which encodes the state just published above.
+        guard readinessChanged, persists else {
             return
         }
 
@@ -5356,7 +6288,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// Serializes dashboard and widget disk writes so an earlier (pre-drain) save
     /// can never land after a later (post-drain) one and leave disk or widget
     /// state stale. Enqueue order on the main actor is the write order (FIFO).
-    private static let snapshotPersistQueue = DispatchQueue(label: "com.body.snapshotPersist", qos: .utility)
+    // Internal (not `private`) so the records extension's ledger writes land on
+    // the same serial queue — the Clear Cache barrier relies on that FIFO order.
+    static let snapshotPersistQueue = DispatchQueue(label: "com.body.snapshotPersist", qos: .utility)
 
     /// Signature of the readiness input context: which readiness permissions are
     /// enabled, the primary source chosen for each readiness input kind, and
@@ -5398,6 +6332,45 @@ final class HealthKitWorkoutStore: ObservableObject {
         return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];g[\(sleepGoalMinutes)];\(awakeFlags)" + customSourceGroupsSignatureSuffix
     }
 
+    /// The Stress counterpart of `readinessRecordContextSignature`: which Stress
+    /// permissions are enabled, the primary source per Stress input kind, and
+    /// whether same-name sources are combined. The recorded days are tagged with
+    /// it and dropped when it changes, because they carry baseline aggregates
+    /// derived under the old inputs. The sleep-duration goal is deliberately
+    /// absent (Stress uses only the sleep WINDOW), the awake-stage prefs are not
+    /// (they move the parsed main session).
+    nonisolated static func stressRecordContextSignature(
+        permissionSelection: BodyHealthPermissionSelection,
+        healthDataSourceSelection: BodyHealthDataSourceSelection,
+        combinesHealthDataSourcesByName: Bool,
+        showsSubMinuteAwakeStages: Bool,
+        showsLeadingTrailingAwakeStages: Bool,
+        customSourceGroupsSignatureSuffix: String = ""
+    ) -> String {
+        let permissions = stressInputPermissions
+            .sorted { $0.rawValue < $1.rawValue }
+            .map { "\($0.rawValue):\(permissionSelection.includes($0) ? "1" : "0")" }
+            .joined(separator: ",")
+        let sources = stressInputMetricKinds
+            .sorted { $0.rawValue < $1.rawValue }
+            .map { "\($0.rawValue):\(healthDataSourceSelection.option(for: $0).id)" }
+            .joined(separator: ",")
+        let awakeFlags = "a[\(showsSubMinuteAwakeStages ? "1" : "0")];l[\(showsLeadingTrailingAwakeStages ? "1" : "0")]"
+        return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];\(awakeFlags)"
+            + customSourceGroupsSignatureSuffix
+    }
+
+    private func stressRecordContextSignature() -> String {
+        Self.stressRecordContextSignature(
+            permissionSelection: permissionSelection,
+            healthDataSourceSelection: healthDataSourceSelection,
+            combinesHealthDataSourcesByName: combinesHealthDataSourcesByName,
+            showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
+            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(),
+            customSourceGroupsSignatureSuffix: customSourceGroupsSignatureSuffix
+        )
+    }
+
     private func readinessRecordContextSignature() -> String {
         Self.readinessRecordContextSignature(
             permissionSelection: permissionSelection,
@@ -5411,6 +6384,11 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     private func applyPermissionSelectionToCachedData() async {
+        // A toggle can change the Stress record context, and the recompute at
+        // the end of this drops the recorded days it invalidates. Stop the
+        // history walk first, so a chunk scored under the OLD inputs can't land
+        // on top of the freshly dropped records.
+        await cancelStressBackfill()
         // Runs without `isRefreshing` (from a permission toggle), so a Clear
         // Cache can land during the sidecar load / off-actor filter below.
         let epoch = cacheEpoch
@@ -5444,6 +6422,10 @@ final class HealthKitWorkoutStore: ObservableObject {
         healthTrends = filteredSnapshot.trends
         activityRingHistory = filteredSnapshot.activityRingHistory
         loadedActivityRingMonthKeys = Set(filteredSnapshot.activityRingHistory.loadedMonthKeySet(calendar: .bodyGregorian))
+        // `filtered(by:)` recomputes readiness but not stress, so re-derive it
+        // here too: a toggle changes the stress record context, and the recorded
+        // days it invalidates must drop now rather than at the next refresh.
+        await recomputeStress(on: Date(), calendar: .bodyGregorian)
 
         if !permissionSelection.includes(.workouts) {
             clearWorkoutSnapshots()

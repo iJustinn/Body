@@ -1,6 +1,40 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "%lld MIN THIS WEEK": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld MIN THIS WEEK"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本周运动 %lld 分钟"
+          }
+        }
+      }
+    },
+    "Exercise Minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exercise Minutes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运动时长"
+          }
+        }
+      }
+    },
     "HRV": {
       "extractionState": "manual",
       "localizations": {
@@ -116,6 +150,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "睡眠"
+          }
+        }
+      }
+    },
+    "This week's daily exercise minutes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This week's daily exercise minutes."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本周每日运动时长。"
           }
         }
       }

@@ -152,6 +152,52 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
         XCTAssertEqual(loaded.heartRateRecoveryBPM, 22.5)
     }
 
+    // MARK: - Energy equivalent
+
+    func testRoundTripPreservesEnergyEquivalent() throws {
+        let workoutID = UUID()
+        let energyEquivalent = PersistedEnergyEquivalent(
+            tuningVersion: EnergyEquivalent.tuningVersion,
+            kilocalories: 1000,
+            hiddenFoods: ["🍺"],
+            emojis: ["🍔", "🍜"]
+        )
+        let snapshot = WorkoutDetailSnapshot(workoutID: workoutID, energyEquivalent: energyEquivalent)
+
+        XCTAssertTrue(WorkoutDetailSnapshotStore.save(snapshot, directoryURL: directoryURL))
+        let loaded = try XCTUnwrap(WorkoutDetailSnapshotStore.load(workoutID: workoutID, directoryURL: directoryURL))
+        XCTAssertEqual(loaded.energyEquivalent, energyEquivalent)
+    }
+
+    /// A file written before `energyEquivalent` existed decodes with nil for it.
+    func testLegacyJSONWithoutEnergyEquivalentDecodesNil() throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+
+        let workoutID = UUID()
+        let fileURL = directoryURL.appendingPathComponent("\(workoutID.uuidString).json")
+        let legacyJSON = """
+        {"schemaVersion":1,"workoutID":"\(workoutID.uuidString)","heartRateRecoveryBPM":22.5}
+        """
+        try legacyJSON.data(using: .utf8)!.write(to: fileURL)
+
+        let loaded = try XCTUnwrap(WorkoutDetailSnapshotStore.load(workoutID: workoutID, directoryURL: directoryURL))
+        XCTAssertNil(loaded.energyEquivalent)
+        XCTAssertEqual(loaded.heartRateRecoveryBPM, 22.5)
+    }
+
+    /// `energyEquivalent` is deliberately excluded from `isEmpty` — a snapshot
+    /// whose only content is the emoji breakdown is still considered empty.
+    func testSnapshotWithOnlyEnergyEquivalentIsEmpty() {
+        let energyEquivalent = PersistedEnergyEquivalent(
+            tuningVersion: EnergyEquivalent.tuningVersion,
+            kilocalories: 500,
+            hiddenFoods: [],
+            emojis: ["🍔"]
+        )
+        let snapshot = WorkoutDetailSnapshot(workoutID: UUID(), energyEquivalent: energyEquivalent)
+        XCTAssertTrue(snapshot.isEmpty)
+    }
+
     // MARK: - Byte determinism
 
     func testEncodedBytesAreDeterministicAcrossSaves() throws {

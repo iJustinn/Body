@@ -9,6 +9,9 @@ enum WorkoutTypeBreakdownDisplayStyle: Equatable {
     case app
     case widgetMedium
     case widgetLarge
+    /// The month-summary share card: the app's type and bar widths on a leaner row, so
+    /// a 360 pt exported card reads like the Workouts page rather than like a widget.
+    case shareCard
 }
 
 struct WorkoutTypeBreakdownRowPresentation: Equatable {
@@ -23,6 +26,11 @@ struct WorkoutTypeBreakdownRowPresentation: Equatable {
 
 struct WorkoutTypeBreakdownView: View {
     let snapshot: WorkoutMonthSnapshot
+    /// Resolved workout colors (built-in defaults plus any Pro customization). Rendered
+    /// in both the app and the widget extension, so this is an explicit stored property
+    /// rather than an `@Environment` read — the widget's timeline entry supplies its own
+    /// entry-derived palette, which the environment can't carry across the process.
+    let palette: BodyWorkoutColorPalette
     let style: WorkoutTypeBreakdownDisplayStyle
     let onSelectType: ((BodyWorkoutType) -> Void)?
     /// Nil in the widgets, which have no second chart to switch to — and which
@@ -47,12 +55,14 @@ struct WorkoutTypeBreakdownView: View {
 
     init(
         snapshot: WorkoutMonthSnapshot,
+        palette: BodyWorkoutColorPalette,
         style: WorkoutTypeBreakdownDisplayStyle = .app,
         rowLimit: Int? = nil,
         onSelectType: ((BodyWorkoutType) -> Void)? = nil,
         onSwitchChart: (() -> Void)? = nil
     ) {
         self.snapshot = snapshot
+        self.palette = palette
         self.style = style
         self.rowLimit = rowLimit
         self.onSelectType = onSelectType
@@ -86,7 +96,7 @@ struct WorkoutTypeBreakdownView: View {
         }
         .frame(
             maxWidth: .infinity,
-            maxHeight: style.isWidget ? .infinity : nil,
+            maxHeight: style == .app ? nil : .infinity,
             alignment: .topLeading
         )
         .task(id: snapshot.workoutTypeBreakdown) {
@@ -233,7 +243,7 @@ struct WorkoutTypeBreakdownView: View {
         let percentage = percentage(atRank: rank)
 
         return ZStack(alignment: .leading) {
-            BodyGlassChip(color: entry.type.color, cornerRadius: barCornerRadius)
+            BodyGlassChip(color: palette.color(for: entry.type), cornerRadius: barCornerRadius)
 
             // Verbatim: an interpolated `Text` would register `%lld%%` as a
             // localizable key, and the percentage is the same in every language.
@@ -265,7 +275,7 @@ struct WorkoutTypeBreakdownView: View {
             Image(systemName: entry.type.symbolName)
                 .font(.system(size: iconFontSize, weight: iconWeight))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(entry.type.color)
+                .foregroundStyle(palette.color(for: entry.type))
                 .frame(width: iconFrameSide, height: iconFrameSide)
 
             VStack(alignment: .leading, spacing: detailTextSpacing) {
@@ -300,7 +310,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private func maximumBarWidth(for availableWidth: CGFloat, reservedTrailingWidth: CGFloat = 0) -> CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             // `detailReserveWidth` still reads the FULL width, so reserving the
             // control's slot never squeezes the activity name.
             return max(92, availableWidth - reservedTrailingWidth - detailReserveWidth(for: availableWidth))
@@ -317,7 +327,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private var minimumBarWidth: CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             return 92
         case .widgetMedium:
             return 72
@@ -334,6 +344,8 @@ struct WorkoutTypeBreakdownView: View {
             return 44
         case .widgetLarge:
             return 48
+        case .shareCard:
+            return 42
         }
     }
 
@@ -343,7 +355,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private var rowHorizontalSpacing: CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             return 12
         case .widgetMedium:
             return 10
@@ -360,6 +372,8 @@ struct WorkoutTypeBreakdownView: View {
             return 15
         case .widgetLarge:
             return 18
+        case .shareCard:
+            return 14
         }
     }
 
@@ -371,12 +385,14 @@ struct WorkoutTypeBreakdownView: View {
             return 20
         case .widgetLarge:
             return 25
+        case .shareCard:
+            return 19
         }
     }
 
     private var detailSpacing: CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             return 9
         case .widgetMedium:
             return 9
@@ -387,7 +403,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private var iconFontSize: CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             return 22
         case .widgetMedium:
             return 23
@@ -402,7 +418,7 @@ struct WorkoutTypeBreakdownView: View {
 
     private var iconFrameSide: CGFloat {
         switch style {
-        case .app:
+        case .app, .shareCard:
             return 30
         case .widgetMedium:
             return 30
@@ -423,6 +439,8 @@ struct WorkoutTypeBreakdownView: View {
             return 16
         case .widgetLarge:
             return 18
+        case .shareCard:
+            return 13
         }
     }
 
@@ -434,6 +452,8 @@ struct WorkoutTypeBreakdownView: View {
             return 12
         case .widgetLarge:
             return 14
+        case .shareCard:
+            return 11
         }
     }
 
@@ -455,6 +475,8 @@ struct WorkoutTypeBreakdownView: View {
             return 2
         case .widgetLarge:
             return 5
+        case .shareCard:
+            return 5
         }
     }
 }
@@ -462,7 +484,7 @@ struct WorkoutTypeBreakdownView: View {
 private extension WorkoutTypeBreakdownDisplayStyle {
     var isWidget: Bool {
         switch self {
-        case .app:
+        case .app, .shareCard:
             return false
         case .widgetMedium, .widgetLarge:
             return true
@@ -471,7 +493,7 @@ private extension WorkoutTypeBreakdownDisplayStyle {
 }
 
 #Preview {
-    WorkoutTypeBreakdownView(snapshot: .placeholder)
+    WorkoutTypeBreakdownView(snapshot: .placeholder, palette: .builtIn)
         .padding()
         .background(Color.black)
 }

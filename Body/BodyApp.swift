@@ -15,6 +15,8 @@ struct BodyApp: App {
     /// one instance.
     @State private var readinessComment = ReadinessCommentGenerator()
     @AppStorage(BodyAppearancePreference.selectedThemeKey) private var selectedThemeRawValue = BodyAppTheme.defaultValue.rawValue
+    @AppStorage(BodyAppearancePreference.workoutColorOverridesKey, store: BodyWorkoutColorStore.sharedDefaults)
+    private var workoutColorOverridesRawValue = ""
 
     init() {
         // Configure RevenueCat before constructing BodyProStore so the store's async
@@ -25,6 +27,10 @@ struct BodyApp: App {
         // Activate WatchConnectivity at startup so the session is ready and the
         // first snapshot push doesn't have to wait for activation.
         WatchConnectivityPublisher.shared.activate()
+
+        // BGTask handlers must be registered before launch finishes, so this
+        // belongs in `init()` rather than in a `.task`.
+        BodyBackgroundRefreshScheduler.registerTask()
     }
 
     var body: some Scene {
@@ -34,10 +40,19 @@ struct BodyApp: App {
                 .environmentObject(workoutStore)
                 .environment(proStore)
                 .environment(readinessComment)
+                .environment(\.workoutColorPalette, workoutColorPalette)
                 .tint(.primary)
                 .accentColor(.primary)
                 .preferredColorScheme(selectedTheme.colorScheme)
+                .onChange(of: workoutColorOverridesRawValue) { _, _ in
+                    BodyWidgetReloadCoalescer.shared.requestReload()
+                }
+                .onChange(of: proStore.isPro) { _, _ in
+                    BodyWidgetReloadCoalescer.shared.requestReload()
+                }
                 .task(priority: .utility) {
+                    BodyBackgroundRefreshScheduler.setForegroundActive(true)
+                    BodyBackgroundRefreshScheduler.schedule()
                     // The intraday day-sample sidecar is the only cached series not
                     // restored synchronously in the store's init, so the Day View
                     // charts would otherwise stay empty until a full refresh or a
@@ -54,10 +69,14 @@ struct BodyApp: App {
                     await workoutStore.syncWhenAppBecomesActive()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
+                    // The background evaluator skips a pass while the app is on
+                    // screen, where the foreground refresh owns detection.
+                    BodyBackgroundRefreshScheduler.setForegroundActive(newPhase == .active)
                     guard newPhase == .active else {
                         return
                     }
 
+                    BodyBackgroundRefreshScheduler.schedule()
                     Task(priority: .utility) {
                         await workoutStore.syncWhenAppBecomesActive()
                         // RevenueCat doesn't push backend changes; re-resolve on foreground
@@ -70,5 +89,9 @@ struct BodyApp: App {
 
     private var selectedTheme: BodyAppTheme {
         BodyAppTheme.storedValue(from: selectedThemeRawValue)
+    }
+
+    private var workoutColorPalette: BodyWorkoutColorPalette {
+        BodyWorkoutColorPalette(rawOverrides: workoutColorOverridesRawValue, isProUnlocked: proStore.isPro)
     }
 }

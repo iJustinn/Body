@@ -1,5 +1,49 @@
 # Version History
 
+## 1.0.1 (build 9)
+
+- **Faster data refresh.** The Summary refresh now fetches the recent weeks of each chart first and quietly backfills the full year in the background, remembers workout effort scores between launches instead of re-asking HealthKit for every workout, reuses cadence and distance for workouts older than a day, computes the Stress score once per refresh instead of twice, writes the dashboard cache once per refresh instead of three times, and caps how many HealthKit queries run at once so the visible cards are not stuck behind background work. Pull to refresh still re-checks the months you are viewing plus anything from the last two days, so edits made in Apple Fitness keep converging. Charts, scores, and widgets show the same data as before, just sooner.
+- **Snappier launch.** The dashboard cache is decoded once instead of twice at startup, and the readiness rebuild that could previously run during launch now happens in the background after the first frame.
+- **Widget System background now follows the device appearance.** The System choice previously drew a black background in both appearances, which made widget text unreadable on iPhones in light mode, including the Body Pro placeholder card. It now uses white in light appearance and black in dark; the Black and White choices are unchanged.
+- Added debug-only refresh profiling (per-metric timings, query concurrency peaks) to support future tuning.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 9.
+
+## 1.0.1 (build 8)
+
+- **Weekly Exercise Minutes on the Lock Screen and the watch face.** A new rectangular **Exercise Minutes** widget shows a header with your total minutes for the rolling last 7 days over seven daily bars, today rightmost, with single-letter weekday labels that rotate with the date. The iPhone Lock Screen version is **Body Pro** (a compact lock placeholder without it) and renders in the Lock Screen's vibrant monochrome, so the bars take the wallpaper's tint. The Apple Watch complication is **free**, draws its bars in RGB(1, 47, 167) on full-color faces and in the Smart Stack, and is recolored by tinted watch faces like the other complications. Both read the cached snapshot, so a Summary layout without the **Exercise Minutes** card leaves them showing only the header and weekday labels until that card is turned back on. Days without exercise draw no bar at all.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 8.
+
+## 1.0.1 (build 7)
+
+- **New default colors for Run, Tennis, and Pickleball.** Run is now a brighter blue (#335BB0), Tennis a soft violet (#8C6BAA), and Pickleball a deeper indigo (#635995), each split out of the palette group it used to share. Any workout type you customized in Settings > Appearance > Workouts keeps your own color.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 7.
+
+## 1.0.1 (build 6)
+
+- **Effort card on/off.** Settings > Workouts > Effort Suggestions is now **Workout Effort**, and the sheet opens with a new **Effort Card** toggle (on by default): off, the Effort card is hidden on every workout detail page and the Effort Suggestions and Auto-Apply Effort settings below it grey out and stop running — no prediction is computed and auto-apply writes nothing. The settings row's On/Off value now follows the card toggle.
+- **Swipe between months on the workouts charts.** A new Settings > Workouts > Month Swipe option (on by default) lets a left/right swipe on the workouts calendar or type-breakdown chart move to the next/previous month — the same month switch as the picker above, clamped to the picker's reachable range. Only clearly horizontal swipes count, so vertical scrolling and pull-to-refresh are unaffected. Also fixes a race where a stale pending month load could snap the page back after a newer selection.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 6.
+
+## 1.0.1 (build 5)
+
+- **Energy Equivalent card.** A new Equivalent card on the workout detail page (between Details and Effort) turns a workout's active energy into food emoji from a fixed 28-food kcal table (Asian foods, fruits, and drinks included; the mix drawn from similar-kcal foods with a kcal-seeded generator, and sparse breakdowns padded with zero-kcal 🧊 ice cubes), rolling around the card as a gyroscope-driven physics toy: each food accelerates and tumbles at its own weight, and collisions play light haptic taps. An ⓘ sheet lists every food's kcal estimate, breakdowns are cached in the workout's on-disk detail snapshot, and Settings > Workouts > Workout Equivalents adds an Equivalent Card on/off toggle, an Emoji Size slider, a Collision Vibration toggle, a Total Energy switch (represent total burn instead of active energy), a More Food Items switch (many small foods instead of a few large ones), and per-food show/hide toggles.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 5.
+
+## 1.0.1 (build 4)
+
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 4.
+
+## 1.0.1 (build 3)
+
+- **Stress day card polish.** The Day View header's average now uses the same "Avg" legend style as the other intraday charts, the workout/sleep symbols sit above the plot edge exactly like the heart-rate day chart's, and the band breakdown gains sleep's Stage/Pct./Duration column titles plus a "Percent of measured time" axis caption. The duration column is wider so Chinese durations like 10小时30分 no longer shrink, and the intraday plot drops its right-hand 0–100 axis labels to span the card's full width.
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 3.
+
+## 1.0.1 (build 2)
+
+- Updated the app, widget, watch, and test bundle version to 1.0.1 build 2.
+
+- **Personal record badges.** Body now tracks all-time per-workout-type records — best pace/speed, longest duration/distance, and highest elevation — and marks the record-holding workout with a trophy.fill "PR" capsule on the detail sheet's stat tiles, a bare trophy glyph on workout list rows, and a pill on share cards (not monthly-summary cards). A workout that has since been beaten keeps its badge in a dimmed neutral gray, so a superseded record still reads as an achievement without being mistaken for the live one; share cards show only records still held, and every badge fades in rather than popping in. A metric needs at least 4 comparable same-type workouts before any PR badge appears. The workout filter sheet gains a Records section above the type list with Current Records and Former Records options, narrowing the month to record-holding workouts. The baseline history scan runs once in the background after the first refresh; Settings > Cache > Clear Cache resets it so it re-scans on the next refresh.
+
 ## 1.0.0 (build 25)
 
 - **Dragging a Summary card somewhere it can't go no longer crashes the app.** Releasing a card over the hero, the empty space below the grid, or the tab bar cancelled the drag, and iOS then animated the card back to a view the app had already thrown away — the grid rebuilt its rows on every reorder that ran while the drag was still in flight, and the card being dragged was rebuilt with them. The grid now keeps one view per card wherever it moves, so a cancelled drop returns the card to the grid, and reordering slides the cards to their new places instead of rebuilding the rows underneath them.

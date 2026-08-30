@@ -45,6 +45,11 @@ enum WatchMetricKindKey {
     static let restingHeartRate = "restingHeartRate"
     static let trainingLoad = "trainingLoad"
     static let wristTemperature = "wristTemperature"
+    /// Carried for the Exercise Minutes complication only — deliberately absent
+    /// from `displayOrder` (and from the tint/symbol tables below) so it never
+    /// reaches the watch app's dashboard, settings, or detail pager, which all
+    /// read `orderedMetrics`. That complication draws its own color + symbol.
+    static let exerciseMinutes = "exerciseMinutes"
 
     /// Dashboard ordering — Training Load leads. The watch complications are
     /// independent widgets and don't read this.
@@ -172,6 +177,23 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// older phone (omits it) or older watch (ignores it) still decodes.
     var weekly: [Double?]? = nil
 
+    /// `weekly` re-windowed so its last slot lands on `today`: normalized to
+    /// exactly 7 slots (newest kept, missing older days padded with nil), then
+    /// days elapsed since the snapshot's build day are shifted out with nil
+    /// slots appended. A cached snapshot is only rewritten when the phone
+    /// pushes, so without this a complication drawn after midnight would keep
+    /// yesterday as its rightmost day.
+    func weeklyRewound(from generatedAt: Date, to today: Date, calendar: Calendar = .current) -> [Double?] {
+        let recent = Array((weekly ?? []).suffix(7))
+        let padded = Array(repeating: Double?.none, count: 7 - recent.count) + recent
+        let snapshotDay = calendar.startOfDay(for: generatedAt)
+        let entryDay = calendar.startOfDay(for: today)
+        let elapsed = calendar.dateComponents([.day], from: snapshotDay, to: entryDay).day ?? 0
+        let shift = min(max(elapsed, 0), 7)
+        guard shift > 0 else { return padded }
+        return Array(padded.dropFirst(shift)) + Array(repeating: nil, count: shift)
+    }
+
     /// Status band to highlight behind the recent-week chart for banded metrics
     /// (Readiness, Training Load) — TODAY's status range, in the same unit as
     /// `weekly`. `nil` for unbanded metrics. See `WatchStatusBand`.
@@ -285,7 +307,11 @@ struct WatchMetricsSnapshot: Codable, Equatable {
             WatchMetric(kind: WatchMetricKindKey.heartRateVariability, title: String(localized: "HRV", table: "BodyWatchShared"), displayValue: "48", unit: "ms", score: nil, fillFraction: 0.60, rawValue: 48, rangeMin: 30, rangeMax: 60),
             WatchMetric(kind: WatchMetricKindKey.restingHeartRate, title: String(localized: "Resting HR", table: "BodyWatchShared"), displayValue: "56", unit: "bpm", score: nil, fillFraction: 0.70, rawValue: 56, rangeMin: 52, rangeMax: 64),
             WatchMetric(kind: WatchMetricKindKey.trainingLoad, title: String(localized: "Training Load", table: "BodyWatchShared"), displayValue: "1.05", unit: "", score: nil, fillFraction: 0.53, rawValue: 1.05, rangeMin: 0, rangeMax: 2, levelMin: 0.8, levelMax: 1.3, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
-            WatchMetric(kind: WatchMetricKindKey.wristTemperature, title: String(localized: "Skin Temp", table: "BodyWatchShared"), displayValue: "93.4", unit: "°F", score: nil, fillFraction: 0.50, rawValue: 34.1, rangeMin: 33.8, rangeMax: 34.4)
+            WatchMetric(kind: WatchMetricKindKey.wristTemperature, title: String(localized: "Skin Temp", table: "BodyWatchShared"), displayValue: "93.4", unit: "°F", score: nil, fillFraction: 0.50, rawValue: 34.1, rangeMin: 33.8, rangeMax: 34.4),
+            // The Exercise Minutes complication draws only `weekly`, so the
+            // gallery preview needs a sample week (oldest → today) rather than
+            // seven empty bars.
+            WatchMetric(kind: WatchMetricKindKey.exerciseMinutes, title: String(localized: "Exercise Minutes", table: "BodyWatchShared"), displayValue: "38", unit: "", score: nil, fillFraction: 0, weekly: [12, 30, nil, 45, 22, 0, 38])
         ]
     )
 

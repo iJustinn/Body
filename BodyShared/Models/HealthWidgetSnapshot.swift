@@ -144,6 +144,37 @@ struct HealthWidgetPoint: Codable, Equatable, Identifiable {
     var id: Date { date }
 }
 
+extension HealthWidgetPoint {
+    /// Re-windows a cached week of points so the rightmost point is always
+    /// `today`: points older than `today - 6 days` are dropped and any
+    /// missing trailing days are padded with nil-valued points. A lock
+    /// screen/complication snapshot is only rewritten when the app runs, so a
+    /// cache written yesterday (or earlier) would otherwise keep showing a
+    /// stale "this week" once midnight passes; this re-aligns it at entry
+    /// load without needing a fresh app launch. Always returns exactly 7
+    /// points, oldest first.
+    static func rewindingWeek(
+        _ points: [HealthWidgetPoint],
+        to today: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> [HealthWidgetPoint] {
+        let startOfToday = calendar.startOfDay(for: today)
+        guard let windowStart = calendar.date(byAdding: .day, value: -6, to: startOfToday) else {
+            return points
+        }
+
+        var pointsByDay: [Date: HealthWidgetPoint] = [:]
+        for point in points {
+            pointsByDay[calendar.startOfDay(for: point.date)] = point
+        }
+
+        return (0...6).map { offset in
+            let day = calendar.date(byAdding: .day, value: offset, to: windowStart) ?? windowStart
+            return pointsByDay[day] ?? HealthWidgetPoint(date: day, value: nil)
+        }
+    }
+}
+
 struct HealthWidgetTrendSeries: Codable, Equatable {
     var points: [HealthWidgetPoint]
     /// Pre-formatted average over the range (computed app-side where unit

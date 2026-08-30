@@ -1323,6 +1323,78 @@ final class WorkoutShareCardTests: XCTestCase {
         }
     }
 
+    // MARK: - Transparent background
+
+    /// Both transparent picks are choices of their own, not presets, so each needs the
+    /// same @AppStorage round trip the gradients and the map get. The ink is part of the
+    /// stored identity — a light pick must never come back dark.
+    func testStoredRoundTripsBothTransparentInks() {
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.transparent(.light).rawValue, "transparentLight")
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.transparent(.dark).rawValue, "transparentDark")
+
+        for ink in [WorkoutShareCardInk.light, .dark] {
+            let choice = BodyWorkoutShareBackgroundChoice.transparent(ink)
+            XCTAssertEqual(
+                BodyWorkoutShareBackgroundChoice.stored(rawValue: choice.rawValue, hasRoute: true),
+                choice
+            )
+            // Unlike the map, transparent doesn't need a route — it draws nothing either way.
+            XCTAssertEqual(
+                BodyWorkoutShareBackgroundChoice.stored(rawValue: choice.rawValue, hasRoute: false),
+                choice
+            )
+        }
+    }
+
+    /// Transparent is Pro, and — unlike a photo or a clip — it is *stored*, so a lapse
+    /// has to be absorbed on read. Session-only: the key itself is never rewritten, so
+    /// the same raw value comes straight back once the entitlement returns.
+    func testResolvedBackgroundChoiceGatesTransparentBehindPro() {
+        for ink in [WorkoutShareCardInk.light, .dark] {
+            XCTAssertEqual(
+                WorkoutShareBackgroundPolicy.resolvedBackgroundChoice(.transparent(ink), isProUnlocked: false),
+                .preset(.midnight)
+            )
+            XCTAssertEqual(
+                WorkoutShareBackgroundPolicy.resolvedBackgroundChoice(.transparent(ink), isProUnlocked: true),
+                .transparent(ink)
+            )
+        }
+    }
+
+    /// The free backgrounds go through the same seam untouched — gating transparent must
+    /// not cost a non-Pro user their preset or their map.
+    func testResolvedBackgroundChoicePassesFreeBackgroundsThrough() {
+        for isPro in [true, false] {
+            XCTAssertEqual(
+                WorkoutShareBackgroundPolicy.resolvedBackgroundChoice(.map, isProUnlocked: isPro),
+                .map
+            )
+            for preset in BodyWorkoutSharePreset.allCases {
+                XCTAssertEqual(
+                    WorkoutShareBackgroundPolicy.resolvedBackgroundChoice(.preset(preset), isProUnlocked: isPro),
+                    .preset(preset)
+                )
+            }
+        }
+    }
+
+    /// The long image always paints a gradient, so a stored transparent pick resolves to
+    /// Midnight there the same way a stored map does — the sheet dims both tiles in long
+    /// mode, and this is the seam that makes the fallback true even if one slipped.
+    func testLongPresetFallsBackToMidnightForTransparent() {
+        for raw in ["transparentLight", "transparentDark"] {
+            XCTAssertEqual(
+                WorkoutShareBackgroundPolicy.longPreset(storedBackground: raw, hasRoute: true),
+                .midnight
+            )
+            XCTAssertEqual(
+                WorkoutShareBackgroundPolicy.longPreset(storedBackground: raw, hasRoute: false),
+                .midnight
+            )
+        }
+    }
+
     // MARK: - Ink polarity
 
     /// Daylight is the only preset that inverts the card's ink; the two dark presets

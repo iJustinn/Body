@@ -309,8 +309,9 @@ final class WorkoutShareSummaryCardTests: XCTestCase {
     func testBarRowLimitFitsTheRatio() {
         XCTAssertEqual(geometry(.portrait9x16).barRowLimit, 5)
         XCTAssertEqual(geometry(.portrait3x4).barRowLimit, 5)
-        // The square's chart region is the whole 284 pt content area: four rows.
-        XCTAssertEqual(geometry(.square).barRowLimit, 4)
+        // The square's chart region is the whole 284 pt content area, which the leaner
+        // 42 pt row takes from four rows to the same five the portraits draw.
+        XCTAssertEqual(geometry(.square).barRowLimit, 5)
     }
 
     /// The square is the chart alone; the portraits stack title and metrics above it.

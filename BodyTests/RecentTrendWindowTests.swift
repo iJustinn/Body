@@ -75,6 +75,227 @@ final class RecentTrendWindowTests: XCTestCase {
         XCTAssertEqual(BodyHealthTrendRange.recentYear.dayCount, BodyHealthTrendRange.maximumDayCount)
     }
 
+    // MARK: - Two-phase window: how much phase 1 fetches
+
+    private func defaultsWithTrendRange(_ range: BodyHealthTrendRange?) throws -> UserDefaults {
+        let suite = "RecentTrendWindowTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        if let range {
+            defaults.set(range.rawValue, forKey: BodyAppearancePreference.defaultTrendRangeKey)
+        }
+        return defaults
+    }
+
+    /// A stored range shorter than the readiness baseline still fetches 60 days,
+    /// so the newest day scores correctly even for the one leaf the merge can't
+    /// help: one with no cached history at all.
+    func testPhaseOneWindowNeverDropsBelowTheReadinessBaselineReach() throws {
+        for range in [BodyHealthTrendRange.recentWeek, .recentMonth] {
+            let days = HealthKitFetchEngine.phaseOneTrendWindowDays(
+                defaults: try defaultsWithTrendRange(range)
+            )
+            XCTAssertEqual(days, HealthKitFetchEngine.minimumPhaseOneTrendWindowDays, range.rawValue)
+        }
+        XCTAssertGreaterThanOrEqual(HealthKitFetchEngine.minimumPhaseOneTrendWindowDays, 57)
+    }
+
+    func testPhaseOneWindowFollowsALongerStoredRange() throws {
+        XCTAssertEqual(
+            HealthKitFetchEngine.phaseOneTrendWindowDays(defaults: try defaultsWithTrendRange(.recentSixMonths)),
+            BodyHealthTrendRange.recentSixMonths.dayCount
+        )
+    }
+
+    /// A user already on Year has nothing to defer: phase 1 fetches everything
+    /// and phase 2 must not run.
+    func testPhaseOneWindowIsNilWhenTheStoredRangeAlreadySpansTheYear() throws {
+        XCTAssertNil(
+            HealthKitFetchEngine.phaseOneTrendWindowDays(defaults: try defaultsWithTrendRange(.recentYear))
+        )
+    }
+
+    func testPhaseOneWindowFallsBackToTheAppDefaultRangeWhenNothingIsStored() throws {
+        XCTAssertEqual(
+            HealthKitFetchEngine.phaseOneTrendWindowDays(defaults: try defaultsWithTrendRange(nil)),
+            max(BodyHealthTrendRange.defaultValue.dayCount, HealthKitFetchEngine.minimumPhaseOneTrendWindowDays)
+        )
+    }
+
+    /// The clamped start has to land on a day start: the daily buckets are
+    /// midnight-anchored, so a mid-day start would both make the oldest bucket a
+    /// partial day and collide with the cached full-day point the merge keeps
+    /// just outside the boundary.
+    func testClampedTrendStartSnapsToADayStartInsideTheWindow() throws {
+        let anchor = try anchor()
+        let interval = HealthKitFetchEngine.recentHealthTrendInterval(calendar: calendar, anchor: anchor)
+        let clamped = HealthKitFetchEngine.clampedTrendStart(
+            interval: interval,
+            maxDays: 60,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(clamped, calendar.startOfDay(for: clamped))
+        XCTAssertGreaterThan(clamped, interval.start)
+        XCTAssertEqual(
+            calendar.dateComponents([.day], from: clamped, to: calendar.startOfDay(for: interval.end)).day,
+            60
+        )
+    }
+
+    func testClampedTrendStartIgnoresAClampWiderThanTheWindow() throws {
+        let anchor = try anchor()
+        let interval = HealthKitFetchEngine.recentHealthTrendInterval(calendar: calendar, anchor: anchor)
+
+        XCTAssertEqual(
+            HealthKitFetchEngine.clampedTrendStart(interval: interval, maxDays: nil, calendar: calendar),
+            interval.start
+        )
+        XCTAssertEqual(
+            HealthKitFetchEngine.clampedTrendStart(
+                interval: interval,
+                maxDays: BodyHealthTrendRange.maximumDayCount + 30,
+                calendar: calendar
+            ),
+            interval.start
+        )
+    }
+
+    // MARK: - Two-phase window: the merge
+
+    private func series(_ dayOffsets: [Int], from anchor: Date, value: Double = 1) throws -> HealthTrendSeries {
+        HealthTrendSeries(
+            points: try dayOffsets.map { offset in
+                HealthTrendDataPoint(
+                    date: try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: anchor))),
+                    value: value
+                )
+            }
+        )
+    }
+
+    private func windowStart(_ dayOffset: Int, from anchor: Date) throws -> Date {
+        try XCTUnwrap(calendar.date(byAdding: .day, value: dayOffset, to: calendar.startOfDay(for: anchor)))
+    }
+
+    func testMergeWithoutAWindowKeepsOnlyTheFreshSeries() throws {
+        let anchor = try anchor()
+        let merged = HealthKitFetchEngine.mergeWindowedTrend(
+            cached: try series([-300, -200], from: anchor),
+            fresh: try series([-5, -1], from: anchor, value: 2),
+            windowStart: nil
+        )
+
+        XCTAssertEqual(merged, try series([-5, -1], from: anchor, value: 2))
+    }
+
+    func testMergeWithAnEmptyCacheKeepsOnlyTheFreshSeries() throws {
+        let anchor = try anchor()
+        let merged = HealthKitFetchEngine.mergeWindowedTrend(
+            cached: .empty,
+            fresh: try series([-5, -1], from: anchor),
+            windowStart: try windowStart(-59, from: anchor)
+        )
+
+        XCTAssertEqual(merged, try series([-5, -1], from: anchor))
+    }
+
+    /// The whole point of the merge: the year of chart room survives a query
+    /// that only scanned the last 60 days.
+    func testMergeKeepsCachedPointsOlderThanTheWindow() throws {
+        let anchor = try anchor()
+        let merged = HealthKitFetchEngine.mergeWindowedTrend(
+            cached: try series([-300, -200, -100], from: anchor),
+            fresh: try series([-30, -1], from: anchor, value: 2),
+            windowStart: try windowStart(-59, from: anchor)
+        )
+
+        XCTAssertEqual(merged.points.map(\.date), try series([-300, -200, -100, -30, -1], from: anchor).points.map(\.date))
+        XCTAssertEqual(merged.points.map(\.value), [1, 1, 1, 2, 2])
+    }
+
+    /// Inside the window the fresh fetch is the ONLY authority: it re-read those
+    /// days from HealthKit, so a cached point it did not return is a deleted
+    /// sample and must not be resurrected — and a day both hold takes the fresh
+    /// value.
+    func testMergeLetsTheFreshFetchOwnTheWholeWindow() throws {
+        let anchor = try anchor()
+        let start = try windowStart(-59, from: anchor)
+        let merged = HealthKitFetchEngine.mergeWindowedTrend(
+            // -40 was cached inside the window and is gone from HealthKit; -10
+            // is cached at a now-stale value.
+            cached: try series([-100, -40, -10], from: anchor),
+            fresh: try series([-10], from: anchor, value: 2),
+            windowStart: start
+        )
+
+        XCTAssertEqual(merged.points.count, 2)
+        XCTAssertEqual(merged.points.map(\.date), try series([-100, -10], from: anchor).points.map(\.date))
+        XCTAssertEqual(merged.points.last?.value, 2)
+        XCTAssertFalse(merged.points.contains { $0.date >= start && $0.value == 1 })
+    }
+
+    /// The boundary day itself belongs to the fresh fetch (the query runs from
+    /// `windowStart` inclusive), so a cached point on it must not survive.
+    func testMergeDropsACachedPointExactlyOnTheWindowStart() throws {
+        let anchor = try anchor()
+        let start = try windowStart(-59, from: anchor)
+        let merged = HealthKitFetchEngine.mergeWindowedTrend(
+            cached: try series([-60, -59], from: anchor),
+            fresh: .empty,
+            windowStart: start
+        )
+
+        XCTAssertEqual(merged.points.map(\.date), try series([-60], from: anchor).points.map(\.date))
+    }
+
+    func testRangeSeriesMergeFollowsTheSameBoundary() throws {
+        let anchor = try anchor()
+        func rangePoints(_ offsets: [Int], low: Double) throws -> HealthTrendRangeSeries {
+            HealthTrendRangeSeries(
+                points: try offsets.map { offset in
+                    HealthTrendRangeDataPoint(
+                        date: try windowStart(offset, from: anchor),
+                        lowValue: low,
+                        highValue: low + 10,
+                        averageValue: low + 5
+                    )
+                }
+            )
+        }
+
+        let merged = HealthKitFetchEngine.mergeWindowedTrendRange(
+            cached: try rangePoints([-300, -40], low: 50),
+            fresh: try rangePoints([-20], low: 60),
+            windowStart: try windowStart(-59, from: anchor)
+        )
+
+        XCTAssertEqual(merged.points.map(\.date), try rangePoints([-300, -20], low: 0).points.map(\.date))
+        XCTAssertEqual(merged.points.last?.lowValue, 60)
+    }
+
+    func testSleepHistoryMergeKeepsNightsOlderThanTheWindow() throws {
+        let anchor = try anchor()
+        func history(_ offsets: [Int], duration: TimeInterval) throws -> SleepHistorySnapshot {
+            SleepHistorySnapshot(
+                days: try offsets.map { offset in
+                    SleepDaySummary(
+                        date: try windowStart(offset, from: anchor),
+                        summary: SleepSummary(duration: duration)
+                    )
+                }
+            )
+        }
+
+        let merged = HealthKitFetchEngine.mergeWindowedSleepHistory(
+            cached: try history([-300, -40], duration: 7 * 3_600),
+            fresh: try history([-20], duration: 8 * 3_600),
+            windowStart: try windowStart(-59, from: anchor)
+        )
+
+        XCTAssertEqual(merged.days.map(\.date), try history([-300, -20], duration: 0).days.map(\.date))
+        XCTAssertEqual(merged.days.last?.summary.duration, 8 * 3_600)
+    }
+
     // MARK: - Watch display-time clearing
 
     private func watchMetric(

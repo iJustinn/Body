@@ -40,12 +40,12 @@ enum BodyWorkoutListSelection: Identifiable {
         }
     }
 
-    var accentColor: Color {
+    func accentColor(palette: BodyWorkoutColorPalette) -> Color {
         switch self {
         case .day(let day):
-            return day.primaryWorkoutType?.color ?? Color.accentColor
+            return day.primaryWorkoutType.map { palette.color(for: $0) } ?? Color.accentColor
         case .type(let type, _):
-            return type.color
+            return palette.color(for: type)
         }
     }
 
@@ -81,6 +81,7 @@ enum BodyWorkoutListSelection: Identifiable {
 
 struct BodyWorkoutListSheet: View {
     @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(\.workoutColorPalette) private var workoutColorPalette
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @State private var selectedWorkout: WorkoutSummary?
@@ -107,7 +108,8 @@ struct BodyWorkoutListSheet: View {
                             } label: {
                                 BodyWorkoutRecordRow(
                                     workout: workout,
-                                    customName: workoutStore.workoutCustomNames[workout.id]
+                                    customName: workoutStore.workoutCustomNames[workout.id],
+                                    recordStanding: workoutStore.rowRecordStanding(for: workout)
                                 )
                                     .matchedTransitionSource(id: workout.id, in: workoutZoom) {
                                         $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
@@ -137,9 +139,9 @@ struct BodyWorkoutListSheet: View {
             Image(systemName: selection.iconName)
                 .font(.system(size: 26, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(selection.accentColor)
+                .foregroundStyle(selection.accentColor(palette: workoutColorPalette))
                 .frame(width: 58, height: 58)
-                .background(selection.accentColor.opacity(0.14))
+                .background(selection.accentColor(palette: workoutColorPalette).opacity(0.14))
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
             VStack(alignment: .leading, spacing: 5) {
@@ -195,29 +197,44 @@ struct BodyWorkoutListSheet: View {
 }
 
 private struct BodyWorkoutRecordRow: View {
+    @Environment(\.workoutColorPalette) private var workoutColorPalette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedDistanceUnitKey) private var selectedDistanceUnitRawValue = BodyValueFormat.DistanceUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     let workout: WorkoutSummary
     var customName: String? = nil
+    /// The workout's strongest record standing, or nil when it holds none. Computed
+    /// at the call site — the row is a pure struct with no store access.
+    var recordStanding: WorkoutRecordStanding? = nil
 
     var body: some View {
         HStack(spacing: 16) {
             Image(systemName: workout.type.symbolName)
                 .font(.system(size: 24, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(workout.type.color)
+                .foregroundStyle(workoutColorPalette.color(for: workout.type))
                 .frame(width: 54, height: 54)
-                .background(workout.type.color.opacity(0.14))
+                .background(workoutColorPalette.color(for: workout.type).opacity(0.14))
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(customName ?? workout.type.displayName)
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                HStack(spacing: 5) {
+                    Text(customName ?? workout.type.displayName)
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+
+                    if let recordStanding {
+                        BodyWorkoutPRGlyph(standing: recordStanding)
+                        // The baseline scan usually finishes after this sheet is up,
+                        // so the trophy fades into a settled row.
+                        .transition(.opacity)
+                    }
+                }
+                .animation(reduceMotion ? nil : .easeIn(duration: 0.3), value: recordStanding)
 
                 Text(workoutDetailText)
                     .font(.system(.subheadline, design: .rounded))

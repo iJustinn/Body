@@ -40,6 +40,10 @@ struct WorkoutCalendarEntry: TimelineEntry {
     let background: BodyWidgetBackgroundSelection
     let snapshot: WorkoutMonthSnapshot
     let isPro: Bool
+    /// Raw `BodyWorkoutColorOverrides` string read from the App Group at entry-load
+    /// time. Carried on the entry (rather than resolved once here) so the widget
+    /// views build the same `BodyWorkoutColorPalette` the app would for this data.
+    let workoutColorsRawValue: String
 }
 
 struct WorkoutCalendarProvider: AppIntentTimelineProvider {
@@ -48,7 +52,8 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
             date: Date(),
             background: .system,
             snapshot: .placeholder,
-            isPro: true
+            isPro: true,
+            workoutColorsRawValue: ""
         )
     }
 
@@ -82,7 +87,8 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
                     date: nextMonthStart,
                     background: entry.background,
                     snapshot: .makeEmpty(generatedAt: nextMonthStart, calendar: calendar),
-                    isPro: entry.isPro
+                    isPro: entry.isPro,
+                    workoutColorsRawValue: entry.workoutColorsRawValue
                 )
             )
         }
@@ -101,7 +107,8 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
             date: now,
             background: configuration.background ?? .system,
             snapshot: WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(usePlaceholderWhenEmpty: usePlaceholderWhenEmpty, now: now),
-            isPro: isPro
+            isPro: isPro,
+            workoutColorsRawValue: BodyWorkoutColorStore.rawOverrides
         )
     }
 }
@@ -159,9 +166,14 @@ struct BodyWorkoutTypeBreakdownWidget: Widget {
 private struct WorkoutCalendarWidgetView: View {
     let entry: WorkoutCalendarEntry
 
+    private var palette: BodyWorkoutColorPalette {
+        BodyWorkoutColorPalette(rawOverrides: entry.workoutColorsRawValue, isProUnlocked: entry.isPro)
+    }
+
     var body: some View {
         WorkoutCalendarView(
             snapshot: entry.snapshot,
+            palette: palette,
             style: .widgetLarge,
             referenceDate: entry.date
         )
@@ -174,9 +186,14 @@ private struct WorkoutTypeBreakdownWidgetView: View {
 
     @Environment(\.widgetFamily) private var family
 
+    private var palette: BodyWorkoutColorPalette {
+        BodyWorkoutColorPalette(rawOverrides: entry.workoutColorsRawValue, isProUnlocked: entry.isPro)
+    }
+
     var body: some View {
         WorkoutTypeBreakdownView(
             snapshot: entry.snapshot,
+            palette: palette,
             style: family == .systemMedium ? .widgetMedium : .widgetLarge
         )
         .padding(family == .systemMedium ? 12 : 14)

@@ -68,4 +68,6 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 # Body — Project Instructions
 
+- Never use dashes (em dashes "—" or hyphens as punctuation) in user-facing copy (UI strings, settings footers, localized text); rephrase with commas, periods, or words like "like"/"such as" instead.
+
 - Keep the project documentation in sync with code changes: whenever you change behavior, configuration, or the app version, update **README.md** (current version + feature descriptions), **VersionHistory.md** (add an entry, newest first, on each `MARKETING_VERSION`/build bump), and **TestPlan.md** (keep cases matching current code — versions, entitlements/App Group, HealthKit usage, Body Pro products, widget/watch features, feature flags — so stale assumptions don't cause false QA failures) as part of the same change. `BodyTests/ProjectConfigurationTests.swift` asserts these version/doc strings, so update those guards in the same change too.

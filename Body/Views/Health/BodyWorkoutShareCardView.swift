@@ -32,12 +32,18 @@ import UIKit
 /// snapshot, so the card skips its own Canvas trace for that case. `.video` draws
 /// *nothing*: the moving frames come from a player layer the sheet puts under the
 /// card in the preview, and from the video composition on export — either way the
-/// card is the transparent overlay held over them, scrims and all.
+/// card is the transparent overlay held over them, scrims and all. `.transparent`
+/// draws nothing either, but for the opposite reason: nothing is ever going under it,
+/// so it also drops the scrims — a black gradient baked into the exported alpha would
+/// show up as two dark bands on whatever the user drops the PNG onto. Its ink is a
+/// payload rather than a derived value for the same reason: with no background to read
+/// the polarity off, the user picks it.
 enum WorkoutShareCardBackground {
     case preset(BodyWorkoutSharePreset)
     case photo(UIImage)
     case map(UIImage)
     case video
+    case transparent(WorkoutShareCardInk)
 }
 
 /// Which arrangement the card draws. Passed in rather than derived from `background`:
@@ -73,6 +79,10 @@ struct BodyWorkoutShareCardView: View {
     let iconHidden: Bool
     let locality: String?
     let type: BodyWorkoutType
+    /// Resolved workout colors (built-in defaults plus any Pro customization), passed in
+    /// like every other value here rather than read from the environment — an
+    /// `ImageRenderer` root doesn't inherit it, and this view stays environment-independent.
+    let palette: BodyWorkoutColorPalette
     let background: WorkoutShareCardBackground
     let layout: WorkoutShareCardLayout
     /// The card's shape. Already resolved through
@@ -95,6 +105,10 @@ struct BodyWorkoutShareCardView: View {
     /// sheet from the visibility toggles and whatever the profile currently has.
     /// Defaulted so existing call sites (tests, previews) compile unchanged.
     var attribution: WorkoutShareAttribution = .empty
+    /// The all-time personal records this workout holds, resolved once by the sheet.
+    /// The card never queries the store — it only asks whether the set is empty, since
+    /// a card shows at most one badge however many records the workout holds.
+    var personalRecords: Set<WorkoutRecordMetric> = []
 
     /// #0128F4 — `WorkoutShareRouteColorChoice.bodyBlue`, the default trace colour.
     static let defaultRouteColor = Color(red: 1 / 255, green: 40 / 255, blue: 244 / 255)
@@ -113,12 +127,31 @@ struct BodyWorkoutShareCardView: View {
     /// Which way this card's ink runs, read from the background that is *actually*
     /// drawn rather than from any stored preference: a photo, a map snapshot, or a video
     /// frame is dark-backed by the scrims and always takes the light ink, even while a
-    /// Daylight preset stays selected in the tray.
+    /// Daylight preset stays selected in the tray. Transparent is the one background
+    /// that carries its own — there is nothing behind the text to derive it from.
     private var ink: WorkoutShareCardInk {
         switch background {
         case .preset(let preset): return preset.ink
         case .photo, .map, .video: return .light
+        case .transparent(let ink): return ink
         }
+    }
+
+    /// The scrims exist to darken (or lighten) whatever is behind the text. Transparent
+    /// has nothing behind it, and a scrim would be the one part of the export that
+    /// *isn't* see-through — two grey bands on the user's own backdrop. The ink's
+    /// legibility shadow, which every text run already carries, does the work instead.
+    private var drawsScrims: Bool {
+        if case .transparent = background { return false }
+        return true
+    }
+
+    /// Map tiles carry bright labels and roads behind the text, so their scrims are
+    /// taller and darker. A property rather than an `if case` inside `scrims`: that body
+    /// is a `@ViewBuilder` now, and a bare `if`/`else` statement there is read as a view.
+    private var isMapBackground: Bool {
+        if case .map = background { return true }
+        return false
     }
 
     /// `.routeless` never traces, whatever it's handed: making that a property of the
@@ -167,7 +200,7 @@ struct BodyWorkoutShareCardView: View {
         let size = geometry.size
         switch background {
         case .preset(let preset):
-            preset.gradient(tint: type.color)
+            preset.gradient(tint: palette.color(for: type))
         case .photo(let image):
             // Scale then offset, then clip: the fill's overhang beyond the card must
             // survive until after the transform, because the clamp lets the photo pan
@@ -186,10 +219,11 @@ struct BodyWorkoutShareCardView: View {
                 .scaledToFill()
                 .frame(width: size.width, height: size.height)
                 .clipped()
-        case .video:
+        case .video, .transparent:
             // Deliberately empty, sized so the ZStack still gets the card's frame from
             // its background layer. `ImageRenderer.isOpaque` is false, so the rendered
-            // overlay keeps this transparency and the clip shows through it.
+            // overlay keeps this transparency — the clip shows through it for `.video`,
+            // and for `.transparent` it *is* the export's alpha channel.
             Color.clear
                 .frame(width: size.width, height: size.height)
         }
@@ -200,28 +234,31 @@ struct BodyWorkoutShareCardView: View {
     /// roads right behind the text, so they get taller, darker shades. The heights are
     /// fractions of the card's height, so a short landscape card isn't swallowed. The
     /// scrim colour follows the ink — a white card lightens its edges rather than
-    /// darkening them — while the opacities stay the same on both polarities.
+    /// darkening them — while the opacities stay the same on both polarities. A
+    /// transparent card draws none: see `drawsScrims`.
+    @ViewBuilder
     private var scrims: some View {
-        let isMap: Bool
-        if case .map = background { isMap = true } else { isMap = false }
+        let isMap = isMapBackground
         let scrim = ink.scrim
 
-        return VStack(spacing: 0) {
-            LinearGradient(
-                colors: [scrim.opacity(isMap ? 0.85 : 0.45), scrim.opacity(0)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: geometry.topScrimHeight(isMap: isMap))
+        if drawsScrims {
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [scrim.opacity(isMap ? 0.85 : 0.45), scrim.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: geometry.topScrimHeight(isMap: isMap))
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-            LinearGradient(
-                colors: [scrim.opacity(0), scrim.opacity(isMap ? 0.85 : 0.5)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: geometry.bottomScrimHeight(isMap: isMap))
+                LinearGradient(
+                    colors: [scrim.opacity(0), scrim.opacity(isMap ? 0.85 : 0.5)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: geometry.bottomScrimHeight(isMap: isMap))
+            }
         }
     }
 
@@ -257,7 +294,7 @@ struct BodyWorkoutShareCardView: View {
                 // the card's background, and this layout is map-only (a dark backdrop).
                 .foregroundStyle(.white)
                 .frame(width: 46, height: 46)
-                .background(type.color.opacity(0.45))
+                .background(palette.color(for: type).opacity(0.45))
                 .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
 
             VStack(alignment: .leading, spacing: 4) {
@@ -353,6 +390,16 @@ struct BodyWorkoutShareCardView: View {
         // drops onto its own full-width line instead, trailing-aligned where the
         // wordmark alone used to sit.
         VStack(alignment: .trailing, spacing: 8) {
+            // The badge takes its own leading-aligned line above the values. The row
+            // below has ~6 pt of slack on a 360 pt card, so anything added inside it
+            // would shrink a metric instead of fitting beside it.
+            if !personalRecords.isEmpty {
+                HStack(spacing: 0) {
+                    recordBadgeRow
+                    Spacer(minLength: 0)
+                }
+            }
+
             HStack(alignment: .bottom, spacing: 24) {
                 ForEach(Array(metrics.enumerated()), id: \.offset) { _, metric in
                     VStack(alignment: .leading, spacing: 3) {
@@ -377,6 +424,41 @@ struct BodyWorkoutShareCardView: View {
             if !attribution.isEmpty {
                 branding
             }
+        }
+    }
+
+    // MARK: - Personal record badge
+
+    /// One badge per card, drawn in the metrics block rather than beside the header:
+    /// the header's number column and the classic bottom row are both already full,
+    /// and a pill squeezed into either would truncate a metric value.
+    ///
+    /// `.onMedia` over everything dark-backed — photos, map tiles, video frames, and
+    /// the dark gradient presets — where the workout tint isn't contrast-safe; the
+    /// tinted pill only on the light-inked (white card) presets.
+    /// Only ever `.current`: a shared card boasting a record this workout has since
+    /// lost would read as a claim it can't back up, so a former PR draws nothing here.
+    private var recordBadge: some View {
+        BodyWorkoutPRBadge(style: ink == .light ? .onMedia : .tinted)
+            // The share sheet animates the set's arrival; the card only has to say
+            // how the badge enters.
+            .transition(.opacity)
+    }
+
+    /// The traced column layout hands its metrics a fixed, top-anchored frame that
+    /// already ends a few points above the branding, so a badge added to that flow
+    /// pushes the last value onto the wordmark. There the badge is *positioned* into
+    /// the gap the trace leaves above the stack instead, which costs the metrics no
+    /// height at all. Every other block is centred (or has slack), so it takes the
+    /// badge in flow and simply re-centres around it.
+    private var positionsRecordBadge: Bool {
+        layout == .centered && showsTrace && geometry.centeredMode == .column
+    }
+
+    @ViewBuilder
+    private var recordBadgeRow: some View {
+        if !personalRecords.isEmpty, !positionsRecordBadge {
+            recordBadge
         }
     }
 
@@ -454,6 +536,10 @@ struct BodyWorkoutShareCardView: View {
             }
             .frame(width: metricsRect.width, height: metricsRect.height)
             .position(x: metricsRect.midX, y: metricsRect.midY)
+            if !personalRecords.isEmpty {
+                recordBadge
+                    .position(x: metricsRect.midX, y: metricsRect.minY - 18)
+            }
         case .routeOverRow:
             routeRegion
             // A short card can't afford a column under the trace, so the blocks go
@@ -527,6 +613,7 @@ struct BodyWorkoutShareCardView: View {
             // Three blocks won't read on one line of a 360 pt card, so they wrap into
             // rows of two — which centers the odd one under the pair.
             VStack(spacing: 20) {
+                recordBadgeRow
                 ForEach(Array(stride(from: 0, to: centeredMetrics.count, by: 2)), id: \.self) { start in
                     metricsRow(Array(centeredMetrics[start..<min(start + 2, centeredMetrics.count)]))
                 }
@@ -570,9 +657,12 @@ struct BodyWorkoutShareCardView: View {
     }
 
     private var centeredMetricsStack: some View {
-        VStack(spacing: 20) {
-            ForEach(Array(centeredMetrics.enumerated()), id: \.offset) { _, metric in
-                metricBlock(metric)
+        VStack(spacing: 12) {
+            recordBadgeRow
+            VStack(spacing: 20) {
+                ForEach(Array(centeredMetrics.enumerated()), id: \.offset) { _, metric in
+                    metricBlock(metric)
+                }
             }
         }
         .multilineTextAlignment(.center)
@@ -584,9 +674,12 @@ struct BodyWorkoutShareCardView: View {
     /// The same blocks the stack draws, laid out along the card's width — what a card
     /// too short for a column uses instead.
     private var centeredMetricsRow: some View {
-        metricsRow(centeredMetrics)
-            .multilineTextAlignment(.center)
-            .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
+        VStack(spacing: 12) {
+            recordBadgeRow
+            metricsRow(centeredMetrics)
+        }
+        .multilineTextAlignment(.center)
+        .shadow(color: ink.legibilityShadow, radius: 5, x: 0, y: 1.5)
     }
 
     private func metricsRow(_ items: [WorkoutShareMetric]) -> some View {
@@ -613,6 +706,7 @@ struct BodyWorkoutShareCardView: View {
         let style = geometry.metricBlockStyle
         let valueSize = gridValueSize
         return VStack(spacing: style.rowGap) {
+            recordBadgeRow
             ForEach(Array(metricGridRows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 24) {
                     ForEach(Array(row.enumerated()), id: \.offset) { _, metric in
@@ -890,6 +984,7 @@ private func previewCard(
         iconHidden: false,
         locality: "Cupertino",
         type: .running,
+        palette: .builtIn,
         background: .preset(.midnight),
         layout: layout,
         aspectRatio: aspectRatio,

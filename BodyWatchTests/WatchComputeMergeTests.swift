@@ -138,6 +138,46 @@ final class WatchComputeMergeTests: XCTestCase {
         XCTAssertEqual(trainingLoad?.computedAt, t0, "A seed-carried value must not be re-stamped as fresh.")
     }
 
+    func testExerciseMinutesWeeklySurvivesAComputeThatCannotMeasureIt() {
+        // The on-watch compute rebuilds the snapshot through the same builder,
+        // so it re-emits an exerciseMinutes metric with an all-nil `weekly`
+        // (it has no exercise-minutes trend of its own). `WatchComputeCoordinator`
+        // never stamps the kind into `dataAsOf`, so the empty bars must not
+        // overwrite the phone's — the complication would otherwise blank out
+        // on every local compute.
+        let phoneWeek: [Double?] = [12, 30, nil, 45, 22, 0, 38]
+        let current = snapshot(
+            metrics: [
+                metric(
+                    WatchMetricKindKey.exerciseMinutes,
+                    displayValue: "38", rawValue: 38,
+                    weekly: phoneWeek,
+                    computedAt: t0
+                )
+            ],
+            generatedAt: t0,
+            lastRefreshDate: t0
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [
+                    metric(
+                        WatchMetricKindKey.exerciseMinutes,
+                        displayValue: "--", rawValue: nil,
+                        weekly: Array(repeating: nil, count: 7)
+                    )
+                ],
+                dataAsOf: [WatchMetricKindKey.heartRate: t1]
+            ),
+            into: current
+        )
+
+        let exercise = merged.metric(forKind: WatchMetricKindKey.exerciseMinutes)
+        XCTAssertEqual(exercise?.weekly, phoneWeek)
+        XCTAssertEqual(exercise?.displayValue, "38")
+        XCTAssertEqual(exercise?.computedAt, t0)
+    }
+
     func testKindInDataAsOfIsAdoptedAndStampedWithItsWatermark() {
         let current = snapshot(
             metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "62", rawValue: 62, computedAt: t0)],

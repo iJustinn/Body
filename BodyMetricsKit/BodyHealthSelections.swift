@@ -22,8 +22,13 @@ enum BodyAppearancePreference {
     static let showsSubMinuteAwakeSleepStagesKey = "showsSubMinuteAwakeSleepStages"
     static let showsLeadingTrailingAwakeSleepStagesKey = "showsLeadingTrailingAwakeSleepStages"
     static let showSleepScoreKey = "showSleepScore"
+    /// Whether the Effort card shows on workout detail pages at all. Off, the
+    /// card is hidden everywhere and the effort settings below it do nothing.
+    /// Default true.
+    static let workoutEffortCardEnabledKey = "workoutEffortCardEnabled"
     static let showWorkoutEffortSuggestionsKey = "showWorkoutEffortSuggestions"
     static let autoApplyWorkoutEffortKey = "autoApplyWorkoutEffort"
+    static let workoutsChartSwipeSwitchesMonthKey = "workoutsChartSwipeSwitchesMonth"
     static let showReadinessAICommentKey = "showReadinessAIComment"
     static let workoutRouteStyleKey = "workoutRouteStyle"
     static let drawsWorkoutRouteOnLoadKey = "drawsWorkoutRouteOnLoad"
@@ -36,11 +41,14 @@ enum BodyAppearancePreference {
     static let homeBackgroundSeparatorsKey = "homeBackgroundSeparators"
     static let homeBackgroundEnabledKey = "homeBackgroundEnabled"
     static let homeBackgroundProfilesKey = "homeBackgroundProfiles"
+    static let workoutColorOverridesKey = "workoutColorOverrides"
+    static let knownWorkoutTypesKey = "knownWorkoutTypes"
     static let defaultTrendRangeKey = "defaultTrendRange"
     static let homeTrendCardSelectionKey = "homeTrendCardSelection"
     static let metricDayViewSelectionKey = "metricDayViewSelection"
     static let metricWarningsKey = "metricWarnings"
     static let metricWarningThresholdsKey = "metricWarningThresholds"
+    static let metricWarningNotificationsKey = "metricWarningNotificationsEnabled"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthPermissionExpandedMigratedKey = "healthPermissionExpandedMigrated"
     static let healthCardioFitnessMigratedKey = "healthCardioFitnessMigrated"
@@ -571,9 +579,15 @@ enum BodyHealthTrendRange: String, CaseIterable, Identifiable {
     }
 
     /// Oldest reading a "latest value" summary will accept — the same boundary
-    /// the daily trend charts are fetched over, so a card can never show a
-    /// value its own chart has no room for. `HealthKitFetchEngine`'s trend
-    /// interval and its latest-sample queries both derive their start here.
+    /// the daily trend charts COVER, so a card can never show a value its own
+    /// chart has no room for. `HealthKitFetchEngine`'s trend interval and its
+    /// latest-sample queries both derive their start here.
+    ///
+    /// "Cover", not "are fetched over": a refresh may query a windowed leaf over
+    /// a shorter span and merge the cached points older than it back in
+    /// (`HealthKitFetchEngine.mergeWindowedTrend`), so the published series
+    /// still spans this whole boundary while a background pass refetches the
+    /// rest of it.
     static func recentTrendWindowStart(anchor: Date, calendar: Calendar) -> Date {
         let oldestPastOffset = maximumDayCount - 1
         let currentDayStart = calendar.startOfDay(for: anchor)

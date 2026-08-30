@@ -162,12 +162,17 @@ final class BodyDayChartSegmentTests: XCTestCase {
     /// instant `date(hour:)` uses. Jan 1 2001 has no DST transition anywhere.
     private static let placeholderDayStart = Calendar.bodyGregorian.startOfDay(for: Date(timeIntervalSinceReferenceDate: 0))
 
-    private func dayEntry(hour: Int, value: Double) -> BodyHealthMetricDayChartEntry {
+    private func dayEntry(
+        hour: Int,
+        value: Double,
+        role: BodyHealthSourceRole = .primary,
+        dayStart: Date = BodyDayChartSegmentTests.placeholderDayStart
+    ) -> BodyHealthMetricDayChartEntry {
         BodyHealthMetricDayChartEntry(
-            sourceName: "Primary",
-            sourceRole: .primary,
+            sourceName: role == .primary ? "Primary" : "Secondary",
+            sourceRole: role,
             bucket: HealthTrendHourlyBucket(
-                hourStart: Self.placeholderDayStart.addingTimeInterval(TimeInterval(hour) * 3_600),
+                hourStart: dayStart.addingTimeInterval(TimeInterval(hour) * 3_600),
                 averageValue: value,
                 samples: []
             ),
@@ -286,19 +291,182 @@ final class BodyDayChartSegmentTests: XCTestCase {
         XCTAssertEqual(hourNine?.endPlotDate, full[2].plotDate)
     }
 
-    func testMakeLineSegmentsSkipsSourcesWithoutData() {
-        XCTAssertTrue(
-            BodyHealthMetricDayChart.makeLineSegments(from: [], dayStart: Self.placeholderDayStart).isEmpty
-        )
+    // MARK: - A configured source that is silent today (fade out, not pop)
+
+    /// Primary readings a silent secondary can borrow: hour 2 reads 10, hour
+    /// 20 reads 30, so hour 3 borrows 10, hour 19 borrows 30, and hour 11 (nine
+    /// hours from both) borrows the earlier one.
+    private var anchoringPrimaryEntries: [BodyHealthMetricDayChartEntry] {
+        [dayEntry(hour: 2, value: 10), dayEntry(hour: 20, value: 30)]
     }
 
-    func testAddingPlaceholderDotsSkipsSourcesWithoutData() {
+    func testMakeLineSegmentsFillsAConfiguredSourceWithNoDataFromTheOtherSource() {
+        let segments = BodyHealthMetricDayChart.makeLineSegments(
+            from: anchoringPrimaryEntries,
+            dayStart: Self.placeholderDayStart,
+            configuredRoles: [.primary, .secondary]
+        )
+        let secondary = segments.filter { $0.sourceRole == .secondary }
+        let valueByHour = Dictionary(uniqueKeysWithValues: secondary.map { ($0.hourIndex, $0.startValue) })
+
+        // Every hour keeps a secondary mark, so the line drawn on the previous
+        // day animates to opacity 0 instead of freezing then popping.
+        XCTAssertEqual(secondary.count, 24)
+        XCTAssertTrue(secondary.allSatisfy(\.isPlaceholder))
+        XCTAssertTrue(secondary.allSatisfy { $0.startPlotDate == $0.endPlotDate })
+        XCTAssertTrue(secondary.allSatisfy { $0.startValue == $0.endValue })
+        XCTAssertEqual(Set(secondary.map(\.id)).count, 24)
+        XCTAssertEqual(valueByHour[3], 10)
+        XCTAssertEqual(valueByHour[19], 30)
+        XCTAssertEqual(valueByHour[11], 10)
+    }
+
+    func testAddingPlaceholderDotsFillsAConfiguredSourceWithNoDataFromTheOtherSource() {
+        let real = anchoringPrimaryEntries
+        let filled = BodyHealthMetricDayChart.addingPlaceholderDots(
+            to: real,
+            fullEntries: real,
+            dayStart: Self.placeholderDayStart,
+            configuredRoles: [.primary, .secondary]
+        )
+        let secondary = filled.filter { $0.sourceRole == .secondary }
+        let valueByHour = Dictionary(uniqueKeysWithValues: secondary.map { (hourIndex(of: $0), $0.averageValue) })
+
+        XCTAssertEqual(filled.count, 48)
+        XCTAssertEqual(secondary.count, 24)
+        XCTAssertTrue(secondary.allSatisfy(\.isPlaceholder))
+        XCTAssertTrue(secondary.allSatisfy { $0.id.hasPrefix("secondary-") })
+        XCTAssertEqual(Set(secondary.map(\.id)).count, 24)
+        XCTAssertEqual(valueByHour[3], 10)
+        XCTAssertEqual(valueByHour[19], 30)
+        XCTAssertEqual(valueByHour[11], 10)
+    }
+
+    func testSingleSourceDayAddsNoSecondaryMarks() {
+        let real = anchoringPrimaryEntries
+        let segments = BodyHealthMetricDayChart.makeLineSegments(
+            from: real,
+            dayStart: Self.placeholderDayStart
+        )
+        let filled = BodyHealthMetricDayChart.addingPlaceholderDots(
+            to: real,
+            fullEntries: real,
+            dayStart: Self.placeholderDayStart
+        )
+
+        XCTAssertTrue(segments.allSatisfy { $0.sourceRole == .primary })
+        XCTAssertTrue(filled.allSatisfy { $0.sourceRole == .primary })
+        XCTAssertEqual(segments.count, 24)
+        XCTAssertEqual(filled.count, 24)
+    }
+
+    func testConfiguredSourcesWithNoFiniteDataAnywhereAddNoMarks() {
+        XCTAssertTrue(
+            BodyHealthMetricDayChart.makeLineSegments(
+                from: [],
+                dayStart: Self.placeholderDayStart,
+                configuredRoles: [.primary, .secondary]
+            ).isEmpty
+        )
         XCTAssertTrue(
             BodyHealthMetricDayChart.addingPlaceholderDots(
                 to: [],
                 fullEntries: [],
-                dayStart: Self.placeholderDayStart
+                dayStart: Self.placeholderDayStart,
+                configuredRoles: [.primary, .secondary]
             ).isEmpty
         )
+
+        // Readings exist but none of them plot, so there is still no value for
+        // a placeholder to sit on.
+        let nonfinite = [
+            dayEntry(hour: 2, value: .nan),
+            dayEntry(hour: 6, value: .infinity, role: .secondary)
+        ]
+        XCTAssertTrue(
+            BodyHealthMetricDayChart.makeLineSegments(
+                from: nonfinite,
+                dayStart: Self.placeholderDayStart,
+                configuredRoles: [.primary, .secondary]
+            ).isEmpty
+        )
+        XCTAssertEqual(
+            BodyHealthMetricDayChart.addingPlaceholderDots(
+                to: nonfinite,
+                fullEntries: nonfinite,
+                dayStart: Self.placeholderDayStart,
+                configuredRoles: [.primary, .secondary]
+            ).map(\.id),
+            nonfinite.map(\.id)
+        )
+    }
+
+    func testASilentPrimaryBorrowsTheSecondarySourcesReadings() {
+        // The anchoring works either way round: the drawn source is the one
+        // with data, whichever role it holds.
+        let secondaryOnly = [
+            dayEntry(hour: 4, value: 55, role: .secondary),
+            dayEntry(hour: 5, value: 65, role: .secondary)
+        ]
+        let segments = BodyHealthMetricDayChart.makeLineSegments(
+            from: secondaryOnly,
+            dayStart: Self.placeholderDayStart,
+            configuredRoles: [.primary, .secondary]
+        )
+        let filled = BodyHealthMetricDayChart.addingPlaceholderDots(
+            to: secondaryOnly,
+            fullEntries: secondaryOnly,
+            dayStart: Self.placeholderDayStart,
+            configuredRoles: [.primary, .secondary]
+        )
+        let primarySegments = segments.filter { $0.sourceRole == .primary }
+        let primaryDots = filled.filter { $0.sourceRole == .primary }
+
+        XCTAssertEqual(primarySegments.count, 24)
+        XCTAssertTrue(primarySegments.allSatisfy(\.isPlaceholder))
+        XCTAssertEqual(primarySegments.first { $0.hourIndex == 0 }?.startValue, 55)
+        XCTAssertEqual(primarySegments.first { $0.hourIndex == 23 }?.startValue, 65)
+        XCTAssertEqual(primaryDots.count, 24)
+        XCTAssertTrue(primaryDots.allSatisfy(\.isPlaceholder))
+        XCTAssertEqual(primaryDots.first { hourIndex(of: $0) == 12 }?.averageValue, 65)
+    }
+
+    func testPlaceholderCountFollowsADaylightSavingDaysHourCount() throws {
+        // The other tests key off `placeholderDayStart`, a local midnight, so
+        // resolve it under the ambient time zone before swapping in one that
+        // has a transition.
+        _ = Self.placeholderDayStart
+        let originalTimeZone = NSTimeZone.default
+        NSTimeZone.default = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        addTeardownBlock { NSTimeZone.default = originalTimeZone }
+
+        // March 10 2024 springs forward in New York: a 23-hour day.
+        let calendar = Calendar.bodyGregorian
+        let noon = try XCTUnwrap(
+            DateComponents(calendar: calendar, year: 2024, month: 3, day: 10, hour: 12).date
+        )
+        let dayStart = calendar.startOfDay(for: noon)
+        let real = [
+            dayEntry(hour: 1, value: 60, dayStart: dayStart),
+            dayEntry(hour: 3, value: 70, dayStart: dayStart)
+        ]
+        let segments = BodyHealthMetricDayChart.makeLineSegments(from: real, dayStart: dayStart)
+        let filled = BodyHealthMetricDayChart.addingPlaceholderDots(
+            to: real,
+            fullEntries: real,
+            dayStart: dayStart
+        )
+        let secondaryFill = BodyHealthMetricDayChart.addingPlaceholderDots(
+            to: real,
+            fullEntries: real,
+            dayStart: dayStart,
+            configuredRoles: [.primary, .secondary]
+        )
+
+        XCTAssertEqual(segments.count, 23)
+        XCTAssertEqual(Set(segments.map(\.id)).count, 23)
+        XCTAssertEqual(filled.count, 23)
+        XCTAssertEqual(Set(filled.map(\.id)).count, 23)
+        XCTAssertEqual(secondaryFill.filter { $0.sourceRole == .secondary }.count, 23)
     }
 }

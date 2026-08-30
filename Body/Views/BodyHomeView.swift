@@ -746,6 +746,11 @@ struct BodyHomeView: View {
                 summary: summary.readiness,
                 chartPreview: trends.series(for: .readiness)
             ),
+            stressMetric(
+                summary: summary.stress,
+                currentScore: summary.stressCurrentScore,
+                chartPreview: trends.series(for: .stress)
+            ),
             metric(
                 kind: .exerciseMinutes,
                 title: "Exercise Minutes",
@@ -992,6 +997,33 @@ struct BodyHomeView: View {
         )
     }
 
+    private func stressMetric(
+        summary: StressDaySummary?,
+        currentScore: Int?,
+        chartPreview: HealthTrendSeries
+    ) -> BodyHealthMetricCard.Model {
+        let scoreText = summary?.averageScore.map { "\($0)" } ?? "--"
+        // Band follows the CURRENT stress reading when one is fresh (see
+        // `stressCurrentScore`'s staleness guard), falling back to the day
+        // average so the card still shows a band once any score exists.
+        let bandScore = currentScore ?? summary?.averageScore
+        let bandDisplay = bandScore.map { StressBand.band(for: $0) }.map {
+            BodyMetricDisplayValue(title: "Band", value: $0.title, unit: "")
+        }
+
+        return BodyHealthMetricCard.Model(
+            kind: .stress,
+            title: "Stress",
+            value: scoreText,
+            unit: "",
+            symbolName: "brain.head.profile.fill",
+            symbolColor: Color(red: 0.90, green: 0.35, blue: 0.75),
+            prominentMetrics: bandDisplay.map { [$0] } ?? [],
+            chartPreviewStyle: .line,
+            chartPreview: chartPreview
+        )
+    }
+
     private func energyMetric(
         kind: HealthMetricKind,
         title: String,
@@ -1122,7 +1154,7 @@ struct BodyHomeView: View {
             title: "Vitals",
             value: assessment?.statusText ?? "--",
             unit: "",
-            symbolName: "heart.badge.bolt",
+            symbolName: "heart.badge.bolt.fill",
             symbolColor: Color(red: 0.25, green: 0.62, blue: 1.00),
             chartPreviewStyle: .dots,
             previewDotEntries: assessment?.measurements.map { measurement in
@@ -1697,6 +1729,7 @@ struct BodyHomeView: View {
                 symbolName: "flame.fill",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .bar,
+                sleepHistory: trends.sleepHistory,
                 valueTransform: {
                     BodyValueFormat.energyValue(
                         kilocalories: $0,
@@ -1738,7 +1771,7 @@ struct BodyHomeView: View {
                 title: "Vitals",
                 value: assessment?.statusText ?? "--",
                 unit: "",
-                symbolName: "heart.badge.bolt",
+                symbolName: "heart.badge.bolt.fill",
                 symbolColor: Color(red: 0.25, green: 0.62, blue: 1.00),
                 series: .empty,
                 basicsTrend: nil,
@@ -1750,6 +1783,58 @@ struct BodyHomeView: View {
                 chartStyle: .bar,
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
                 secondaryValueFormatter: nil,
+                helpText: kind.detailHelpText,
+                dataSourceText: kind.detailDataSourceText
+            )
+        case .stress:
+            let statusText: String
+            if let band = summary.stress?.band {
+                statusText = band.title
+            } else if workoutStore.permissionSelection.includes(.heart), summary.heartRate.value != nil {
+                // A quiet-HR baseline takes several days of heart data to
+                // calibrate; until then `summary.stress` stays nil even though
+                // heart data is flowing, so this reads as "still building" rather
+                // than "no data at all".
+                statusText = String(localized: "Calibrating")
+            } else {
+                statusText = String(localized: "stress.status.noData", defaultValue: "No Data")
+            }
+
+            return BodyHealthMetricDetailModel(
+                kind: kind,
+                title: "Stress",
+                value: summary.stress?.averageScore.map { "\($0)" } ?? "--",
+                unit: "",
+                symbolName: "brain.head.profile.fill",
+                symbolColor: Color(red: 0.90, green: 0.35, blue: 0.75),
+                series: trends.stress,
+                rangeSeries: trends.rangeSeries(for: kind),
+                basicsTrend: nil,
+                sleepStageSnapshot: nil,
+                sleepScore: nil,
+                sleepVitals: nil,
+                sleepDuration: nil,
+                sleepHistory: trends.sleepHistory,
+                chartStyle: .line,
+                highlightedRange: BodyStressBandPresentation.make(
+                    for: summary.stress?.averageScore.map(Double.init)
+                ),
+                highlightedRangeResolver: BodyStressBandPresentation.make(for:),
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
+                secondaryValueFormatter: nil,
+                stress: summary.stress,
+                headerMetrics: [
+                    BodyMetricDisplayValue(
+                        title: "Stress",
+                        value: summary.stress?.averageScore.map { "\($0)" } ?? "--",
+                        unit: ""
+                    ),
+                    BodyMetricDisplayValue(
+                        title: "Status",
+                        value: statusText,
+                        unit: ""
+                    )
+                ],
                 helpText: kind.detailHelpText,
                 dataSourceText: kind.detailDataSourceText
             )

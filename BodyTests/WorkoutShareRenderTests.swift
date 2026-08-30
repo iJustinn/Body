@@ -103,6 +103,7 @@ final class WorkoutShareRenderTests: XCTestCase {
             iconHidden: iconHidden,
             locality: "Cupertino",
             type: workout.type,
+            palette: .builtIn,
             background: background,
             layout: layout,
             aspectRatio: aspectRatio,
@@ -865,6 +866,7 @@ final class WorkoutShareRenderTests: XCTestCase {
             iconHidden: false,
             locality: "Cupertino",
             type: workout.type,
+            palette: .builtIn,
             preset: preset,
             fontDesign: .rounded,
             routeColor: BodyWorkoutShareCardView.defaultRouteColor,
@@ -985,6 +987,90 @@ final class WorkoutShareRenderTests: XCTestCase {
 
         let scale = try XCTUnwrap(BodyWorkoutShareSheet.longExportScale(forHeight: heightPoints))
         XCTAssertLessThanOrEqual(heightPoints * scale, 12_000)
+    }
+
+    // MARK: - Transparent background
+    //
+    // The feature's whole claim is that the rasterized card carries a real alpha
+    // channel. `ImageRenderer.isOpaque` defaults to false, so the way this breaks is
+    // silent — a scrim, a stray background layer, or a preset slipping through the
+    // selection would fill the alpha in without any layout looking wrong.
+
+    /// Corners are the probe: no layout draws in them, so on a preset they carry the
+    /// background's flat colour at full alpha and on a transparent card they must carry
+    /// nothing at all. Midnight is asserted alongside so the test can't pass because the
+    /// alpha reader is broken.
+    func testTransparentBackgroundRendersFullyTransparentCorners() throws {
+        let transparent = try XCTUnwrap(makeRenderer(background: .transparent(.light)).uiImage?.cgImage)
+        let midnight = try XCTUnwrap(makeRenderer(background: .preset(.midnight)).uiImage?.cgImage)
+
+        for (x, y) in [(0, 0), (340, 0), (0, 620), (340, 620)] {
+            let region = Self.pixelRect(x: CGFloat(x), y: CGFloat(y), width: 20, height: 20, in: transparent)
+            XCTAssertEqual(
+                Self.maximumAlpha(in: transparent, region: region),
+                0,
+                "the transparent card's corner at (\(x), \(y)) was not fully transparent"
+            )
+            XCTAssertEqual(
+                Self.maximumAlpha(in: midnight, region: region),
+                255,
+                "Midnight's corner at (\(x), \(y)) was not opaque — the alpha probe is wrong"
+            )
+        }
+    }
+
+    /// The scrims are what would quietly ruin the export: they are drawn full-width over
+    /// the card's top and bottom bands, so leaving them on would bake two grey gradients
+    /// into the alpha. The top scrim band's outer edges stay clear of the centered
+    /// layout's content, so anything opaque there is a scrim.
+    func testTransparentBackgroundDrawsNoScrims() throws {
+        let cgImage = try XCTUnwrap(makeRenderer(background: .transparent(.light)).uiImage?.cgImage)
+
+        // 9:16's top scrim is 170 pt tall and its bottom one 160 pt, both full width.
+        // The 20 pt-wide gutters sit outside the centered layout's 24 pt padding.
+        for region in [
+            Self.pixelRect(x: 0, y: 0, width: 20, height: 170, in: cgImage),
+            Self.pixelRect(x: 340, y: 0, width: 20, height: 170, in: cgImage),
+            Self.pixelRect(x: 0, y: 480, width: 20, height: 160, in: cgImage),
+            Self.pixelRect(x: 340, y: 480, width: 20, height: 160, in: cgImage)
+        ] {
+            XCTAssertEqual(
+                Self.maximumAlpha(in: cgImage, region: region),
+                0,
+                "a scrim rendered into the transparent card's alpha channel"
+            )
+        }
+    }
+
+    /// The ink is the transparent background's payload — nothing behind the text can be
+    /// read to derive it — so the two tiles have to produce visibly different cards. Same
+    /// region, same fixture: only the ink differs.
+    func testTransparentInkIsTakenFromTheBackgroundPayload() throws {
+        let metricStack = { (image: CGImage) in
+            Self.pixelRect(x: 30, y: 335, width: 300, height: 225, in: image)
+        }
+
+        let light = try XCTUnwrap(
+            makeRenderer(background: .transparent(.light), colorScheme: .dark).uiImage?.cgImage
+        )
+        XCTAssertTrue(
+            Self.containsNearWhitePixel(in: light, region: metricStack(light)),
+            "the light-ink transparent card had no white text in its metric stack"
+        )
+
+        let dark = try XCTUnwrap(
+            makeRenderer(background: .transparent(.dark), colorScheme: .light).uiImage?.cgImage
+        )
+        XCTAssertTrue(
+            Self.containsOpaqueNearBlackPixel(in: dark, region: metricStack(dark)),
+            "the dark-ink transparent card had no black text in its metric stack"
+        )
+        // Without the alpha term this would pass on the light card too: a fully
+        // transparent pixel is premultiplied (0, 0, 0, 0), which reads as black.
+        XCTAssertFalse(
+            Self.containsOpaqueNearBlackPixel(in: light, region: metricStack(light)),
+            "the light-ink transparent card drew opaque black ink"
+        )
     }
 
     // MARK: - Daylight ink polarity
@@ -1415,6 +1501,45 @@ final class WorkoutShareRenderTests: XCTestCase {
         }
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
         return pixels
+    }
+
+    /// The strongest alpha anywhere in `region`, 0–255. `rgbaPixels` draws into a zeroed
+    /// buffer over a transparent context, so a region nothing rasterized into comes back
+    /// 0 — which is exactly the transparent card's claim about its own corners.
+    private static func maximumAlpha(in cgImage: CGImage, region: CGRect) -> UInt8 {
+        guard let pixels = rgbaPixels(of: cgImage) else { return 0 }
+        let bytesPerRow = cgImage.width * 4
+        var maximum: UInt8 = 0
+        for y in Int(region.minY)..<Int(region.maxY) {
+            for x in Int(region.minX)..<Int(region.maxX) {
+                maximum = max(maximum, pixels[y * bytesPerRow + x * 4 + 3])
+            }
+        }
+        return maximum
+    }
+
+    /// Dark ink that actually *drew*, as opposed to alpha. The buffer is premultiplied,
+    /// so a fully transparent pixel is (0, 0, 0, 0) and would satisfy any RGB-only
+    /// darkness test — on a transparent card that distinction is the whole assertion.
+    private static func containsOpaqueNearBlackPixel(
+        in cgImage: CGImage,
+        region: CGRect,
+        threshold: UInt8 = 110
+    ) -> Bool {
+        guard let pixels = rgbaPixels(of: cgImage) else { return false }
+        let bytesPerRow = cgImage.width * 4
+        for y in Int(region.minY)..<Int(region.maxY) {
+            for x in Int(region.minX)..<Int(region.maxX) {
+                let offset = y * bytesPerRow + x * 4
+                guard pixels[offset + 3] >= 200 else { continue }
+                if pixels[offset] <= threshold,
+                   pixels[offset + 1] <= threshold,
+                   pixels[offset + 2] <= threshold {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     /// The mirror of `containsNonBlackPixel` for the Daylight card: any pixel dark on

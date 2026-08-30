@@ -1128,11 +1128,16 @@ enum WorkoutShareRouteColorChoice: String, CaseIterable, Identifiable {
 }
 
 /// What the share sheet restores when it opens: a gradient preset (Midnight is the
-/// default) or the route map. Photos stay session-only — a Pro entitlement can lapse
-/// between sessions, and `WorkoutShareBackgroundPolicy` is the only seam that
-/// decides whether one may render.
+/// default), the route map, or no background at all. Photos stay session-only — a Pro
+/// entitlement can lapse between sessions, and `WorkoutShareBackgroundPolicy` is the
+/// only seam that decides whether one may render.
 enum BodyWorkoutShareBackgroundChoice: Equatable {
     case map
+    /// No background: the card exports as a PNG with a real alpha channel. Nothing sits
+    /// behind the text, so the ink is the user's pick rather than the background's —
+    /// hence the payload, and hence two tiles in the tray. Pro, resolved through
+    /// `WorkoutShareBackgroundPolicy.resolvedBackgroundChoice`.
+    case transparent(WorkoutShareCardInk)
     case preset(BodyWorkoutSharePreset)
 
     /// Unchanged from the preset-only key it replaces: a stored "ocean"/"sunset"/
@@ -1140,10 +1145,14 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
     static let storageKey = "workoutShareBackgroundPreset"
 
     private static let mapRawValue = "map"
+    private static let transparentLightRawValue = "transparentLight"
+    private static let transparentDarkRawValue = "transparentDark"
 
     var rawValue: String {
         switch self {
         case .map: return Self.mapRawValue
+        case .transparent(let ink):
+            return ink == .light ? Self.transparentLightRawValue : Self.transparentDarkRawValue
         case .preset(let preset): return preset.rawValue
         }
     }
@@ -1153,9 +1162,12 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
     /// when there's a route to map. A route-less workout resolves a stored "map" to
     /// Midnight for the session without rewriting the key, so the next routed share
     /// still opens on the map (the same session-only fallback a failed snapshot takes).
+    /// Transparent needs no such guard — it draws nothing either way.
     static func stored(rawValue: String?, hasRoute: Bool) -> BodyWorkoutShareBackgroundChoice {
         guard let rawValue else { return .preset(.midnight) }
         if rawValue == mapRawValue { return hasRoute ? .map : .preset(.midnight) }
+        if rawValue == transparentLightRawValue { return .transparent(.light) }
+        if rawValue == transparentDarkRawValue { return .transparent(.dark) }
         guard let preset = BodyWorkoutSharePreset(rawValue: rawValue) else { return .preset(.midnight) }
         return .preset(preset)
     }
@@ -1543,12 +1555,12 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
     /// Reads as the same air the title has above the totals: the title's glyphs carry
     /// leading the metric labels don't, so the number is larger than `titleGap`.
     private static let chartGap: CGFloat = 14
-    /// The bars take less than the full width — at 320 pt the rows read oversized.
-    private static let barWidthFraction: CGFloat = 0.86
-    /// One `WorkoutTypeBreakdownView` row and the gap under it.
-    private static let barRowHeight: CGFloat = 48
+    /// One `WorkoutTypeBreakdownView` row and the gap under it, at `.shareCard`'s
+    /// row height — leaner than the Workouts page's own 50 pt so the exported bars
+    /// don't read fat on a 360 pt card.
+    private static let barRowHeight: CGFloat = 42
     private static let barRowSpacing: CGFloat = 12
-    /// `.widgetLarge`'s own ceiling — asking for more rows than the view will ever
+    /// `.shareCard`'s own ceiling — asking for more rows than the view will ever
     /// draw would only make the limit meaningless.
     private static let maximumBarRows = 5
     /// The calendar grid's fixed furniture: the weekday band (18 pt of type plus its
@@ -1622,7 +1634,9 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
             // the totals instead of centering themselves down a tall region.
             let rows = CGFloat(barRowLimit)
             let natural = rows * Self.barRowHeight + (rows - 1) * Self.barRowSpacing
-            return CGSize(width: chartRect.width * Self.barWidthFraction, height: min(chartRect.height, natural))
+            // Full content width: the bars start and end where the title and the
+            // totals do, rather than being inset into a narrower box of their own.
+            return CGSize(width: chartRect.width, height: min(chartRect.height, natural))
         case .calendar:
             let headerHeight = showsWeekdayHeader ? Self.calendarHeaderHeight : 0
             let cellSide = max(
@@ -1639,8 +1653,9 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
         }
     }
 
-    /// How many activity rows the breakdown chart may draw here — five on the portrait
-    /// cards, four on the square, where the chart region is 284 pt tall.
+    /// How many activity rows the breakdown chart may draw here — five on every
+    /// supported ratio, including the square, whose 284 pt chart region fits five
+    /// 42 pt rows with room to spare.
     var barRowLimit: Int {
         let rows = Int((chartRect.height + Self.barRowSpacing) / (Self.barRowHeight + Self.barRowSpacing))
         return min(Self.maximumBarRows, max(1, rows))
@@ -1770,6 +1785,19 @@ struct WorkoutSharePhotoTransform: Equatable {
 enum WorkoutShareBackgroundPolicy {
     static func resolvedPhoto(_ photo: UIImage?, isProUnlocked: Bool) -> UIImage? {
         isProUnlocked ? photo : nil
+    }
+
+    /// The gate for the transparent background, which — unlike a photo or a clip — is
+    /// *stored*, so a lapse has to be absorbed on read. Same session-only fallback as
+    /// the ratio and the output style: the key is never rewritten, so a resubscribe
+    /// opens straight back on transparent. Presets and the map are free and pass
+    /// through untouched.
+    static func resolvedBackgroundChoice(
+        _ choice: BodyWorkoutShareBackgroundChoice,
+        isProUnlocked: Bool
+    ) -> BodyWorkoutShareBackgroundChoice {
+        if case .transparent = choice, !isProUnlocked { return .preset(.midnight) }
+        return choice
     }
 
     /// The same gate for a video background: a clip picked before the entitlement lapses

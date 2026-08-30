@@ -79,7 +79,8 @@ extension HealthKitFetchEngine {
              .wristTemperature,
              .timeInDaylight,
              .vitals,
-             .cardioFitness:
+             .cardioFitness,
+             .stress:
             return .empty
         }
     }
@@ -190,7 +191,8 @@ extension HealthKitFetchEngine {
              .wristTemperature,
              .timeInDaylight,
              .vitals,
-             .cardioFitness:
+             .cardioFitness,
+             .stress:
             return .empty
         }
     }
@@ -247,7 +249,8 @@ extension HealthKitFetchEngine {
              .timeInDaylight,
              .steps,
              .vitals,
-             .cardioFitness:
+             .cardioFitness,
+             .stress:
             return .empty
         }
     }

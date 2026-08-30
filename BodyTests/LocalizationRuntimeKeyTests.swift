@@ -191,6 +191,38 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         )
     }
 
+    func testWorkoutColorsKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // Settings › Workout Colors: the row/sheet title plus the custom-color
+        // sheet's summary, editor, and reset-confirmation strings.
+        try assertKeysTranslated(
+            [
+                "Workout Colors",
+                "workoutColors.custom",
+                "workoutColors.default",
+                "workoutColors.footer",
+                "workoutColors.empty",
+                "workoutColors.resetAll",
+                "workoutColors.resetAllTitle",
+                "workoutColors.resetAllMessage",
+                "workoutColors.resetAllConfirm",
+                "workoutColors.reset",
+                "workoutColors.brightness",
+                "workoutColors.values",
+                "workoutColors.hex",
+                "workoutColors.hexPlaceholder",
+                "workoutColors.red",
+                "workoutColors.green",
+                "workoutColors.blue",
+                "workoutColors.doneEditing",
+                "accessibility.workoutColorWheel",
+                "accessibility.workoutColorWheelHint"
+            ],
+            in: catalog
+        )
+    }
+
     func testAboutVitalsBodyResolvesInBodyMetricsKitCatalog() throws {
         let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
 
@@ -345,6 +377,22 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "AI comment on today's score",
             "When on, Apple Intelligence writes a short comment about what's shaping today's readiness score, including your heart rate, HRV, sleep, and training signals. Everything runs on your device, and your health data never leaves it. When off or unavailable, Body shows its built-in explanation instead.",
             "Apple Intelligence readiness comments need a supported device with Apple Intelligence turned on in Settings. Body's built-in explanation is shown instead."
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testWorkoutMonthSwipeKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // Settings › Workouts › Month Swipe: the row title (reused as the
+        // sheet title and its toggle label), the sheet's card-section title, the
+        // toggle subtitle, and the footnote explanation.
+        let keys = [
+            "Month Swipe",
+            "Workouts Chart",
+            "Swipe the chart to change month",
+            "When on, swiping left or right on the workouts calendar or type breakdown switches to the next or previous month, the same as the month picker. When off, the chart ignores horizontal swipes."
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -611,6 +659,101 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             let value = try XCTUnwrap(unit["value"] as? String, "\(key) zh-Hans missing value")
             XCTAssertFalse(value.isEmpty, "\(key) zh-Hans value is empty")
         }
+    }
+
+    /// Workout PR badge — trophy capsule on detail-sheet tiles, list rows, and share cards.
+    func testWorkoutPRBadgeKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "pr.badge",
+            "pr.accessibility.personalRecord",
+            "pr.accessibility.formerPersonalRecord",
+            // The workout filter sheet's Records section (title, caption, and
+            // its two standing rows).
+            "pr.filter.sectionTitle",
+            "pr.filter.sectionDetail",
+            "pr.filter.current",
+            "pr.filter.former"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+        XCTAssertEqual(try value(of: "pr.badge", language: "en", in: catalog), "PR")
+        XCTAssertEqual(try value(of: "pr.badge", language: "zh-Hans", in: catalog), "PR")
+        XCTAssertEqual(
+            try value(of: "pr.accessibility.personalRecord", language: "en", in: catalog),
+            "Personal record"
+        )
+        XCTAssertEqual(
+            try value(of: "pr.accessibility.personalRecord", language: "zh-Hans", in: catalog),
+            "个人纪录"
+        )
+        XCTAssertEqual(
+            try value(of: "pr.accessibility.formerPersonalRecord", language: "en", in: catalog),
+            "Former personal record"
+        )
+        XCTAssertEqual(
+            try value(of: "pr.accessibility.formerPersonalRecord", language: "zh-Hans", in: catalog),
+            "曾创个人纪录"
+        )
+    }
+
+    /// Stress card/detail titles, home-card subtitle, trend-card subject, empty/gap
+    /// states, and the calibration status word — all resolved at runtime from bare
+    /// String(localized:) literals in BodyAppearancePreference/BodyHomeView/
+    /// BodyHomeTrendCard/StressChart, so they need their own Localizable entries.
+    func testStressKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "Stress",
+            "Stress level trend",
+            "Stress from heart rate and HRV",
+            "your stress level",
+            "Calibrating",
+            "stress.status.noData",
+            "stress.stage.activity",
+            "stress.stage.baselineLegend",
+            "No Stress yet today"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    /// Stress band titles/explanations and the "About Stress" help text — dotted
+    /// runtime keys resolved against the BodyMetricsKit table from StressModels.swift
+    /// and HealthSummarySnapshot.swift.
+    func testStressKeysResolveInBodyMetricsKitCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        let keys = [
+            "stress.band.rest",
+            "stress.band.low",
+            "stress.band.medium",
+            "stress.band.high",
+            "stress.band.rest.explanation",
+            "stress.band.low.explanation",
+            "stress.band.medium.explanation",
+            "stress.band.high.explanation",
+            "About Stress",
+            "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. The variability measure is RMSSD (root mean square of successive differences), computed from the beat to beat heartbeat recordings your Apple Watch saves, with SDNN used as a fallback when those recordings are not available. Your baseline is built from your own history using a robust median and a MAD (median absolute deviation) comparison, so a level reflects how far a moment sits from your normal rather than from anyone else. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal, the load your body is under, not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any level appears."
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    /// `EnergyEquivalent.Food.name` uses `LocalizedStringResource` literals with dotted
+    /// keys, which the source-scraping tests above (regex over `String(localized: "...")`
+    /// calls) cannot see — so the food table's keys are enumerated directly here instead.
+    func testEnergyEquivalentFoodKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = EnergyEquivalent.foods.map(\.name.key) + [EnergyEquivalent.iceCube.name.key]
+        // Guards the enumeration itself: a refactor dropping foods would otherwise
+        // silently check fewer keys and still pass.
+        XCTAssertEqual(keys.count, 29, "expected one key per EnergyEquivalent.Food plus the ice cube")
+
+        try assertKeysTranslated(keys, in: catalog)
     }
 
     /// One language's resolved string for `key`, so a test can assert the translation

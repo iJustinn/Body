@@ -75,7 +75,7 @@ extension HealthKitFetchEngine {
         predicate: NSPredicate,
         limit: Int = HKObjectQueryNoLimit
     ) async throws -> [HKQuantitySample] {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[HKQuantitySample], Error>) in
+        try await trackedThrowingHealthQuery { (resume: @escaping (Result<[HKQuantitySample], Error>) -> Void) in
             let query = HKSampleQuery(
                 sampleType: type,
                 predicate: predicate,
@@ -83,10 +83,10 @@ extension HealthKitFetchEngine {
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)]
             ) { _, samples, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    resume(.failure(error))
                     return
                 }
-                continuation.resume(returning: samples as? [HKQuantitySample] ?? [])
+                resume(.success(samples as? [HKQuantitySample] ?? []))
             }
             healthStore.execute(query)
         }

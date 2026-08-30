@@ -337,28 +337,53 @@ enum HealthDashboardSnapshotStore {
         }
     }
 
-    static func load(
+    /// Both halves of the persisted envelope from a single read + decode. The
+    /// launch path needs the snapshot *and* the signature written beside it, and
+    /// reading them through two entry points tokenized the largest cache twice
+    /// on the main thread before the first frame.
+    struct LoadedSnapshot {
+        let snapshot: HealthDashboardSnapshot
+        let summaryContextSignature: String?
+
+        static let empty = LoadedSnapshot(snapshot: .empty, summaryContextSignature: nil)
+    }
+
+    static func loadWithContext(
         defaults: UserDefaults = .standard,
         fileURL: URL? = snapshotFileURL
-    ) -> HealthDashboardSnapshot? {
+    ) -> LoadedSnapshot? {
         let signpostState = BodyPerformanceSignposts.signposter.beginInterval("DashboardSnapshotLoad")
         defer { BodyPerformanceSignposts.signposter.endInterval("DashboardSnapshotLoad", signpostState) }
 
-        if let snapshot = loadFromFile(fileURL: fileURL) {
-            return snapshot
+        if let loaded = loadFromFile(fileURL: fileURL) {
+            return loaded
         }
 
         guard let legacyData = defaults.data(forKey: healthDashboardSnapshotKey) else {
             return nil
         }
 
-        guard let legacySnapshot = decode(legacyData) else {
+        guard let legacyLoaded = decode(legacyData) else {
             defaults.removeObject(forKey: healthDashboardSnapshotKey)
             return nil
         }
 
-        save(legacySnapshot, defaults: defaults, fileURL: fileURL)
-        return legacySnapshot
+        save(legacyLoaded.snapshot, defaults: defaults, fileURL: fileURL)
+        return legacyLoaded
+    }
+
+    static func load(
+        defaults: UserDefaults = .standard,
+        fileURL: URL? = snapshotFileURL
+    ) -> HealthDashboardSnapshot? {
+        loadWithContext(defaults: defaults, fileURL: fileURL)?.snapshot
+    }
+
+    static func loadOrEmptyWithContext(
+        defaults: UserDefaults = .standard,
+        fileURL: URL? = snapshotFileURL
+    ) -> LoadedSnapshot {
+        loadWithContext(defaults: defaults, fileURL: fileURL) ?? .empty
     }
 
     static func loadOrEmpty(
@@ -369,11 +394,11 @@ enum HealthDashboardSnapshotStore {
     }
 
     /// The summary-context signature persisted alongside the snapshot (H2a),
-    /// restored into the store's summary-reuse gate at launch so a cold-start
-    /// failed summary leaf can reuse the persisted value only while the current
-    /// selection/prefs still match the ones it was saved under. `nil` for a
+    /// read on its own without rebuilding the snapshot object graph. `nil` for a
     /// snapshot written before this field existed (→ conservative empty-on-
-    /// failure until the first refresh re-stamps it).
+    /// failure until the first refresh re-stamps it). The launch restore reads
+    /// it out of `loadOrEmptyWithContext`'s single decode instead; this stays
+    /// for callers that want the signature alone.
     static func loadSummaryContextSignature(fileURL: URL? = snapshotFileURL) -> String? {
         guard let fileURL, let data = try? Data(contentsOf: fileURL) else {
             return nil
@@ -425,7 +450,7 @@ enum HealthDashboardSnapshotStore {
         }
     }
 
-    private static func loadFromFile(fileURL: URL?) -> HealthDashboardSnapshot? {
+    private static func loadFromFile(fileURL: URL?) -> LoadedSnapshot? {
         guard let fileURL else {
             return nil
         }
@@ -443,9 +468,17 @@ enum HealthDashboardSnapshotStore {
         return decode(data)
     }
 
-    private static func decode(_ data: Data) -> HealthDashboardSnapshot? {
+    /// Decodes through the flat envelope so the snapshot and its
+    /// summary-context signature come out of one tokenization pass. A pre-H2a
+    /// file (or the legacy `UserDefaults` payload) simply has no signature key
+    /// and yields nil for it.
+    private static func decode(_ data: Data) -> LoadedSnapshot? {
         do {
-            return try JSONDecoder().decode(HealthDashboardSnapshot.self, from: data)
+            let persisted = try JSONDecoder().decode(PersistedDashboardSnapshot.self, from: data)
+            return LoadedSnapshot(
+                snapshot: persisted.snapshot,
+                summaryContextSignature: persisted.summaryContextSignature
+            )
         } catch {
             logger.error("Health dashboard snapshot decode failed: \(error.localizedDescription, privacy: .public)")
             return nil
@@ -458,9 +491,8 @@ enum HealthDashboardSnapshotStore {
 /// the snapshot atomically (H2a) — every save path carries it and `delete()`
 /// removes it with the data. `HealthDashboardSnapshot` lives in a package this
 /// store can't extend, so the wrapper merges the extra key into the snapshot's
-/// top-level container on encode and reads it back on decode. An old file (and
-/// the plain `HealthDashboardSnapshot` decode in `load`) simply lacks/ignores the
-/// key; the signature decodes as nil. With a nil signature `encodeIfPresent`
+/// top-level container on encode and reads it back on decode. An old file simply
+/// lacks the key; the signature decodes as nil. With a nil signature `encodeIfPresent`
 /// omits the key, so the bytes stay identical to the pre-H2a format (the
 /// save-if-changed compare still reports "unchanged").
 private struct PersistedDashboardSnapshot: Codable {

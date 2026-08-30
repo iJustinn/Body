@@ -95,9 +95,10 @@ struct BodyHealthMetricCard: View {
             kind.id
         }
 
-        /// Cards whose headline is a status word rather than a number.
+        /// Cards whose headline is a status word rather than a number: Vitals'
+        /// "Typical"/"Below Average" and Stress's band word ("Rest"/"Low"/…).
         var usesWordValue: Bool {
-            kind == .vitals
+            kind == .vitals || kind == .stress
         }
     }
 

@@ -30,6 +30,10 @@ struct WorkoutDetailSnapshot: Codable, Equatable, Sendable {
     var splitData: PersistedWorkoutSplitData?
     var metricSeries: PersistedWorkoutMetricSeries?
     var heartRateRecoveryBPM: Double?
+    /// Added after v1 shipped, same optional/no-version-bump pattern as
+    /// `splitData`. Deliberately excluded from `isEmpty` below — the
+    /// breakdown is an emoji-only convenience, not worth a file on its own.
+    var energyEquivalent: PersistedEnergyEquivalent?
 
     init(
         schemaVersion: Int? = WorkoutDetailSnapshot.currentSchemaVersion,
@@ -37,7 +41,8 @@ struct WorkoutDetailSnapshot: Codable, Equatable, Sendable {
         route: PersistedWorkoutRoute? = nil,
         splitData: PersistedWorkoutSplitData? = nil,
         metricSeries: PersistedWorkoutMetricSeries? = nil,
-        heartRateRecoveryBPM: Double? = nil
+        heartRateRecoveryBPM: Double? = nil,
+        energyEquivalent: PersistedEnergyEquivalent? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.workoutID = workoutID
@@ -45,12 +50,33 @@ struct WorkoutDetailSnapshot: Codable, Equatable, Sendable {
         self.splitData = splitData
         self.metricSeries = metricSeries
         self.heartRateRecoveryBPM = heartRateRecoveryBPM
+        self.energyEquivalent = energyEquivalent
     }
 
     /// True when the snapshot carries nothing worth keeping on disk.
+    ///
+    /// `energyEquivalent` is deliberately NOT part of this check: it is an
+    /// emoji-only convenience, and counting it here would mean merely opening
+    /// a settled workout writes a new snapshot file containing nothing else —
+    /// disk-size churn the Cache settings row would then have to show.
     var isEmpty: Bool {
         route == nil && splitData == nil && metricSeries == nil && heartRateRecoveryBPM == nil
     }
+}
+
+/// Opportunistic cache of a workout's food-emoji energy breakdown. Pins the
+/// result against later kcal restatement (see `HealthKitWorkoutStore`); a
+/// mismatch on `kilocalories` or `hiddenFoods` invalidates and recomputes.
+struct PersistedEnergyEquivalent: Codable, Equatable, Sendable {
+    /// Forensic metadata only — never used to invalidate the cache.
+    let tuningVersion: Int
+    let kilocalories: Double
+    let hiddenFoods: [String]
+    /// Whether the breakdown preferred many small foods over few large ones.
+    /// Optional so payloads written before the setting existed decode (nil
+    /// reads as false, the setting's default).
+    var prefersMoreItems: Bool?
+    let emojis: [String]
 }
 
 struct PersistedRouteCoordinate: Codable, Equatable, Sendable {
