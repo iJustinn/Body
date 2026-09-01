@@ -1,5 +1,9 @@
 # Version History
 
+## 1.1.0 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.0 build 1.
+
 ## 1.0.2 (build 2)
 
 - **Sleep Stages complication for Apple Watch.** A new free, rectangular-only **Sleep Stages** complication shows last night's main sleep session as a single bar of stage-colored segments (Awake, REM, Core, Deep, the same colors as the iPhone Sleep Stages widget) under a header with the night's total time asleep, with only the bed time and wake time beneath it. Naps are left out, it reads "No sleep data yet" after midnight until tonight's sleep syncs, and tapping it opens the Sleep detail page. The watch snapshot the iPhone pushes now carries the night's stage segments alongside the Sleep metric, cleared together with it once the night goes stale.
