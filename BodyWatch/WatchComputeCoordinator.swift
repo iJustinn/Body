@@ -239,6 +239,13 @@ actor WatchComputeCoordinator {
             // recompute matches the phone's own permission-filtered one.)
             fetchedWorkouts = []
         }
+        // The weekly workout-minutes bars come from THIS run's fetch alone (no
+        // seeded workout history to fall back on), so a failed or
+        // permission-refused query leaves them absent rather than publishing a
+        // fabricated week of rest days.
+        let workoutWeekly: [Double?]? = delta.workouts.isSuccess
+            ? Self.workoutWeeklyMinutes(workouts: fetchedWorkouts, now: now, calendar: calendar)
+            : nil
         let sleepEnd = summary.sleep.stageSnapshot.wakeCycleEnd
 
         let recomputed = HealthDashboardSnapshot(summary: summary, trends: trends)
@@ -288,6 +295,7 @@ actor WatchComputeCoordinator {
             idealSleepDuration: idealSleepDuration,
             showSleepScore: seed.settings.showSleepScore,
             now: now,
+            workoutWeeklyMinutes: workoutWeekly,
             // Union the phone's broader history into each carried range so the
             // watch's short delta window can't shrink the ring/chart bounds.
             seriesRangeOverride: { seed.seriesRanges[$0] },
@@ -366,6 +374,30 @@ actor WatchComputeCoordinator {
         return TrainingLoadCalculator.series(fromDailyLoads: dailyLoads)
     }
 
+    /// The trailing week's daily workout minutes, oldest → today, matching the
+    /// builder's own `weekly` windowing (7 slots ending on `now`'s day). A
+    /// workout counts toward the day it STARTED, the same rule
+    /// `trainingLoadSeries` and the phone's month snapshots use.
+    ///
+    /// Dense by construction: a day with no workouts is an explicit `0`, never
+    /// `nil`. A nil-padded week would make the metric blank
+    /// (`WatchMetric.hasValue`) and the merge's blank-preserve rule would refuse
+    /// it, freezing the phone's older bars on the complication forever.
+    private static func workoutWeeklyMinutes(
+        workouts: [WorkoutSummary],
+        now: Date,
+        calendar: Calendar
+    ) -> [Double?] {
+        let minutesByDay = workouts.reduce(into: [Date: Double]()) { partialResult, workout in
+            partialResult[calendar.startOfDay(for: workout.startDate), default: 0] += workout.duration / 60
+        }
+        let today = calendar.startOfDay(for: now)
+        return (0..<7).map { offset in
+            guard let day = calendar.date(byAdding: .day, value: offset - 6, to: today) else { return 0 }
+            return minutesByDay[day] ?? 0
+        }
+    }
+
     /// The freshly-fetched night to overlay onto the seed's summary, or `nil` to
     /// keep the seed's. Applied only when the fetched night is not OLDER than
     /// the seeded one: the watch retains far less sleep history than the phone,
@@ -439,6 +471,14 @@ actor WatchComputeCoordinator {
         // forbids, which is about values that were NOT re-derived this run.
         if replayedTrainingLoad {
             map[WatchMetricKindKey.trainingLoad] = now
+        }
+        // The weekly workout-minutes bars are a COVERAGE claim for the same
+        // reason: a successful EMPTY query is fresh information (a genuine rest
+        // day must be able to fall back to a zero bar), so the watermark is the
+        // query window's end. Absent when Workouts is off or the query failed —
+        // nothing was re-derived, and the phone's own bars stay authoritative.
+        if permission.includes(.workouts), delta.workouts.isSuccess {
+            map[WatchMetricKindKey.workoutMinutes] = now
         }
         // Readiness consumes the trend SERIES the splice refreshed (whole-day
         // HR, HRV, resting HR, respiratory, O₂, wrist temperature), the sleep

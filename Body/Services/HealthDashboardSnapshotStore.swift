@@ -22,6 +22,7 @@ enum HealthDashboardSnapshotStore {
     }
     static let secondarySelectionSignatureKey = "lastHealthDashboardSecondarySelectionSignature"
     static let lastSuccessfulRefreshDateKey = "lastHealthDashboardSuccessfulRefreshDate"
+    static let lastWorkoutsWeekCoverageDateKey = "lastHealthDashboardWorkoutsWeekCoverageDate"
     static let activityRingBackfillCompletedKey = "lastHealthDashboardActivityRingBackfillCompleted"
     static let initialHealthDataLoadCompletedKey = "lastHealthDashboardInitialLoadCompleted"
     private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "HealthDashboardSnapshotStore")
@@ -50,6 +51,25 @@ enum HealthDashboardSnapshotStore {
 
     static func clearLastSuccessfulRefreshDate(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: lastSuccessfulRefreshDateKey)
+    }
+
+    /// Persisted watermark for the watch's weekly workout-minutes bars: the
+    /// last time a fetch covered EVERY month the trailing 7-day window touches.
+    /// Deliberately its own key rather than restoring from
+    /// `lastSuccessfulRefreshDate` — an early-month passive refresh persists a
+    /// success date while fetching only the current month, so reusing it would
+    /// relaunch with a coverage claim the fetch never earned and let a stale
+    /// mixed-month week overwrite a newer watch-computed one.
+    static func saveLastWorkoutsWeekCoverageDate(_ date: Date, defaults: UserDefaults = .standard) {
+        defaults.set(date, forKey: lastWorkoutsWeekCoverageDateKey)
+    }
+
+    static func loadLastWorkoutsWeekCoverageDate(defaults: UserDefaults = .standard) -> Date? {
+        defaults.object(forKey: lastWorkoutsWeekCoverageDateKey) as? Date
+    }
+
+    static func clearLastWorkoutsWeekCoverageDate(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: lastWorkoutsWeekCoverageDateKey)
     }
 
     /// Whether the user has already been through the first-launch Health load.

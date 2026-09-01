@@ -24,6 +24,12 @@ enum WatchMetricsSnapshotBuilder {
         idealSleepDuration: TimeInterval,
         showSleepScore: Bool = true,
         now: Date = Date(),
+        // The trailing week's workout minutes (oldest → today, 7 slots, an
+        // explicit `0` for a day with no workouts), summed by the caller from
+        // the workouts it already holds — this kit never fetches. `nil` (the
+        // default) omits the Weekly Workout Time metric entirely, so a caller
+        // that hasn't loaded the week yet can't publish a falsely empty one.
+        workoutWeeklyMinutes: [Double?]? = nil,
         // Phone→watch compute (Phase 1d): when provided, a kind's carried
         // range is the UNION of this override with its own local series
         // min/max, so the watch's short delta-fetched history doesn't shrink
@@ -91,12 +97,23 @@ enum WatchMetricsSnapshotBuilder {
         }
         if permissionSelection.includes(.workouts) {
             metrics.append(trainingLoadMetric(summary.trainingLoad.value))
-        }
-        if permissionSelection.includes(.exerciseMinutes) {
-            // Complication-only: no ring, no dashboard card. Today's value is
-            // the recent week's last day, the same series the stamping below
-            // carries as `weekly`.
-            metrics.append(exerciseMinutesMetric(weekly(trends.exerciseMinutes, now: now).last ?? nil))
+            if let workoutWeeklyMinutes {
+                // Complication-only: no ring, no dashboard card. Today's value
+                // is the passed week's last day, the same series the stamping
+                // below carries as `weekly`.
+                metrics.append(workoutMinutesMetric(workoutWeeklyMinutes.last ?? nil))
+                // Version-skew compatibility: an older watch binary's week
+                // complication queries only the legacy `exerciseMinutes` kind,
+                // and a phone push REPLACES the watch's metric set — without
+                // this copy its configured complication would go blank until
+                // the watch app itself updates. Same values, legacy kind; the
+                // updated complication reads `workoutMinutes` first and never
+                // touches it.
+                metrics.append(workoutMinutesMetric(
+                    workoutWeeklyMinutes.last ?? nil,
+                    kind: WatchMetricKindKey.exerciseMinutes
+                ))
+            }
         }
         if permissionSelection.includes(.wristTemperature) {
             metrics.append(skinTempMetric(
@@ -118,7 +135,10 @@ enum WatchMetricsSnapshotBuilder {
             case WatchMetricKindKey.heartRateVariability: return weekly(trends.heartRateVariability, now: now)
             case WatchMetricKindKey.restingHeartRate: return weekly(trends.restingHeartRate, now: now)
             case WatchMetricKindKey.trainingLoad: return weekly(trends.trainingLoad, now: now)
-            case WatchMetricKindKey.exerciseMinutes: return weekly(trends.exerciseMinutes, now: now)
+            case WatchMetricKindKey.workoutMinutes: return workoutWeeklyMinutes
+            // The legacy compatibility copy carries the same week (see the
+            // version-skew comment where both metrics are appended).
+            case WatchMetricKindKey.exerciseMinutes: return workoutWeeklyMinutes
             case WatchMetricKindKey.wristTemperature:
                 // Match the card's display unit so the detail stats agree.
                 return weekly(trends.wristTemperature, now: now).map { day in
@@ -300,13 +320,16 @@ enum WatchMetricsSnapshotBuilder {
         )
     }
 
-    /// Whole minutes for the day, matching the iPhone card's 0-decimal, unitless
-    /// formatting. No ring is drawn for this kind (the complication renders the
-    /// carried `weekly` bars), so the fill stays 0.
-    private static func exerciseMinutesMetric(_ minutes: Double?) -> WatchMetric {
+    /// Whole minutes of workout time for the day, in the same 0-decimal,
+    /// unitless formatting the iPhone uses. No ring is drawn for this kind (the
+    /// complication renders the carried `weekly` bars), so the fill stays 0.
+    private static func workoutMinutesMetric(
+        _ minutes: Double?,
+        kind: String = WatchMetricKindKey.workoutMinutes
+    ) -> WatchMetric {
         WatchMetric(
-            kind: WatchMetricKindKey.exerciseMinutes,
-            title: String(localized: "Exercise Minutes", table: "BodyWatchSnapshotKit"),
+            kind: kind,
+            title: String(localized: "Weekly Workout Time", table: "BodyWatchSnapshotKit"),
             displayValue: minutes.map { BodyValueFormat.numberText($0, decimals: 0) } ?? "--",
             unit: "",
             score: nil,

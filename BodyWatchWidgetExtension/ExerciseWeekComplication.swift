@@ -3,10 +3,11 @@
 //  BodyWatchWidgetExtension
 //
 //  Watch complication (accessoryRectangular only): a header total plus seven
-//  bars for the last 7 days of Apple Exercise Minutes, today rightmost. Free
-//  (not Pro-gated), unlike the matching iPhone lock screen widget. Reuses the
-//  existing `WatchMetricProvider`/`WatchMetricEntry`, which already carries
-//  the whole snapshot.
+//  bars for the last 7 days of total workout time (summed HKWorkout
+//  durations), today rightmost. Free (not Pro-gated), unlike the matching
+//  iPhone lock screen widget. Reuses the existing
+//  `WatchMetricProvider`/`WatchMetricEntry`, which already carries the whole
+//  snapshot.
 //
 
 import SwiftUI
@@ -17,8 +18,8 @@ struct ExerciseWeekComplication: Widget {
         StaticConfiguration(kind: "BodyWatchExerciseWeek", provider: WatchMetricProvider()) { entry in
             ExerciseWeekComplicationView(entry: entry)
         }
-        .configurationDisplayName(String(localized: "Exercise Minutes"))
-        .description(String(localized: "This week's daily exercise minutes."))
+        .configurationDisplayName(String(localized: "Weekly Workout Time"))
+        .description(String(localized: "This week's daily workout minutes."))
         .supportedFamilies([.accessoryRectangular])
     }
 }
@@ -33,8 +34,11 @@ private struct ExerciseWeekComplicationView: View {
         // Re-windowed to the entry's day (see `weeklyRewound`): the cache is
         // only rewritten when the phone pushes (on-watch compute preserves
         // this metric), so a snapshot from an earlier day must not keep
-        // yesterday as the rightmost bar.
-        let metric = entry.snapshot.metric(forKind: WatchMetricKindKey.exerciseMinutes)
+        // yesterday as the rightmost bar. Falls back to the legacy
+        // `exerciseMinutes` metric when a stale/older snapshot doesn't carry
+        // `workoutMinutes` yet (version skew across a phone/watch pair).
+        let metric = entry.snapshot.metric(forKind: WatchMetricKindKey.workoutMinutes)
+            ?? entry.snapshot.metric(forKind: WatchMetricKindKey.exerciseMinutes)
         return metric?.weeklyRewound(from: entry.snapshot.generatedAt, to: entry.date)
             ?? Array(repeating: nil, count: 7)
     }
@@ -72,7 +76,7 @@ private struct ExerciseWeekComplicationView: View {
 
     private var header: some View {
         Text("\(totalMinutes) MIN THIS WEEK")
-            .font(.system(size: 11, design: .rounded))
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
             .foregroundStyle(.primary)
             .lineLimit(1)
             .minimumScaleFactor(0.8)

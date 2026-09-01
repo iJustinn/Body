@@ -18,23 +18,6 @@
         }
       }
     },
-    "Exercise Minutes": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Exercise Minutes"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "运动时长"
-          }
-        }
-      }
-    },
     "HRV": {
       "extractionState": "manual",
       "localizations": {
@@ -154,13 +137,13 @@
         }
       }
     },
-    "This week's daily exercise minutes.": {
+    "This week's daily workout minutes.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This week's daily exercise minutes."
+            "value": "This week's daily workout minutes."
           }
         },
         "zh-Hans": {
@@ -184,6 +167,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "训练负荷"
+          }
+        }
+      }
+    },
+    "Weekly Workout Time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weekly Workout Time"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本周运动时长"
           }
         }
       }

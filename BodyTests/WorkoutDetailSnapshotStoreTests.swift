@@ -286,7 +286,7 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
 
     // MARK: - Prune
 
-    func testPruneKeepsOnlySpecifiedIDsAndRemovesNonUUIDFiles() throws {
+    func testPruneKeepsOnlySpecifiedIDsAndRemovesNonUUIDFilesWhenOverCap() throws {
         let keptID = UUID()
         let droppedIDA = UUID()
         let droppedIDB = UUID()
@@ -298,13 +298,63 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
         let strayURL = directoryURL.appendingPathComponent("not-a-uuid.json")
         try "{}".data(using: .utf8)!.write(to: strayURL)
 
-        WorkoutDetailSnapshotStore.prune(keeping: [keptID], directoryURL: directoryURL)
+        // A retainingRecentLimit of 0 forces every non-kept file (including the
+        // non-UUID stray) past the cap, exercising the same "not in keeping is
+        // removable" behavior the old unconditional prune had.
+        WorkoutDetailSnapshotStore.prune(keeping: [keptID], retainingRecentLimit: 0, directoryURL: directoryURL)
 
         XCTAssertNotNil(WorkoutDetailSnapshotStore.load(workoutID: keptID, directoryURL: directoryURL))
         XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: droppedIDA, directoryURL: directoryURL))
         XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: droppedIDB, directoryURL: directoryURL))
         // A file whose name doesn't parse as a UUID is treated as not-kept and removed.
         XCTAssertFalse(FileManager.default.fileExists(atPath: strayURL.path))
+    }
+
+    func testPruneKeepsKeepingSetRegardlessOfCap() throws {
+        let keptID = UUID()
+        XCTAssertTrue(WorkoutDetailSnapshotStore.save(makeSnapshot(workoutID: keptID), directoryURL: directoryURL))
+
+        // Even with a zero cap on "other" files, an ID in `keeping` is never
+        // touched.
+        WorkoutDetailSnapshotStore.prune(keeping: [keptID], retainingRecentLimit: 0, directoryURL: directoryURL)
+
+        XCTAssertNotNil(WorkoutDetailSnapshotStore.load(workoutID: keptID, directoryURL: directoryURL))
+    }
+
+    func testPruneUnderCapDeletesNothing() throws {
+        let ids = (0..<5).map { _ in UUID() }
+        for id in ids {
+            XCTAssertTrue(WorkoutDetailSnapshotStore.save(makeSnapshot(workoutID: id), directoryURL: directoryURL))
+        }
+
+        WorkoutDetailSnapshotStore.prune(keeping: [], retainingRecentLimit: 200, directoryURL: directoryURL)
+
+        for id in ids {
+            XCTAssertNotNil(WorkoutDetailSnapshotStore.load(workoutID: id, directoryURL: directoryURL))
+        }
+    }
+
+    func testPruneEnforcesCapDeletingOldestModifiedFirst() throws {
+        var ids: [UUID] = []
+        for offset in 0..<5 {
+            let id = UUID()
+            ids.append(id)
+            XCTAssertTrue(WorkoutDetailSnapshotStore.save(makeSnapshot(workoutID: id), directoryURL: directoryURL))
+            let fileURL = directoryURL.appendingPathComponent("\(id.uuidString).json")
+            // Stagger mtimes so file 0 is oldest and file 4 is newest.
+            let modified = Date(timeIntervalSince1970: 1_700_000_000 + Double(offset) * 60)
+            try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: fileURL.path)
+        }
+
+        WorkoutDetailSnapshotStore.prune(keeping: [], retainingRecentLimit: 3, directoryURL: directoryURL)
+
+        // The two oldest-modified files are deleted; the three most recently
+        // persisted survive.
+        XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: ids[0], directoryURL: directoryURL))
+        XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: ids[1], directoryURL: directoryURL))
+        XCTAssertNotNil(WorkoutDetailSnapshotStore.load(workoutID: ids[2], directoryURL: directoryURL))
+        XCTAssertNotNil(WorkoutDetailSnapshotStore.load(workoutID: ids[3], directoryURL: directoryURL))
+        XCTAssertNotNil(WorkoutDetailSnapshotStore.load(workoutID: ids[4], directoryURL: directoryURL))
     }
 
     // MARK: - Strips
