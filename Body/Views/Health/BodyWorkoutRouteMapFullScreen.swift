@@ -5,7 +5,8 @@
 //  Full-screen interactive route map, presented when the static map hero on the
 //  workout detail sheet is tapped (like Apple's Fitness app). Wraps a live
 //  `MKMapView` so the whole route is pannable/zoomable, with the same pace
-//  coloring as the hero via a single `MKGradientPolylineRenderer` overlay.
+//  coloring as the hero via a single `MKGradientPolylineRenderer` overlay. Route
+//  Style ▸ 3D Map (`is3D`) tilts that same map over realistic elevation.
 //
 
 import SwiftUI
@@ -14,6 +15,9 @@ import MapKit
 struct BodyWorkoutRouteMapFullScreen: View {
     let route: WorkoutRoute
     let tint: Color
+    /// Route Style ▸ 3D Map: pitch the map over realistic elevation. Defaulted so the
+    /// non-detail callers stay unchanged.
+    var is3D: Bool = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -21,7 +25,7 @@ struct BodyWorkoutRouteMapFullScreen: View {
         // The ZStack keeps its safe-area insets, so the X sits below the status
         // bar / Dynamic Island even though the map extends under them.
         ZStack(alignment: .topTrailing) {
-            RouteMapView(route: route, tint: tint)
+            RouteMapView(route: route, tint: tint, is3D: is3D)
                 .ignoresSafeArea()
 
             Button {
@@ -45,15 +49,19 @@ struct BodyWorkoutRouteMapFullScreen: View {
 private struct RouteMapView: UIViewRepresentable {
     let route: WorkoutRoute
     let tint: Color
+    let is3D: Bool
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(route: route, tint: UIColor(tint))
+        Coordinator(route: route, tint: UIColor(tint), is3D: is3D)
     }
 
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
         mapView.delegate = context.coordinator
         mapView.pointOfInterestFilter = .excludingAll
+        if is3D {
+            mapView.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: .realistic)
+        }
 
         let coordinates = route.coordinates.map {
             CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
@@ -71,6 +79,9 @@ private struct RouteMapView: UIViewRepresentable {
             edgePadding: UIEdgeInsets(top: 100, left: 50, bottom: 100, right: 50),
             animated: false
         )
+        // The pitch is deliberately not applied here: the fit above only resolves at
+        // layout time, so the camera this early is pre-fit and its distance would be
+        // meaningless. The coordinator tilts once the first real region lands.
         return mapView
     }
 
@@ -88,10 +99,32 @@ private struct RouteMapView: UIViewRepresentable {
     final class Coordinator: NSObject, MKMapViewDelegate {
         private let route: WorkoutRoute
         private let tint: UIColor
+        private let is3D: Bool
+        /// One-shot latch: the tilt below itself changes the visible region, and after
+        /// it lands the map belongs to the user's gestures.
+        private var hasApplied3DPitch = false
 
-        init(route: WorkoutRoute, tint: UIColor) {
+        init(route: WorkoutRoute, tint: UIColor, is3D: Bool) {
             self.route = route
             self.tint = tint
+            self.is3D = is3D
+        }
+
+        func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            guard is3D, !hasApplied3DPitch else { return }
+            hasApplied3DPitch = true
+
+            // Tilt the camera the fit produced rather than building one: keeping its
+            // resolved center and distance is what preserves the route framing, and
+            // MapKit is the only thing that knows what distance the edge-padded fit
+            // settled on.
+            let camera = MKMapCamera(
+                lookingAtCenter: mapView.camera.centerCoordinate,
+                fromDistance: mapView.camera.centerCoordinateDistance,
+                pitch: 60,
+                heading: mapView.camera.heading
+            )
+            mapView.setCamera(camera, animated: true)
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {

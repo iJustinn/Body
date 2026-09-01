@@ -826,6 +826,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let routeHeroSource = try text(at: "Body/Views/Health/BodyWorkoutRouteMapHero.swift")
         XCTAssertTrue(routeHeroSource.contains("sizeFactor: CGFloat = 0.9"))
         XCTAssertTrue(routeHeroSource.contains("enum BodyWorkoutRouteHeroFit"))
+
+        // Picker order is 2D Map, 2D Plain, 3D Map, 3D Plain; only the two map-backed
+        // styles draw their route into the snapshot rather than stroking it.
+        XCTAssertEqual(BodyWorkoutRouteStyle.allCases.map(\.rawValue), ["map", "plain", "map3d", "3d"])
+        XCTAssertFalse(BodyWorkoutRouteStyle.map3D.supportsRouteDraw)
     }
 
     func testWorkoutDetailReservesTheRouteHeroAndDrawsItProgressively() throws {
@@ -3156,6 +3161,14 @@ final class ProjectConfigurationTests: XCTestCase {
         // trend lookup keys off it.
         XCTAssertFalse(WatchMetricKindKey.displayOrder.contains(WatchMetricKindKey.exerciseMinutes))
         XCTAssertEqual(WatchMetricKindKey.exerciseMinutes, HealthWidgetMetric.exerciseMinutes.rawValue)
+
+        // Weekly Workout Time is the kind that complication actually reads now
+        // (summed workout durations); `exerciseMinutes` above survives only as
+        // the fallback for a cached snapshot from an older phone build. It has
+        // no `HealthWidgetMetric` counterpart at all, so it can never join the
+        // `pairs` table above, and it must stay out of `displayOrder` for the
+        // same reason: no dashboard card, no detail page, no ring.
+        XCTAssertFalse(WatchMetricKindKey.displayOrder.contains(WatchMetricKindKey.workoutMinutes))
     }
 
     func testVersionDocumentationAndSettingsFallbackMatchCurrentRelease() throws {
@@ -3874,6 +3887,46 @@ final class ProjectConfigurationTests: XCTestCase {
 
         let summarySource = try text(at: "BodyMetricsKit/WorkoutSummary.swift")
         XCTAssertTrue(summarySource.contains("static func normalizedCustomName(_ raw: String?) -> String?"))
+    }
+
+    func testWorkoutHeartRateSeriesReadFailureIsNotCachedAsEmpty() throws {
+        // The detail sheet re-reads heart rate at full resolution because the summary
+        // only carries a <=96-point downsample. The engine read must therefore throw
+        // on a failure (a dismissed sheet, a locked device) rather than answer `[]`,
+        // which the store would otherwise cache as confirmed-absent for the session.
+        let seriesSource = try text(at: "Body/Services/HealthKitFetchEngine+MetricSeries.swift")
+        XCTAssertTrue(seriesSource.contains("func workoutHeartRateSamples(workoutID: UUID) async throws -> [WorkoutHeartRateSample]"))
+        // Must be a series-sample read: the watch stores workout heart rate as series
+        // samples, and a plain HKSampleQuery would return one aggregated entry per
+        // series blob instead of the readings inside it.
+        XCTAssertTrue(seriesSource.contains("HKQuantitySeriesSampleQueryDescriptor("))
+        XCTAssertTrue(seriesSource.contains("beatsPerMinute.isFinite, beatsPerMinute > 0"))
+
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        XCTAssertTrue(storeSource.contains("private var heartRateSeriesCache: [UUID: [WorkoutHeartRateSample]] = [:]"))
+        XCTAssertTrue(storeSource.contains("func loadWorkoutHeartRateSeries(for workout: WorkoutSummary) async -> [WorkoutHeartRateSample]?"))
+
+        let loadStart = try XCTUnwrap(storeSource.range(of: "func loadWorkoutHeartRateSeries(for workout: WorkoutSummary) async -> [WorkoutHeartRateSample]?")?.lowerBound)
+        let loadBlock = String(storeSource[loadStart...].prefix(1_400))
+        // Heart data rides the Heart toggle, and the load must not pin a result taken
+        // under a stale cache generation.
+        XCTAssertTrue(loadBlock.contains("guard permissionSelection.includes(.heart) else {"))
+        XCTAssertTrue(loadBlock.contains("Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch)"))
+        // An empty read is only cached once the workout has settled; a recent one may
+        // still be syncing samples from the watch.
+        XCTAssertTrue(loadBlock.contains("} else if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 {"))
+
+        // The catch must return an UNCACHED nil so reopening the sheet retries, the
+        // same rule the splits load follows.
+        let catchStart = try XCTUnwrap(loadBlock.range(of: "} catch {")?.lowerBound)
+        let catchBlock = String(loadBlock[catchStart...].prefix(210))
+        XCTAssertTrue(catchBlock.contains("return nil"))
+        XCTAssertFalse(catchBlock.contains("heartRateSeriesCache["))
+
+        // Cleared at every gate the sibling detail caches are: the authorization
+        // gate, both permission toggles that can change what it holds (Workouts and
+        // Heart), and Clear Cache.
+        XCTAssertEqual(storeSource.occurrenceCount(of: "heartRateSeriesCache.removeAll()"), 4)
     }
 
     func testWorkoutStepSamplesPropagateReadFailuresInsteadOfSwallowingErrors() throws {
@@ -4717,6 +4770,19 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(watchSource.contains("1.0/255.0"))
         XCTAssertTrue(watchSource.contains("47.0/255.0"))
         XCTAssertTrue(watchSource.contains("167.0/255.0"))
+
+        // Both surfaces draw summed workout durations: the iPhone widget reads
+        // the workout month snapshots straight out of the App Group, and the
+        // complication reads the `workoutMinutes` metric off the pushed
+        // snapshot. Losing either line silently reverts a surface to the
+        // activity-ring exercise minutes it used to show.
+        XCTAssertTrue(phoneSource.contains("WorkoutSnapshotStore.load()"))
+        XCTAssertTrue(phoneSource.contains("WorkoutSnapshotStore.loadPrevious()"))
+        XCTAssertFalse(phoneSource.contains("HealthWidgetSnapshotStore"))
+        XCTAssertTrue(watchSource.contains("metric(forKind: WatchMetricKindKey.workoutMinutes)"))
+        // The legacy kind stays as the fallback for a cached snapshot pushed by
+        // an older phone build, which carries no `workoutMinutes` metric.
+        XCTAssertTrue(watchSource.contains("?? entry.snapshot.metric(forKind: WatchMetricKindKey.exerciseMinutes)"))
 
         // A widget type that is never registered in its bundle compiles and
         // ships, but never appears in the gallery — the silent failure this

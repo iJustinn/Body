@@ -176,10 +176,15 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
     func testRouteStyleKeysResolveInBodyMetricsKitCatalog() throws {
         let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
 
-        // `BodyWorkoutRouteStyle`'s title/subtitle strings for the three Route Style
-        // rows (Settings › Workouts), including the new 3D style.
+        // `BodyWorkoutRouteStyle`'s title/subtitle strings for the four Route Style
+        // rows (Settings › Workouts), including the new 3D Map style.
         try assertKeysTranslated(
-            ["Map", "Apple Maps", "Plain", "Route Only", "3D", "Elevation Ribbon"],
+            [
+                "routeStyle.map2D.title", "Apple Maps",
+                "routeStyle.plain2D.title", "Route Only",
+                "routeStyle.map3D.title", "routeStyle.map3D.subtitle",
+                "routeStyle.plain3D.title", "Elevation Ribbon"
+            ],
             in: catalog
         )
 

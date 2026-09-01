@@ -6,7 +6,8 @@
 //  one-shot `MKMapSnapshotter` image with the route polyline and start/end dots
 //  drawn in — a true static image (no live `Map`), so it never fights the
 //  sheet's scroll and carries no tile/gesture lifecycle. The city label overlays
-//  the bottom-leading corner over a short scrim.
+//  the bottom-leading corner over a short scrim. Route Style ▸ 3D Map renders the
+//  same hero from a pitched camera over realistic elevation (`is3D`).
 //
 //  `BodyWorkoutRoutePlainHero` is the map-free alternative (Route Style › Plain):
 //  the same route stroked in the workout's tint, with no tiles, pace shading, or
@@ -68,10 +69,13 @@ struct BodyWorkoutRouteMapHero: View {
     /// Top safe-area inset: the route must stay below the status bar / Dynamic Island
     /// even though the hero itself extends under them.
     let topInset: CGFloat
+    /// Route Style ▸ 3D Map: snapshot a pitched camera over realistic elevation instead
+    /// of the flat, vertically anchored map rect.
+    var is3D: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
-    // No progressive draw here: the Map style bakes its pace-colored route into the
+    // No progressive draw here: the map styles bake their pace-colored route into the
     // snapshot, so Route Style ▸ Draw Route is offered only for the map-free styles.
     @State private var snapshot: UIImage?
 
@@ -108,7 +112,10 @@ struct BodyWorkoutRouteMapHero: View {
                     endPoint: .bottom
                 )
             }
-            .task(id: SnapshotInput(width: proxy.size.width.rounded(), height: proxy.size.height.rounded(), centerY: targetCenterY.rounded(), topInset: topInset.rounded(), isDark: colorScheme == .dark)) {
+            // The 3D framing is camera-based and centered, so it ignores the anchor
+            // measurements; zeroing them out of the key keeps a re-measured centerY
+            // from re-running the (much slower) elevation snapshot for no visual change.
+            .task(id: SnapshotInput(width: proxy.size.width.rounded(), height: proxy.size.height.rounded(), centerY: is3D ? 0 : targetCenterY.rounded(), topInset: is3D ? 0 : topInset.rounded(), isDark: colorScheme == .dark, is3D: is3D)) {
                 await renderSnapshot(size: proxy.size)
             }
         }
@@ -142,7 +149,31 @@ struct BodyWorkoutRouteMapHero: View {
         }
 
         let options = MKMapSnapshotter.Options()
-        options.mapRect = Self.mapRect(for: coordinates, size: size, targetCenterY: targetCenterY, topInset: topInset)
+        if is3D {
+            // `camera` and `mapRect` are mutually exclusive, so the 3D path frames the
+            // route itself: the camera looks at the route's center from far enough out
+            // to hold the whole trace, pitched over realistic elevation.
+            //
+            // Anchoring compromise: unlike the flat path this does not consume
+            // `targetCenterY`/`topInset` — the route sits vertically centered in the
+            // hero. Solving the offset means re-projecting through `snapshot.point(for:)`
+            // and re-snapshotting, and an elevation snapshot is expensive enough that
+            // paying for it on every anchor measurement costs more than the small
+            // framing gain.
+            options.camera = MKMapCamera(
+                lookingAtCenter: Self.center(of: coordinates),
+                fromDistance: Self.cameraDistance(for: coordinates),
+                pitch: 60,
+                heading: 0
+            )
+            // On the configuration, not `options.pointOfInterestFilter`: that legacy
+            // property is ignored once a preferred configuration is set.
+            let configuration = MKStandardMapConfiguration(elevationStyle: .realistic)
+            configuration.pointOfInterestFilter = .excludingAll
+            options.preferredConfiguration = configuration
+        } else {
+            options.mapRect = Self.mapRect(for: coordinates, size: size, targetCenterY: targetCenterY, topInset: topInset)
+        }
         options.size = size
         options.scale = displayScale
         options.pointOfInterestFilter = .excludingAll
@@ -156,7 +187,13 @@ struct BodyWorkoutRouteMapHero: View {
         // overwrite this snapshot with a stale framing after the fact.
         guard !Task.isCancelled else { return }
 
-        let image = Self.draw(route: route.coordinates, on: result, fallbackTint: UIColor(tint))
+        // 3D Map carries the 3D Plain ribbon over the tiles: the same lifted,
+        // elevation-extruded route the map-free hero draws — single workout tint, no
+        // pace shading — standing on the pitched terrain. Without usable altitude
+        // `liftUnits` is nil and the flat tinted trace draws instead, mirroring
+        // 3D Plain's own fallback.
+        let lift = is3D ? WorkoutRoute3DProjection.liftUnits(for: route.coordinates) : nil
+        let image = Self.draw(route: route.coordinates, on: result, fallbackTint: UIColor(tint), lift: lift, usesPaceColoring: !is3D)
         // The view-level `.animation(value:)` on `mapLayer` drives the fade-in.
         snapshot = image
     }
@@ -165,6 +202,42 @@ struct BodyWorkoutRouteMapHero: View {
     /// (the projection's x axis is linear in longitude) so a short loop isn't
     /// over-zoomed.
     private static let minimumSpanMapPoints = MKMapSize.world.width * 0.0016 / 360
+
+    /// Midpoint of the route's bounding box, the point the 3D camera looks at.
+    private static func center(of coordinates: [CLLocationCoordinate2D]) -> CLLocationCoordinate2D {
+        let latitudes = coordinates.map(\.latitude)
+        let longitudes = coordinates.map(\.longitude)
+        return CLLocationCoordinate2D(
+            latitude: ((latitudes.min() ?? 0) + (latitudes.max() ?? 0)) / 2,
+            longitude: ((longitudes.min() ?? 0) + (longitudes.max() ?? 0)) / 2
+        )
+    }
+
+    /// Camera distance for the 3D framing: the route's larger ground span with enough
+    /// headroom that a pitched view still holds both ends. The floor keeps a treadmill
+    /// -short loop from putting the camera inside the buildings.
+    ///
+    /// MapKit clamps pitch toward 0 as the distance grows, so long routes render
+    /// progressively flatter — accepted rather than capped, since capping would crop
+    /// the route.
+    private static func cameraDistance(for coordinates: [CLLocationCoordinate2D]) -> CLLocationDistance {
+        let latitudes = coordinates.map(\.latitude)
+        let longitudes = coordinates.map(\.longitude)
+        guard let minLatitude = latitudes.min(), let maxLatitude = latitudes.max(),
+              let minLongitude = longitudes.min(), let maxLongitude = longitudes.max() else {
+            return minimumCameraDistance
+        }
+
+        let vertical = CLLocation(latitude: minLatitude, longitude: minLongitude)
+            .distance(from: CLLocation(latitude: maxLatitude, longitude: minLongitude))
+        let horizontal = CLLocation(latitude: minLatitude, longitude: minLongitude)
+            .distance(from: CLLocation(latitude: minLatitude, longitude: maxLongitude))
+        return max(max(vertical, horizontal) * 2.2, minimumCameraDistance)
+    }
+
+    /// Closest the 3D camera is allowed to sit, so a near-stationary route still reads
+    /// as a map rather than a wall of one building.
+    private static let minimumCameraDistance: CLLocationDistance = 400
 
     /// Mercator rect bounding the whole route, padded horizontally, aspect-matched to
     /// the snapshot size, and offset so the route's vertical center lands on
@@ -224,11 +297,16 @@ struct BodyWorkoutRouteMapHero: View {
     ///   raises the route off the roads as a 2.5D ribbon: the ground trace stays on the
     ///   map, the coloured line stands straight up above it. `nil` — or a count that
     ///   doesn't match the route — draws the flat route.
+    /// - Parameter usesPaceColoring: `false` strokes the whole line in `fallbackTint`
+    ///   the way the 3D Plain hero does, whatever the route's speed spread. The 3D Map
+    ///   hero passes it so its ribbon reads as that style's tinted line; the share card
+    ///   keeps the default pace shading.
     static func draw(
         route: [RouteCoordinate],
         on snapshot: MKMapSnapshotter.Snapshot,
         fallbackTint: UIColor,
-        lift: [Double]? = nil
+        lift: [Double]? = nil,
+        usesPaceColoring: Bool = true
     ) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = snapshot.image.scale
@@ -250,11 +328,11 @@ struct BodyWorkoutRouteMapHero: View {
             cgContext.setLineCap(.round)
 
             if let lift, lift.count == points.count {
-                drawRibbon(base: points, lift: lift, route: route, fallbackTint: fallbackTint, in: cgContext)
+                drawRibbon(base: points, lift: lift, route: route, fallbackTint: fallbackTint, usesPaceColoring: usesPaceColoring, in: cgContext)
                 return
             }
 
-            if let bounds = WorkoutRoutePaceColoring.speedColorBounds(for: route) {
+            if usesPaceColoring, let bounds = WorkoutRoutePaceColoring.speedColorBounds(for: route) {
                 // One short stroke per segment so the line shades smoothly by pace.
                 for index in 0..<(points.count - 1) {
                     let segmentSpeed = (route[index].speed + route[index + 1].speed) / 2
@@ -289,6 +367,7 @@ struct BodyWorkoutRouteMapHero: View {
         lift: [Double],
         route: [RouteCoordinate],
         fallbackTint: UIColor,
+        usesPaceColoring: Bool,
         in context: CGContext
     ) {
         let xs = base.map(\.x)
@@ -317,7 +396,7 @@ struct BodyWorkoutRouteMapHero: View {
             ] as CFArray,
             locations: [0, 1]
         )
-        let speedBounds = WorkoutRoutePaceColoring.speedColorBounds(for: route)
+        let speedBounds = usesPaceColoring ? WorkoutRoutePaceColoring.speedColorBounds(for: route) : nil
         context.setLineWidth(4)
 
         // Painter's algorithm, as the 3D hero does it: back to front by ground depth,
@@ -837,11 +916,12 @@ enum WorkoutRoutePaceColoring {
 }
 
 /// `.task(id:)` key so the snapshot re-renders when the hero size, the route's
-/// target center, or the light/dark appearance changes.
+/// target center, the light/dark appearance, or the 2D/3D framing changes.
 private struct SnapshotInput: Equatable {
     let width: CGFloat
     let height: CGFloat
     let centerY: CGFloat
     let topInset: CGFloat
     let isDark: Bool
+    let is3D: Bool
 }

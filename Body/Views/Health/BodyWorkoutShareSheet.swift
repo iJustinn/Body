@@ -48,6 +48,11 @@ struct BodyWorkoutShareSheet: View {
     /// Loads separately from the workout's own statistics, so it can arrive after the
     /// sheet is already up — the pool and the tile list are rebuilt when it does.
     let heartRateRecoveryBPM: Double?
+    /// The detail page's lazily fetched full-resolution heart rate, when it has landed.
+    /// `presentation` already carries it; this is what the long image's splits need so
+    /// their per-split heart rate matches the page's chart. nil keeps the workout's
+    /// ≤96-point summary samples.
+    let heartRateSamplesOverride: [WorkoutHeartRateSample]?
     /// The month this sheet is sharing *instead of* a workout — `nil` for every caller
     /// that came from a detail page, which is what keeps the workout flow untouched.
     /// Its presence is the single switch summary mode turns on (`isSummaryMode`).
@@ -262,11 +267,13 @@ struct BodyWorkoutShareSheet: View {
         splitData: WorkoutSplitData = .empty,
         metricSeries: WorkoutMetricSeriesData = .empty,
         maxHeartRate: Double? = nil,
-        heartRateRecoveryBPM: Double? = nil
+        heartRateRecoveryBPM: Double? = nil,
+        heartRateSamplesOverride: [WorkoutHeartRateSample]? = nil
     ) {
         self.workout = workout
         self.route = route
         self.presentation = presentation
+        self.heartRateSamplesOverride = heartRateSamplesOverride
         self.splitData = splitData
         self.metricSeries = metricSeries
         self.maxHeartRate = maxHeartRate
@@ -317,6 +324,7 @@ struct BodyWorkoutShareSheet: View {
         self.workout = workout
         self.route = nil
         self.presentation = WorkoutDetailPresentation(workout: workout)
+        self.heartRateSamplesOverride = nil
         self.splitData = .empty
         self.metricSeries = .empty
         self.maxHeartRate = nil
@@ -824,7 +832,10 @@ struct BodyWorkoutShareSheet: View {
 
     private var longSplits: WorkoutSplitsPresentation? {
         WorkoutDetailChartPresentations.splits(
-            workout: workout, splitData: splitData, distanceUnitPreference: distanceUnitPreference
+            workout: workout,
+            splitData: splitData,
+            distanceUnitPreference: distanceUnitPreference,
+            heartRateSamplesOverride: heartRateSamplesOverride
         )
     }
 

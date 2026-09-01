@@ -10946,13 +10946,13 @@
       }
     },
     "routeStyle.drawUnavailable" : {
-      "comment" : "Replaces the Draw Route subtitle while the switch is dimmed on the Map style.",
+      "comment" : "Replaces the Draw Route subtitle while the switch is dimmed on a map style.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Not available with the Map style, which draws its route onto the map"
+            "value" : "Not available with the map styles, which draw their route onto the map"
           }
         },
         "zh-Hans" : {

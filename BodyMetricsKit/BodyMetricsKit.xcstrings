@@ -188,23 +188,6 @@
         }
       }
     },
-    "3D" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "3D"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "3D"
-          }
-        }
-      }
-    },
     "6 Months" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3630,22 +3613,6 @@
         }
       }
     },
-    "Map" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Map"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "地图"
-          }
-        }
-      }
-    },
     "Martial Arts" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4374,22 +4341,6 @@
         }
       }
     },
-    "Plain" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Plain"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "简约"
-          }
-        }
-      }
-    },
     "Play" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5114,6 +5065,91 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "仅路线"
+          }
+        }
+      }
+    },
+    "routeStyle.map2D.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2D Map"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平面地图"
+          }
+        }
+      }
+    },
+    "routeStyle.map3D.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D Apple Maps"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D Apple 地图"
+          }
+        }
+      }
+    },
+    "routeStyle.map3D.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D Map"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立体地图"
+          }
+        }
+      }
+    },
+    "routeStyle.plain2D.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2D Plain"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平面路线"
+          }
+        }
+      }
+    },
+    "routeStyle.plain3D.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3D Plain"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立体路线"
           }
         }
       }

@@ -630,8 +630,8 @@ struct BodySettingsView: View {
     private var workoutRouteStyleSummaryText: String {
         let style = BodyWorkoutRouteStyle.storedValue(from: workoutRouteStyleRawValue)
         // Draw is the sheet's first control now, so the summary leads with it when it's
-        // on — "Draw · 3D". Off is the quieter state and reads as just the style, as does
-        // Map, which never draws however the stored switch is set.
+        // on — "Draw · 3D". Off is the quieter state and reads as just the style, as do
+        // the map styles, which never draw however the stored switch is set.
         guard style.supportsRouteDraw, drawsWorkoutRouteOnLoad else { return style.title }
         return "\(String(localized: "routeStyle.drawSummary")) · \(style.title)"
     }
@@ -1363,9 +1363,9 @@ private struct BodyWorkoutRouteStyleSettingsSheet: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
-            // Dimmed and inert on Map, whose route is baked into the map snapshot and has
-            // no stroke to grow. The stored preference is untouched, so picking Plain or
-            // 3D again brings back whatever it was set to.
+            // Dimmed and inert on the map styles, whose route is baked into the map
+            // snapshot and has no stroke to grow. The stored preference is untouched, so
+            // picking a plain style again brings back whatever it was set to.
             .opacity(supportsDraw ? 1 : 0.4)
             .disabled(!supportsDraw)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: supportsDraw)
@@ -1401,6 +1401,8 @@ private extension BodyWorkoutRouteStyle {
             "map.fill"
         case .plain:
             "graph.2d"
+        case .map3D:
+            "mountain.2.fill"
         case .threeD:
             "move.3d"
         }

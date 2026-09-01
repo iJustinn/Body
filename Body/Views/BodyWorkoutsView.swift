@@ -1271,6 +1271,11 @@ struct BodyWorkoutDetailSheet: View {
     @State private var splitData: WorkoutSplitData = .empty
     @State private var metricSeries: WorkoutMetricSeriesData = .empty
     @State private var heartRateRecoveryBPM: Double?
+    /// Full-resolution heart-rate samples for this workout, fetched lazily below. The
+    /// list's summary samples are capped at 96 points, so an older workout's chart and
+    /// zones would otherwise be drawn from a handful of readings. nil until the fetch
+    /// lands (or when it fails); swapped in once, the HR chart's line morphing across.
+    @State private var detailHeartRateSamples: [WorkoutHeartRateSample]?
     /// Live scroll offset, held in an `@Observable` so writing it on every scroll frame
     /// only invalidates the map-dim overlay that reads it — not the whole sheet, whose
     /// body rebuilds the comparison/splits/HR-chart derivations on each evaluation.
@@ -1446,6 +1451,20 @@ struct BodyWorkoutDetailSheet: View {
                         .frame(maxHeight: .infinity, alignment: .top)
                         .ignoresSafeArea(edges: .top)
                         .allowsHitTesting(false)
+                case .map3D:
+                    // Same page as Map — only the hero's framing differs (pitched
+                    // camera over realistic elevation instead of the flat map rect).
+                    Color.black.ignoresSafeArea()
+
+                    BodyWorkoutRouteMapHero(route: route, tint: workoutColorPalette.color(for: workout.type), targetCenterY: routeTargetCenterY, topInset: topSafeAreaInset, is3D: true)
+                        .frame(height: mapHeight)
+                        .matchedTransitionSource(id: "routeMap", in: routeMapZoom)
+                        .overlay {
+                            BodyWorkoutMapDimOverlay(scrollState: scrollState, mapHeight: mapHeight)
+                        }
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .ignoresSafeArea(edges: .top)
+                        .allowsHitTesting(false)
                 case .plain:
                     // No tiles to blend into, so the page keeps the routeless
                     // workout-tint backdrop and the route strokes over it.
@@ -1481,7 +1500,7 @@ struct BodyWorkoutDetailSheet: View {
                 // band open on the style's own backdrop so the page doesn't have to
                 // change background a second time when the hero arrives, and — when the
                 // draw is switched off — shimmer rather than sit empty.
-                if routeStyle == .map {
+                if routeStyle == .map || routeStyle == .map3D {
                     Color.black.ignoresSafeArea()
                 } else {
                     sheetBackdrop
@@ -1605,7 +1624,8 @@ struct BodyWorkoutDetailSheet: View {
                 splitData: splitData,
                 metricSeries: metricSeries,
                 maxHeartRate: resolvedMaxHeartRate,
-                heartRateRecoveryBPM: heartRateRecoveryBPM
+                heartRateRecoveryBPM: heartRateRecoveryBPM,
+                heartRateSamplesOverride: detailHeartRateSamples
             )
         }
         .alert("Rename Workout", isPresented: $isRenamingWorkout) {
@@ -1619,7 +1639,7 @@ struct BodyWorkoutDetailSheet: View {
         }
         .fullScreenCover(isPresented: $showsFullScreenRouteMap) {
             if let route = displayedRoute {
-                BodyWorkoutRouteMapFullScreen(route: route, tint: workoutColorPalette.color(for: workout.type))
+                BodyWorkoutRouteMapFullScreen(route: route, tint: workoutColorPalette.color(for: workout.type), is3D: routeStyle == .map3D)
                     .navigationTransition(.zoom(sourceID: "routeMap", in: routeMapZoom))
             }
         }
@@ -1647,6 +1667,9 @@ struct BodyWorkoutDetailSheet: View {
             // Load the route and distance samples concurrently so the splits
             // section isn't blocked behind the route fetch + reverse geocoding.
             async let loadedSplitData = workoutStore.loadWorkoutSplitData(for: workout)
+            // Full-resolution heart rate, alongside the splits for the same reason: the
+            // chart shouldn't queue behind the route fetch and its reverse geocode.
+            async let loadedHeartRateSeries = workoutStore.loadWorkoutHeartRateSeries(for: workout)
 
             let coordinatesRoute = await loadedCoordinates
             guard !Task.isCancelled else { return }
@@ -1668,6 +1691,9 @@ struct BodyWorkoutDetailSheet: View {
             // splits query hide Share long after the route finished.
             routeLoadSettled = true
             splitData = await loadedSplitData
+            if let resolvedHeartRateSeries = await loadedHeartRateSeries, !resolvedHeartRateSeries.isEmpty {
+                detailHeartRateSamples = resolvedHeartRateSeries
+            }
         }
         .task(id: "\(workout.id.uuidString)-\(workoutStore.permissionSelection.rawValue)") {
             predictionInputsSettled = false
@@ -2649,7 +2675,8 @@ struct BodyWorkoutDetailSheet: View {
             comparisonWorkouts: comparison.priorWorkouts,
             comparisonDataComplete: comparison.isComplete,
             comparisonLoadSettled: comparisonMonthsSettled,
-            customName: workoutStore.workoutCustomNames[workout.id]
+            customName: workoutStore.workoutCustomNames[workout.id],
+            heartRateSamplesOverride: detailHeartRateSamples
         )
     }
 
@@ -2684,7 +2711,8 @@ struct BodyWorkoutDetailSheet: View {
         WorkoutDetailChartPresentations.splits(
             workout: workout,
             splitData: splitData,
-            distanceUnitPreference: selectedDistanceUnitPreference
+            distanceUnitPreference: selectedDistanceUnitPreference,
+            heartRateSamplesOverride: detailHeartRateSamples
         )
     }
 
@@ -2769,7 +2797,10 @@ enum WorkoutDetailChartPresentations {
     static func splits(
         workout: WorkoutSummary,
         splitData: WorkoutSplitData,
-        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference
+        distanceUnitPreference: BodyValueFormat.DistanceUnitPreference,
+        /// The detail page's lazily fetched full-resolution heart rate, when it has
+        /// landed; nil keeps the workout's ≤96-point summary samples.
+        heartRateSamplesOverride: [WorkoutHeartRateSample]? = nil
     ) -> WorkoutSplitsPresentation? {
         let unitMeters = distanceUnitPreference == .miles ? 1_609.344 : 1_000.0
         let splits = WorkoutSplitCalculator.splits(
@@ -2783,7 +2814,7 @@ enum WorkoutDetailChartPresentations {
             splits: splits,
             paceStyle: workout.type.paceStyle,
             distanceUnitPreference: distanceUnitPreference,
-            heartRateSamples: workout.heartRateSamples ?? [],
+            heartRateSamples: heartRateSamplesOverride.flatMap { $0.isEmpty ? nil : $0 } ?? workout.heartRateSamples ?? [],
             stepSamples: splitData.stepSamples
         )
     }
@@ -3969,6 +4000,14 @@ struct BodyWorkoutHeartRateChartCard: View {
     /// keeps a long workout's chart from re-sorting on unrelated re-renders.
     @State private var metricsCache = HeartRateMetricsCache()
 
+    /// The series the line morphs *from* while `morphProgress` runs 0→1. Set only when
+    /// one non-empty sample set replaces another live (the sheet's sparse→full swap);
+    /// nil on first render and in static renders (share sheet), so neither draws on.
+    @State private var morphFromSeries: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint]?
+    @State private var morphProgress: Double = 1
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         let metrics = metricsCache.metrics(for: samples)
         let zones = maxHeartRate.flatMap {
@@ -3978,6 +4017,9 @@ struct BodyWorkoutHeartRateChartCard: View {
         return VStack(alignment: .leading, spacing: 14) {
             header(metrics: metrics)
             chartView(metrics: metrics)
+                .onChange(of: samples) { previousSamples, newSamples in
+                    startMorph(from: previousSamples, to: newSamples)
+                }
             if let zones {
                 BodyWorkoutHeartRateZoneChart(zones: zones)
                     .padding(.top, 6)
@@ -4012,8 +4054,13 @@ struct BodyWorkoutHeartRateChartCard: View {
     @ViewBuilder
     private func chartView(metrics: BodyWorkoutHeartRateChartMetrics?) -> some View {
         if let metrics {
-            BodyWorkoutHeartRateChart(metrics: metrics, floatingCallout: floatingCallout)
-                .frame(height: 210)
+            BodyWorkoutHeartRateChart(
+                metrics: metrics,
+                morphFromSeries: morphProgress < 1 ? morphFromSeries : nil,
+                morphProgress: morphProgress,
+                floatingCallout: floatingCallout
+            )
+            .frame(height: 210)
         } else {
             ZStack {
                 Color.clear
@@ -4023,6 +4070,26 @@ struct BodyWorkoutHeartRateChartCard: View {
                     .foregroundColor(.secondary)
             }
             .frame(height: 210)
+        }
+    }
+
+    /// Freezes the outgoing smoothed series and runs the line's morph to the new one.
+    /// Only a live non-empty→non-empty swap animates: a first render (or a drop to no
+    /// data) snaps, as does reduce motion.
+    private func startMorph(
+        from previousSamples: [WorkoutHeartRateSample],
+        to newSamples: [WorkoutHeartRateSample]
+    ) {
+        guard !reduceMotion, !previousSamples.isEmpty, !newSamples.isEmpty else {
+            morphFromSeries = nil
+            morphProgress = 1
+            return
+        }
+
+        morphFromSeries = BodyWorkoutHeartRateChartMetrics(samples: previousSamples).smoothedSeries
+        morphProgress = 0
+        withAnimation(.easeInOut(duration: 0.75)) {
+            morphProgress = 1
         }
     }
 }
@@ -4050,8 +4117,14 @@ private final class HeartRateMetricsCache {
 /// coloured by the shared low-to-high ramp, bracketed by the session's average (solid)
 /// and its max/min (dashed) reference lines. Holding on it scrubs: the nearest smoothed
 /// point gets a rule line and a callout published to the sheet's floating layer.
-private struct BodyWorkoutHeartRateChart: View {
+private struct BodyWorkoutHeartRateChart: View, Animatable {
     let metrics: BodyWorkoutHeartRateChartMetrics
+    /// The outgoing series the line morphs away from, or nil to draw the new line
+    /// outright. Its values are resampled onto the new series' x positions, so both
+    /// only need to share the workout's time domain.
+    var morphFromSeries: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint]?
+    /// 0 draws the old shape, 1 the new one. Driven by the card's animation.
+    var morphProgress: Double = 1
     /// Where a scrub publishes its callout; the sheet's overlay draws it above the
     /// page chrome. Nil in contexts with no such layer (previews, renders).
     var floatingCallout: BodyChartFloatingCalloutState?
@@ -4065,6 +4138,11 @@ private struct BodyWorkoutHeartRateChart: View {
     /// VoiceOver's own cursor through the smoothed points.
     @State private var accessibilityPointIndex = 0
 
+    var animatableData: Double {
+        get { morphProgress }
+        set { morphProgress = newValue }
+    }
+
     private static let timeMarkLabelHorizontalInset: CGFloat = 24
     private static let yAxisLabelInset: CGFloat = 44
     private static let xAxisLabelOffset: CGFloat = 18
@@ -4073,6 +4151,12 @@ private struct BodyWorkoutHeartRateChart: View {
         // Bucketing the samples is O(n); doing it once per body pass keeps the drawing
         // and the scrub lookup reading the same points.
         let series = metrics.smoothedSeries
+        // Scrubbing always reads the final series; only the drawn line blends.
+        let lineSeries = bodyWorkoutMorphedHeartRateSeries(
+            from: morphFromSeries,
+            to: series,
+            progress: morphProgress
+        )
 
         return GeometryReader { geometry in
             let plotRect = CGRect(
@@ -4087,7 +4171,7 @@ private struct BodyWorkoutHeartRateChart: View {
                     drawGrid(in: plotRect, context: &context)
                     drawReferenceLine(in: plotRect, context: &context)
                     drawScatterDots(in: plotRect, context: &context)
-                    drawSmoothedLine(series, in: plotRect, context: &context)
+                    drawSmoothedLine(lineSeries, in: plotRect, context: &context)
                     drawSelection(series, in: plotRect, context: &context)
                 }
 
@@ -4540,6 +4624,42 @@ private struct BodyWorkoutHeartRateChartMetrics {
             ))
         }
         return points
+    }
+}
+
+/// Blends the outgoing HR line into the incoming one: every point keeps the new
+/// series' date, and its value eases from the old series resampled at that date
+/// (linear between neighbours, clamped past either end) to the new value. Both
+/// series span the same workout window, so a shared time domain is all this needs.
+/// Returns `newSeries` untouched when there is nothing to morph from.
+private func bodyWorkoutMorphedHeartRateSeries(
+    from oldSeries: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint]?,
+    to newSeries: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint],
+    progress: Double
+) -> [BodyWorkoutHeartRateChartMetrics.SmoothedPoint] {
+    guard let oldSeries, oldSeries.count >= 2, progress < 1 else {
+        return newSeries
+    }
+
+    let t = min(max(progress, 0), 1)
+    var cursor = 0
+
+    return newSeries.map { point in
+        while cursor < oldSeries.count - 2, oldSeries[cursor + 1].date < point.date {
+            cursor += 1
+        }
+        let lower = oldSeries[cursor]
+        let upper = oldSeries[cursor + 1]
+        let span = upper.date.timeIntervalSince(lower.date)
+        let offset = span > 0
+            ? min(max(point.date.timeIntervalSince(lower.date) / span, 0), 1)
+            : 0
+        let oldValue = lower.value + (upper.value - lower.value) * offset
+
+        return BodyWorkoutHeartRateChartMetrics.SmoothedPoint(
+            date: point.date,
+            value: oldValue + (point.value - oldValue) * t
+        )
     }
 }
 
