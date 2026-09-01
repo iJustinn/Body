@@ -188,12 +188,13 @@ struct BodyWorkoutRouteMapHero: View {
         guard !Task.isCancelled else { return }
 
         // 3D Map carries the 3D Plain ribbon over the tiles: the same lifted,
-        // elevation-extruded route the map-free hero draws — single workout tint, no
-        // pace shading — standing on the pitched terrain. Without usable altitude
-        // `liftUnits` is nil and the flat tinted trace draws instead, mirroring
-        // 3D Plain's own fallback.
+        // elevation-extruded route the map-free hero draws — a single-color line, no
+        // pace shading, no start/end dots — standing on the pitched terrain. White
+        // rather than the workout tint, so every route reads the same against the
+        // map's own colors. Without usable altitude `liftUnits` is nil and the flat
+        // white trace draws instead, mirroring 3D Plain's own fallback.
         let lift = is3D ? WorkoutRoute3DProjection.liftUnits(for: route.coordinates) : nil
-        let image = Self.draw(route: route.coordinates, on: result, fallbackTint: UIColor(tint), lift: lift, usesPaceColoring: !is3D)
+        let image = Self.draw(route: route.coordinates, on: result, fallbackTint: is3D ? .white : UIColor(tint), lift: lift, usesPaceColoring: !is3D, drawsMarkers: !is3D)
         // The view-level `.animation(value:)` on `mapLayer` drives the fade-in.
         snapshot = image
     }
@@ -301,12 +302,15 @@ struct BodyWorkoutRouteMapHero: View {
     ///   the way the 3D Plain hero does, whatever the route's speed spread. The 3D Map
     ///   hero passes it so its ribbon reads as that style's tinted line; the share card
     ///   keeps the default pace shading.
+    /// - Parameter drawsMarkers: `false` omits the green start / red end dots — the 3D
+    ///   Map hero, matching 3D Plain's marker-free line.
     static func draw(
         route: [RouteCoordinate],
         on snapshot: MKMapSnapshotter.Snapshot,
         fallbackTint: UIColor,
         lift: [Double]? = nil,
-        usesPaceColoring: Bool = true
+        usesPaceColoring: Bool = true,
+        drawsMarkers: Bool = true
     ) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = snapshot.image.scale
@@ -328,7 +332,7 @@ struct BodyWorkoutRouteMapHero: View {
             cgContext.setLineCap(.round)
 
             if let lift, lift.count == points.count {
-                drawRibbon(base: points, lift: lift, route: route, fallbackTint: fallbackTint, usesPaceColoring: usesPaceColoring, in: cgContext)
+                drawRibbon(base: points, lift: lift, route: route, fallbackTint: fallbackTint, usesPaceColoring: usesPaceColoring, drawsMarkers: drawsMarkers, in: cgContext)
                 return
             }
 
@@ -350,8 +354,10 @@ struct BodyWorkoutRouteMapHero: View {
                 cgContext.strokePath()
             }
 
-            drawMarker(at: first, color: .systemGreen, in: cgContext)
-            drawMarker(at: last, color: .systemRed, in: cgContext)
+            if drawsMarkers {
+                drawMarker(at: first, color: .systemGreen, in: cgContext)
+                drawMarker(at: last, color: .systemRed, in: cgContext)
+            }
         }
     }
 
@@ -368,6 +374,7 @@ struct BodyWorkoutRouteMapHero: View {
         route: [RouteCoordinate],
         fallbackTint: UIColor,
         usesPaceColoring: Bool,
+        drawsMarkers: Bool,
         in context: CGContext
     ) {
         let xs = base.map(\.x)
@@ -430,8 +437,10 @@ struct BodyWorkoutRouteMapHero: View {
         }
 
         // The markers belong to the lifted line, which is the route the eye follows.
-        drawMarker(at: top[0], color: .systemGreen, in: context)
-        drawMarker(at: top[top.count - 1], color: .systemRed, in: context)
+        if drawsMarkers {
+            drawMarker(at: top[0], color: .systemGreen, in: context)
+            drawMarker(at: top[top.count - 1], color: .systemRed, in: context)
+        }
     }
 
     /// The ribbon's shading, matching `BodyWorkoutRoute3DHero`'s.
