@@ -61,6 +61,10 @@ enum WatchMetricsSnapshotBuilder {
         // from the same trusted night as `sleepNight` so the two always
         // describe one session.
         var sleepNightEnd: Date? = nil
+        // The same trusted night's stage segments for the watch Sleep Stages
+        // complication — MAIN SESSION only, so naps stay out of the bar,
+        // matching the iPhone Home Screen Sleep Stages widget.
+        var sleepStages: [WatchSleepStageSegment]? = nil
 
         if permissionSelection.includes(.sleep) {
             // Guards against carrying over a stale, previously-completed night
@@ -68,6 +72,12 @@ enum WatchMetricsSnapshotBuilder {
             let trustedSleep = summary.sleep.asOf(now)
             sleepNight = trustedSleep?.stageSnapshot.date
             sleepNightEnd = trustedSleep?.stageSnapshot.dateInterval?.end
+            let mainSessionSegments = trustedSleep?.stageSnapshot.mainSession.segments ?? []
+            sleepStages = mainSessionSegments.isEmpty
+                ? nil
+                : mainSessionSegments.map {
+                    WatchSleepStageSegment(stage: $0.stage.rawValue, startDate: $0.startDate, endDate: $0.endDate)
+                }
             metrics.append(sleepMetric(
                 trustedSleep,
                 recentSleepHistory: trends.sleepHistory,
@@ -169,7 +179,13 @@ enum WatchMetricsSnapshotBuilder {
             stampedMetric.weekly = weeklyValues(forKind: metric.kind)
             return stampedMetric
         }
-        return WatchMetricsSnapshot(generatedAt: now, lastRefreshDate: lastRefreshDate, metrics: stamped, sleepNight: sleepNight)
+        return WatchMetricsSnapshot(
+            generatedAt: now,
+            lastRefreshDate: lastRefreshDate,
+            metrics: stamped,
+            sleepNight: sleepNight,
+            sleepStages: sleepStages
+        )
     }
 
     /// Whole-series min/max per metric kind (every point the passed trends

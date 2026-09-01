@@ -76,6 +76,7 @@ final class WatchComputeMergeTests: XCTestCase {
         generatedAt: Date,
         lastRefreshDate: Date?,
         sleepNight: Date? = nil,
+        sleepStages: [WatchSleepStageSegment]? = nil,
         isReset: Bool? = nil
     ) -> WatchMetricsSnapshot {
         WatchMetricsSnapshot(
@@ -84,10 +85,17 @@ final class WatchComputeMergeTests: XCTestCase {
             metrics: metrics,
             source: "phone",
             sleepNight: sleepNight,
+            sleepStages: sleepStages,
             publisherEpoch: "epoch-A",
             revision: 7,
             isReset: isReset
         )
+    }
+
+    /// A one-segment stage bar, distinguished by its `stage` so the assertions
+    /// can tell the phone's night from the watch's.
+    private func stages(_ stage: String) -> [WatchSleepStageSegment] {
+        [WatchSleepStageSegment(stage: stage, startDate: t0, endDate: t1)]
     }
 
     private func result(
@@ -95,6 +103,7 @@ final class WatchComputeMergeTests: XCTestCase {
         dataAsOf: [String: Date],
         chartDataAsOf: [String: Date] = [:],
         sleepNight: Date? = nil,
+        sleepStages: [WatchSleepStageSegment]? = nil,
         coverage: Date? = nil,
         generation: UInt64 = 3
     ) -> WatchComputeResult {
@@ -102,7 +111,8 @@ final class WatchComputeMergeTests: XCTestCase {
             generatedAt: t2,
             lastRefreshDate: t2,
             metrics: metrics,
-            sleepNight: sleepNight
+            sleepNight: sleepNight,
+            sleepStages: sleepStages
         )
         computed.source = "watch"
         // Default coverage `t2`: "the compute's queries ran at t2" — the
@@ -448,6 +458,134 @@ final class WatchComputeMergeTests: XCTestCase {
             into: currentWithOlderSleep
         )
         XCTAssertEqual(withSleep.sleepNight, watchNight)
+    }
+
+    func testSleepStagesMoveOnlyWithTheSleepMetric() {
+        let current = snapshot(
+            metrics: [
+                metric(WatchMetricKindKey.heartRate, displayValue: "62", rawValue: 62, computedAt: t0),
+                metric(WatchMetricKindKey.sleep, displayValue: "7h 32m", rawValue: 85, computedAt: t2)
+            ],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepNight: t0,
+            sleepStages: stages("core")
+        )
+
+        // Sleep is NOT adopted (its displayed stamp is newer) — the bar stays
+        // the one belonging to the card on screen.
+        let withoutSleep = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [
+                    metric(WatchMetricKindKey.heartRate, displayValue: "71", rawValue: 71),
+                    metric(WatchMetricKindKey.sleep, displayValue: "6h 02m", rawValue: 70)
+                ],
+                dataAsOf: [WatchMetricKindKey.heartRate: t1, WatchMetricKindKey.sleep: t1],
+                sleepNight: t2,
+                sleepStages: stages("rem")
+            ),
+            into: current
+        )
+        XCTAssertEqual(withoutSleep.sleepStages, stages("core"))
+
+        // Sleep IS adopted — the bar moves with it, so the complication draws
+        // the night the card actually shows.
+        let currentWithOlderSleep = snapshot(
+            metrics: [metric(WatchMetricKindKey.sleep, displayValue: "7h 32m", rawValue: 85, computedAt: t0)],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepNight: t0,
+            sleepStages: stages("core")
+        )
+        let withSleep = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [metric(WatchMetricKindKey.sleep, displayValue: "6h 02m", rawValue: 70)],
+                dataAsOf: [WatchMetricKindKey.sleep: t1],
+                sleepNight: t2,
+                sleepStages: stages("rem")
+            ),
+            into: currentWithOlderSleep
+        )
+        XCTAssertEqual(withSleep.sleepStages, stages("rem"))
+    }
+
+    // MARK: - Phone push: the night and its bar follow the surviving sleep card
+
+    func testPushKeepsTheLocalNightAndStagesBehindAPreservedSleepCard() {
+        // Blank-preserve: the phone had no trusted night to publish, so its
+        // card is "--" and its night/stages are nil. The local reading stands —
+        // and must keep its own night, or `sanitized(asOf:)` would blank the
+        // very value that was just preserved.
+        let current = snapshot(
+            metrics: [metric(WatchMetricKindKey.sleep, displayValue: "7h 32m", rawValue: 85, computedAt: t1)],
+            generatedAt: t1,
+            lastRefreshDate: t1,
+            sleepNight: t1,
+            sleepStages: stages("core")
+        )
+        let push = snapshot(
+            metrics: [metric(WatchMetricKindKey.sleep, displayValue: "--", rawValue: nil, computedAt: t2)],
+            generatedAt: t2,
+            lastRefreshDate: t2
+        )
+
+        let merged = WatchComputeMerge.merging(push, over: current)
+
+        XCTAssertEqual(merged.metric(forKind: WatchMetricKindKey.sleep)?.rawValue, 85)
+        XCTAssertEqual(merged.sleepNight, t1)
+        XCTAssertEqual(merged.sleepStages, stages("core"))
+    }
+
+    func testPushKeepsTheLocalNightAndStagesBehindAFresherWatchComputedSleepCard() {
+        let current = snapshot(
+            metrics: [
+                metric(
+                    WatchMetricKindKey.sleep,
+                    displayValue: "7h 32m", rawValue: 85,
+                    liveUpdatedAt: t2, computedAt: t2
+                )
+            ],
+            generatedAt: t1,
+            lastRefreshDate: t1,
+            sleepNight: t2,
+            sleepStages: stages("rem")
+        )
+        let push = snapshot(
+            metrics: [metric(WatchMetricKindKey.sleep, displayValue: "6h 02m", rawValue: 70, computedAt: t1)],
+            generatedAt: t1,
+            lastRefreshDate: t1,
+            sleepNight: t0,
+            sleepStages: stages("core")
+        )
+
+        let merged = WatchComputeMerge.merging(push, over: current)
+
+        XCTAssertEqual(merged.metric(forKind: WatchMetricKindKey.sleep)?.rawValue, 85)
+        XCTAssertEqual(merged.sleepNight, t2)
+        XCTAssertEqual(merged.sleepStages, stages("rem"))
+    }
+
+    func testPushOwnsTheNightAndStagesWhenItsSleepCardWins() {
+        let current = snapshot(
+            metrics: [metric(WatchMetricKindKey.sleep, displayValue: "7h 32m", rawValue: 85, computedAt: t0)],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepNight: t0,
+            sleepStages: stages("rem")
+        )
+        let push = snapshot(
+            metrics: [metric(WatchMetricKindKey.sleep, displayValue: "6h 02m", rawValue: 70, computedAt: t2)],
+            generatedAt: t2,
+            lastRefreshDate: t2,
+            sleepNight: t2,
+            sleepStages: stages("core")
+        )
+
+        let merged = WatchComputeMerge.merging(push, over: current)
+
+        XCTAssertEqual(merged.metric(forKind: WatchMetricKindKey.sleep)?.rawValue, 70)
+        XCTAssertEqual(merged.sleepNight, t2)
+        XCTAssertEqual(merged.sleepStages, stages("core"))
     }
 
     // MARK: - Watermark domains (coverage vs event)

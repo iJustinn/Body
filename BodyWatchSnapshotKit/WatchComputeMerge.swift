@@ -235,11 +235,14 @@ enum WatchComputeMerge {
         }
 
         // `sleepNight` describes the Sleep METRIC's night (it drives
-        // `sanitized(asOf:)`), so it may only move together with that metric —
-        // otherwise a compute that didn't adopt sleep would re-date the phone's
-        // sleep card to the watch's night and defeat the midnight guard.
+        // `sanitized(asOf:)`) and `sleepStages` the segments of that same
+        // night, so both may only move together with that metric — otherwise a
+        // compute that didn't adopt sleep would re-date the phone's sleep card
+        // to the watch's night (defeating the midnight guard) and draw the
+        // watch's bar under the phone's duration.
         if adoptedSleepMetric {
             merged.sleepNight = computed.sleepNight
+            merged.sleepStages = computed.sleepStages
         }
         return merged
     }
@@ -277,6 +280,7 @@ enum WatchComputeMerge {
         treatingBlanksAsAuthoritative: Bool = false
     ) -> WatchMetricsSnapshot {
         var merged = received
+        var keptLocalSleepMetric = false
         merged.metrics = received.metrics.map { metric in
             guard let local = current.metric(forKind: metric.kind) else { return metric }
 
@@ -292,6 +296,7 @@ enum WatchComputeMerge {
                 ?? received.lastRefreshDate
                 ?? .distantPast
             if let liveUpdatedAt = local.liveUpdatedAt, liveUpdatedAt > receivedAsOf {
+                if metric.kind == WatchMetricKindKey.sleep { keptLocalSleepMetric = true }
                 if isWatchComputed(local) {
                     // A watch COMPUTE produced every display field together:
                     // its Readiness / Training Load score, band, level bounds,
@@ -333,10 +338,24 @@ enum WatchComputeMerge {
             // so readiness — the only always-present metric — is the sole case.)
             if !treatingBlanksAsAuthoritative,
                metric.kind != WatchMetricKindKey.readiness, !metric.hasValue, local.hasValue {
+                if metric.kind == WatchMetricKindKey.sleep { keptLocalSleepMetric = true }
                 return local
             }
 
             return metric
+        }
+
+        // `sleepNight` and `sleepStages` describe the Sleep METRIC's reading —
+        // the night the midnight guard judges and the segments the complication
+        // draws — so they stay with whichever side's card survived above.
+        // Leaving the incoming ones behind a preserved local reading would date
+        // that reading to a night it doesn't describe, and when the push's own
+        // night is nil (a phone that had no trusted night to publish)
+        // `sanitized(asOf:)` would then blank the very value the preserve rule
+        // just kept.
+        if keptLocalSleepMetric {
+            merged.sleepNight = current.sleepNight
+            merged.sleepStages = current.sleepStages
         }
         return merged
     }
