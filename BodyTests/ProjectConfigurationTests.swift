@@ -416,8 +416,8 @@ final class ProjectConfigurationTests: XCTestCase {
         let shareSheetSource = try text(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
         XCTAssertTrue(shareSheetSource.contains("placement: .topBarLeading"))
         XCTAssertTrue(shareSheetSource.contains("\"xmark\""))
-        // The badge beside the "Share" title reads "v5" — the reworked share card.
-        XCTAssertTrue(shareSheetSource.contains(#"Text("v5")"#))
+        // The badge beside the "Share" title reads "v6" — the reworked share card.
+        XCTAssertTrue(shareSheetSource.contains(#"Text("v6")"#))
         XCTAssertFalse(shareSheetSource.contains(#"Text("v3")"#))
         XCTAssertFalse(shareSheetSource.contains(#"Text("Beta v2")"#))
         XCTAssertTrue(shareSheetSource.contains("\"square.and.arrow.up\""))
@@ -496,7 +496,7 @@ final class ProjectConfigurationTests: XCTestCase {
         // Body Pro picks which metrics the card shows, remembered per workout type.
         XCTAssertTrue(shareSheetSource.contains("WorkoutShareMetricSelection.storageKey"))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Metrics")"#))
-        XCTAssertTrue(shareSheetSource.contains(#"Text("Pick 1 to 5 metrics.")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Pick up to 5 metrics.")"#))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Requires Body Pro")"#))
 
         // Profile attribution: three independent toggles, free, avatar/nickname off by
@@ -610,6 +610,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(shareSheetSource.contains("supportsLandscape: !isSummaryMode"))
         XCTAssertTrue(shareSheetSource.contains("ForEach(WorkoutShareSummaryCardGeometry.supportedAspectRatios)"))
         XCTAssertTrue(shareSheetSource.contains("if activeAspectRatio != .square {"))
+        // The month card's title and totals are set smaller than the workout card's
+        // blocks — the chart is what the card leads with.
+        XCTAssertTrue(shareCardSource.contains("static let titleFontSize: CGFloat = 22"))
+        XCTAssertTrue(shareCardSource.contains("private static let metricScale: CGFloat = 0.8"))
         // Three totals at most on the month card, with its own caption.
         XCTAssertTrue(shareCardSource.contains("static let summaryMaximumCount = 3"))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Pick up to 3 metrics.")"#))
@@ -617,16 +621,26 @@ final class ProjectConfigurationTests: XCTestCase {
         // The calendar keeps square cells: a five-week month must not stretch to the
         // six-row frame.
         let summaryCardSource = try text(at: "Body/Views/Health/BodyWorkoutShareSummaryCardView.swift")
+        // The card reads its type off that geometry rather than carrying literals.
+        XCTAssertTrue(summaryCardSource.contains("size: WorkoutShareSummaryCardGeometry.titleFontSize"))
+        XCTAssertTrue(summaryCardSource.contains("size: geometry.metricValueSize"))
+        XCTAssertTrue(summaryCardSource.contains("size: geometry.metricLabelSize"))
         XCTAssertTrue(summaryCardSource.contains("fillsAvailableHeight: false,"))
         XCTAssertFalse(summaryCardSource.contains("fillsAvailableHeight: true"))
         XCTAssertTrue(summaryCardSource.contains("scalesGlyphsToFit: true,"))
         let calendarViewSource = try text(at: "BodyShared/Components/WorkoutCalendarView.swift")
         XCTAssertTrue(calendarViewSource.contains("scalesGlyphsToFit: Bool = false,"))
-        // The weekday letters are a stored toggle in the Chart Style tray.
+        // The weekday letters are a stored choice on their own rail row, Show/Hide
+        // tiles like the route-less card's Icon row rather than a tile in another tray.
         XCTAssertTrue(calendarViewSource.contains("showsWeekdayHeader: Bool = true,"))
         XCTAssertTrue(shareCardSource.contains("enum WorkoutShareWeekdayVisibility"))
         XCTAssertTrue(shareSheetSource.contains("WorkoutShareWeekdayVisibility.storageKey"))
         XCTAssertTrue(shareSheetSource.contains(#"Text("Weekdays")"#))
+        XCTAssertTrue(shareSheetSource.contains("case weekdays"))
+        XCTAssertTrue(shareSheetSource.contains(#"railRow(.weekdays, symbol: "abc", label: Text("Weekdays"), trayWidth: trayWidth)"#))
+        XCTAssertTrue(shareSheetSource.contains("private var weekdayTray: some View"))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Show Weekdays")"#))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("Hide Weekdays")"#))
         XCTAssertTrue(shareCardSource.contains("supportsLongImage: Bool = true"))
 
         // Widget row cap now takes an override so the summary card's bar chart can
@@ -640,6 +654,23 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(breakdownSource.contains("case shareCard"))
         XCTAssertTrue(shareCardSource.contains("private static let barRowHeight: CGFloat = 42"))
         XCTAssertFalse(shareCardSource.contains("barWidthFraction"))
+
+        // How many of those bars is the user's pick (1 up to the month's own activity
+        // count, five by default), and a pick past what the region holds shrinks the
+        // chart rather than dropping bars.
+        XCTAssertTrue(shareCardSource.contains("enum WorkoutShareSummaryBarCount"))
+        XCTAssertTrue(shareCardSource.contains("\"workoutShareSummaryBarCount\""))
+        XCTAssertTrue(shareCardSource.contains("static let defaultCount = 5"))
+        XCTAssertTrue(shareCardSource.contains("var barContentScale: CGFloat"))
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareSummaryBarCount.storageKey"))
+        XCTAssertTrue(shareSheetSource.contains("WorkoutShareSummaryBarCount.options(availableTypeCount: summaryBarTypeCount)"))
+        // Its own rail row (and rail option), not a second strip inside Chart Style.
+        XCTAssertTrue(shareSheetSource.contains("case barCount"))
+        XCTAssertTrue(shareSheetSource.contains("railRow(.barCount, symbol: \"list.number\", label: Text(\"Bars\"), trayWidth: trayWidth)"))
+        XCTAssertTrue(shareSheetSource.contains("private func barCountTray("))
+        XCTAssertTrue(shareSheetSource.contains(#"Text("How many activity bars the card shows.")"#))
+        XCTAssertTrue(summaryCardSource.contains("barRowCount: barRowCount"))
+        XCTAssertTrue(summaryCardSource.contains(".scaleEffect(scale, anchor: .top)"))
 
         // The new summary card view and the branding row it shares with the workout
         // card view (extracted so both cards draw the same wordmark/attribution).
@@ -681,6 +712,10 @@ final class ProjectConfigurationTests: XCTestCase {
         // (enforced separately at :4076); this just confirms the keys exist.
         let localizable = try text(at: "Body/Localizable.xcstrings")
         XCTAssertTrue(localizable.contains(#""Chart Style" : {"#))
+        XCTAssertTrue(localizable.contains(#""How many activity bars the card shows." : {"#))
+        XCTAssertTrue(localizable.contains(#""Bars" : {"#))
+        XCTAssertTrue(localizable.contains(#""Show Weekdays" : {"#))
+        XCTAssertTrue(localizable.contains(#""Hide Weekdays" : {"#))
         XCTAssertTrue(localizable.contains(#""Bar Chart" : {"#))
         XCTAssertTrue(localizable.contains(#""Share month summary" : {"#))
         XCTAssertTrue(localizable.contains(#""Share Summary" : {"#))
@@ -706,12 +741,19 @@ final class ProjectConfigurationTests: XCTestCase {
         let metricsIndex = try XCTUnwrap(railRegion.range(of: #"Text("Metrics")"#)?.lowerBound)
         let profileIndex = try XCTUnwrap(railRegion.range(of: #"Text("Profile")"#)?.lowerBound)
         let chartStyleIndex = try XCTUnwrap(railRegion.range(of: #"Text("Chart Style")"#)?.lowerBound)
+        // Calendar only, in the same slot the bar chart's own row takes.
+        let weekdaysIndex = try XCTUnwrap(railRegion.range(of: #"Text("Weekdays")"#)?.lowerBound)
+        // Bar chart only, and only when the month has more than one activity to rank.
+        let barsIndex = try XCTUnwrap(railRegion.range(of: #"Text("Bars")"#)?.lowerBound)
         let backgroundIndex = try XCTUnwrap(railRegion.range(of: #"Text("Background")"#)?.lowerBound)
         let ratioIndex = try XCTUnwrap(railRegion.range(of: #"Text("Ratio")"#)?.lowerBound)
 
-        // The workout rail's order, with Chart Style in Route Style's slot.
+        // The workout rail's order, with Chart Style in Route Style's slot and each
+        // chart's own row directly under it.
         XCTAssertLessThan(fontIndex, chartStyleIndex)
-        XCTAssertLessThan(chartStyleIndex, metricsIndex)
+        XCTAssertLessThan(chartStyleIndex, weekdaysIndex)
+        XCTAssertLessThan(weekdaysIndex, barsIndex)
+        XCTAssertLessThan(barsIndex, metricsIndex)
         XCTAssertLessThan(metricsIndex, profileIndex)
         XCTAssertLessThan(profileIndex, backgroundIndex)
         XCTAssertLessThan(backgroundIndex, ratioIndex)
@@ -826,6 +868,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let routeHeroSource = try text(at: "Body/Views/Health/BodyWorkoutRouteMapHero.swift")
         XCTAssertTrue(routeHeroSource.contains("sizeFactor: CGFloat = 0.9"))
         XCTAssertTrue(routeHeroSource.contains("enum BodyWorkoutRouteHeroFit"))
+
+        // Picker order is 2D Map, 2D Plain, 3D Map, 3D Plain; only the two map-backed
+        // styles draw their route into the snapshot rather than stroking it.
+        XCTAssertEqual(BodyWorkoutRouteStyle.allCases.map(\.rawValue), ["map", "plain", "map3d", "3d"])
+        XCTAssertFalse(BodyWorkoutRouteStyle.map3D.supportsRouteDraw)
     }
 
     func testWorkoutDetailReservesTheRouteHeroAndDrawsItProgressively() throws {
@@ -3113,13 +3160,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.1;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 9;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 1.0.2;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         // All five targets (app, widget, tests, watch app, watch complications)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
-        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.1;"), 10)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 9;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.0.2;"), 10)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 2;"), 10)
         XCTAssertTrue(project.contains("VALIDATE_PRODUCT = YES;"))
     }
 
@@ -3156,6 +3203,14 @@ final class ProjectConfigurationTests: XCTestCase {
         // trend lookup keys off it.
         XCTAssertFalse(WatchMetricKindKey.displayOrder.contains(WatchMetricKindKey.exerciseMinutes))
         XCTAssertEqual(WatchMetricKindKey.exerciseMinutes, HealthWidgetMetric.exerciseMinutes.rawValue)
+
+        // Weekly Workout Time is the kind that complication actually reads now
+        // (summed workout durations); `exerciseMinutes` above survives only as
+        // the fallback for a cached snapshot from an older phone build. It has
+        // no `HealthWidgetMetric` counterpart at all, so it can never join the
+        // `pairs` table above, and it must stay out of `displayOrder` for the
+        // same reason: no dashboard card, no detail page, no ring.
+        XCTAssertFalse(WatchMetricKindKey.displayOrder.contains(WatchMetricKindKey.workoutMinutes))
     }
 
     func testVersionDocumentationAndSettingsFallbackMatchCurrentRelease() throws {
@@ -3163,7 +3218,9 @@ final class ProjectConfigurationTests: XCTestCase {
         let versionHistory = try text(at: "VersionHistory.md")
         let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.0.1 (build 9)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.0.2 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.2 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 9)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.1 (build 6)**"))
@@ -3288,6 +3345,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.0.2 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.2 build 2."))
+        XCTAssertTrue(versionHistory.contains("## 1.0.2 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.2 build 1."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 9)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.0.1 build 9."))
         XCTAssertTrue(versionHistory.contains("## 1.0.1 (build 8)"))
@@ -3873,6 +3934,46 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(summarySource.contains("static func normalizedCustomName(_ raw: String?) -> String?"))
     }
 
+    func testWorkoutHeartRateSeriesReadFailureIsNotCachedAsEmpty() throws {
+        // The detail sheet re-reads heart rate at full resolution because the summary
+        // only carries a <=96-point downsample. The engine read must therefore throw
+        // on a failure (a dismissed sheet, a locked device) rather than answer `[]`,
+        // which the store would otherwise cache as confirmed-absent for the session.
+        let seriesSource = try text(at: "Body/Services/HealthKitFetchEngine+MetricSeries.swift")
+        XCTAssertTrue(seriesSource.contains("func workoutHeartRateSamples(workoutID: UUID) async throws -> [WorkoutHeartRateSample]"))
+        // Must be a series-sample read: the watch stores workout heart rate as series
+        // samples, and a plain HKSampleQuery would return one aggregated entry per
+        // series blob instead of the readings inside it.
+        XCTAssertTrue(seriesSource.contains("HKQuantitySeriesSampleQueryDescriptor("))
+        XCTAssertTrue(seriesSource.contains("beatsPerMinute.isFinite, beatsPerMinute > 0"))
+
+        let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
+        XCTAssertTrue(storeSource.contains("private var heartRateSeriesCache: [UUID: [WorkoutHeartRateSample]] = [:]"))
+        XCTAssertTrue(storeSource.contains("func loadWorkoutHeartRateSeries(for workout: WorkoutSummary) async -> [WorkoutHeartRateSample]?"))
+
+        let loadStart = try XCTUnwrap(storeSource.range(of: "func loadWorkoutHeartRateSeries(for workout: WorkoutSummary) async -> [WorkoutHeartRateSample]?")?.lowerBound)
+        let loadBlock = String(storeSource[loadStart...].prefix(1_400))
+        // Heart data rides the Heart toggle, and the load must not pin a result taken
+        // under a stale cache generation.
+        XCTAssertTrue(loadBlock.contains("guard permissionSelection.includes(.heart) else {"))
+        XCTAssertTrue(loadBlock.contains("Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch)"))
+        // An empty read is only cached once the workout has settled; a recent one may
+        // still be syncing samples from the watch.
+        XCTAssertTrue(loadBlock.contains("} else if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 {"))
+
+        // The catch must return an UNCACHED nil so reopening the sheet retries, the
+        // same rule the splits load follows.
+        let catchStart = try XCTUnwrap(loadBlock.range(of: "} catch {")?.lowerBound)
+        let catchBlock = String(loadBlock[catchStart...].prefix(210))
+        XCTAssertTrue(catchBlock.contains("return nil"))
+        XCTAssertFalse(catchBlock.contains("heartRateSeriesCache["))
+
+        // Cleared at every gate the sibling detail caches are: the authorization
+        // gate, both permission toggles that can change what it holds (Workouts and
+        // Heart), and Clear Cache.
+        XCTAssertEqual(storeSource.occurrenceCount(of: "heartRateSeriesCache.removeAll()"), 4)
+    }
+
     func testWorkoutStepSamplesPropagateReadFailuresInsteadOfSwallowingErrors() throws {
         let splitsSource = try text(at: "Body/Services/HealthKitFetchEngine+Splits.swift")
 
@@ -3935,11 +4036,13 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try text(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-1.0.1`"))
+        XCTAssertTrue(testPlan.contains("branch `body-v1.0.2`"))
+        XCTAssertFalse(testPlan.contains("branch `body-1.0.1`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.0.1 build 9)"))
+        XCTAssertTrue(testPlan.contains("app version 1.0.2 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 1.0.1 build 9)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 8)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 7)"))
         XCTAssertFalse(testPlan.contains("app version 1.0.1 build 6)"))
@@ -4713,11 +4816,70 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(watchSource.contains("47.0/255.0"))
         XCTAssertTrue(watchSource.contains("167.0/255.0"))
 
+        // Both surfaces draw summed workout durations: the iPhone widget reads
+        // the workout month snapshots straight out of the App Group, and the
+        // complication reads the `workoutMinutes` metric off the pushed
+        // snapshot. Losing either line silently reverts a surface to the
+        // activity-ring exercise minutes it used to show.
+        XCTAssertTrue(phoneSource.contains("WorkoutSnapshotStore.load()"))
+        XCTAssertTrue(phoneSource.contains("WorkoutSnapshotStore.loadPrevious()"))
+        XCTAssertFalse(phoneSource.contains("HealthWidgetSnapshotStore"))
+        XCTAssertTrue(watchSource.contains("metric(forKind: WatchMetricKindKey.workoutMinutes)"))
+        // The legacy kind stays as the fallback for a cached snapshot pushed by
+        // an older phone build, which carries no `workoutMinutes` metric.
+        XCTAssertTrue(watchSource.contains("?? entry.snapshot.metric(forKind: WatchMetricKindKey.exerciseMinutes)"))
+
         // A widget type that is never registered in its bundle compiles and
         // ships, but never appears in the gallery — the silent failure this
         // pair of assertions exists to catch.
         XCTAssertTrue(phoneBundle.contains("BodyExerciseWeekWidget()"))
         XCTAssertTrue(watchBundle.contains("ExerciseWeekComplication()"))
+    }
+
+    func testSleepStagesComplicationIsPinnedToAccessoryRectangularAndMirrorsStageColors() throws {
+        let complicationSource = try text(at: "BodyWatchWidgetExtension/SleepStagesComplication.swift")
+        let watchBundle = try text(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
+        let healthWidgetSnapshotSource = try text(at: "BodyShared/Models/HealthWidgetSnapshot.swift")
+
+        // Rectangular-slot only, like Weekly Workout Time above: a full-width
+        // stage bar has nowhere to lay out in a circular or corner slot.
+        XCTAssertEqual(complicationSource.occurrenceCount(of: ".supportedFamilies([.accessoryRectangular])"), 1)
+
+        // Free, like Weekly Workout Time — no Body Pro gate.
+        XCTAssertFalse(complicationSource.contains("BodyProEntitlement"))
+
+        // Draws the main-session-only stage segments off the pushed snapshot
+        // and deep-links to the Sleep detail page, not a generic metric page.
+        XCTAssertTrue(complicationSource.contains("snapshot.sleepStages"))
+        XCTAssertTrue(complicationSource.contains("WatchMetricKindKey.sleep"))
+
+        // The bar's stage colors are private literals in this file, but they
+        // must mirror `HealthWidgetSleepStage.color` in `HealthWidgetSnapshot`
+        // exactly, or the watch bar silently drifts from the iPhone Sleep
+        // Stages widget's palette.
+        let stageColorLiterals = [
+            "Color(red: 1.00, green: 0.31, blue: 0.22)", // awake
+            "Color(red: 0.42, green: 0.80, blue: 1.00)", // rem
+            "Color(red: 0.24, green: 0.56, blue: 1.00)", // core
+            "Color(red: 0.25, green: 0.25, blue: 0.82)" // deep
+        ]
+        for literal in stageColorLiterals {
+            XCTAssertTrue(complicationSource.contains(literal), literal)
+            XCTAssertTrue(healthWidgetSnapshotSource.contains(literal), literal)
+        }
+
+        // A widget type that is never registered in its bundle compiles and
+        // ships, but never appears in the gallery — the silent failure this
+        // assertion exists to catch.
+        XCTAssertTrue(watchBundle.contains("SleepStagesComplication()"))
+
+        // The picker lists Weekly Workout Time first and Sleep Stages second,
+        // ahead of the metric rings.
+        let exerciseWeekIndex = try XCTUnwrap(watchBundle.range(of: "ExerciseWeekComplication()")?.lowerBound)
+        let sleepStagesIndex = try XCTUnwrap(watchBundle.range(of: "SleepStagesComplication()")?.lowerBound)
+        let readinessIndex = try XCTUnwrap(watchBundle.range(of: "ReadinessComplication()")?.lowerBound)
+        XCTAssertLessThan(exerciseWeekIndex, sleepStagesIndex)
+        XCTAssertLessThan(sleepStagesIndex, readinessIndex)
     }
 
     func testProjectDeclaresSimplifiedChineseLocalization() throws {

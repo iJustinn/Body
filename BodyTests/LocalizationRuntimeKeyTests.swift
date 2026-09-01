@@ -176,10 +176,15 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
     func testRouteStyleKeysResolveInBodyMetricsKitCatalog() throws {
         let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
 
-        // `BodyWorkoutRouteStyle`'s title/subtitle strings for the three Route Style
-        // rows (Settings › Workouts), including the new 3D style.
+        // `BodyWorkoutRouteStyle`'s title/subtitle strings for the four Route Style
+        // rows (Settings › Workouts), including the new 3D Map style.
         try assertKeysTranslated(
-            ["Map", "Apple Maps", "Plain", "Route Only", "3D", "Elevation Ribbon"],
+            [
+                "routeStyle.map2D.title", "Apple Maps",
+                "routeStyle.plain2D.title", "Route Only",
+                "routeStyle.map3D.title", "routeStyle.map3D.subtitle",
+                "routeStyle.plain3D.title", "Elevation Ribbon"
+            ],
             in: catalog
         )
 
@@ -241,7 +246,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = [
             "Share",
             "Share Workout",
-            "v5",
+            "v6",
             "Background",
             "Your Photo",
             "Close",
@@ -328,9 +333,11 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Square",
             "Share Card Sizes",
             "Export workout share cards as 16:9, 3:4, 4:3, or square — or as a long image of the whole workout.",
-            // Long Image tray tile, its metrics caption, and the disabled-background hint.
+            // Long Image tray tile, its metrics caption, its min-1 hint, and the
+            // disabled-background hint.
             "Long Image",
             "Pick the metrics for the long image.",
+            "At least one metric stays on the long image.",
             "The long image uses a gradient background.",
             // Landscape arrangement rail icon, tray tile names, and the Map-dimming
             // hint from WorkoutShareLandscapeArrangement.localizedName.
@@ -338,12 +345,11 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Stacked",
             "Side by Side",
             "Layout doesn't apply to the Map background.",
-            // Metrics rail icon, its Pro lock hint, the tray's caption and min-1 hint,
-            // and the Pro feature entry from BodyProView.
+            // Metrics rail icon, its Pro lock hint, the tray's caption, and the Pro
+            // feature entry from BodyProView.
             "Metrics",
             "Requires Body Pro",
-            "Pick 1 to 5 metrics.",
-            "At least one metric stays on the card.",
+            "Pick up to 5 metrics.",
             "Share Card Metrics",
             "Choose which metrics your workout share card shows.",
             // Profile attribution rail icon, its tray tile names and disabled-tile

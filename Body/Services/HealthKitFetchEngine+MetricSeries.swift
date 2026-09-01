@@ -205,6 +205,52 @@ extension HealthKitFetchEngine {
         )
     }
 
+    /// Every heart-rate sample recorded across a workout's window, ordered by
+    /// date — the full-resolution series the detail sheet's chart and zones need,
+    /// as opposed to the ≤96-point payload baked into `WorkoutSummary` for the
+    /// list. Returns an empty array only when the workout can't be fetched or
+    /// HealthKit genuinely holds no samples; every read FAILURE (a dismissed
+    /// sheet's cancellation, a locked device, an XPC drop) throws instead, so the
+    /// caller can tell "no HR" from "didn't finish reading" and not cache a false
+    /// empty. Same window predicate and `isFinite && > 0` filter as the batched
+    /// summary read (`fetchHeartRateSamples(forWorkouts:)`), so the full-resolution
+    /// and 96-cap results agree at the edges — but read through
+    /// `HKQuantitySeriesSampleQueryDescriptor` (like the splits' distance read):
+    /// the watch saves workout heart rate as SERIES samples, and a plain
+    /// `HKSampleQuery` would return one aggregated entry per series blob instead
+    /// of the individual readings inside it.
+    func workoutHeartRateSamples(workoutID: UUID) async throws -> [WorkoutHeartRateSample] {
+        guard let workout = try await fetchWorkout(id: workoutID),
+              let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate) else {
+            return []
+        }
+
+        let heartRateUnit = HKUnit.count().unitDivided(by: .minute())
+        let descriptor = HKQuantitySeriesSampleQueryDescriptor(
+            predicate: .quantitySample(
+                type: heartRateType,
+                predicate: HKQuery.predicateForSamples(
+                    withStart: workout.startDate,
+                    end: workout.endDate,
+                    options: [.strictStartDate]
+                )
+            ),
+            options: [.orderByQuantitySampleStartDate]
+        )
+
+        var samples: [WorkoutHeartRateSample] = []
+        for try await result in descriptor.results(for: healthStore) {
+            let beatsPerMinute = result.quantity.doubleValue(for: heartRateUnit)
+            guard beatsPerMinute.isFinite, beatsPerMinute > 0 else { continue }
+            samples.append(WorkoutHeartRateSample(
+                date: result.dateInterval.start,
+                beatsPerMinute: beatsPerMinute
+            ))
+        }
+        samples.sort { $0.date < $1.date }
+        return samples
+    }
+
     /// Runs one metric's read. Cancellation propagates (the caller must not cache
     /// a half-read bundle); any other failure is logged and reported as `nil` so
     /// the remaining metrics still make it into the bundle.

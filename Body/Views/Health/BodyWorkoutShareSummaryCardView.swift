@@ -32,6 +32,10 @@ struct BodyWorkoutShareSummaryCardView: View {
     let chartStyle: WorkoutSummaryChartStyle
     /// Whether the calendar carries its weekday letters. Ignored by the bar chart.
     let showsWeekdayHeader: Bool
+    /// How many activity bars the breakdown draws, already clamped to the month's own
+    /// activity count by the sheet. Ignored by the calendar. Defaulted so existing call
+    /// sites (tests, previews) compile unchanged.
+    var barRowCount: Int = WorkoutShareSummaryBarCount.defaultCount
     /// Already resolved through the Pro gate by the sheet; the card never re-checks it.
     let metrics: [WorkoutShareSummaryMetricOption]
     /// `.map` never reaches this card — a month has no route — but the case is handled
@@ -52,7 +56,12 @@ struct BodyWorkoutShareSummaryCardView: View {
     /// Every frame the card draws with, recomputed per access — a value type derived
     /// from two inputs is cheaper than caching it.
     private var geometry: WorkoutShareSummaryCardGeometry {
-        WorkoutShareSummaryCardGeometry(aspectRatio: aspectRatio, metricCount: metrics.count, showsWeekdayHeader: showsWeekdayHeader)
+        WorkoutShareSummaryCardGeometry(
+            aspectRatio: aspectRatio,
+            metricCount: metrics.count,
+            showsWeekdayHeader: showsWeekdayHeader,
+            barRowCount: barRowCount
+        )
     }
 
     /// The workout card's geometry for this ratio, read only for the scrim heights and
@@ -184,7 +193,7 @@ struct BodyWorkoutShareSummaryCardView: View {
             // back empty rects there, and drawing into them would only leave stray text.
             if geometry.arrangement == .stacked {
             Text(summary.title)
-                .font(.system(size: 26, weight: .bold, design: fontDesign))
+                .font(.system(size: WorkoutShareSummaryCardGeometry.titleFontSize, weight: .bold, design: fontDesign))
                 .foregroundColor(ink.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -211,20 +220,19 @@ struct BodyWorkoutShareSummaryCardView: View {
     /// The workout card's centered blocks — label over value — wrapped into rows of
     /// `metricsPerRow`, at the size the geometry picked for this ratio and count.
     private var metricBlocks: some View {
-        let style = geometry.metricBlockStyle
         let spacing: CGFloat = 24
         let perRow = CGFloat(max(1, geometry.metricsPerRow))
         // Explicit equal columns: an HStack of flexible blocks hands a longer value
         // more room than its neighbour, which then truncates instead of scaling.
         let columnWidth = (geometry.metricsRect.width - spacing * (perRow - 1)) / perRow
-        return VStack(spacing: style.rowGap) {
+        return VStack(spacing: geometry.metricRowGap) {
             ForEach(Array(metricRows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: spacing) {
                     ForEach(row) { metric in
-                        metricBlock(metric, style: style)
+                        metricBlock(metric)
                             // A row height that stays the geometry's whatever size
                             // the values landed at.
-                            .frame(width: columnWidth, height: style.rowHeight)
+                            .frame(width: columnWidth, height: geometry.metricRowHeight)
                     }
                 }
             }
@@ -242,10 +250,7 @@ struct BodyWorkoutShareSummaryCardView: View {
         }
     }
 
-    private func metricBlock(
-        _ metric: WorkoutShareSummaryMetricOption,
-        style: WorkoutShareCardGeometry.MetricBlockStyle
-    ) -> some View {
+    private func metricBlock(_ metric: WorkoutShareSummaryMetricOption) -> some View {
         // The floor sits on each text, not the stack: through the stack a narrow
         // side-by-side column truncated the value ("21h 4…") instead of shrinking it.
         // A row splits the card's width between up to three values, so a long one
@@ -253,12 +258,12 @@ struct BodyWorkoutShareSummaryCardView: View {
         // truncate.
         VStack(spacing: 2) {
             Text(metric.value)
-                .font(.system(size: style.valueSize, weight: .bold, design: fontDesign))
+                .font(.system(size: geometry.metricValueSize, weight: .bold, design: fontDesign))
                 .foregroundColor(ink.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.4)
             Text(metric.title)
-                .font(.system(size: style.labelSize, weight: .semibold, design: fontDesign))
+                .font(.system(size: geometry.metricLabelSize, weight: .semibold, design: fontDesign))
                 .foregroundColor(ink.primary.opacity(0.7))
                 .lineLimit(1)
                 .minimumScaleFactor(0.4)
@@ -288,6 +293,12 @@ struct BodyWorkoutShareSummaryCardView: View {
                 onSwitchChart: nil
             )
         case .bar:
+            // Laid out at full size across a *wider* frame, then scaled back to the
+            // content width: bars, labels, icons, and gaps all shrink by the same
+            // factor, and the row proportions stay the five-bar card's at any pick.
+            // `barContentScale` is 1 for every pick that already fits, which leaves
+            // this exactly the frame the chart had before.
+            let scale = geometry.barContentScale
             WorkoutTypeBreakdownView(
                 snapshot: summary.snapshot,
                 palette: palette,
@@ -296,6 +307,9 @@ struct BodyWorkoutShareSummaryCardView: View {
                 onSelectType: nil,
                 onSwitchChart: nil
             )
+            .frame(width: geometry.chartRect.width / scale, height: geometry.barContentHeight)
+            .scaleEffect(scale, anchor: .top)
+            .frame(width: geometry.chartRect.width, height: geometry.barContentHeight * scale, alignment: .top)
         }
     }
 }

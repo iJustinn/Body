@@ -48,6 +48,11 @@ struct BodyWorkoutShareSheet: View {
     /// Loads separately from the workout's own statistics, so it can arrive after the
     /// sheet is already up — the pool and the tile list are rebuilt when it does.
     let heartRateRecoveryBPM: Double?
+    /// The detail page's lazily fetched full-resolution heart rate, when it has landed.
+    /// `presentation` already carries it; this is what the long image's splits need so
+    /// their per-split heart rate matches the page's chart. nil keeps the workout's
+    /// ≤96-point summary samples.
+    let heartRateSamplesOverride: [WorkoutHeartRateSample]?
     /// The month this sheet is sharing *instead of* a workout — `nil` for every caller
     /// that came from a detail page, which is what keeps the workout flow untouched.
     /// Its presence is the single switch summary mode turns on (`isSummaryMode`).
@@ -101,6 +106,11 @@ struct BodyWorkoutShareSheet: View {
     /// workout type to file a selection under, so this one is a plain JSON `[String]`
     /// rather than the per-type blob above.
     @AppStorage(WorkoutShareMetricSelection.summaryStorageKey) private var storedSummaryMetricSelections: String = ""
+    /// How many activity bars the month card's breakdown draws. A plain count rather
+    /// than a selection: the chart ranks the month's activities itself, so the only
+    /// choice is how far down that ranking the card goes.
+    @AppStorage(WorkoutShareSummaryBarCount.storageKey) private var storedSummaryBarCount: Int =
+        WorkoutShareSummaryBarCount.defaultCount
     /// Card or long image. Pro-gated through `resolvedOutputStyle`, so a lapse falls
     /// back to the card for the session without rewriting the key.
     @AppStorage(WorkoutShareOutputStyle.storageKey) private var storedOutputStyle: String =
@@ -233,6 +243,10 @@ struct BodyWorkoutShareSheet: View {
         case dimension
         /// Summary mode only: a month can be drawn two ways, a workout only one.
         case chartStyle
+        /// Summary mode's bar chart only: how far down the month's ranking it goes.
+        case barCount
+        /// Summary mode's calendar only: whether the grid carries its weekday letters.
+        case weekdays
     }
 
     /// A cached map snapshot's identity: the dimension decides what is composited and
@@ -262,11 +276,13 @@ struct BodyWorkoutShareSheet: View {
         splitData: WorkoutSplitData = .empty,
         metricSeries: WorkoutMetricSeriesData = .empty,
         maxHeartRate: Double? = nil,
-        heartRateRecoveryBPM: Double? = nil
+        heartRateRecoveryBPM: Double? = nil,
+        heartRateSamplesOverride: [WorkoutHeartRateSample]? = nil
     ) {
         self.workout = workout
         self.route = route
         self.presentation = presentation
+        self.heartRateSamplesOverride = heartRateSamplesOverride
         self.splitData = splitData
         self.metricSeries = metricSeries
         self.maxHeartRate = maxHeartRate
@@ -317,6 +333,7 @@ struct BodyWorkoutShareSheet: View {
         self.workout = workout
         self.route = nil
         self.presentation = WorkoutDetailPresentation(workout: workout)
+        self.heartRateSamplesOverride = nil
         self.splitData = .empty
         self.metricSeries = .empty
         self.maxHeartRate = nil
@@ -407,6 +424,22 @@ struct BodyWorkoutShareSheet: View {
             ),
             defaults: poolDefaults.isEmpty ? Array(order.prefix(1)) : poolDefaults,
             isProUnlocked: isProUnlocked
+        )
+    }
+
+    /// How many activities this month has to rank — the ceiling on the bar pick, and
+    /// what decides whether the tray offers the choice at all.
+    private var summaryBarTypeCount: Int {
+        monthSummary?.snapshot.workoutTypeBreakdown.count ?? 0
+    }
+
+    /// The bar count the card draws: the remembered pick, clamped to the month's own
+    /// activity count without rewriting what's stored — a leaner month must not erase a
+    /// pick a richer one will honour again.
+    private var activeSummaryBarCount: Int {
+        WorkoutShareSummaryBarCount.resolved(
+            stored: storedSummaryBarCount,
+            availableTypeCount: summaryBarTypeCount
         )
     }
 
@@ -682,7 +715,16 @@ struct BodyWorkoutShareSheet: View {
         guard isMediaMode else { return .identity }
         // The in-flight value belongs to whichever step is wired to the gesture.
         let live = photoStep == .layout ? inFlightGesture : .idle
-        return Self.merged(committedInfoTransform, with: live).clamped(cardSize: cardSize)
+        return Self.merged(committedInfoTransform, with: live).clamped(cardSize: cardSize).snappedToCenter()
+    }
+
+    /// Which centre guides the preview lights up: one per axis the block is currently
+    /// snapped onto, and only while a Layout drag is in flight. At rest, or while the
+    /// block sits off-centre, nothing is drawn.
+    private var activeCenterSnap: WorkoutShareCenterSnap {
+        guard isMediaMode, photoStep == .layout, inFlightGesture != .idle else { return .none }
+        let offset = activeInfoTransform.offset
+        return WorkoutShareCenterSnap(vertical: offset.width == 0, horizontal: offset.height == 0)
     }
 
     /// How the media backdrop is framed, for the preview and the export alike. Only the
@@ -746,6 +788,7 @@ struct BodyWorkoutShareSheet: View {
             palette: workoutColorPalette,
             chartStyle: summaryChartStyle,
             showsWeekdayHeader: !isWeekdayHeaderHidden,
+            barRowCount: activeSummaryBarCount,
             // Pool order, so the card's strip reads the way the chips are laid out.
             metrics: ids.compactMap { id in pool.first { $0.id == id } },
             background: activeBackground,
@@ -824,7 +867,10 @@ struct BodyWorkoutShareSheet: View {
 
     private var longSplits: WorkoutSplitsPresentation? {
         WorkoutDetailChartPresentations.splits(
-            workout: workout, splitData: splitData, distanceUnitPreference: distanceUnitPreference
+            workout: workout,
+            splitData: splitData,
+            distanceUnitPreference: distanceUnitPreference,
+            heartRateSamplesOverride: heartRateSamplesOverride
         )
     }
 
@@ -949,6 +995,7 @@ struct BodyWorkoutShareSheet: View {
                 case .layout:
                     committedInfoTransform = Self.merged(committedInfoTransform, with: gesture)
                         .clamped(cardSize: cardSize)
+                        .snappedToCenter()
                 }
             }
     }
@@ -1083,7 +1130,7 @@ struct BodyWorkoutShareSheet: View {
                             .font(.headline)
                             .foregroundColor(.primary)
 
-                        Text("v5")
+                        Text("v6")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.blue)
                             .padding(.horizontal, 7)
@@ -1337,6 +1384,18 @@ struct BodyWorkoutShareSheet: View {
                         }
                         .frame(width: cardSize.width, height: cardSize.height)
                         .scaleEffect(previewScale, anchor: .topLeading)
+
+                        // Centre guides for placing the block: each line appears only
+                        // while the block is snapped onto that axis mid-drag. Drawn here,
+                        // outside `cardView()`, so they never reach the export, and in
+                        // the card's ink so they read on a light preset and a dark photo.
+                        WorkoutShareCenterGuides(color: activeInk.primary, snap: activeCenterSnap)
+                            .frame(width: cardSize.width, height: cardSize.height)
+                            .scaleEffect(previewScale, anchor: .topLeading)
+                            .allowsHitTesting(false)
+                            .sensoryFeedback(.alignment, trigger: activeCenterSnap) { _, new in
+                                new.vertical || new.horizontal
+                            }
 
                         if isMediaMode {
                             // An unscaled layer above the card: the gesture has to report
@@ -1743,6 +1802,25 @@ struct BodyWorkoutShareSheet: View {
                 chartStyleTray
             }
 
+            // Each chart's own row, directly under the style it belongs to, in the
+            // styles' own order. Only one of the two is ever on the rail, since a
+            // calendar has no bars to count and a bar chart has no weekday letters.
+            if summaryChartStyle == .calendar {
+                railRow(.weekdays, symbol: "abc", label: Text("Weekdays"), trayWidth: trayWidth) {
+                    weekdayTray
+                }
+            }
+
+            // A month with a single activity has nothing to choose between — its one bar
+            // is every bar — so the row leaves with the choice rather than offering a
+            // tile that can't be tapped off.
+            let barCounts = WorkoutShareSummaryBarCount.options(availableTypeCount: summaryBarTypeCount)
+            if summaryChartStyle == .bar, !barCounts.isEmpty {
+                railRow(.barCount, symbol: "list.number", label: Text("Bars"), trayWidth: trayWidth) {
+                    barCountTray(barCounts)
+                }
+            }
+
             // Pro-only and opening below the preview rather than beside the icon, for
             // the reason the workout card's chips do: a rich month offers seven names,
             // which would run straight under the card's own metric strip. The square
@@ -1785,6 +1863,12 @@ struct BodyWorkoutShareSheet: View {
         // leave them editing a pick the card no longer honours.
         .onChange(of: isProUnlocked) {
             if !isProUnlocked, expandedOption == .metrics { closeTray() }
+        }
+        // Bars belongs to the bar chart and Weekdays to the calendar; switching charts
+        // takes one of them off the rail, so its tray goes with it.
+        .onChange(of: summaryChartStyle) {
+            if summaryChartStyle != .bar, expandedOption == .barCount { closeTray() }
+            if summaryChartStyle != .calendar, expandedOption == .weekdays { closeTray() }
         }
     }
 
@@ -1961,7 +2045,7 @@ struct BodyWorkoutShareSheet: View {
                 if isLongMode {
                     Text("Pick the metrics for the long image.")
                 } else {
-                    Text("Pick 1 to 5 metrics.")
+                    Text("Pick up to 5 metrics.")
                 }
             }
                 .font(.system(size: 13, weight: .medium, design: .rounded))
@@ -1975,14 +2059,17 @@ struct BodyWorkoutShareSheet: View {
 
     /// One pickable metric. Unlike every other tray, a tap here doesn't close the tray:
     /// picking five metrics is five taps, and re-opening between each would make the
-    /// bounds impossible to feel.
+    /// bounds impossible to feel. The card has no floor — its last chip turns off too,
+    /// leaving the route and the branding alone; only the long image keeps one on.
     private func metricChip(_ option: WorkoutShareMetricOption) -> some View {
         let isLong = isLongMode
         let ids = isLong ? activeLongMetricIDs : activeMetricIDs
         let isSelected = ids.contains(option.id)
         // The long image has no ceiling to dim against.
         let isAtMaximum = !isLong && ids.count >= WorkoutShareMetricSelection.maximumCount
-        let isLastSelected = isSelected && ids.count == 1
+        // Only the long image still has a floor to explain: the card's last chip
+        // turns off like any other.
+        let isLastLongMetric = isLong && isSelected && ids.count == 1
         return Button {
             let next = isLong
                 ? WorkoutShareMetricSelection.togglingLong(option.id, in: ids, available: availableMetricOptions)
@@ -2028,7 +2115,7 @@ struct BodyWorkoutShareSheet: View {
         .accessibilityLabel(Text(verbatim: "\(option.tileTitle), \(option.value)"))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityHint(
-            isLastSelected ? Text("At least one metric stays on the card.") : Text(verbatim: "")
+            isLastLongMetric ? Text("At least one metric stays on the long image.") : Text(verbatim: "")
         )
     }
 
@@ -2054,8 +2141,8 @@ struct BodyWorkoutShareSheet: View {
     }
 
     /// One pickable month metric. As with the workout chip, a tap doesn't close the
-    /// tray. Unlike it there is no floor: the last chip turns off too, and the card
-    /// goes back to the title and the chart.
+    /// tray and there is no floor: the last chip turns off too, and the card goes back
+    /// to the title and the chart.
     private func summaryMetricChip(_ option: WorkoutShareSummaryMetricOption) -> some View {
         let pool = activeSummaryMetricOptions
         let ids = activeSummaryMetricIDs
@@ -2223,21 +2310,63 @@ struct BodyWorkoutShareSheet: View {
             ForEach(WorkoutSummaryChartStyle.allCases) { style in
                 chartStyleTile(style)
             }
-            // Only the calendar has weekday letters to show or hide, so the toggle
-            // joins the tray with it and leaves with it.
-            if summaryChartStyle == .calendar {
-                weekdayTile
-            }
         }
     }
 
-    /// Toggles the calendar's S M T W T F S row. Ringed while the letters show, so the
-    /// tile reads as "on" the way the style tiles do; the tap flips the stored pick.
-    private var weekdayTile: some View {
+    /// How far down the month's ranking the bar chart goes. Anchored leading, unlike
+    /// the trays above: a count is a scale read from its low end, and resting on the
+    /// last tiles would open the tray past the number that's actually picked.
+    private func barCountTray(_ counts: [Int]) -> some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            optionTiles(anchor: .leading) {
+                ForEach(counts, id: \.self) { count in
+                    barCountTile(count)
+                }
+            }
+
+            Text("How many activity bars the card shows.")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundColor(.white.opacity(0.6))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// One bar-count tile. The number is verbatim: it is the same digit in every
+    /// language the app ships, and an interpolated `Text` would file it in the catalog.
+    private func barCountTile(_ count: Int) -> some View {
+        let isSelected = activeSummaryBarCount == count
+        return Button {
+            closeTray()
+            storedSummaryBarCount = count
+        } label: {
+            Text(verbatim: "\(count)")
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+                .background(Color.white.opacity(0.1), in: Circle())
+                .overlay { selectionRing(isSelected: isSelected) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: "\(count)"))
+        .accessibilityHint(Text("How many activity bars the card shows."))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    /// The calendar's S M T W T F S row, shown or hidden — two tiles rather than one
+    /// toggle, the shape the route-less card's Icon row already uses for a choice with
+    /// exactly two answers.
+    private var weekdayTray: some View {
+        optionTiles {
+            showWeekdaysTile
+            hideWeekdaysTile
+        }
+    }
+
+    private var showWeekdaysTile: some View {
         let isSelected = !isWeekdayHeaderHidden
         return Button {
             closeTray()
-            storedWeekdayVisibility = (isSelected ? WorkoutShareWeekdayVisibility.hidden : .shown).rawValue
+            storedWeekdayVisibility = WorkoutShareWeekdayVisibility.shown.rawValue
         } label: {
             Image(systemName: "abc")
                 .font(.system(size: 13, weight: .bold))
@@ -2247,7 +2376,25 @@ struct BodyWorkoutShareSheet: View {
                 .overlay { selectionRing(isSelected: isSelected) }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text("Weekdays"))
+        .accessibilityLabel(Text("Show Weekdays"))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    private var hideWeekdaysTile: some View {
+        let isSelected = isWeekdayHeaderHidden
+        return Button {
+            closeTray()
+            storedWeekdayVisibility = WorkoutShareWeekdayVisibility.hidden.rawValue
+        } label: {
+            Image(systemName: "eye.slash")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: Self.optionTileSize, height: Self.optionTileSize)
+                .background(Color.white.opacity(0.1), in: Circle())
+                .overlay { selectionRing(isSelected: isSelected) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Hide Weekdays"))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
@@ -3413,6 +3560,43 @@ private struct WorkoutShareTransparencyChecker: View {
                     context.fill(Path(rect), with: .color(Self.dark))
                 }
             }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Which of the card's centre lines the info block is currently snapped onto. The
+/// vertical line means the block is horizontally centred, and vice versa.
+private struct WorkoutShareCenterSnap: Equatable {
+    var vertical: Bool
+    var horizontal: Bool
+
+    static let none = WorkoutShareCenterSnap(vertical: false, horizontal: false)
+}
+
+/// Hairlines through the card's centre, one per axis the block is snapped onto, so a
+/// Layout drag shows the same magnet cue a Story editor does. Preview-only: it lives
+/// beside `cardView()`, never inside it, for the same reason as the checkerboard.
+private struct WorkoutShareCenterGuides: View {
+    let color: Color
+    let snap: WorkoutShareCenterSnap
+
+    var body: some View {
+        Canvas { context, size in
+            var path = Path()
+            if snap.vertical {
+                path.move(to: CGPoint(x: size.width / 2, y: 0))
+                path.addLine(to: CGPoint(x: size.width / 2, y: size.height))
+            }
+            if snap.horizontal {
+                path.move(to: CGPoint(x: 0, y: size.height / 2))
+                path.addLine(to: CGPoint(x: size.width, y: size.height / 2))
+            }
+            context.stroke(
+                path,
+                with: .color(color.opacity(0.55)),
+                style: StrokeStyle(lineWidth: 1, dash: [6, 4])
+            )
         }
         .accessibilityHidden(true)
     }

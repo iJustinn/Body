@@ -9,6 +9,7 @@
 //  exercised by the manual/simulator flows in the plan.
 //
 
+import HealthKit
 import XCTest
 @testable import Body
 
@@ -337,5 +338,88 @@ final class HealthKitFetchEngineFailureSemanticsTests: XCTestCase {
 
         let primaryUnresolved = await engine.sourceSelectionUnresolved(for: kind)
         XCTAssertTrue(primaryUnresolved)
+    }
+
+    // MARK: - Batched heart-rate query failure (`heartRateBatchFailed`)
+
+    /// A failed batched HR query makes the assembly rebuild every summary from its
+    /// cached payload. A non-empty cached payload therefore has to survive intact —
+    /// samples and the scalar average/max alike — instead of being recomputed from
+    /// the nothing the failed query returned.
+    func testHeartRateBatchFailureReusesNonEmptyCachedPayload() throws {
+        let calendar = Calendar.bodyGregorian
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 7)))
+        let workout = HKWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1_800))
+        let samples = [
+            WorkoutHeartRateSample(date: start, beatsPerMinute: 120),
+            WorkoutHeartRateSample(date: start.addingTimeInterval(900), beatsPerMinute: 165)
+        ]
+        let cached = WorkoutSummary(
+            id: workout.uuid,
+            type: .running,
+            startDate: start,
+            duration: 1_800,
+            averageHeartRateBeatsPerMinute: 142,
+            maximumHeartRateBeatsPerMinute: 165,
+            heartRateSamples: samples
+        )
+
+        let summary = BodyWorkoutFetch.summary(for: workout, reusingHeartRateFrom: cached)
+
+        XCTAssertEqual(summary.heartRateSamples, samples)
+        XCTAssertEqual(summary.averageHeartRateBeatsPerMinute, 142)
+        XCTAssertEqual(summary.maximumHeartRateBeatsPerMinute, 165)
+    }
+
+    /// The degraded case: the cached payload's SAMPLES are empty (an earlier failed
+    /// or partial read) but its scalar average/max are good. The reuse branch must
+    /// still be taken so the tiles keep those scalars — falling through to the plain
+    /// summary would recompute them from `[]` and blank them. The chart is repaired
+    /// separately by the detail sheet's live full-resolution read.
+    func testHeartRateBatchFailureWithEmptyCachedSamplesKeepsScalarAverageAndMax() throws {
+        let calendar = Calendar.bodyGregorian
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 7)))
+        let workout = HKWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1_800))
+        let cached = WorkoutSummary(
+            id: workout.uuid,
+            type: .running,
+            startDate: start,
+            duration: 1_800,
+            averageHeartRateBeatsPerMinute: 142,
+            maximumHeartRateBeatsPerMinute: 165,
+            heartRateSamples: []
+        )
+
+        let summary = BodyWorkoutFetch.summary(for: workout, reusingHeartRateFrom: cached)
+
+        XCTAssertEqual(summary.averageHeartRateBeatsPerMinute, 142)
+        XCTAssertEqual(summary.maximumHeartRateBeatsPerMinute, 165)
+        XCTAssertEqual(summary.heartRateSamples?.isEmpty, true)
+    }
+
+    /// ...and that empty payload can't be locked in: the reuse-eligibility gate
+    /// refuses it however old the workout is, so the next active refresh re-queries
+    /// the samples rather than reusing the empty one forever.
+    func testEmptyCachedHeartRatePayloadIsNeverReuseEligible() {
+        let now = Date()
+        let duration: TimeInterval = 1_800
+        let agedStart = now.addingTimeInterval(-30 * 24 * 60 * 60)
+        let id = UUID()
+        let cached = WorkoutSummary(
+            id: id,
+            type: .running,
+            startDate: agedStart,
+            duration: duration,
+            averageHeartRateBeatsPerMinute: 142,
+            heartRateSamples: []
+        )
+
+        let eligibleIDs = HealthKitFetchEngine.heartRateReuseEligibleWorkoutIDs(
+            workouts: [(id: id, startDate: agedStart, duration: duration)],
+            cachedSummaries: [id: cached],
+            now: now
+        )
+
+        XCTAssertTrue(eligibleIDs.isEmpty)
     }
 }

@@ -1,5 +1,16 @@
 # Version History
 
+## 1.0.2 (build 2)
+
+- **Sleep Stages complication for Apple Watch.** A new free, rectangular-only **Sleep Stages** complication shows last night's main sleep session as a single bar of stage-colored segments (Awake, REM, Core, Deep, the same colors as the iPhone Sleep Stages widget) under a header with the night's total time asleep, with only the bed time and wake time beneath it. Naps are left out, it reads "No sleep data yet" after midnight until tonight's sleep syncs, and tapping it opens the Sleep detail page. The watch snapshot the iPhone pushes now carries the night's stage segments alongside the Sleep metric, cleared together with it once the night goes stale.
+- **Complication picker order.** Weekly Workout Time is now listed first and Sleep Stages second, ahead of the metric ring complications.
+- Updated the app, widget, watch, and test bundle version to 1.0.2 build 2.
+
+## 1.0.2 (build 1)
+
+- **Weekly Workout Time now measures actual workout time.** The Lock Screen widget and Apple Watch complication formerly named Exercise Minutes are renamed **Weekly Workout Time** and now sum each day's Apple Health workouts (every HKWorkout, counted toward the day it started) instead of activity ring Apple Exercise Minutes, with no bar at all on a rest day. Both are gated on the Workouts permission instead of a dashboard card, and the watch complication can also refresh its bars from the watch's own local compute.
+- Updated the app, widget, watch, and test bundle version to 1.0.2 build 1.
+
 ## 1.0.1 (build 9)
 
 - **Faster data refresh.** The Summary refresh now fetches the recent weeks of each chart first and quietly backfills the full year in the background, remembers workout effort scores between launches instead of re-asking HealthKit for every workout, reuses cadence and distance for workouts older than a day, computes the Stress score once per refresh instead of twice, writes the dashboard cache once per refresh instead of three times, and caps how many HealthKit queries run at once so the visible cards are not stuck behind background work. Pull to refresh still re-checks the months you are viewing plus anything from the last two days, so edits made in Apple Fitness keep converging. Charts, scores, and widgets show the same data as before, just sooner.

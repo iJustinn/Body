@@ -196,6 +196,23 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// there would label a stale Training Load as freshly computed and let it
     /// overwrite a newer watch-computed value in the per-metric merge.
     private var lastTrainingLoadComputeDate: Date?
+    /// When the CURRENT month's workout snapshot was last rebuilt from a fresh
+    /// fetch — the honest watermark for the weekly workout-minutes bars, which
+    /// `publishWatchSnapshot` derives from `monthSnapshots`. Deliberately
+    /// separate from `lastVitalsRefreshDate`: a workout-only refresh (effort
+    /// edit, auto-apply, warm resume) rebuilds the week while the vitals
+    /// watermark stands still, and stamping the bars with the old vitals date
+    /// would let a watch-computed week beat the phone's genuinely newer one in
+    /// `WatchComputeMerge.merging`'s per-metric compare. Advances only when a
+    /// fetch covered EVERY month the trailing 7-day window touches: lazy pages
+    /// of old months can't change the week, and early in a month a
+    /// current-month-only fetch leaves the window's older days on a possibly
+    /// stale persisted snapshot, so that combined week must not claim to be
+    /// fresh. Persisted under its own key and restored from it at launch (never
+    /// derived from `lastSuccessfulRefreshDate`, which an early-month passive
+    /// refresh advances without covering the week), and NEVER unioned with the
+    /// live vitals date when stamping.
+    private var lastWorkoutsRefreshDate: Date?
     /// Per-kind watermark for the OTHER watch metrics a single-metric detail
     /// pull can refresh (HR, HRV, resting HR, sleep, skin temp), keyed by
     /// `WatchMetricKindKey` string (== `HealthMetricKind.rawValue`, pinned by
@@ -333,6 +350,14 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// the watch writes the recovery sample a minute after the workout ends, so a
     /// just-finished workout must be re-read on the next sheet open.
     private var heartRateRecoveryCache: [UUID: Double?] = [:]
+    /// Session cache of a workout's full-resolution heart-rate series keyed by UUID,
+    /// feeding the detail sheet's chart and zones (the summary carries a ≤96-point
+    /// downsample, enough for the list row but not the chart). Session-only and
+    /// never persisted: the dense payload is large and re-readable on demand. Empty
+    /// results follow the same settle rule as the splits cache — cached only for
+    /// workouts that ended more than 24 h ago, since a recent one may still be
+    /// syncing its samples from the watch.
+    private var heartRateSeriesCache: [UUID: [WorkoutHeartRateSample]] = [:]
     /// Session cache of a workout's persisted energy-equivalent breakdown,
     /// keyed by UUID. The full payload (not just the emojis) is kept so
     /// `energyEquivalentEmojis(for:hiddenFoods:)` can compare its kcal and
@@ -793,6 +818,12 @@ final class HealthKitWorkoutStore: ObservableObject {
         // summary/trends this seed would be built from were persisted by that
         // same refresh, so the coverage claim stays honest.
         lastVitalsRefreshDate = lastSuccessfulRefreshDate
+        // The weekly workout-minutes watermark restores from its OWN key,
+        // written only by a fetch that covered every month the trailing week
+        // touches. Deriving it from `lastSuccessfulRefreshDate` would launder a
+        // coverage claim an early-month passive refresh never earned, letting a
+        // relaunch re-stamp a stale mixed-month week as fully refreshed.
+        lastWorkoutsRefreshDate = HealthDashboardSnapshotStore.loadLastWorkoutsWeekCoverageDate()
         // Restore the seed's expected-source coverage with the same lifetime:
         // the restored `dataThrough` above lets a publish attach a seed BEFORE
         // this session runs source discovery, and a seed carrying no
@@ -1982,6 +2013,46 @@ final class HealthKitWorkoutStore: ObservableObject {
         return recovery
     }
 
+    /// Loads a workout's full-resolution heart-rate series for the detail sheet's
+    /// chart and zones, or `nil` when the Heart permission is off or the read
+    /// failed — a `nil` tells the caller to keep showing the summary's ≤96-point
+    /// payload, and reopening the sheet retries. Cached per session; an empty read
+    /// is cached only when the workout ended more than 24 h ago, so a still-syncing
+    /// recent workout is re-read on reopen.
+    func loadWorkoutHeartRateSeries(for workout: WorkoutSummary) async -> [WorkoutHeartRateSample]? {
+        guard permissionSelection.includes(.heart) else {
+            return nil
+        }
+
+        if let cached = heartRateSeriesCache[workout.id] {
+            return cached
+        }
+
+        let epoch = cacheEpoch
+        let samples: [WorkoutHeartRateSample]
+        do {
+            samples = try await engine.workoutHeartRateSamples(workoutID: workout.id)
+        } catch {
+            // Cancelled (sheet dismissed mid-read) or a read failure — don't cache
+            // an empty as confirmed-absent; reopening retries.
+            return nil
+        }
+        guard !Task.isCancelled else {
+            return samples
+        }
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+            return samples
+        }
+        if !samples.isEmpty {
+            heartRateSeriesCache[workout.id] = samples
+        } else if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 {
+            // Cache a confirmed-empty read only for settled (>24h-old) workouts;
+            // a recent one may still be syncing from the watch.
+            heartRateSeriesCache[workout.id] = samples
+        }
+        return samples
+    }
+
     /// Returns the food-emoji breakdown of a workout's active-energy
     /// kilocalories for the "Equivalent" card, or nil when there is nothing
     /// meaningful to show (see `EnergyEquivalent.decompose`).
@@ -2100,27 +2171,16 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     /// Whether a workout's details are worth keeping on disk: it has settled (the
     /// same >24 h rule the loaders admit results to the session caches under, so a
-    /// still-syncing watch workout is never pinned), and it falls inside the two
-    /// months the persisted workout list itself covers — details for a workout the
-    /// list can't show would only be pruned again.
+    /// still-syncing watch workout is never pinned). Not limited to the current or
+    /// previous month: `WorkoutDetailSnapshotStore.prune(keeping:retainingRecentLimit:)`
+    /// bounds on-disk growth by persist-recency, so an old-month detail is free to
+    /// persist and simply ages out of the cap like any other file.
     nonisolated static func isWorkoutDetailPersistable(
         workout: WorkoutSummary,
         now: Date,
         calendar: Calendar
     ) -> Bool {
-        guard now.timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 else {
-            return false
-        }
-
-        let currentKey = BodyWorkoutMonthKey(date: now, calendar: calendar)
-        let workoutKey = BodyWorkoutMonthKey(date: workout.startDate, calendar: calendar)
-        if workoutKey == currentKey {
-            return true
-        }
-        guard let previousMonthStart = calendar.date(byAdding: .month, value: -1, to: now) else {
-            return false
-        }
-        return workoutKey == BodyWorkoutMonthKey(date: previousMonthStart, calendar: calendar)
+        now.timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60
     }
 
     /// Read-modify-writes the workout's on-disk detail snapshot through `mutate`,
@@ -2178,6 +2238,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         distanceSampleCache.removeAll()
         metricSeriesCache.removeAll()
         heartRateRecoveryCache.removeAll()
+        heartRateSeriesCache.removeAll()
         energyEquivalentCache.removeAll()
         // Safe to re-hydrate from disk right away: the files hold only positives,
         // so nothing they seed can contradict the fresh authorization.
@@ -2779,12 +2840,15 @@ final class HealthKitWorkoutStore: ObservableObject {
             distanceSampleCache.removeAll()
                 metricSeriesCache.removeAll()
             heartRateRecoveryCache.removeAll()
+            heartRateSeriesCache.removeAll()
             energyEquivalentCache.removeAll()
             detailHydrations = [:]
         } else if permission == .heart {
-            // Heart-rate recovery rides the Heart toggle; drop it rather than
-            // serving a toggle change a result read under the old selection.
+            // Heart-rate recovery and the detail sheet's full-resolution series ride
+            // the Heart toggle; drop them rather than serving a toggle change a
+            // result read under the old selection.
             heartRateRecoveryCache.removeAll()
+            heartRateSeriesCache.removeAll()
             detailHydrations = [:]
         } else if permission == .workoutMetrics {
             // Cached split data carries per-split step cadence, and stride length is
@@ -4224,6 +4288,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         distanceSampleCache.removeAll()
         metricSeriesCache.removeAll()
         heartRateRecoveryCache.removeAll()
+        heartRateSeriesCache.removeAll()
         energyEquivalentCache.removeAll()
         detailHydrations = [:]
         // The ledger describes workouts this clear is wiping; an emptied ledger
@@ -4264,6 +4329,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         lastVitalsRefreshDate = nil
         lastReadinessComputeDate = nil
         lastTrainingLoadComputeDate = nil
+        lastWorkoutsRefreshDate = nil
+        HealthDashboardSnapshotStore.clearLastWorkoutsWeekCoverageDate()
         lastMetricPullDates = [:]
         cachedComputeTrainingLoadSeed = nil
         cachedExpectedSourceIDsByKind = [:]
@@ -5207,6 +5274,30 @@ final class HealthKitWorkoutStore: ObservableObject {
                 foldMonthIntoRecordLedger(key: key, workouts: workouts, calendar: calendar)
             }
         }
+        // Every month requested has now landed (a throw above skips this).
+        // The weekly workout-minutes watermark advances only when this fetch
+        // covered EVERY month the trailing 7-day window touches: early in a
+        // month a passive refresh fetches just the current month while the
+        // window's older days come from a persisted previous-month snapshot
+        // that may predate workouts recorded since — stamping that combined
+        // week fresh would let it overwrite a newer watch-computed one in the
+        // per-metric merge. (From the 7th onward the window sits inside the
+        // current month, so a current-month-only fetch still advances it.)
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        let weekWindowKeys = Set(
+            [today, calendar.date(byAdding: .day, value: -6, to: today)]
+                .compactMap { $0 }
+                .map { BodyWorkoutMonthKey(date: $0, calendar: calendar) }
+        )
+        if weekWindowKeys.isSubset(of: monthKeys),
+           mayPublishMonthSnapshot(capturedEpoch: epoch) {
+            lastWorkoutsRefreshDate = now
+            // Persisted under its own key so a relaunch restores the coverage
+            // this fetch actually earned, rather than inheriting an
+            // early-month success date that covered only the current month.
+            HealthDashboardSnapshotStore.saveLastWorkoutsWeekCoverageDate(now)
+        }
     }
 
     /// Whether a month snapshot produced by an in-flight load may still be
@@ -5926,6 +6017,83 @@ final class HealthKitWorkoutStore: ObservableObject {
         publishWatchSnapshot()
     }
 
+    /// The trailing week's workout minutes (oldest → today, 7 slots) for the
+    /// watch's weekly workout complication, summed from the month snapshots'
+    /// per-day totals — a workout counts toward the day it started, matching
+    /// the calendar. Every day in the window carries an explicit value (`0` for
+    /// a rest day) so the watch's merge reads the week as real data instead of
+    /// a blank.
+    ///
+    /// `fallback` covers months `monthSnapshots` doesn't hold: on launch only
+    /// the current month is restored into memory and passive refreshes fetch
+    /// only the current month, so for the first six days of a month the window
+    /// reaches into a month the in-memory map can't answer for. Returns `nil`
+    /// only when a month the window spans is in NEITHER source, so a
+    /// genuinely-unknown month can't publish a falsely empty week.
+    static func weeklyWorkoutMinutes(
+        from monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot],
+        fallback: [BodyWorkoutMonthKey: WorkoutMonthSnapshot] = [:],
+        now: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> [Double?]? {
+        let today = calendar.startOfDay(for: now)
+        guard let windowStart = calendar.date(byAdding: .day, value: -6, to: today) else {
+            return nil
+        }
+
+        var minutes: [Double?] = []
+        for offset in 0..<7 {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: windowStart) else {
+                return nil
+            }
+            let key = BodyWorkoutMonthKey(date: day, calendar: calendar)
+            guard let snapshot = monthSnapshots[key] ?? fallback[key] else {
+                return nil
+            }
+            let dayNumber = calendar.component(.day, from: day)
+            minutes.append((snapshot.day(dayNumber)?.totalDuration ?? 0) / 60)
+        }
+        return minutes
+    }
+
+    /// The persisted previous-month snapshot in `weeklyWorkoutMinutes`'s input
+    /// shape, read ONLY when the trailing week reaches into a month
+    /// `monthSnapshots` doesn't carry — every refresh from the seventh of the
+    /// month onward, and every refresh that already loaded the previous month,
+    /// skips the disk entirely. It's the same App Group file the iOS widget
+    /// reads, and `WorkoutSnapshotStore.load` memoizes the decode by file
+    /// identity, so a repeated publish pays a `stat` rather than a decode.
+    ///
+    /// Dropping the week is not benign: `WatchComputeMerge.merging` maps over
+    /// the RECEIVED metrics, so a push that omits `workoutMinutes` deletes the
+    /// complication's bars instead of leaving them alone (and an older watch
+    /// binary can't repair that locally). The remaining `nil` corner — a fresh
+    /// install with no persisted previous month, during the first six days of a
+    /// month — is the honest one: there is genuinely no data for those days.
+    ///
+    /// Keyed by the snapshot's own month/year, which is self-validating: a
+    /// stale file (holding a month older than the window needs) simply fails to
+    /// match the missing key and changes nothing.
+    private static func persistedWeeklyWorkoutFallback(
+        for monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot],
+        now: Date,
+        calendar: Calendar
+    ) -> [BodyWorkoutMonthKey: WorkoutMonthSnapshot] {
+        let today = calendar.startOfDay(for: now)
+        guard let windowStart = calendar.date(byAdding: .day, value: -6, to: today) else {
+            return [:]
+        }
+        let windowKeys = (0..<7).compactMap { offset in
+            calendar.date(byAdding: .day, value: offset, to: windowStart)
+                .map { BodyWorkoutMonthKey(date: $0, calendar: calendar) }
+        }
+        guard windowKeys.contains(where: { monthSnapshots[$0] == nil }),
+              let previous = WorkoutSnapshotStore.loadPrevious() else {
+            return [:]
+        }
+        return [BodyWorkoutMonthKey(month: previous.month, year: previous.year): previous]
+    }
+
     /// Pushes the latest metrics to the paired Apple Watch. Best-effort: the
     /// build is pure and `send` never blocks the refresh. Publishing from the
     /// common funnel (including workout-only paths) keeps the watch's values
@@ -5948,6 +6116,22 @@ final class HealthKitWorkoutStore: ObservableObject {
         let idealSleepDuration = Self.storedIdealSleepDuration()
         let showSleepScore = HealthWidgetSnapshotBuilder.storedShowSleepScore()
         let now = Date()
+        // The weekly workout complication's bars, read off the month snapshots
+        // every regular refresh already rebuilds — no extra HealthKit query.
+        // Early in a month the trailing week reaches into a month only the
+        // persisted App Group file holds, so it fills those days rather than
+        // the metric being dropped (see `persistedWeeklyWorkoutFallback`).
+        let workoutCalendar = Calendar.bodyGregorian
+        let workoutWeeklyMinutes = Self.weeklyWorkoutMinutes(
+            from: monthSnapshots,
+            fallback: Self.persistedWeeklyWorkoutFallback(
+                for: monthSnapshots,
+                now: now,
+                calendar: workoutCalendar
+            ),
+            now: now,
+            calendar: workoutCalendar
+        )
         // Allocate the capture sequence at this main-actor capture point so its
         // order equals capture order (see `WatchConnectivityPublisher`).
         let captureSequence = WatchConnectivityPublisher.shared.nextCaptureSequence()
@@ -5982,6 +6166,19 @@ final class HealthKitWorkoutStore: ObservableObject {
             .compactMap { $0 }
             .max()
         let trainingLoadComputeDate = lastTrainingLoadComputeDate
+        // Coverage only, never the vitals date: a full passive refresh early in
+        // a month advances `lastVitalsRefreshDate` while fetching just the
+        // current month, and stamping the mixed current/persisted-previous week
+        // with that fresh date would let it overwrite a newer watch-computed
+        // week carrying month-end workouts the phone hasn't refetched.
+        //
+        // UNKNOWN coverage is stamped `.distantPast` rather than left nil: nil
+        // means "no per-kind stamp" to the builder, which then falls back to
+        // that same vitals date. An install upgrading into this build has no
+        // persisted coverage yet, so until its first full-coverage refresh the
+        // week must lose every freshness compare — the watch's own computed
+        // bars win, and a watch with none still displays the pushed week.
+        let workoutMinutesDataAsOf = lastWorkoutsRefreshDate ?? .distantPast
         let metricPullDates = lastMetricPullDates
         let trainingLoadSeed = cachedComputeTrainingLoadSeed
         let expectedSourceIDsByKind = cachedExpectedSourceIDsByKind
@@ -6024,6 +6221,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 idealSleepDuration: idealSleepDuration,
                 showSleepScore: showSleepScore,
                 now: now,
+                workoutWeeklyMinutes: workoutWeeklyMinutes,
                 // Readiness and Training Load carry their own watermarks: a
                 // workout-only refresh re-drains readiness (only) while
                 // `lastRefreshDate` (the VITALS watermark) deliberately stands
@@ -6039,6 +6237,11 @@ final class HealthKitWorkoutStore: ObservableObject {
                         return readinessComputeDate
                     case WatchMetricKindKey.trainingLoad:
                         return trainingLoadComputeDate
+                    case WatchMetricKindKey.workoutMinutes,
+                         // The legacy compatibility copy carries the same week,
+                         // so it ships under the same watermark.
+                         WatchMetricKindKey.exerciseMinutes:
+                        return workoutMinutesDataAsOf
                     default:
                         // A single-metric detail pull refreshes one vitals kind
                         // without advancing the full-refresh date — take the

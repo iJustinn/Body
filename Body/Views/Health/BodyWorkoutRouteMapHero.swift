@@ -6,7 +6,10 @@
 //  one-shot `MKMapSnapshotter` image with the route polyline and start/end dots
 //  drawn in — a true static image (no live `Map`), so it never fights the
 //  sheet's scroll and carries no tile/gesture lifecycle. The city label overlays
-//  the bottom-leading corner over a short scrim.
+//  the bottom-leading corner over a short scrim. Route Style ▸ 3D Map renders the
+//  same hero from a pitched camera over realistic elevation (`is3D`), framed by
+//  measurement onto the box the 3D Plain ribbon occupies so the two styles put the
+//  route at the same size and place.
 //
 //  `BodyWorkoutRoutePlainHero` is the map-free alternative (Route Style › Plain):
 //  the same route stroked in the workout's tint, with no tiles, pace shading, or
@@ -68,10 +71,13 @@ struct BodyWorkoutRouteMapHero: View {
     /// Top safe-area inset: the route must stay below the status bar / Dynamic Island
     /// even though the hero itself extends under them.
     let topInset: CGFloat
+    /// Route Style ▸ 3D Map: snapshot a pitched camera over realistic elevation instead
+    /// of the flat, vertically anchored map rect.
+    var is3D: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
-    // No progressive draw here: the Map style bakes its pace-colored route into the
+    // No progressive draw here: the map styles bake their pace-colored route into the
     // snapshot, so Route Style ▸ Draw Route is offered only for the map-free styles.
     @State private var snapshot: UIImage?
 
@@ -108,7 +114,11 @@ struct BodyWorkoutRouteMapHero: View {
                     endPoint: .bottom
                 )
             }
-            .task(id: SnapshotInput(width: proxy.size.width.rounded(), height: proxy.size.height.rounded(), centerY: targetCenterY.rounded(), topInset: topInset.rounded(), isDark: colorScheme == .dark)) {
+            // Both framings consume the anchor measurements now — the 3D camera is
+            // corrected onto the 3D Plain ribbon's box — so a re-measured centerY has to
+            // re-render. Rounded, so a sub-pixel remeasure doesn't re-run the (much
+            // slower) elevation snapshot for no visual change.
+            .task(id: SnapshotInput(width: proxy.size.width.rounded(), height: proxy.size.height.rounded(), centerY: targetCenterY.rounded(), topInset: topInset.rounded(), isDark: colorScheme == .dark, is3D: is3D)) {
                 await renderSnapshot(size: proxy.size)
             }
         }
@@ -141,30 +151,263 @@ struct BodyWorkoutRouteMapHero: View {
             CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
         }
 
+        // 3D Map carries the 3D Plain ribbon over the tiles: the same lifted,
+        // elevation-extruded route the map-free hero draws. The lift is needed before
+        // the snapshot too, since the framing pass measures the ribbon it will draw.
+        let lift = is3D ? WorkoutRoute3DProjection.liftUnits(for: route.coordinates) : nil
+
+        let result: MKMapSnapshotter.Snapshot
+        if is3D {
+            guard let framed = await framedSnapshot(coordinates: coordinates, size: size, lift: lift) else {
+                return
+            }
+            result = framed
+        } else {
+            let options = snapshotOptions(size: size)
+            options.mapRect = Self.mapRect(for: coordinates, size: size, targetCenterY: targetCenterY, topInset: topInset)
+            guard let flat = try? await MKMapSnapshotter(options: options).start() else {
+                return
+            }
+            // A superseded `.task(id:)` render (e.g. a later anchor measurement) must not
+            // overwrite this snapshot with a stale framing after the fact.
+            guard !Task.isCancelled else { return }
+            result = flat
+        }
+
+        // The composited ribbon: the same lifted,
+        // elevation-extruded route the map-free hero draws — a single-color line, no
+        // pace shading, no start/end dots — standing on the pitched terrain. White
+        // rather than the workout tint, so every route reads the same against the
+        // map's own colors. Without usable altitude `liftUnits` is nil and the flat
+        // white trace draws instead, mirroring 3D Plain's own fallback.
+        let image = Self.draw(route: route.coordinates, on: result, fallbackTint: is3D ? .white : UIColor(tint), lift: lift, usesPaceColoring: !is3D, drawsMarkers: !is3D)
+        // The view-level `.animation(value:)` on `mapLayer` drives the fade-in.
+        snapshot = image
+    }
+
+    /// The snapshotter options both framings share.
+    private func snapshotOptions(size: CGSize) -> MKMapSnapshotter.Options {
         let options = MKMapSnapshotter.Options()
-        options.mapRect = Self.mapRect(for: coordinates, size: size, targetCenterY: targetCenterY, topInset: topInset)
         options.size = size
         options.scale = displayScale
         options.pointOfInterestFilter = .excludingAll
         options.traitCollection = UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
+        return options
+    }
 
-        guard let result = try? await MKMapSnapshotter(options: options).start() else {
-            return
+    /// The 3D snapshot, framed so its ribbon lands on the box the 3D Plain hero would
+    /// draw for the same route at rest.
+    ///
+    /// `camera` and `mapRect` are mutually exclusive, so the pitched path can't be
+    /// framed by a rect the way the flat one is, and MapKit's pitched projection over
+    /// realistic elevation isn't analytically predictable: the same camera distance
+    /// yields a different on-screen size depending on the terrain under the route. So
+    /// the framing is measured rather than derived. A first snapshot from the route's
+    /// own bounding-box camera is projected back through `snapshot.point(for:)`, the
+    /// ribbon it would draw is measured, and the camera is corrected (distance for
+    /// size, look-at point for position) before re-snapshotting. One correction lands
+    /// within a couple of points on ordinary routes; a second is taken only when it
+    /// doesn't, and the pass count is capped so a pathological route can't spin.
+    @MainActor
+    private func framedSnapshot(coordinates: [CLLocationCoordinate2D], size: CGSize, lift: [Double]?) async -> MKMapSnapshotter.Snapshot? {
+        let target = targetRibbonBox(size: size)
+        let groundMapBox = Self.mapPointBounds(of: coordinates)
+        var center = Self.center(of: coordinates)
+        var distance = Self.cameraDistance(for: coordinates)
+        var latest: MKMapSnapshotter.Snapshot?
+
+        for pass in 0..<Self.maximumFramingPasses {
+            let options = snapshotOptions(size: size)
+            options.camera = MKMapCamera(lookingAtCenter: center, fromDistance: distance, pitch: 60, heading: 0)
+            // On the configuration, not `options.pointOfInterestFilter`: that legacy
+            // property is ignored once a preferred configuration is set.
+            let configuration = MKStandardMapConfiguration(elevationStyle: .realistic)
+            configuration.pointOfInterestFilter = .excludingAll
+            options.preferredConfiguration = configuration
+
+            guard let snapshot = try? await MKMapSnapshotter(options: options).start() else {
+                return latest
+            }
+            // A superseded `.task(id:)` render (e.g. a later anchor measurement) must not
+            // overwrite the snapshot with a stale framing after the fact.
+            guard !Task.isCancelled else { return nil }
+            latest = snapshot
+
+            guard pass < Self.maximumFramingPasses - 1,
+                  let target,
+                  case let base = coordinates.map({ snapshot.point(for: $0) }),
+                  let measured = Self.ribbonBounds(base: base, lift: lift),
+                  let ground = Self.bounds(of: base),
+                  let correction = Self.correctedFraming(
+                      measured: measured,
+                      target: target,
+                      screenCenter: CGPoint(x: size.width / 2, y: size.height / 2),
+                      distance: distance,
+                      centerMapPoint: MKMapPoint(center),
+                      groundMapSize: groundMapBox.size,
+                      groundScreenSize: ground.size,
+                      minimumDistance: Self.minimumCameraDistance
+                  ) else {
+                return latest
+            }
+
+            distance = correction.distance
+            center = correction.center.coordinate
         }
 
-        // A superseded `.task(id:)` render (e.g. a later anchor measurement) must not
-        // overwrite this snapshot with a stale framing after the fact.
-        guard !Task.isCancelled else { return }
+        return latest
+    }
 
-        let image = Self.draw(route: route.coordinates, on: result, fallbackTint: UIColor(tint))
-        // The view-level `.animation(value:)` on `mapLayer` drives the fade-in.
-        snapshot = image
+    /// Box the 3D Plain hero would draw this route into at rest, in hero space: the
+    /// target both the size and the position of the 3D Map ribbon are corrected onto.
+    /// `nil` when the route can't be framed at all (a degenerate trace, or no room
+    /// under the safe area), which leaves the camera at its uncorrected framing.
+    private func targetRibbonBox(size: CGSize) -> CGRect? {
+        // The same choice 3D Plain makes: the elevation ribbon when the route carries
+        // altitude, otherwise the flat trace its own fallback hero draws.
+        let reference = WorkoutRoute3DProjection.projected(for: route.coordinates)?.fitReference
+            ?? WorkoutShareRouteProjection.normalizedPoints(for: route.coordinates)
+        guard let reference,
+              let fitted = BodyWorkoutRouteHeroFit.fittedPoints(reference, in: size, targetCenterY: targetCenterY, topInset: topInset) else {
+            return nil
+        }
+        return Self.bounds(of: fitted)
+    }
+
+    /// Most snapshots one 3D hero render may take: the first framing pass plus up to
+    /// two corrections. Elevation snapshots are slow, so the cap matters.
+    private static let maximumFramingPasses = 3
+    /// Framing residual, in points, small enough to stop correcting at.
+    private static let framingTolerance: CGFloat = 2
+
+    /// Axis-aligned bounds of a point cloud.
+    private static func bounds(of points: [CGPoint]) -> CGRect? {
+        guard let first = points.first else { return nil }
+        var rect = CGRect(origin: first, size: .zero)
+        for point in points.dropFirst() {
+            rect = rect.union(CGRect(origin: point, size: .zero))
+        }
+        return rect
+    }
+
+    /// Bounds of the ribbon `draw(route:on:...)` would paint from these ground points —
+    /// the ground trace together with its lifted twin, or the ground trace alone when
+    /// there is no usable lift, matching that painter's own fallback.
+    private static func ribbonBounds(base: [CGPoint], lift: [Double]?) -> CGRect? {
+        guard let ground = bounds(of: base) else { return nil }
+        guard let lift, lift.count == base.count else { return ground }
+        return bounds(of: base + liftedTop(base: base, lift: lift, in: ground))
+    }
+
+    /// Map-point bounds of a coordinate list.
+    private static func mapPointBounds(of coordinates: [CLLocationCoordinate2D]) -> MKMapRect {
+        coordinates.reduce(MKMapRect.null) { rect, coordinate in
+            rect.union(MKMapRect(origin: MKMapPoint(coordinate), size: MKMapSize(width: 0, height: 0)))
+        }
+    }
+
+    /// Camera that puts `measured` onto `target`: the distance scaled by whichever axis
+    /// binds (so the ribbon fits inside the plain hero's box, touching it on that axis),
+    /// then the look-at point shifted to cancel what is left of the centre offset.
+    ///
+    /// Screen scale moves as the inverse of camera distance, about the look-at point at
+    /// the snapshot's centre, so the rescale is predicted first and the *residual*
+    /// offset converted into a look-at shift. The conversion uses the local screen-per-
+    /// map-point rate measured on the pass just taken, scaled by the same factor. Note
+    /// the sign: moving the look-at point east or south moves the content left or up.
+    ///
+    /// `nil` once the framing is within tolerance, which is what stops the loop.
+    /// Internal so the correction maths can be unit-tested without a snapshotter.
+    static func correctedFraming(
+        measured: CGRect,
+        target: CGRect,
+        screenCenter: CGPoint,
+        distance: CLLocationDistance,
+        centerMapPoint: MKMapPoint,
+        groundMapSize: MKMapSize,
+        groundScreenSize: CGSize,
+        minimumDistance: CLLocationDistance
+    ) -> (distance: CLLocationDistance, center: MKMapPoint)? {
+        guard target.width > 0, target.height > 0, distance > 0 else { return nil }
+
+        let widthRatio = measured.width / target.width
+        let heightRatio = measured.height / target.height
+        let ratio = Double(max(widthRatio, heightRatio))
+        guard ratio.isFinite, ratio > 0 else { return nil }
+
+        let corrected = max(distance * ratio, minimumDistance)
+        // Screen scale changes by this factor about the look-at point.
+        let scale = CGFloat(distance / corrected)
+
+        // Where the measured centre lands once the distance change is applied.
+        let predicted = CGPoint(
+            x: screenCenter.x + (measured.midX - screenCenter.x) * scale,
+            y: screenCenter.y + (measured.midY - screenCenter.y) * scale
+        )
+        let residual = CGPoint(x: target.midX - predicted.x, y: target.midY - predicted.y)
+
+        // Already there: the size is within a hair and the centre within tolerance.
+        if abs(ratio - 1) < 0.01, abs(residual.x) < framingTolerance, abs(residual.y) < framingTolerance {
+            return nil
+        }
+
+        // Screen points per map point on each axis, after the distance change.
+        let horizontalRate = groundMapSize.width > 0 ? Double(groundScreenSize.width) / groundMapSize.width * Double(scale) : 0
+        let verticalRate = groundMapSize.height > 0 ? Double(groundScreenSize.height) / groundMapSize.height * Double(scale) : 0
+
+        var center = centerMapPoint
+        if horizontalRate > 0 {
+            center.x -= Double(residual.x) / horizontalRate
+        }
+        if verticalRate > 0 {
+            center.y -= Double(residual.y) / verticalRate
+        }
+        guard center.x.isFinite, center.y.isFinite else { return nil }
+        return (corrected, center)
     }
 
     /// The old region framing's 0.0016° minimum span, restated as a map-point width
     /// (the projection's x axis is linear in longitude) so a short loop isn't
     /// over-zoomed.
     private static let minimumSpanMapPoints = MKMapSize.world.width * 0.0016 / 360
+
+    /// Midpoint of the route's bounding box, the point the 3D camera opens looking at.
+    private static func center(of coordinates: [CLLocationCoordinate2D]) -> CLLocationCoordinate2D {
+        let latitudes = coordinates.map(\.latitude)
+        let longitudes = coordinates.map(\.longitude)
+        return CLLocationCoordinate2D(
+            latitude: ((latitudes.min() ?? 0) + (latitudes.max() ?? 0)) / 2,
+            longitude: ((longitudes.min() ?? 0) + (longitudes.max() ?? 0)) / 2
+        )
+    }
+
+    /// Opening camera distance for the 3D framing: the route's larger ground span with
+    /// enough headroom that a pitched view still holds both ends. Only the starting
+    /// estimate, `framedSnapshot` corrects it onto the 3D Plain box from there. The
+    /// floor keeps a treadmill-short loop from putting the camera inside the buildings.
+    ///
+    /// MapKit clamps pitch toward 0 as the distance grows, so long routes render
+    /// progressively flatter — accepted rather than capped, since capping would crop
+    /// the route.
+    private static func cameraDistance(for coordinates: [CLLocationCoordinate2D]) -> CLLocationDistance {
+        let latitudes = coordinates.map(\.latitude)
+        let longitudes = coordinates.map(\.longitude)
+        guard let minLatitude = latitudes.min(), let maxLatitude = latitudes.max(),
+              let minLongitude = longitudes.min(), let maxLongitude = longitudes.max() else {
+            return minimumCameraDistance
+        }
+
+        let vertical = CLLocation(latitude: minLatitude, longitude: minLongitude)
+            .distance(from: CLLocation(latitude: maxLatitude, longitude: minLongitude))
+        let horizontal = CLLocation(latitude: minLatitude, longitude: minLongitude)
+            .distance(from: CLLocation(latitude: minLatitude, longitude: maxLongitude))
+        return max(max(vertical, horizontal) * 2.2, minimumCameraDistance)
+    }
+
+    /// Closest the 3D camera is allowed to sit, so a near-stationary route still reads
+    /// as a map rather than a wall of one building. When this floor binds the ribbon
+    /// can't be shrunk to the target box, and is centred on it at whatever size it is.
+    private static let minimumCameraDistance: CLLocationDistance = 400
 
     /// Mercator rect bounding the whole route, padded horizontally, aspect-matched to
     /// the snapshot size, and offset so the route's vertical center lands on
@@ -224,11 +467,19 @@ struct BodyWorkoutRouteMapHero: View {
     ///   raises the route off the roads as a 2.5D ribbon: the ground trace stays on the
     ///   map, the coloured line stands straight up above it. `nil` — or a count that
     ///   doesn't match the route — draws the flat route.
+    /// - Parameter usesPaceColoring: `false` strokes the whole line in `fallbackTint`
+    ///   the way the 3D Plain hero does, whatever the route's speed spread. The 3D Map
+    ///   hero passes it so its ribbon reads as that style's tinted line; the share card
+    ///   keeps the default pace shading.
+    /// - Parameter drawsMarkers: `false` omits the green start / red end dots — the 3D
+    ///   Map hero, matching 3D Plain's marker-free line.
     static func draw(
         route: [RouteCoordinate],
         on snapshot: MKMapSnapshotter.Snapshot,
         fallbackTint: UIColor,
-        lift: [Double]? = nil
+        lift: [Double]? = nil,
+        usesPaceColoring: Bool = true,
+        drawsMarkers: Bool = true
     ) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = snapshot.image.scale
@@ -250,11 +501,11 @@ struct BodyWorkoutRouteMapHero: View {
             cgContext.setLineCap(.round)
 
             if let lift, lift.count == points.count {
-                drawRibbon(base: points, lift: lift, route: route, fallbackTint: fallbackTint, in: cgContext)
+                drawRibbon(base: points, lift: lift, route: route, fallbackTint: fallbackTint, usesPaceColoring: usesPaceColoring, drawsMarkers: drawsMarkers, in: cgContext)
                 return
             }
 
-            if let bounds = WorkoutRoutePaceColoring.speedColorBounds(for: route) {
+            if usesPaceColoring, let bounds = WorkoutRoutePaceColoring.speedColorBounds(for: route) {
                 // One short stroke per segment so the line shades smoothly by pace.
                 for index in 0..<(points.count - 1) {
                     let segmentSpeed = (route[index].speed + route[index + 1].speed) / 2
@@ -272,8 +523,10 @@ struct BodyWorkoutRouteMapHero: View {
                 cgContext.strokePath()
             }
 
-            drawMarker(at: first, color: .systemGreen, in: cgContext)
-            drawMarker(at: last, color: .systemRed, in: cgContext)
+            if drawsMarkers {
+                drawMarker(at: first, color: .systemGreen, in: cgContext)
+                drawMarker(at: last, color: .systemRed, in: cgContext)
+            }
         }
     }
 
@@ -289,17 +542,14 @@ struct BodyWorkoutRouteMapHero: View {
         lift: [Double],
         route: [RouteCoordinate],
         fallbackTint: UIColor,
+        usesPaceColoring: Bool,
+        drawsMarkers: Bool,
         in context: CGContext
     ) {
-        let xs = base.map(\.x)
-        let ys = base.map(\.y)
-        guard let minX = xs.min(), let maxX = xs.max(), let minY = ys.min(), let maxY = ys.max() else {
+        guard let ground = bounds(of: base) else {
             return
         }
-        let span = max(maxX - minX, maxY - minY)
-        let top = base.enumerated().map { index, point in
-            CGPoint(x: point.x, y: point.y - CGFloat(lift[index]) * span)
-        }
+        let top = liftedTop(base: base, lift: lift, in: ground)
 
         context.setLineWidth(2)
         context.setStrokeColor(fallbackTint.withAlphaComponent(wallGroundOpacity).cgColor)
@@ -317,7 +567,7 @@ struct BodyWorkoutRouteMapHero: View {
             ] as CFArray,
             locations: [0, 1]
         )
-        let speedBounds = WorkoutRoutePaceColoring.speedColorBounds(for: route)
+        let speedBounds = usesPaceColoring ? WorkoutRoutePaceColoring.speedColorBounds(for: route) : nil
         context.setLineWidth(4)
 
         // Painter's algorithm, as the 3D hero does it: back to front by ground depth,
@@ -351,8 +601,19 @@ struct BodyWorkoutRouteMapHero: View {
         }
 
         // The markers belong to the lifted line, which is the route the eye follows.
-        drawMarker(at: top[0], color: .systemGreen, in: context)
-        drawMarker(at: top[top.count - 1], color: .systemRed, in: context)
+        if drawsMarkers {
+            drawMarker(at: top[0], color: .systemGreen, in: context)
+            drawMarker(at: top[top.count - 1], color: .systemRed, in: context)
+        }
+    }
+
+    /// Each ground point's lifted twin, standing `lift × span` points straight above it.
+    /// Shared by the painter and by the framing pass that measures what it will paint.
+    private static func liftedTop(base: [CGPoint], lift: [Double], in ground: CGRect) -> [CGPoint] {
+        let span = max(ground.width, ground.height)
+        return base.enumerated().map { index, point in
+            CGPoint(x: point.x, y: point.y - CGFloat(lift[index]) * span)
+        }
     }
 
     /// The ribbon's shading, matching `BodyWorkoutRoute3DHero`'s.
@@ -837,11 +1098,12 @@ enum WorkoutRoutePaceColoring {
 }
 
 /// `.task(id:)` key so the snapshot re-renders when the hero size, the route's
-/// target center, or the light/dark appearance changes.
+/// target center, the light/dark appearance, or the 2D/3D framing changes.
 private struct SnapshotInput: Equatable {
     let width: CGFloat
     let height: CGFloat
     let centerY: CGFloat
     let topInset: CGFloat
     let isDark: Bool
+    let is3D: Bool
 }

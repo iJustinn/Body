@@ -236,4 +236,81 @@ final class WorkoutDetailTilesTests: XCTestCase {
             60
         )
     }
+
+    // MARK: - Full-resolution heart-rate override
+
+    /// The workout as the list has it: a stored average plus the ≤96-point summary
+    /// samples the fetch baked in.
+    private func heartRateWorkout() -> WorkoutSummary {
+        WorkoutSummary(
+            type: .running,
+            startDate: Date(timeIntervalSince1970: 1_770_000_000),
+            duration: 1_800,
+            averageHeartRateBeatsPerMinute: 154,
+            heartRateSamples: [
+                WorkoutHeartRateSample(date: Date(timeIntervalSince1970: 1_770_000_000), beatsPerMinute: 120),
+                WorkoutHeartRateSample(date: Date(timeIntervalSince1970: 1_770_000_600), beatsPerMinute: 150)
+            ]
+        )
+    }
+
+    private func fullResolutionSamples() -> [WorkoutHeartRateSample] {
+        [
+            WorkoutHeartRateSample(date: Date(timeIntervalSince1970: 1_770_000_900), beatsPerMinute: 170),
+            WorkoutHeartRateSample(date: Date(timeIntervalSince1970: 1_770_000_300), beatsPerMinute: 130),
+            WorkoutHeartRateSample(date: Date(timeIntervalSince1970: 1_770_000_600), beatsPerMinute: 150)
+        ]
+    }
+
+    func testHeartRateOverrideReplacesTheSummarySamplesInDateOrder() {
+        let presentation = WorkoutDetailPresentation(
+            workout: heartRateWorkout(),
+            locale: locale,
+            heartRateSamplesOverride: fullResolutionSamples()
+        )
+
+        XCTAssertEqual(presentation.heartRateSamples.map(\.beatsPerMinute), [130, 150, 170])
+        XCTAssertEqual(
+            presentation.heartRateSamples.map(\.date),
+            presentation.heartRateSamples.map(\.date).sorted()
+        )
+    }
+
+    func testNilHeartRateOverrideKeepsTheSummarySamples() {
+        let presentation = WorkoutDetailPresentation(
+            workout: heartRateWorkout(),
+            locale: locale,
+            heartRateSamplesOverride: nil
+        )
+
+        XCTAssertEqual(presentation.heartRateSamples.map(\.beatsPerMinute), [120, 150])
+    }
+
+    func testEmptyHeartRateOverrideKeepsTheSummarySamples() {
+        let presentation = WorkoutDetailPresentation(
+            workout: heartRateWorkout(),
+            locale: locale,
+            heartRateSamplesOverride: []
+        )
+
+        XCTAssertEqual(presentation.heartRateSamples.map(\.beatsPerMinute), [120, 150])
+    }
+
+    /// The average tile stays on the workout's stored average, so densifying the chart
+    /// can never make the number under it move.
+    func testHeartRateOverrideLeavesTheAverageTextOnTheStoredAverage() {
+        let workout = heartRateWorkout()
+        let baseline = WorkoutDetailPresentation(workout: workout, locale: locale)
+        let overridden = WorkoutDetailPresentation(
+            workout: workout,
+            locale: locale,
+            heartRateSamplesOverride: fullResolutionSamples()
+        )
+
+        XCTAssertEqual(overridden.averageHeartRateText, baseline.averageHeartRateText)
+        XCTAssertEqual(
+            overridden.averageHeartRateText,
+            BodyValueFormat.heartRateText(beatsPerMinute: 154, locale: locale)
+        )
+    }
 }

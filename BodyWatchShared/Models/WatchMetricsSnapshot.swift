@@ -45,11 +45,19 @@ enum WatchMetricKindKey {
     static let restingHeartRate = "restingHeartRate"
     static let trainingLoad = "trainingLoad"
     static let wristTemperature = "wristTemperature"
-    /// Carried for the Exercise Minutes complication only — deliberately absent
-    /// from `displayOrder` (and from the tint/symbol tables below) so it never
-    /// reaches the watch app's dashboard, settings, or detail pager, which all
-    /// read `orderedMetrics`. That complication draws its own color + symbol.
+    /// Legacy activity-ring exercise minutes. No longer published: the weekly
+    /// workout complication reads `workoutMinutes` below and only falls back to
+    /// this kind when it finds a cached snapshot from an older phone build.
+    /// Deliberately absent from `displayOrder` (and from the tint/symbol tables
+    /// below) so it never reaches the watch app's dashboard, settings, or
+    /// detail pager, which all read `orderedMetrics`.
     static let exerciseMinutes = "exerciseMinutes"
+    /// Carried for the weekly workout time complication only — the summed
+    /// duration of the workouts the app imports, bucketed by the day each one
+    /// started. Same complication-only treatment as `exerciseMinutes` above:
+    /// absent from `displayOrder` and the tint/symbol tables, because that
+    /// complication draws its own color + symbol.
+    static let workoutMinutes = "workoutMinutes"
 
     /// Dashboard ordering — Training Load leads. The watch complications are
     /// independent widgets and don't read this.
@@ -237,6 +245,16 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     }
 }
 
+/// One stage segment of the night's main sleep session, for the watch
+/// Sleep Stages complication. `stage` is the `SleepStage` raw value
+/// ("awake" / "rem" / "core" / "deep") as a string so this file stays free
+/// of BodyMetricsKit.
+struct WatchSleepStageSegment: Codable, Equatable {
+    var stage: String
+    var startDate: Date
+    var endDate: Date
+}
+
 /// Schema evolution: the phone and watch can run different builds, so any new
 /// field here (or on `WatchMetric`) must be optional or defaulted — a required
 /// field would make older watches silently reject the whole payload.
@@ -259,6 +277,14 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// cache. Optional so snapshots from before this field decode (nil ⇒
     /// unknown, treated as not-today by `sanitized`).
     var sleepNight: Date? = nil
+    /// The stage segments of the Sleep METRIC's night, for the watch Sleep
+    /// Stages complication: the MAIN session only (naps excluded), matching the
+    /// iPhone Home Screen Sleep Stages widget. Describes the same night as
+    /// `sleepNight`, so it moves with the Sleep metric wherever that does (the
+    /// merge) and is dropped with it (`sanitized(asOf:)`). `nil` when the night
+    /// is unknown or carries no segments. Optional so snapshots from before
+    /// this field decode.
+    var sleepStages: [WatchSleepStageSegment]? = nil
 
     /// Identifies the phone install that produced this snapshot: a UUID
     /// persisted in phone UserDefaults, regenerated on reinstall / data reset.
@@ -308,12 +334,36 @@ struct WatchMetricsSnapshot: Codable, Equatable {
             WatchMetric(kind: WatchMetricKindKey.restingHeartRate, title: String(localized: "Resting HR", table: "BodyWatchShared"), displayValue: "56", unit: "bpm", score: nil, fillFraction: 0.70, rawValue: 56, rangeMin: 52, rangeMax: 64),
             WatchMetric(kind: WatchMetricKindKey.trainingLoad, title: String(localized: "Training Load", table: "BodyWatchShared"), displayValue: "1.05", unit: "", score: nil, fillFraction: 0.53, rawValue: 1.05, rangeMin: 0, rangeMax: 2, levelMin: 0.8, levelMax: 1.3, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
             WatchMetric(kind: WatchMetricKindKey.wristTemperature, title: String(localized: "Skin Temp", table: "BodyWatchShared"), displayValue: "93.4", unit: "°F", score: nil, fillFraction: 0.50, rawValue: 34.1, rangeMin: 33.8, rangeMax: 34.4),
-            // The Exercise Minutes complication draws only `weekly`, so the
+            // The weekly workout time complication draws only `weekly`, so the
             // gallery preview needs a sample week (oldest → today) rather than
-            // seven empty bars.
-            WatchMetric(kind: WatchMetricKindKey.exerciseMinutes, title: String(localized: "Exercise Minutes", table: "BodyWatchShared"), displayValue: "38", unit: "", score: nil, fillFraction: 0, weekly: [12, 30, nil, 45, 22, 0, 38])
-        ]
+            // seven empty bars. Rest days carry an explicit `0`, matching the
+            // dense week the phone publishes.
+            WatchMetric(kind: WatchMetricKindKey.workoutMinutes, title: String(localized: "Weekly Workout Time", table: "BodyWatchShared"), displayValue: "38", unit: "", score: nil, fillFraction: 0, weekly: [12, 30, 0, 45, 22, 0, 38])
+        ],
+        // The Sleep Stages complication draws only `sleepStages`, so the
+        // gallery preview needs a sample night rather than an empty bar.
+        sleepStages: placeholderSleepStages
     )
+
+    /// The placeholder's night: a main session from 23:10 to 06:42 (7h 32m,
+    /// matching the sample Sleep metric above), cycling through the stages with
+    /// a brief wake at the start and one mid-night. Anchored to a FIXED instant
+    /// (2026-06-03 23:10 UTC) rather than `Date()` so this `static let` stays
+    /// deterministic.
+    private static let placeholderSleepStages: [WatchSleepStageSegment] = {
+        let pattern: [(stage: String, minutes: Double)] = [
+            ("awake", 8), ("core", 42), ("deep", 38), ("core", 25), ("rem", 22),
+            ("core", 34), ("deep", 29), ("core", 31), ("rem", 27), ("awake", 6),
+            ("core", 46), ("deep", 18), ("core", 40), ("rem", 33), ("core", 53)
+        ]
+        var start = Date(timeIntervalSinceReferenceDate: 802_221_000)
+        return pattern.map { segment in
+            let end = start.addingTimeInterval(segment.minutes * 60)
+            let built = WatchSleepStageSegment(stage: segment.stage, startDate: start, endDate: end)
+            start = end
+            return built
+        }
+    }()
 
     func metric(forKind kind: String) -> WatchMetric? {
         metrics.first { $0.kind == kind }
@@ -357,6 +407,7 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// the watch app and complications never show yesterday's sleep as today's.
     /// A blanked legacy snapshot is corrected on the next phone push (at most
     /// one sync away), which we prefer over presenting a night we can't verify.
+    /// `sleepStages` describes the same night, so it goes with the card.
     ///
     /// Second, independent rule: a latest-sample metric whose reading has aged
     /// out of the daily trend window is cleared too, so the watch and its
@@ -370,6 +421,7 @@ struct WatchMetricsSnapshot: Codable, Equatable {
         guard clearsSleep || clearsStale else { return self }
 
         var copy = self
+        if clearsSleep { copy.sleepStages = nil }
         copy.metrics = metrics.map { metric in
             if clearsSleep, metric.kind == WatchMetricKindKey.sleep { return metric.cleared() }
             return isOutOfTrendWindow(metric, windowStart: windowStart) ? metric.cleared() : metric

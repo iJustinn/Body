@@ -3,10 +3,11 @@
 //  BodyWidgetExtension
 //
 //  iPhone lock screen widget (accessoryRectangular): a header total plus
-//  seven bars for the rolling last 7 days of Apple Exercise Minutes, today
-//  rightmost. No configuration, so this is a plain StaticConfiguration
-//  (unlike the other widgets, which reuse BodyWidgetConfigurationIntent for
-//  a background picker). Pro-gated, matching the other Body widgets.
+//  seven bars for the rolling last 7 days of total workout time (summed
+//  HKWorkout durations), today rightmost. No configuration, so this is a
+//  plain StaticConfiguration (unlike the other widgets, which reuse
+//  BodyWidgetConfigurationIntent for a background picker). Pro-gated,
+//  matching the other Body widgets.
 //
 
 import SwiftUI
@@ -22,7 +23,7 @@ struct ExerciseWeekEntry: TimelineEntry {
 
 struct ExerciseWeekProvider: TimelineProvider {
     func placeholder(in context: Context) -> ExerciseWeekEntry {
-        entry(snapshot: .placeholder, now: Date(), isPro: true)
+        ExerciseWeekEntry(date: Date(), points: Self.placeholderPoints, isPro: true)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (ExerciseWeekEntry) -> Void) {
@@ -38,24 +39,58 @@ struct ExerciseWeekProvider: TimelineProvider {
 
     private func loadEntry(usePlaceholderWhenEmpty: Bool) -> ExerciseWeekEntry {
         let now = Date()
-        let loaded = HealthWidgetSnapshotStore.load()
-        let snapshot = loaded ?? (usePlaceholderWhenEmpty ? .placeholder : .empty)
-        return entry(
-            snapshot: snapshot,
-            now: now,
+        let calendar = Calendar.bodyGregorian
+        let current = WorkoutSnapshotStore.load()
+        let previous = WorkoutSnapshotStore.loadPrevious()
+        let hasData = (current?.workoutCount ?? 0) > 0 || (previous?.workoutCount ?? 0) > 0
+
+        let points: [HealthWidgetPoint]
+        if !hasData && usePlaceholderWhenEmpty {
+            points = Self.placeholderPoints
+        } else {
+            // Dense per-day points for the current + previous month (every
+            // in-month day, including zero-duration ones) so re-windowing
+            // below always finds a real (non-nil) point for a rest day
+            // instead of padding it with nil.
+            let allPoints = Self.points(from: current, calendar: calendar)
+                + Self.points(from: previous, calendar: calendar)
+            // Re-window at load time: the cache is only rewritten when the app
+            // runs, so a cache from an earlier day must be re-aligned so the
+            // rightmost bar is always today.
+            points = HealthWidgetPoint.rewindingWeek(allPoints, to: now, calendar: calendar)
+        }
+
+        return ExerciseWeekEntry(
+            date: now,
+            points: points,
             // Preview/gallery shows the real widget; the live timeline respects the flag.
             isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked
         )
     }
 
-    private func entry(snapshot: HealthWidgetSnapshot, now: Date, isPro: Bool) -> ExerciseWeekEntry {
-        let cachedPoints = snapshot.trend(for: .exerciseMinutes)?.week.points ?? []
-        // Re-window at load time: the cache is only rewritten when the app
-        // runs, so a cache from an earlier day must be re-aligned so the
-        // rightmost bar is always today.
-        let points = HealthWidgetPoint.rewindingWeek(cachedPoints, to: now)
-        return ExerciseWeekEntry(date: now, points: points, isPro: isPro)
+    /// One point per day in `snapshot`'s month, minutes of total workout
+    /// duration (0 for days with no workouts).
+    private static func points(from snapshot: WorkoutMonthSnapshot?, calendar: Calendar) -> [HealthWidgetPoint] {
+        guard let snapshot else { return [] }
+        return snapshot.days.compactMap { day in
+            guard let date = calendar.date(from: DateComponents(year: snapshot.year, month: snapshot.month, day: day.day)) else {
+                return nil
+            }
+            return HealthWidgetPoint(date: date, value: day.totalDuration / 60)
+        }
     }
+
+    /// Sample week for the widget gallery preview, built locally (no App
+    /// Group read, no HealthWidgetSnapshot dependency).
+    private static let placeholderPoints: [HealthWidgetPoint] = {
+        let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: Date())
+        let sampleMinutes: [Double] = [30, 45, 0, 60, 25, 50, 40]
+        return sampleMinutes.enumerated().map { offset, minutes in
+            let date = calendar.date(byAdding: .day, value: offset - 6, to: today) ?? today
+            return HealthWidgetPoint(date: date, value: minutes)
+        }
+    }()
 }
 
 // MARK: - Widget
@@ -75,8 +110,8 @@ struct BodyExerciseWeekWidget: Widget {
             .containerBackground(.clear, for: .widget)
         }
         .supportedFamilies([.accessoryRectangular])
-        .configurationDisplayName("Exercise Minutes")
-        .description("This week's daily exercise minutes.")
+        .configurationDisplayName("Weekly Workout Time")
+        .description("This week's daily workout minutes.")
         .contentMarginsDisabled()
     }
 }

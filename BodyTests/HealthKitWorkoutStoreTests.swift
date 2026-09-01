@@ -3761,4 +3761,190 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         var summary: HealthSummarySnapshot
         var trends: HealthTrendSnapshot
     }
+
+    // MARK: - isWorkoutDetailPersistable
+
+    func testIsWorkoutDetailPersistableAllowsSettledOldMonthWorkout() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let calendar = Calendar.bodyGregorian
+        let oldMonthWorkout = WorkoutSummary(
+            id: UUID(),
+            type: .running,
+            startDate: now.addingTimeInterval(-90 * 24 * 60 * 60),
+            duration: 3600
+        )
+
+        XCTAssertTrue(
+            HealthKitWorkoutStore.isWorkoutDetailPersistable(workout: oldMonthWorkout, now: now, calendar: calendar)
+        )
+    }
+
+    func testIsWorkoutDetailPersistableRejectsUnsettledWorkout() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let calendar = Calendar.bodyGregorian
+        let unsettledWorkout = WorkoutSummary(
+            id: UUID(),
+            type: .running,
+            startDate: now.addingTimeInterval(-3600),
+            duration: 3600
+        )
+
+        XCTAssertFalse(
+            HealthKitWorkoutStore.isWorkoutDetailPersistable(workout: unsettledWorkout, now: now, calendar: calendar)
+        )
+    }
+
+    // MARK: - Weekly workout minutes (watch complication bars)
+
+    private func weeklyWorkout(month: Int, day: Int, minutes: Double) -> WorkoutSummary {
+        WorkoutSummary(
+            id: UUID(),
+            type: .running,
+            startDate: Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: month, day: day, hour: 8)) ?? Date(),
+            duration: minutes * 60
+        )
+    }
+
+    private func weeklyWorkoutMonthSnapshots(
+        may: [WorkoutSummary],
+        june: [WorkoutSummary]
+    ) -> [BodyWorkoutMonthKey: WorkoutMonthSnapshot] {
+        [
+            BodyWorkoutMonthKey(month: 5, year: 2026): .make(month: 5, year: 2026, workouts: may, calendar: .bodyGregorian),
+            BodyWorkoutMonthKey(month: 6, year: 2026): .make(month: 6, year: 2026, workouts: june, calendar: .bodyGregorian)
+        ]
+    }
+
+    @MainActor
+    func testWeeklyWorkoutMinutesSumsDurationsPerDayWithExplicitRestDayZeros() {
+        // Window: May 28 … Jun 3, so it spans a month boundary the way a real
+        // rolling week does for most of the month.
+        let now = Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 6, day: 3, hour: 21)) ?? Date()
+        let snapshots = weeklyWorkoutMonthSnapshots(
+            may: [
+                // Outside the window: a workout on the day before it starts must
+                // not leak into the first bar.
+                weeklyWorkout(month: 5, day: 27, minutes: 90),
+                // Two workouts on one day sum into that day's bar.
+                weeklyWorkout(month: 5, day: 28, minutes: 30),
+                weeklyWorkout(month: 5, day: 28, minutes: 45),
+                weeklyWorkout(month: 5, day: 30, minutes: 60)
+            ],
+            june: [
+                weeklyWorkout(month: 6, day: 2, minutes: 20),
+                weeklyWorkout(month: 6, day: 3, minutes: 15)
+            ]
+        )
+
+        let weekly = HealthKitWorkoutStore.weeklyWorkoutMinutes(from: snapshots, now: now)
+
+        // Dense: a rest day is an explicit 0, never nil — a nil would make the
+        // pushed metric blank, and the watch merge would refuse the week.
+        XCTAssertEqual(weekly, [75, 0, 60, 0, 0, 20, 15])
+    }
+
+    @MainActor
+    func testWeeklyWorkoutMinutesIsNilOnlyWhenNeitherSourceHasASpannedMonth() {
+        let now = Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 6, day: 3, hour: 21)) ?? Date()
+        let juneOnly: [BodyWorkoutMonthKey: WorkoutMonthSnapshot] = [
+            BodyWorkoutMonthKey(month: 6, year: 2026): .make(
+                month: 6,
+                year: 2026,
+                workouts: [weeklyWorkout(month: 6, day: 2, minutes: 20)],
+                calendar: .bodyGregorian
+            )
+        ]
+
+        // May is in neither source, so its four days are unknown rather than
+        // empty: publishing them as zeros would show a falsely empty week.
+        XCTAssertNil(HealthKitWorkoutStore.weeklyWorkoutMinutes(from: juneOnly, now: now))
+
+        // The launch / passive-refresh shape: only the current month is in
+        // memory, and the previous month comes from the persisted App Group
+        // snapshot the caller hands in. The week must build from the pair,
+        // because an omitted metric DELETES the watch's bars on a phone push.
+        let persistedMay: [BodyWorkoutMonthKey: WorkoutMonthSnapshot] = [
+            BodyWorkoutMonthKey(month: 5, year: 2026): .make(
+                month: 5,
+                year: 2026,
+                workouts: [weeklyWorkout(month: 5, day: 30, minutes: 60)],
+                calendar: .bodyGregorian
+            )
+        ]
+        XCTAssertEqual(
+            HealthKitWorkoutStore.weeklyWorkoutMinutes(from: juneOnly, fallback: persistedMay, now: now),
+            [0, 0, 60, 0, 0, 20, 0]
+        )
+
+        // A fallback that doesn't cover the missing month changes nothing.
+        let persistedApril: [BodyWorkoutMonthKey: WorkoutMonthSnapshot] = [
+            BodyWorkoutMonthKey(month: 4, year: 2026): .make(
+                month: 4,
+                year: 2026,
+                workouts: [],
+                calendar: .bodyGregorian
+            )
+        ]
+        XCTAssertNil(
+            HealthKitWorkoutStore.weeklyWorkoutMinutes(from: juneOnly, fallback: persistedApril, now: now)
+        )
+
+        // In-memory wins where both sources carry the month: the persisted file
+        // lags a refresh that already updated memory, so Jun 2 keeps its 20.
+        var withStaleJune = persistedMay
+        withStaleJune[BodyWorkoutMonthKey(month: 6, year: 2026)] = .make(
+            month: 6,
+            year: 2026,
+            workouts: [],
+            calendar: .bodyGregorian
+        )
+        XCTAssertEqual(
+            HealthKitWorkoutStore.weeklyWorkoutMinutes(from: juneOnly, fallback: withStaleJune, now: now),
+            [0, 0, 60, 0, 0, 20, 0]
+        )
+
+        // Once the window sits entirely inside a loaded month, the week builds
+        // with no fallback at all.
+        let midMonth = Calendar.bodyGregorian.date(from: DateComponents(year: 2026, month: 6, day: 8, hour: 21)) ?? Date()
+        XCTAssertEqual(
+            HealthKitWorkoutStore.weeklyWorkoutMinutes(from: juneOnly, now: midMonth),
+            [20, 0, 0, 0, 0, 0, 0]
+        )
+    }
+
+    func testWorkoutsWeekCoverageDatePersistsIndependentlyOfTheRefreshSuccessDate() throws {
+        // The weekly bars' watermark may only claim what a full-week-coverage
+        // fetch earned. An early-month passive refresh persists a SUCCESS date
+        // while fetching just the current month, so the two must not share a
+        // key: reusing the success date would relaunch with a coverage claim
+        // that lets a stale mixed-month week overwrite a newer watch-computed
+        // one.
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let successDate = Date(timeIntervalSince1970: 1_780_000_000)
+        HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(successDate, defaults: defaults)
+        XCTAssertNil(HealthDashboardSnapshotStore.loadLastWorkoutsWeekCoverageDate(defaults: defaults))
+
+        let coverageDate = successDate.addingTimeInterval(-3_600)
+        HealthDashboardSnapshotStore.saveLastWorkoutsWeekCoverageDate(coverageDate, defaults: defaults)
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadLastWorkoutsWeekCoverageDate(defaults: defaults),
+            coverageDate
+        )
+        // The sibling watermark is untouched by the coverage write.
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate(defaults: defaults),
+            successDate
+        )
+
+        // Clear Cache drops the coverage claim without disturbing the other.
+        HealthDashboardSnapshotStore.clearLastWorkoutsWeekCoverageDate(defaults: defaults)
+        XCTAssertNil(HealthDashboardSnapshotStore.loadLastWorkoutsWeekCoverageDate(defaults: defaults))
+        XCTAssertEqual(
+            HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate(defaults: defaults),
+            successDate
+        )
+    }
 }

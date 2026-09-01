@@ -521,6 +521,7 @@ struct BodyHealthPermissionSelection: Equatable {
 enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
     case map
     case plain
+    case map3D = "map3d"
     /// Oblique, elevation-extruded ribbon when the route carries altitude; falls back to Plain otherwise.
     case threeD = "3d"
 
@@ -531,21 +532,24 @@ enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
     }
 
     /// Whether the workout detail hero can draw this style's route in as it loads.
-    /// Map can't: its route is composited into the map snapshot by Core Graphics rather
-    /// than stroked by the hero, so there is no path to grow. Route Style offers the
-    /// Draw Route switch only for the styles that stroke their own trace.
+    /// The two map styles can't: their route is composited into the map snapshot by
+    /// Core Graphics rather than stroked by the hero, so there is no path to grow.
+    /// Route Style offers the Draw Route switch only for the styles that stroke their
+    /// own trace.
     var supportsRouteDraw: Bool {
-        self != .map
+        self != .map && self != .map3D
     }
 
     var title: String {
         switch self {
         case .map:
-            return String(localized: "Map", table: "BodyMetricsKit")
+            return String(localized: "routeStyle.map2D.title", defaultValue: "2D Map", table: "BodyMetricsKit")
         case .plain:
-            return String(localized: "Plain", table: "BodyMetricsKit")
+            return String(localized: "routeStyle.plain2D.title", defaultValue: "2D Plain", table: "BodyMetricsKit")
+        case .map3D:
+            return String(localized: "routeStyle.map3D.title", defaultValue: "3D Map", table: "BodyMetricsKit")
         case .threeD:
-            return String(localized: "3D", table: "BodyMetricsKit")
+            return String(localized: "routeStyle.plain3D.title", defaultValue: "3D Plain", table: "BodyMetricsKit")
         }
     }
 
@@ -555,6 +559,8 @@ enum BodyWorkoutRouteStyle: String, CaseIterable, Identifiable {
             return String(localized: "Apple Maps", table: "BodyMetricsKit")
         case .plain:
             return String(localized: "Route Only", table: "BodyMetricsKit")
+        case .map3D:
+            return String(localized: "routeStyle.map3D.subtitle", defaultValue: "3D Apple Maps", table: "BodyMetricsKit")
         case .threeD:
             return String(localized: "Elevation Ribbon", table: "BodyMetricsKit")
         }

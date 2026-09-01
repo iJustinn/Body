@@ -476,7 +476,10 @@ struct WorkoutTypeBreakdownView: View {
         case .widgetLarge:
             return 5
         case .shareCard:
-            return 5
+            // The share card picks its own number of bars (the user's, up to the
+            // month's activity count) and scales the chart down to fit them, so the
+            // ceiling here is the caller's alone.
+            return .max
         }
     }
 }

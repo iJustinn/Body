@@ -65,12 +65,32 @@ enum WorkoutDetailSnapshotStore {
     }
 
     /// Drops cached details for workouts that are no longer in the user's
-    /// history, plus any file whose name isn't a workout UUID at all.
-    static func prune(keeping: Set<UUID>, directoryURL: URL? = defaultDirectoryURL) {
+    /// history, plus any file whose name isn't a workout UUID at all. Among the
+    /// remaining files (not in `keeping`), only the `retainingRecentLimit` most
+    /// recently PERSISTED are kept, going by file modification time rather than
+    /// access time — snapshots are written once and complete, so persist-recency
+    /// is an honest retention key here, not a stand-in for LRU. This bounds
+    /// on-disk growth now that `isWorkoutDetailPersistable` no longer restricts
+    /// persistence to the current/previous month.
+    static func prune(keeping: Set<UUID>, retainingRecentLimit: Int = 200, directoryURL: URL? = defaultDirectoryURL) {
+        var keptOthers: [(url: URL, modified: Date)] = []
         for fileURL in jsonFileURLs(in: directoryURL) {
-            let id = UUID(uuidString: fileURL.deletingPathExtension().lastPathComponent)
-            if let id, keeping.contains(id) { continue }
-            remove(fileURL)
+            guard let id = UUID(uuidString: fileURL.deletingPathExtension().lastPathComponent) else {
+                remove(fileURL)
+                continue
+            }
+            if keeping.contains(id) { continue }
+
+            let modified = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? .distantPast
+            keptOthers.append((fileURL, modified))
+        }
+
+        guard keptOthers.count > retainingRecentLimit else { return }
+
+        keptOthers.sort { $0.modified > $1.modified }
+        for entry in keptOthers[retainingRecentLimit...] {
+            remove(entry.url)
         }
     }
 

@@ -130,7 +130,13 @@ struct BodyHealthMetricTrendChart: View {
             markEntries: markEntries
         )
         self.lineSegments = chartStyle == .line
-            ? Self.makeTrendLineSegments(selectedRange: selectedRange, pointsByRange: pointsByRange)
+            ? Self.makeTrendLineSegments(
+                selectedRange: selectedRange,
+                pointsByRange: pointsByRange,
+                // A sparse series plots readings, not a day grid: its points
+                // are already neighbours, so the line joins them as before.
+                connectsEveryReading: usesSparseReadings
+            )
             : []
 
         let aggregatedValues = calendarPoints.compactMap(\.value).filter(\.isFinite)
@@ -667,24 +673,43 @@ struct BodyHealthMetricTrendChart: View {
         return entriesByDate.values.sorted { $0.date < $1.date }
     }
 
-    /// The trend line split into one two-point series per consecutive-finite
+    /// The trend line split into one two-point series per ADJACENT finite
     /// pair, keyed by the pair's start date. A Week pair d→d+1 and a
     /// compressed Month pair d→d+2 share id `seg-d`, so the segment stretches
     /// in place across the switch. Other ranges' pair starts with no
     /// selected-range counterpart collapse to zero-length placeholders at
     /// their own start point, fading where they stood. Ids dedupe with
     /// selected-range priority, then fixed `allCases` order.
+    ///
+    /// A pair whose points sit either side of a day or bucket with no reading
+    /// draws nothing: the line breaks at the gap rather than interpolating
+    /// straight across days that were never measured, leaving the neighbouring
+    /// dots to stand on their own. `connectsEveryReading` opts a sparse metric
+    /// out — its series holds only readings, so consecutive points are
+    /// neighbours however far apart their dates fall.
     static func makeTrendLineSegments(
         selectedRange: BodyHealthTrendRange,
-        pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]
+        pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]],
+        connectsEveryReading: Bool = false
     ) -> [BodyHealthTrendLineSegmentMark] {
         func finitePoints(for range: BodyHealthTrendRange) -> [HealthTrendCalendarPoint] {
             (pointsByRange[range] ?? []).filter { $0.value?.isFinite == true }
         }
 
+        func drawnPairs(
+            in points: [HealthTrendCalendarPoint]
+        ) -> [(HealthTrendCalendarPoint, HealthTrendCalendarPoint)] {
+            zip(points, points.dropFirst()).filter { start, end in
+                connectsEveryReading
+                    || bodyTrendChartPointsAreAdjacent(
+                        earlierSpanEnd: start.endDate,
+                        laterSpanStart: end.startDate
+                    )
+            }
+        }
+
         var segmentsByID: [String: BodyHealthTrendLineSegmentMark] = [:]
-        let selectedFinite = finitePoints(for: selectedRange)
-        for (start, end) in zip(selectedFinite, selectedFinite.dropFirst()) {
+        for (start, end) in drawnPairs(in: finitePoints(for: selectedRange)) {
             guard let startValue = start.value, let endValue = end.value else {
                 continue
             }
@@ -699,7 +724,7 @@ struct BodyHealthMetricTrendChart: View {
         }
 
         for range in BodyHealthTrendRange.allCases where range != selectedRange {
-            for start in finitePoints(for: range).dropLast() {
+            for (start, _) in drawnPairs(in: finitePoints(for: range)) {
                 guard let startValue = start.value else {
                     continue
                 }
@@ -1654,6 +1679,22 @@ struct BodyHealthMetricDayAnnotation: View {
     private func timeText(for date: Date) -> String {
         date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
     }
+}
+
+/// Whether two plotted points sit in neighbouring slots of a range's grid: the
+/// later point's span starts the day after the earlier one's span ends. Points
+/// carry the days they cover, so this holds for the Week chart's single days,
+/// the 6M/Year buckets, and the merged buckets a compressed line emits alike.
+///
+/// A pair that fails it has at least one day or bucket with no reading between
+/// its points, and the trend line must break there: a straight stroke across a
+/// gap reads as measured days that never happened.
+func bodyTrendChartPointsAreAdjacent(
+    earlierSpanEnd: Date,
+    laterSpanStart: Date,
+    calendar: Calendar = .bodyGregorian
+) -> Bool {
+    calendar.dateComponents([.day], from: earlierSpanEnd, to: laterSpanStart).day == 1
 }
 
 /// Merges the other ranges' marks into the selected range's marks so a range

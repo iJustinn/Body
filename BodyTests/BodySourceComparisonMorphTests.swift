@@ -257,6 +257,36 @@ final class BodySourceComparisonMorphTests: XCTestCase {
         XCTAssertEqual(ranges.first?.isPlaceholder, true)
     }
 
+    func testLineSegmentsBreakAtADayASourceNeverRecorded() {
+        let dayStart = calendar.startOfDay(for: anchorDate)
+        func entry(dayOffset: Int, value: Double?) -> BodyHealthSourceComparisonLineEntry {
+            BodyHealthSourceComparisonLineEntry(
+                sourceName: "Watch",
+                sourceRole: .primary,
+                point: HealthTrendCalendarPoint(
+                    date: calendar.date(byAdding: .day, value: -dayOffset, to: dayStart) ?? dayStart,
+                    value: value
+                )
+            )
+        }
+
+        let segments = BodyHealthSourceComparisonLineChart.lineSegments(
+            from: [
+                entry(dayOffset: 3, value: 50),
+                entry(dayOffset: 2, value: nil),
+                entry(dayOffset: 1, value: 54),
+                entry(dayOffset: 0, value: 56)
+            ],
+            isPlaceholder: false
+        )
+
+        // Only the touching pair draws: the day with no reading leaves its two
+        // neighbours as unconnected dots.
+        XCTAssertEqual(segments.count, 1)
+        XCTAssertEqual(segments.first?.startValue, 54)
+        XCTAssertEqual(segments.first?.endValue, 56)
+    }
+
     func testEmptyCurrentEntriesSurviveWhenNoRangeHasAValueThere() {
         let day = Date(timeIntervalSinceReferenceDate: 700_000_000)
         let empty = HealthTrendCalendarPoint(date: day, value: nil)

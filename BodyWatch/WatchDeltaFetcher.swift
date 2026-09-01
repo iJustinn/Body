@@ -65,7 +65,8 @@ actor WatchDeltaFetcher {
     ///
     /// `windowStart` is `WatchDeltaSplicer.deltaStart(dataThrough:)`; sleep
     /// starts one day earlier so a night that BEGAN before the window but wakes
-    /// inside it is still sessionized whole.
+    /// inside it is still sessionized whole, and workouts reach back a full
+    /// week so the weekly workout-minutes bars can be built without a seed.
     func fetchDelta(
         seed: WatchComputeSeed,
         permission: BodyHealthPermissionSelection,
@@ -155,7 +156,7 @@ actor WatchDeltaFetcher {
             start: sleepStart, end: now, calendar: calendar
         )
         async let workouts = workoutDelta(
-            permission: permission, start: windowStart, end: now
+            permission: permission, windowStart: windowStart, now: now, calendar: calendar
         )
 
         delta.heartRateSeries = await heartRateSeries
@@ -425,16 +426,26 @@ actor WatchDeltaFetcher {
 
     private func workoutDelta(
         permission: BodyHealthPermissionSelection,
-        start: Date,
-        end: Date
+        windowStart: Date,
+        now: Date,
+        calendar: Calendar
     ) async -> WatchFetchOutcome<[WorkoutSummary]> {
         guard permission.includes(.workouts) else { return .failure }
+
+        // Reaches back a full week when the delta window is shorter: the weekly
+        // workout-minutes complication series is built from THIS fetch alone
+        // (there is no seeded workout history to fall back on), so every day it
+        // draws has to sit inside the query. Still bounded — a week is the
+        // floor, never an unbounded widening.
+        let weekStart = calendar.date(byAdding: .day, value: -7, to: calendar.startOfDay(for: now))
+            ?? windowStart
+        let start = min(windowStart, weekStart)
 
         // Workouts are never source-selectable, so this needs no resolution.
         // `includesWorkoutMetrics: false` — the watch's Training Load reads only
         // duration + effort, and the detail metrics ride a separate toggle.
         guard case .success(let workouts) = await BodyWorkoutFetch.workouts(
-            store: store, start: start, end: end
+            store: store, start: start, end: now
         ) else {
             return .failure
         }
@@ -442,6 +453,22 @@ actor WatchDeltaFetcher {
         var summaries: [WorkoutSummary] = []
         summaries.reserveCapacity(workouts.count)
         for workout in workouts {
+            // Days BEFORE the delta window are carried for their DURATION only
+            // (the weekly bars): Training Load overwrites no slot back there and
+            // the readiness drain never reaches them, so resolving effort would
+            // only add queries — and the failure below — for a number nothing
+            // reads.
+            guard workout.startDate >= windowStart else {
+                summaries.append(
+                    BodyWorkoutFetch.summary(
+                        for: workout,
+                        effortLevel: nil,
+                        effortUnresolved: nil,
+                        includesWorkoutMetrics: false
+                    )
+                )
+                continue
+            }
             // Effort is resolved per compute and never cached across computes:
             // the watch has no HealthKit observer to invalidate a cached
             // "no rating yet", and a stale negative would silently drop the

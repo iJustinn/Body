@@ -4,8 +4,9 @@
 //
 //  One ring-style complication per metric (matches the existing iOS
 //  BodyWidgetExtensionBundle's static-per-widget pattern), each supporting
-//  the circular ring, the rectangular row, and the corner gauge, plus a
-//  rectangular-only bar-chart complication for weekly Exercise Minutes.
+//  the circular ring, the rectangular row, and the corner gauge, plus two
+//  rectangular-only bar complications (weekly Exercise minutes, last night's
+//  Sleep stages) that lead the list.
 //
 //  Note: full magenta renders in the Smart Stack and full-color faces; in
 //  tinted watch-face accessory slots the system recolors the ring (or bars)
@@ -18,6 +19,8 @@ import WidgetKit
 @main
 struct BodyWatchComplicationsBundle: WidgetBundle {
     var body: some Widget {
+        ExerciseWeekComplication()
+        SleepStagesComplication()
         ReadinessComplication()
         SleepComplication()
         HeartRateComplication()
@@ -25,7 +28,6 @@ struct BodyWatchComplicationsBundle: WidgetBundle {
         RestingHeartRateComplication()
         TrainingLoadComplication()
         SkinTemperatureComplication()
-        ExerciseWeekComplication()
     }
 }
 

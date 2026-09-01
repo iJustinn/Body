@@ -70,9 +70,14 @@ final class WorkoutShareSummaryCardTests: XCTestCase {
 
     private func geometry(
         _ ratio: WorkoutShareAspectRatio,
-        metricCount: Int = WorkoutShareMetricSelection.defaultCount
+        metricCount: Int = WorkoutShareMetricSelection.defaultCount,
+        barRowCount: Int = WorkoutShareSummaryBarCount.defaultCount
     ) -> WorkoutShareSummaryCardGeometry {
-        WorkoutShareSummaryCardGeometry(aspectRatio: ratio, metricCount: metricCount)
+        WorkoutShareSummaryCardGeometry(
+            aspectRatio: ratio,
+            metricCount: metricCount,
+            barRowCount: barRowCount
+        )
     }
 
     // MARK: - Metric pool
@@ -306,12 +311,92 @@ final class WorkoutShareSummaryCardTests: XCTestCase {
         }
     }
 
-    func testBarRowLimitFitsTheRatio() {
-        XCTAssertEqual(geometry(.portrait9x16).barRowLimit, 5)
-        XCTAssertEqual(geometry(.portrait3x4).barRowLimit, 5)
-        // The square's chart region is the whole 284 pt content area, which the leaner
-        // 42 pt row takes from four rows to the same five the portraits draw.
-        XCTAssertEqual(geometry(.square).barRowLimit, 5)
+    /// The default pick is the five rows the breakdown has always drawn here, at full
+    /// size on every supported ratio.
+    func testBarRowLimitDefaultsToFiveFullSizeRowsOnEveryRatio() {
+        for ratio in WorkoutShareSummaryCardGeometry.supportedAspectRatios {
+            let layout = geometry(ratio)
+            XCTAssertEqual(layout.barRowLimit, 5, ratio.rawValue)
+            XCTAssertEqual(layout.barContentScale, 1, ratio.rawValue)
+            XCTAssertEqual(layout.chartFrame(for: .bar).height, layout.barContentHeight, accuracy: 0.5, ratio.rawValue)
+        }
+    }
+
+    /// A pick the region can't hold at full size shrinks the whole chart instead of
+    /// dropping the bars the user asked for.
+    func testTallBarPicksShrinkInsteadOfLosingBars() {
+        for ratio in WorkoutShareSummaryCardGeometry.supportedAspectRatios {
+            let layout = geometry(ratio, barRowCount: 12)
+            XCTAssertEqual(layout.barRowLimit, 12, ratio.rawValue)
+            XCTAssertLessThan(layout.barContentScale, 1, "\(ratio.rawValue) should have had to shrink")
+            XCTAssertGreaterThan(layout.barContentScale, 0, ratio.rawValue)
+            // Scaled, the chart lands exactly inside its region — and that is the frame
+            // the card positions, so the bars can't reach the branding.
+            XCTAssertEqual(
+                layout.barContentHeight * layout.barContentScale,
+                layout.chartFrame(for: .bar).height,
+                accuracy: 0.5,
+                ratio.rawValue
+            )
+            XCTAssertLessThanOrEqual(layout.chartFrame(for: .bar).height, layout.chartRect.height, ratio.rawValue)
+        }
+
+        // The metric rows come out of the same region, so a five-metric 3:4 card leaves
+        // the chart less room — and shrinks the same pick further.
+        let lean = geometry(.portrait3x4, metricCount: 1, barRowCount: 8)
+        let crowded = geometry(.portrait3x4, metricCount: 5, barRowCount: 8)
+        XCTAssertLessThan(crowded.barContentScale, lean.barContentScale)
+    }
+
+    /// The month card's header runs smaller than the workout card's blocks: same
+    /// shape, less type, and the height it gives up goes to the chart rather than to
+    /// empty air.
+    func testMonthTotalsAreSetSmallerThanTheWorkoutCardsBlocks() {
+        for ratio in [WorkoutShareAspectRatio.portrait9x16, .portrait3x4] {
+            let layout = geometry(ratio)
+            let shared = layout.metricBlockStyle
+            XCTAssertLessThan(layout.metricValueSize, shared.valueSize, ratio.rawValue)
+            XCTAssertLessThan(layout.metricLabelSize, shared.labelSize, ratio.rawValue)
+            XCTAssertLessThan(layout.metricRowHeight, shared.rowHeight, ratio.rawValue)
+            XCTAssertLessThan(layout.metricRowGap, shared.rowGap, ratio.rawValue)
+            // One row of totals, so the slot is exactly one scaled block tall.
+            XCTAssertEqual(layout.metricsRect.height, layout.metricRowHeight, accuracy: 0.5, ratio.rawValue)
+            // What the header doesn't take, the chart does.
+            XCTAssertEqual(
+                layout.chartRect.minY,
+                layout.metricsRect.maxY + 14,
+                accuracy: 0.5,
+                ratio.rawValue
+            )
+        }
+    }
+
+    /// The stored number is a preference: a month with fewer activities clamps it for
+    /// this card without the pick being rewritten, and a missing value (`@AppStorage`
+    /// hands back a zero) reads as the default.
+    func testResolvedBarCountClampsToTheMonthsActivities() {
+        XCTAssertEqual(WorkoutShareSummaryBarCount.defaultCount, 5)
+        XCTAssertEqual(WorkoutShareSummaryBarCount.resolved(stored: 0, availableTypeCount: 9), 5)
+        XCTAssertEqual(WorkoutShareSummaryBarCount.resolved(stored: -3, availableTypeCount: 9), 5)
+        XCTAssertEqual(WorkoutShareSummaryBarCount.resolved(stored: 12, availableTypeCount: 12), 12)
+        XCTAssertEqual(WorkoutShareSummaryBarCount.resolved(stored: 1, availableTypeCount: 9), 1)
+        // Clamped down, never below one — and an empty month still gets a row for the
+        // chart's own "no workouts yet" state.
+        XCTAssertEqual(WorkoutShareSummaryBarCount.resolved(stored: 12, availableTypeCount: 3), 3)
+        XCTAssertEqual(WorkoutShareSummaryBarCount.resolved(stored: 5, availableTypeCount: 0), 1)
+    }
+
+    /// The tray offers one tile per activity the month has, and no tiles at all when
+    /// there is nothing to choose between.
+    func testBarCountOptionsCoverTheMonthsActivities() {
+        XCTAssertEqual(WorkoutShareSummaryBarCount.options(availableTypeCount: 4), [1, 2, 3, 4])
+        XCTAssertEqual(WorkoutShareSummaryBarCount.options(availableTypeCount: 1), [])
+        XCTAssertEqual(WorkoutShareSummaryBarCount.options(availableTypeCount: 0), [])
+        // The pool the tray actually reads: one tile per activity in the month.
+        XCTAssertEqual(
+            WorkoutShareSummaryBarCount.options(availableTypeCount: richMonth.workoutTypeBreakdown.count).count,
+            richMonth.workoutTypeBreakdown.count
+        )
     }
 
     /// The square is the chart alone; the portraits stack title and metrics above it.

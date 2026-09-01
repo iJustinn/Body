@@ -155,49 +155,119 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         XCTAssertNil(readiness?.weeklyCurrentValue)
     }
 
-    // MARK: - Exercise Minutes (complication-only kind)
+    // MARK: - Weekly Workout Time (complication-only kind)
 
-    private func exerciseTrends() -> HealthTrendSnapshot {
-        var trends = HealthTrendSnapshot.empty
-        trends.exerciseMinutes = HealthTrendSeries(
-            points: (1...7).map { HealthTrendDataPoint(date: day($0), value: Double($0) * 10) }
-        )
-        return trends
-    }
-
-    private func exerciseSnapshot(
-        permissionSelection: BodyHealthPermissionSelection
+    private func workoutSnapshot(
+        weeklyMinutes: [Double?]?,
+        permissionSelection: BodyHealthPermissionSelection = .defaultValue
     ) -> WatchMetricsSnapshot {
         WatchMetricsSnapshotBuilder.makeSnapshot(
             summary: .placeholder,
-            trends: exerciseTrends(),
+            trends: .empty,
             lastRefreshDate: nil,
             permissionSelection: permissionSelection,
             temperatureUnitPreference: .celsius,
             idealSleepDuration: 8 * 3_600,
-            now: day(7)
+            now: day(7),
+            workoutWeeklyMinutes: weeklyMinutes
         )
     }
 
-    func testExerciseMinutesMetricCarriesSevenWeeklyValues() {
-        let metric = exerciseSnapshot(permissionSelection: .defaultValue)
-            .metric(forKind: WatchMetricKindKey.exerciseMinutes)
+    func testWorkoutMinutesMetricCarriesTheSevenWeeklyValuesItWasGiven() {
+        // The builder never fetches: the week is summed by the caller from the
+        // workouts it already holds, and a rest day rides as an explicit `0`.
+        let week: [Double?] = [10, 20, 0, 40, 50, 0, 70]
+        let metric = workoutSnapshot(weeklyMinutes: week)
+            .metric(forKind: WatchMetricKindKey.workoutMinutes)
 
         // The complication draws one bar per weekly slot, so a short or missing
         // array silently changes the chart's shape.
         XCTAssertEqual(metric?.weekly?.count, 7)
-        XCTAssertEqual(metric?.weekly?.compactMap { $0 }, [10, 20, 30, 40, 50, 60, 70])
+        XCTAssertEqual(metric?.weekly, week)
         // Today is the last slot, and matches the headline value.
         XCTAssertEqual(metric?.displayValue, "70")
     }
 
-    func testExerciseMinutesMetricIsOmittedWhenThePermissionIsOff() {
+    func testWorkoutMinutesMetricIsOmittedWhenTheWorkoutsPermissionIsOff() {
         let selection = BodyHealthPermissionSelection.defaultValue
-            .setting(.exerciseMinutes, isEnabled: false)
+            .setting(.workouts, isEnabled: false)
 
         XCTAssertNil(
-            exerciseSnapshot(permissionSelection: selection)
+            workoutSnapshot(weeklyMinutes: [10, 20, 0, 40, 50, 0, 70], permissionSelection: selection)
+                .metric(forKind: WatchMetricKindKey.workoutMinutes)
+        )
+    }
+
+    func testWorkoutMinutesMetricIsOmittedWhenNoWeekWasSupplied() {
+        // A caller that hasn't loaded the week (a month snapshot still missing,
+        // or a failed watch-local workout query) passes nil rather than a
+        // fabricated week of rest days, and the metric stays out of the
+        // snapshot so the complication keeps the bars it already has.
+        XCTAssertNil(
+            workoutSnapshot(weeklyMinutes: nil)
+                .metric(forKind: WatchMetricKindKey.workoutMinutes)
+        )
+    }
+
+    func testWorkoutMinutesShipsALegacyCompatibilityCopyWithTheSameWeek() {
+        // Version skew: an older watch binary's complication queries only the
+        // legacy `exerciseMinutes` kind, and a phone push replaces the watch's
+        // metric set — so the builder publishes the same week under both kinds
+        // until the watch app catches up.
+        let week: [Double?] = [10, 20, 0, 40, 50, 0, 70]
+        let snapshot = workoutSnapshot(weeklyMinutes: week)
+        let legacy = snapshot.metric(forKind: WatchMetricKindKey.exerciseMinutes)
+
+        XCTAssertEqual(legacy?.weekly, week)
+        XCTAssertEqual(legacy?.displayValue, "70")
+        // Both copies vanish together with the week (and with the permission).
+        XCTAssertNil(
+            workoutSnapshot(weeklyMinutes: nil)
                 .metric(forKind: WatchMetricKindKey.exerciseMinutes)
+        )
+    }
+
+    func testAnExplicitWorkoutWatermarkIsNotReplacedByTheVitalsDate() {
+        // The phone stamps `.distantPast` when it can't prove the week's month
+        // coverage (an install upgrading into this build, before its first
+        // full-coverage refresh). That claim has to survive: falling back to
+        // the uniform vitals date here would present an unverified mixed-month
+        // week as freshly refreshed and let it overwrite newer watch-computed
+        // bars.
+        let vitalsDate = day(7)
+        let snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: .placeholder,
+            trends: .empty,
+            lastRefreshDate: vitalsDate,
+            permissionSelection: .defaultValue,
+            temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600,
+            now: vitalsDate,
+            workoutWeeklyMinutes: [10, 20, 0, 40, 50, 0, 70],
+            perKindDataAsOf: { kind in
+                switch kind {
+                case WatchMetricKindKey.workoutMinutes, WatchMetricKindKey.exerciseMinutes:
+                    return .distantPast
+                default:
+                    return nil
+                }
+            }
+        )
+
+        XCTAssertEqual(
+            snapshot.metric(forKind: WatchMetricKindKey.workoutMinutes)?.computedAt,
+            .distantPast
+        )
+        // The legacy compatibility copy carries the same unverified week, so it
+        // must not outrank a local compute either.
+        XCTAssertEqual(
+            snapshot.metric(forKind: WatchMetricKindKey.exerciseMinutes)?.computedAt,
+            .distantPast
+        )
+        // Kinds that returned nil still take the uniform vitals stamp.
+        XCTAssertEqual(
+            snapshot.metric(forKind: WatchMetricKindKey.trainingLoad)?.computedAt,
+            vitalsDate
         )
     }
 

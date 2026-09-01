@@ -709,6 +709,11 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             return false
         }
 
+        // Weekly Workout Time IS stamped in `dataAsOf`, but only while Workouts
+        // is permitted (see `WatchComputeCoordinator.dataAsOf`); without that
+        // permission a compute can never freshen it, so scanning it would make
+        // this gate permanently true.
+        let scansWorkoutMinutes = BodyHealthPermissionSelection.load().includes(.workouts)
         let visibleMetrics = snapshot.metrics.filter {
             // Skin Temp is deliberately absent from the compute's `dataAsOf`
             // (its headline is the seeded daily summary — the watch refetches
@@ -716,9 +721,11 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             // freshen it. Scanning it would make this gate permanently true.
             isMetricVisible($0.kind)
                 && $0.kind != WatchMetricKindKey.wristTemperature
-                // Exercise Minutes exists only for the weekly complication and is
-                // likewise never stamped in `dataAsOf`, so a compute can't
-                // freshen it either.
+                && (scansWorkoutMinutes || $0.kind != WatchMetricKindKey.workoutMinutes)
+                // The legacy `exerciseMinutes` compatibility copy (published
+                // for not-yet-updated watch binaries) is never stamped by a
+                // compute, so scanning it would make this gate permanently
+                // true.
                 && $0.kind != WatchMetricKindKey.exerciseMinutes
         }
         let anyVisibleMetricStale = visibleMetrics.contains { metric in

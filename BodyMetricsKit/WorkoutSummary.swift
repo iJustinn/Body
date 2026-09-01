@@ -793,7 +793,12 @@ struct WorkoutDetailPresentation: Equatable {
         comparisonWorkouts: [WorkoutSummary]? = nil,
         comparisonDataComplete: Bool = true,
         comparisonLoadSettled: Bool = true,
-        customName: String? = nil
+        customName: String? = nil,
+        /// Full-resolution heart-rate samples fetched lazily by the detail sheet, used
+        /// in place of the workout's ≤96-point summary samples when present. Only the
+        /// chart (and anything reading `heartRateSamples`) follows it: the average tile
+        /// stays on the stored summary average so it can't flicker when this lands.
+        heartRateSamplesOverride: [WorkoutHeartRateSample]? = nil
     ) {
         let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
 
@@ -877,7 +882,11 @@ struct WorkoutDetailPresentation: Equatable {
             WorkoutEffortPresentation(score: $0, locale: locale)
         }
         effortText = effortPresentation.map { "\($0.valueText) \($0.descriptor)" } ?? String(localized: "No Saved Effort", table: "BodyMetricsKit")
-        heartRateSamples = sortedHeartRateSamples
+        if let heartRateSamplesOverride, !heartRateSamplesOverride.isEmpty {
+            heartRateSamples = heartRateSamplesOverride.sorted { $0.date < $1.date }
+        } else {
+            heartRateSamples = sortedHeartRateSamples
+        }
 
         // Mirror the distance tile's resolution so pace/speed/elevation agree with
         // it: an explicit distance preference wins, else fall back to the unit

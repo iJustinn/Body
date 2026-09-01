@@ -87,6 +87,7 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
     private func makeSummaryRenderer(
         chartStyle: WorkoutSummaryChartStyle = .calendar,
         showsWeekdayHeader: Bool = true,
+        barRowCount: Int = WorkoutShareSummaryBarCount.defaultCount,
         aspectRatio: WorkoutShareAspectRatio = .portrait9x16,
         background: WorkoutShareCardBackground = .preset(.midnight),
         metricCount: Int = 3,
@@ -104,6 +105,7 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
             palette: .builtIn,
             chartStyle: chartStyle,
             showsWeekdayHeader: showsWeekdayHeader,
+            barRowCount: barRowCount,
             metrics: fixtureMetrics(count: metricCount),
             background: background,
             aspectRatio: aspectRatio,
@@ -173,6 +175,52 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
                 "Breakdown bars drew no workout-type colour inside the chart region on \(aspectRatio.rawValue)"
             )
         }
+    }
+
+    /// The bar pick reaches the pixels: six bars draw further down the chart region
+    /// than the default five, and still land inside it — on the square, where six rows
+    /// don't fit at full size, that means the whole chart drew scaled down rather than
+    /// losing its last bars.
+    func testABiggerBarPickDrawsFurtherDownTheChartRegion() throws {
+        // The fixture month has six activities, so six is a pick this month can fill.
+        XCTAssertEqual(fixtureSnapshot().workoutTypeBreakdown.count, 6)
+
+        for aspectRatio in [WorkoutShareAspectRatio.portrait9x16, .square] {
+            var lowestInk: [Int: Int] = [:]
+            for pick in [5, 6] {
+                let image = try XCTUnwrap(
+                    makeSummaryRenderer(chartStyle: .bar, barRowCount: pick, aspectRatio: aspectRatio).uiImage?.cgImage
+                )
+                let geometry = WorkoutShareSummaryCardGeometry(
+                    aspectRatio: aspectRatio,
+                    metricCount: 3,
+                    barRowCount: pick
+                )
+                let region = Self.pixelRect(geometry.chartRect, in: image)
+                let lowest = try XCTUnwrap(
+                    Self.lowestChromaticPixelRow(in: image, region: region),
+                    "\(aspectRatio.rawValue) drew no bars at \(pick)"
+                )
+                XCTAssertLessThanOrEqual(
+                    CGFloat(lowest),
+                    region.maxY,
+                    "\(aspectRatio.rawValue) drew a bar past its chart region at \(pick)"
+                )
+                lowestInk[pick] = lowest
+            }
+
+            XCTAssertGreaterThan(
+                try XCTUnwrap(lowestInk[6]),
+                try XCTUnwrap(lowestInk[5]),
+                "\(aspectRatio.rawValue) drew the same chart for five and six bars"
+            )
+        }
+
+        // And the square really is the shrinking case, not just a taller draw.
+        XCTAssertLessThan(
+            WorkoutShareSummaryCardGeometry(aspectRatio: .square, metricCount: 3, barRowCount: 6).barContentScale,
+            1
+        )
     }
 
     // MARK: - Ink polarity
@@ -385,6 +433,22 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
             }
         }
         return false
+    }
+
+    /// The bottom-most row in `region` carrying a workout type's colour — how far down
+    /// the chart's ink actually reached, which is what a taller bar pick has to move.
+    private static func lowestChromaticPixelRow(in cgImage: CGImage, region: CGRect, spread: Int = 40) -> Int? {
+        guard let pixels = rgbaPixels(of: cgImage) else { return nil }
+        let bytesPerRow = cgImage.width * 4
+        for y in stride(from: Int(region.maxY) - 1, through: Int(region.minY), by: -1) {
+            for x in Int(region.minX)..<Int(region.maxX) {
+                let offset = y * bytesPerRow + x * 4
+                let channels = [Int(pixels[offset]), Int(pixels[offset + 1]), Int(pixels[offset + 2])]
+                guard let low = channels.min(), let high = channels.max() else { continue }
+                if high - low >= spread { return y }
+            }
+        }
+        return nil
     }
 
     /// Mean channel values over `region`, for probes that care about which of two flat

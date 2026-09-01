@@ -7,6 +7,8 @@
 //  per-metric `computedAt` stamping, `seriesRanges(from:)`, and — critically —
 //  that passing `nil` for both new parameters reproduces `makeSnapshot`'s
 //  prior output exactly (the existing iOS call sites don't pass them yet).
+//  Also covers the `sleepStages` payload the watch Sleep Stages complication
+//  draws.
 //
 
 import XCTest
@@ -179,5 +181,86 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         // Every other kind falls back to the uniform `lastRefreshDate` (== anchor here).
         XCTAssertEqual(snapshot.metric(forKind: WatchMetricKindKey.heartRateVariability)?.computedAt, anchor)
         XCTAssertEqual(snapshot.metric(forKind: WatchMetricKindKey.readiness)?.computedAt, anchor)
+    }
+
+    // MARK: - Sleep stages (watch Sleep Stages complication)
+
+    private func moment(day: Int, hour: Int, minute: Int = 0) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 5, day: day, hour: hour, minute: minute))!
+    }
+
+    /// A night dated `night` with a main session of 23:00 to 06:30 plus an
+    /// afternoon nap outside it — the nap is exactly what `mainSession` filters.
+    private func nightSummary(night: Date) -> SleepSummary {
+        SleepSummary(
+            duration: 7 * 3_600,
+            stageSnapshot: SleepStageSnapshot(
+                date: night,
+                segments: [
+                    SleepStageSegment(stage: .core, startDate: moment(day: 16, hour: 23), endDate: moment(day: 17, hour: 1)),
+                    SleepStageSegment(stage: .deep, startDate: moment(day: 17, hour: 1), endDate: moment(day: 17, hour: 2)),
+                    SleepStageSegment(stage: .rem, startDate: moment(day: 17, hour: 2), endDate: moment(day: 17, hour: 3)),
+                    SleepStageSegment(stage: .core, startDate: moment(day: 17, hour: 3), endDate: moment(day: 17, hour: 6, minute: 30)),
+                    SleepStageSegment(stage: .core, startDate: moment(day: 17, hour: 14), endDate: moment(day: 17, hour: 14, minute: 40))
+                ],
+                mainSessionInterval: DateInterval(
+                    start: moment(day: 16, hour: 23),
+                    end: moment(day: 17, hour: 6, minute: 30)
+                )
+            )
+        )
+    }
+
+    private func sleepSnapshot(
+        night: Date,
+        now: Date,
+        permissionSelection: BodyHealthPermissionSelection = .defaultValue
+    ) -> WatchMetricsSnapshot {
+        var summary = HealthSummarySnapshot.placeholder
+        summary.sleep = nightSummary(night: night)
+        return WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary,
+            trends: .empty,
+            lastRefreshDate: nil,
+            permissionSelection: permissionSelection,
+            temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600,
+            now: now
+        )
+    }
+
+    func testSleepStagesCarryTheMainSessionOnly() throws {
+        let night = moment(day: 17, hour: 7)
+        let stages = try XCTUnwrap(sleepSnapshot(night: night, now: moment(day: 17, hour: 18)).sleepStages)
+
+        XCTAssertEqual(stages.map(\.stage), ["core", "deep", "rem", "core"], "the 14:00 nap is not part of the night")
+        XCTAssertEqual(stages.first?.startDate, moment(day: 16, hour: 23))
+        XCTAssertEqual(stages.last?.endDate, moment(day: 17, hour: 6, minute: 30))
+        XCTAssertFalse(
+            stages.contains { $0.startDate == moment(day: 17, hour: 14) },
+            "naps stay out of the complication's bar, matching the iPhone Sleep Stages widget"
+        )
+    }
+
+    func testSleepStagesAreAbsentWhenSleepIsNotAPermittedCategory() {
+        let night = moment(day: 17, hour: 7)
+        let snapshot = sleepSnapshot(
+            night: night,
+            now: moment(day: 17, hour: 18),
+            permissionSelection: BodyHealthPermissionSelection.defaultValue.setting(.sleep, isEnabled: false)
+        )
+
+        XCTAssertNil(snapshot.sleepStages)
+        XCTAssertNil(snapshot.metric(forKind: WatchMetricKindKey.sleep), "the whole category is omitted")
+    }
+
+    func testSleepStagesAreAbsentWhenTheNightIsNoLongerTodays() {
+        // After midnight, before tonight's own session exists: `SleepSummary.asOf`
+        // rejects the night, so no bar may ride along with the blanked card.
+        let snapshot = sleepSnapshot(night: moment(day: 17, hour: 7), now: moment(day: 18, hour: 9))
+
+        XCTAssertNil(snapshot.sleepStages)
+        XCTAssertNil(snapshot.sleepNight)
+        XCTAssertEqual(snapshot.metric(forKind: WatchMetricKindKey.sleep)?.displayValue, "--")
     }
 }

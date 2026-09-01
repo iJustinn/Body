@@ -138,31 +138,76 @@ final class WatchComputeMergeTests: XCTestCase {
         XCTAssertEqual(trainingLoad?.computedAt, t0, "A seed-carried value must not be re-stamped as fresh.")
     }
 
-    func testExerciseMinutesWeeklySurvivesAComputeThatCannotMeasureIt() {
-        // The on-watch compute rebuilds the snapshot through the same builder,
-        // so it re-emits an exerciseMinutes metric with an all-nil `weekly`
-        // (it has no exercise-minutes trend of its own). `WatchComputeCoordinator`
-        // never stamps the kind into `dataAsOf`, so the empty bars must not
-        // overwrite the phone's — the complication would otherwise blank out
-        // on every local compute.
-        let phoneWeek: [Double?] = [12, 30, nil, 45, 22, 0, 38]
-        let current = snapshot(
+    // MARK: - Weekly Workout Time bars
+
+    private func phoneWorkoutWeek(_ weekly: [Double?], displayValue: String) -> WatchMetricsSnapshot {
+        snapshot(
             metrics: [
                 metric(
-                    WatchMetricKindKey.exerciseMinutes,
-                    displayValue: "38", rawValue: 38,
-                    weekly: phoneWeek,
+                    WatchMetricKindKey.workoutMinutes,
+                    displayValue: displayValue, rawValue: Double(displayValue),
+                    weekly: weekly,
                     computedAt: t0
                 )
             ],
             generatedAt: t0,
             lastRefreshDate: t0
         )
+    }
+
+    func testWorkoutMinutesWeeklyIsAdoptedFromAComputeThatMeasuredIt() {
+        // The watch runs its own bounded workout query covering the whole week,
+        // so a compute that stamps the kind into `dataAsOf` carries genuinely
+        // re-read bars and must move the complication forward between pushes.
+        let phoneWeek: [Double?] = [12, 30, 0, 45, 22, 0, 38]
+        let watchWeek: [Double?] = [30, 0, 45, 22, 0, 38, 15]
         let merged = WatchComputeMerge.mergingComputed(
             result(
                 metrics: [
                     metric(
-                        WatchMetricKindKey.exerciseMinutes,
+                        WatchMetricKindKey.workoutMinutes,
+                        displayValue: "15", rawValue: 15,
+                        weekly: watchWeek
+                    )
+                ],
+                dataAsOf: [WatchMetricKindKey.workoutMinutes: t1]
+            ),
+            into: phoneWorkoutWeek(phoneWeek, displayValue: "38")
+        )
+
+        let workout = merged.metric(forKind: WatchMetricKindKey.workoutMinutes)
+        XCTAssertEqual(workout?.weekly, watchWeek)
+        XCTAssertEqual(workout?.displayValue, "15")
+        XCTAssertEqual(workout?.computedAt, t1)
+    }
+
+    func testWorkoutMinutesWeeklySurvivesAComputeThatCannotMeasureIt() {
+        // Workouts permission off, or the workout query failed: the coordinator
+        // passes no week to the builder (so the recomputed snapshot carries no
+        // such metric) and stamps nothing into `dataAsOf`. Either way the
+        // phone's bars must stand — the complication would otherwise blank out
+        // on every local compute.
+        let phoneWeek: [Double?] = [12, 30, 0, 45, 22, 0, 38]
+        let current = phoneWorkoutWeek(phoneWeek, displayValue: "38")
+
+        let withoutTheMetric = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "71", rawValue: 71)],
+                dataAsOf: [WatchMetricKindKey.heartRate: t1]
+            ),
+            into: current
+        )
+        let unmeasured = withoutTheMetric.metric(forKind: WatchMetricKindKey.workoutMinutes)
+        XCTAssertEqual(unmeasured?.weekly, phoneWeek)
+        XCTAssertEqual(unmeasured?.displayValue, "38")
+        XCTAssertEqual(unmeasured?.computedAt, t0)
+
+        // Belt and braces: an unstamped blank candidate is refused too.
+        let withABlankMetric = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [
+                    metric(
+                        WatchMetricKindKey.workoutMinutes,
                         displayValue: "--", rawValue: nil,
                         weekly: Array(repeating: nil, count: 7)
                     )
@@ -171,11 +216,10 @@ final class WatchComputeMergeTests: XCTestCase {
             ),
             into: current
         )
-
-        let exercise = merged.metric(forKind: WatchMetricKindKey.exerciseMinutes)
-        XCTAssertEqual(exercise?.weekly, phoneWeek)
-        XCTAssertEqual(exercise?.displayValue, "38")
-        XCTAssertEqual(exercise?.computedAt, t0)
+        let blanked = withABlankMetric.metric(forKind: WatchMetricKindKey.workoutMinutes)
+        XCTAssertEqual(blanked?.weekly, phoneWeek)
+        XCTAssertEqual(blanked?.displayValue, "38")
+        XCTAssertEqual(blanked?.computedAt, t0)
     }
 
     func testKindInDataAsOfIsAdoptedAndStampedWithItsWatermark() {
