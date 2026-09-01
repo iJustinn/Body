@@ -268,12 +268,17 @@ extension WorkoutShareMetricsBuilder {
     /// then — only if that left fewer than two — backfilled with the row's classic
     /// extras. Capped at two: a third block doesn't fit beside the branding on a
     /// 360-wide card.
+    ///
+    /// A pick of nothing is honoured as nothing: the backfill exists to keep the row
+    /// from emptying out when the *header* swallowed the picks, not to overrule a user
+    /// who turned every chip off.
     static func classicRowMetrics(
         selectedIDs: [String],
         available: [WorkoutShareMetricOption],
         presentation: WorkoutDetailPresentation,
         type: BodyWorkoutType
     ) -> [WorkoutShareMetric] {
+        guard !selectedIDs.isEmpty else { return [] }
         var rowIDs: [String] = []
         for id in selectedIDs {
             guard id != WorkoutShareMetricOption.timeID else { continue }
@@ -332,7 +337,8 @@ extension WorkoutShareMetricsBuilder {
 enum WorkoutShareMetricSelection {
     static let storageKey = "workoutShareMetricSelections"
     /// The ceiling of a deliberate Body Pro pick — five blocks is the most the card's
-    /// layouts can place without crowding the branding.
+    /// layouts can place without crowding the branding. There is no floor: a pick of
+    /// none is a card of route and branding alone.
     static let maximumCount = 5
     /// What the *automatic* selection stops at, so a card nobody configured (and every
     /// non-Pro card) keeps the three-block composition it has always had.
@@ -340,10 +346,11 @@ enum WorkoutShareMetricSelection {
 
     /// The remembered pick for this type, or nil when nothing is stored for it (or the
     /// blob is unreadable — an unparseable value is treated as no preference, never as
-    /// an error the user has to clear).
+    /// an error the user has to clear). An empty array is a real answer rather than an
+    /// absence: the card can carry no metrics at all, and that choice has to survive a
+    /// relaunch.
     static func stored(json: String?, type: BodyWorkoutType) -> [String]? {
-        guard let ids = decode(json)[type.rawValue], !ids.isEmpty else { return nil }
-        return ids
+        decode(json)[type.rawValue]
     }
 
     /// The blob with this type's pick replaced, every other type's kept. A malformed
@@ -369,15 +376,19 @@ enum WorkoutShareMetricSelection {
         defaults: [String]
     ) -> [String] {
         guard let stored else { return Array(defaults.prefix(maximumCount)) }
+        // "None" is a pick of its own; only a pick this workout can't honour at all
+        // (every id stale) falls back to the defaults.
+        if stored.isEmpty { return [] }
         let picked = Set(stored)
         let intersection = available.map(\.id).filter { picked.contains($0) }
         guard !intersection.isEmpty else { return Array(defaults.prefix(maximumCount)) }
         return Array(intersection.prefix(maximumCount))
     }
 
-    /// One chip tap: add when there's room, remove unless it's the last one standing.
-    /// Both bounds are no-ops rather than errors, and the result comes back in pool
-    /// order so it can be stored as-is.
+    /// One chip tap: add when there's room, remove otherwise — including the last one
+    /// standing, which leaves the card with no metric blocks at all. The ceiling is a
+    /// no-op rather than an error, and the result comes back in pool order so it can be
+    /// stored as-is.
     static func toggling(
         _ id: String,
         in current: [String],
@@ -386,7 +397,6 @@ enum WorkoutShareMetricSelection {
         let order = available.map(\.id)
         var updated: Set<String>
         if current.contains(id) {
-            guard current.count > 1 else { return current }
             updated = Set(current)
             updated.remove(id)
         } else {
@@ -394,8 +404,7 @@ enum WorkoutShareMetricSelection {
             updated = Set(current)
             updated.insert(id)
         }
-        let ordered = order.filter { updated.contains($0) }
-        return ordered.isEmpty ? current : ordered
+        return order.filter { updated.contains($0) }
     }
 
     /// The long image's own pick, under its own key: it has no five-metric ceiling
@@ -490,7 +499,7 @@ enum WorkoutShareMetricSelection {
         let fallback = Set(defaults)
         let defaulted = order.filter { fallback.contains($0) }
         // A pool that shares nothing with the defaults still owes the card one
-        // metric — the 1-to-5 floor is what the layouts are built on.
+        // metric: falling back to nothing would read as a pick the user never made.
         return Array((defaulted.isEmpty ? Array(order.prefix(1)) : defaulted).prefix(summaryMaximumCount))
     }
 
@@ -1310,6 +1319,11 @@ struct WorkoutShareCardGeometry: Equatable {
     }
 
     /// The region the route Canvas is framed to (`routeInset` is applied inside it).
+    ///
+    /// Every mode anchors the square against the blocks that follow it — the top edge a
+    /// stack hangs from, the left half a column sits beside. A pick of none leaves the
+    /// trace as the whole block, so it keeps its size and centres in the space the
+    /// branding leaves instead of hugging an edge for metrics that aren't drawn.
     var centeredRouteRect: CGRect {
         switch centeredMode {
         case .column:
@@ -1317,15 +1331,34 @@ struct WorkoutShareCardGeometry: Equatable {
             // the square's top edge where it was and shrink it from the bottom, so the
             // column under it still clears the branding.
             let side = columnRouteSide
-            return CGRect(x: size.width / 2 - side / 2, y: Self.columnRouteTop, width: side, height: side)
+            return CGRect(
+                x: size.width / 2 - side / 2,
+                y: metricCount == 0 ? soloRouteTop(side: side) : Self.columnRouteTop,
+                width: side,
+                height: side
+            )
         case .routeOverRow:
             let side = routeOverRowSide
-            return CGRect(x: size.width / 2 - side / 2, y: Self.topMargin, width: side, height: side)
+            return CGRect(
+                x: size.width / 2 - side / 2,
+                y: metricCount == 0 ? soloRouteTop(side: side) : Self.topMargin,
+                width: side,
+                height: side
+            )
         case .sideBySide:
             let side = sideBySideRouteSide
             let centerY = Self.topMargin + (size.height - Self.topMargin - Self.brandingZoneHeight) / 2
-            return CGRect(x: size.width / 4 - side / 2, y: centerY - side / 2, width: side, height: side)
+            // Nothing in the right half to sit beside, so a solo trace takes the card's
+            // full width the way the stacked layouts do.
+            let centerX = metricCount == 0 ? size.width / 2 : size.width / 4
+            return CGRect(x: centerX - side / 2, y: centerY - side / 2, width: side, height: side)
         }
+    }
+
+    /// Centred between the card's top edge and the branding zone — never above the top
+    /// margin, on a card too short to centre a full square.
+    private func soloRouteTop(side: CGFloat) -> CGFloat {
+        max(Self.topMargin, (size.height - Self.brandingZoneHeight - side) / 2)
     }
 
     /// Top edge of the 9:16 column's route square — the original 170 − 130.
@@ -1358,7 +1391,15 @@ struct WorkoutShareCardGeometry: Equatable {
 
     /// Where the metric stack/row is positioned. Top-anchored in `.column` (the
     /// original frame runs to the card's bottom edge; the stack sits at its top).
+    ///
+    /// A pick of none still needs the slot: the record badge is positioned off this
+    /// frame's top edge, and with no blocks to sit above it belongs under the recentred
+    /// trace's ink rather than in the middle of it.
     var metricsFrame: CGRect {
+        if metricCount == 0, centeredMode != .sideBySide {
+            let top = centeredRouteRect.maxY - Self.routeInset + Self.routeGap
+            return CGRect(x: 24, y: top, width: size.width - 48, height: 0)
+        }
         switch centeredMode {
         case .column:
             guard metricCount > WorkoutShareMetricSelection.defaultCount else {
@@ -1407,9 +1448,10 @@ struct WorkoutShareCardGeometry: Equatable {
     /// How the blocks are split into rows, top row first — `[3, 2]` is a row of three
     /// over a row of two, and `[1, 1, 1]` is the original vertical stack. One to three
     /// blocks keep exactly the arrangement they have always had on every shape; only a
-    /// deliberate four- or five-metric pick wraps.
+    /// deliberate four- or five-metric pick wraps, and a pick of none has no rows at all.
     var metricRowSizes: [Int] {
-        let count = max(1, metricCount)
+        guard metricCount > 0 else { return [] }
+        let count = metricCount
         if layout == .routeless {
             guard routelessMetricsAxis == .horizontal else { return Self.columnRowSizes(count) }
             // A 360-wide card can't fit three blocks on one line at a readable size, so
@@ -1465,6 +1507,7 @@ struct WorkoutShareCardGeometry: Equatable {
     var metricContentHeight: CGFloat {
         let style = metricBlockStyle
         let rows = CGFloat(metricRowSizes.count)
+        guard rows > 0 else { return 0 }
         return rows * style.rowHeight + (rows - 1) * style.rowGap
     }
 
@@ -1472,6 +1515,11 @@ struct WorkoutShareCardGeometry: Equatable {
     /// doesn't push the trace off the top the way anchoring on the card would.
     func blockAnchor(showsTrace: Bool) -> UnitPoint {
         guard showsTrace else { return .center }
+        guard metricCount > 0 else {
+            // The trace is the whole block, so it is also the whole anchor.
+            let rect = centeredRouteRect
+            return UnitPoint(x: rect.midX / size.width, y: rect.midY / size.height)
+        }
         if centeredMode == .column, metricCount <= WorkoutShareMetricSelection.defaultCount {
             // The original: midpoint of the route region's top edge and a
             // three-metric stack's bottom.
@@ -1514,6 +1562,38 @@ struct WorkoutShareCardGeometry: Equatable {
 /// chart; the square is the chart alone. Landscape never reaches this geometry — a
 /// month's grid or bars have no good home beside a title at 360 pt tall, so the sheet
 /// doesn't offer those tiles in summary mode (`supportedAspectRatios`).
+/// How many activity bars the month card's breakdown chart draws, stored under its
+/// own key as a plain `Int`.
+///
+/// The ceiling is the month's own: a pick can never name more bars than the month has
+/// activities, since the chart would draw the same rows either way. Nothing here
+/// rewrites the stored number when a leaner month clamps it, exactly like the metric
+/// picks — next month's richer breakdown gets the pick back.
+enum WorkoutShareSummaryBarCount {
+    static let storageKey = "workoutShareSummaryBarCount"
+    /// What a card nobody configured shows: the five rows the breakdown has always
+    /// drawn here.
+    static let defaultCount = 5
+
+    /// The pick the card honours: clamped to what this month can fill, and the default
+    /// whenever the stored value is missing or unreadable (`@AppStorage` hands back a
+    /// zero for both).
+    static func resolved(stored: Int, availableTypeCount: Int) -> Int {
+        // One bar even for a month with no activities at all: the chart draws its own
+        // empty state there, and a zero-row frame would collapse the card's chart slot.
+        let ceiling = max(1, availableTypeCount)
+        return min(ceiling, max(1, stored > 0 ? stored : defaultCount))
+    }
+
+    /// The tiles the tray offers, `1...availableTypeCount`. Empty when the month has
+    /// nothing to choose between, so the row leaves the tray rather than showing a
+    /// single tile that can't be turned off.
+    static func options(availableTypeCount: Int) -> [Int] {
+        guard availableTypeCount > 1 else { return [] }
+        return Array(1...availableTypeCount)
+    }
+}
+
 struct WorkoutShareSummaryCardGeometry: Equatable {
     /// How the card composes its pieces.
     enum Arrangement {
@@ -1533,23 +1613,29 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
     /// Whether the calendar draws its weekday letters — 28 pt the grid gets back when
     /// they're hidden.
     let showsWeekdayHeader: Bool
+    /// How many activity bars the breakdown draws, already clamped to the month's own
+    /// activity count by `WorkoutShareSummaryBarCount`. Ignored by the calendar.
+    let barRowCount: Int
 
     init(
         aspectRatio: WorkoutShareAspectRatio,
         metricCount: Int = WorkoutShareMetricSelection.defaultCount,
-        showsWeekdayHeader: Bool = true
+        showsWeekdayHeader: Bool = true,
+        barRowCount: Int = WorkoutShareSummaryBarCount.defaultCount
     ) {
         self.aspectRatio = aspectRatio
         self.metricCount = metricCount
         self.showsWeekdayHeader = showsWeekdayHeader
+        self.barRowCount = barRowCount
     }
 
     var size: CGSize { aspectRatio.cardSize }
 
     /// Margin between the card's edge and everything it draws.
     private static let inset: CGFloat = 20
-    /// The month title's single line.
-    private static let titleHeight: CGFloat = 30
+    /// The month title's single line, and the type it's set in.
+    private static let titleHeight: CGFloat = 26
+    static let titleFontSize: CGFloat = 22
     /// Gap under the title, and under the metrics.
     private static let titleGap: CGFloat = 8
     /// Reads as the same air the title has above the totals: the title's glyphs carry
@@ -1560,9 +1646,6 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
     /// don't read fat on a 360 pt card.
     private static let barRowHeight: CGFloat = 42
     private static let barRowSpacing: CGFloat = 12
-    /// `.shareCard`'s own ceiling — asking for more rows than the view will ever
-    /// draw would only make the limit meaningless.
-    private static let maximumBarRows = 5
     /// The calendar grid's fixed furniture: the weekday band (18 pt of type plus its
     /// 10 pt of padding), the five 7 pt gaps between its six rows, and the six 7 pt
     /// gaps between its seven columns.
@@ -1620,6 +1703,17 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
         metricCount > WorkoutShareMetricSelection.defaultCount || aspectRatio == .portrait3x4 ? .compact : .regular
     }
 
+    /// The month card's totals are a header over a chart, not the card's whole content
+    /// the way the workout card's blocks are, so they run smaller than the shared
+    /// `MetricBlockStyle` draws them — the same shape at `metricScale`, and the height
+    /// they give up goes to the chart.
+    private static let metricScale: CGFloat = 0.8
+
+    var metricValueSize: CGFloat { metricBlockStyle.valueSize * Self.metricScale }
+    var metricLabelSize: CGFloat { metricBlockStyle.labelSize * Self.metricScale }
+    var metricRowHeight: CGFloat { metricBlockStyle.rowHeight * Self.metricScale }
+    var metricRowGap: CGFloat { metricBlockStyle.rowGap * Self.metricScale }
+
     /// Both stacked ratios are 360 pt wide, which fits three blocks at a readable size.
     var metricsPerRow: Int { 3 }
 
@@ -1631,12 +1725,12 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
         switch style {
         case .bar:
             // Natural height for the rows it may draw, so the bars sit right under
-            // the totals instead of centering themselves down a tall region.
-            let rows = CGFloat(barRowLimit)
-            let natural = rows * Self.barRowHeight + (rows - 1) * Self.barRowSpacing
+            // the totals instead of centering themselves down a tall region. A pick
+            // taller than the region is drawn scaled down (`barContentScale`), which is
+            // exactly what `min` leaves here.
             // Full content width: the bars start and end where the title and the
             // totals do, rather than being inset into a narrower box of their own.
-            return CGSize(width: chartRect.width, height: min(chartRect.height, natural))
+            return CGSize(width: chartRect.width, height: min(chartRect.height, barContentHeight))
         case .calendar:
             let headerHeight = showsWeekdayHeader ? Self.calendarHeaderHeight : 0
             let cellSide = max(
@@ -1653,12 +1747,24 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
         }
     }
 
-    /// How many activity rows the breakdown chart may draw here — five on every
-    /// supported ratio, including the square, whose 284 pt chart region fits five
-    /// 42 pt rows with room to spare.
-    var barRowLimit: Int {
-        let rows = Int((chartRect.height + Self.barRowSpacing) / (Self.barRowHeight + Self.barRowSpacing))
-        return min(Self.maximumBarRows, max(1, rows))
+    /// How many activity rows the breakdown chart draws here: the user's pick, which
+    /// the region no longer clamps — five 42 pt rows fit every supported ratio, and a
+    /// taller pick shrinks instead of losing bars (see `barContentScale`).
+    var barRowLimit: Int { max(1, barRowCount) }
+
+    /// What `barRowLimit` rows measure at full size.
+    var barContentHeight: CGFloat {
+        let rows = CGFloat(barRowLimit)
+        return rows * Self.barRowHeight + (rows - 1) * Self.barRowSpacing
+    }
+
+    /// How far down the whole breakdown is scaled to fit its region — 1 whenever the
+    /// rows already fit, which is every pick up to five on every supported ratio. The
+    /// card draws the chart at `chartRect.width / scale` and scales it back, so bars,
+    /// labels, and gaps shrink together and the row still spans the content width.
+    var barContentScale: CGFloat {
+        guard barContentHeight > 0, chartRect.height > 0 else { return 1 }
+        return min(1, chartRect.height / barContentHeight)
     }
 
     /// Zero rows for zero metrics, so the chart moves straight up under the title.
@@ -1667,10 +1773,9 @@ struct WorkoutShareSummaryCardGeometry: Equatable {
     }
 
     private var metricContentHeight: CGFloat {
-        let style = metricBlockStyle
         let rows = CGFloat(metricRowCount)
         guard rows > 0 else { return 0 }
-        return rows * style.rowHeight + (rows - 1) * style.rowGap
+        return rows * metricRowHeight + (rows - 1) * metricRowGap
     }
 
     /// How far the stacked title, metrics, and chart slide down together so the group
@@ -1718,6 +1823,23 @@ struct WorkoutShareInfoTransform: Equatable {
     private static func clamp(_ value: CGFloat, limit: CGFloat, identity: CGFloat) -> CGFloat {
         guard value.isFinite else { return identity }
         return min(max(value, -limit), limit)
+    }
+
+    /// How close (in card points) an axis has to come to its default slot before it
+    /// snaps there, Story-style.
+    static let centerSnapThreshold: CGFloat = 5
+
+    /// The same transform with each axis that lies within `centerSnapThreshold` of
+    /// zero pulled onto it. Axes snap independently, so a block can sit on the
+    /// vertical centre line while still riding high or low. Scale is untouched.
+    func snappedToCenter() -> WorkoutShareInfoTransform {
+        WorkoutShareInfoTransform(
+            offset: CGSize(
+                width: abs(offset.width) < Self.centerSnapThreshold ? 0 : offset.width,
+                height: abs(offset.height) < Self.centerSnapThreshold ? 0 : offset.height
+            ),
+            scale: scale
+        )
     }
 }
 

@@ -578,7 +578,7 @@ struct BodyWorkoutShareCardView: View {
     }
 
     /// Glyph and metrics are one flowing block, not two absolute slots: the metric
-    /// count varies from one to five here, and the pair stays visually centered
+    /// count varies from none to five here, and the pair stays visually centered
     /// together at any of them.
     ///
     /// A hidden glyph leaves the block as the card's only VoiceOver identity — no
@@ -605,7 +605,11 @@ struct BodyWorkoutShareCardView: View {
 
     @ViewBuilder
     private var routelessMetrics: some View {
-        if usesMetricGrid {
+        if centeredMetrics.isEmpty {
+            // Nothing picked: the glyph (and a record badge, if there is one) is the
+            // whole block. An empty row view here would still take the stack's spacing.
+            recordBadgeRow
+        } else if usesMetricGrid {
             metricGrid
         } else if geometry.routelessMetricsAxis == .vertical {
             centeredMetricsStack

@@ -210,6 +210,37 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertFalse(metrics.contains { $0.value == heartRateText })
     }
 
+    /// The classic row backfills a pick the *header* swallowed, never one the user
+    /// emptied on purpose.
+    func testEmptyPickLeavesTheClassicRowEmptyInsteadOfBackfilling() {
+        let hike = workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540)
+        let presentation = presentation(for: hike)
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: .hiking)
+
+        // Distance is promoted to the hero corner and time is always the header's, so
+        // this pick leaves the row nothing of its own and the backfill fills it — which
+        // is what makes the empty case below non-vacuous.
+        XCTAssertEqual(
+            WorkoutShareMetricsBuilder.classicRowMetrics(
+                selectedIDs: [WorkoutShareMetricOption.distanceID, WorkoutShareMetricOption.timeID],
+                available: available,
+                presentation: presentation,
+                type: .hiking
+            ).count,
+            2
+        )
+
+        XCTAssertEqual(
+            WorkoutShareMetricsBuilder.classicRowMetrics(
+                selectedIDs: [],
+                available: available,
+                presentation: presentation,
+                type: .hiking
+            ),
+            []
+        )
+    }
+
     func testZeroDistanceStrengthTrainingRowHasNoDistanceOrPace() {
         let lift = workout(type: .strengthTraining, duration: 2700, distance: 0, activeEnergy: 200)
         let presentation = presentation(for: lift)
@@ -671,7 +702,16 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertNil(WorkoutShareMetricSelection.stored(json: "", type: .running))
         XCTAssertNil(WorkoutShareMetricSelection.stored(json: "{not json", type: .running))
         XCTAssertNil(WorkoutShareMetricSelection.stored(json: "{\"running\": \"pace\"}", type: .running))
-        XCTAssertNil(WorkoutShareMetricSelection.stored(json: "{\"running\": []}", type: .running))
+        // ...but an empty pick is a real answer: the card can carry no metrics at all,
+        // and that has to survive a relaunch rather than reading as no preference.
+        XCTAssertEqual(WorkoutShareMetricSelection.stored(json: "{\"running\": []}", type: .running), [])
+        XCTAssertEqual(
+            WorkoutShareMetricSelection.stored(
+                json: WorkoutShareMetricSelection.storing([], for: .running, into: nil),
+                type: .running
+            ),
+            []
+        )
 
         // Writing over an unreadable blob starts fresh instead of failing the write.
         let recovered = WorkoutShareMetricSelection.storing(["pace"], for: .running, into: "{not json")
@@ -708,6 +748,9 @@ final class WorkoutShareCardTests: XCTestCase {
             WorkoutShareMetricSelection.resolved(stored: ["elevation", "power"], available: available, defaults: defaults),
             defaults
         )
+        // An empty pick is not "nothing survived": the user turned every chip off, and
+        // the card honours it rather than falling back.
+        XCTAssertEqual(WorkoutShareMetricSelection.resolved(stored: [], available: available, defaults: defaults), [])
 
         // A workout with more candidates than the ceiling truncates to the first five in
         // pool order rather than showing a sixth block.
@@ -726,7 +769,7 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(everything.count, 5)
     }
 
-    func testTogglingRespectsTheOneToFiveBoundsAndPoolOrder() {
+    func testTogglingRespectsTheZeroToFiveBoundsAndPoolOrder() {
         let run = presentation(for: workout(type: .running, distance: 5000, activeEnergy: 320, avgHR: 145))
         let available = WorkoutShareMetricsBuilder.availableMetrics(for: run, type: .running)
         let defaults = WorkoutShareMetricsBuilder.defaultMetricIDs(for: run, type: .running, hasRoute: true)
@@ -748,8 +791,10 @@ final class WorkoutShareCardTests: XCTestCase {
         let five = WorkoutShareMetricSelection.toggling("activeEnergy", in: four, available: available)
         XCTAssertEqual(five, ["distance", "pace", "time", "activeEnergy", "avgHeartRate"])
         XCTAssertEqual(five.count, WorkoutShareMetricSelection.maximumCount)
-        // The last one standing can't be removed.
-        XCTAssertEqual(WorkoutShareMetricSelection.toggling("pace", in: ["pace"], available: available), ["pace"])
+        // The last one standing comes off too — a card with no metric blocks is a pick.
+        XCTAssertEqual(WorkoutShareMetricSelection.toggling("pace", in: ["pace"], available: available), [])
+        // ...and the next tap starts the pick again from nothing.
+        XCTAssertEqual(WorkoutShareMetricSelection.toggling("time", in: [], available: available), ["time"])
         // An id this workout doesn't have can't be added.
         XCTAssertEqual(WorkoutShareMetricSelection.toggling("elevation", in: ["pace"], available: available), ["pace"])
         // ...and one that is already picked still comes off.
@@ -1674,6 +1719,20 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(transform.clamped(cardSize: portraitCard), transform)
     }
 
+    func testSnappedToCenterPullsEachAxisIndependentlyWithinThreshold() {
+        let near = WorkoutShareInfoTransform(offset: CGSize(width: 3, height: -4), scale: 1.3).snappedToCenter()
+        XCTAssertEqual(near, WorkoutShareInfoTransform(offset: .zero, scale: 1.3))
+
+        let oneAxis = WorkoutShareInfoTransform(offset: CGSize(width: -2, height: 60), scale: 1).snappedToCenter()
+        XCTAssertEqual(oneAxis.offset, CGSize(width: 0, height: 60))
+
+        let atThreshold = WorkoutShareInfoTransform(
+            offset: CGSize(width: WorkoutShareInfoTransform.centerSnapThreshold, height: 40),
+            scale: 1
+        ).snappedToCenter()
+        XCTAssertEqual(atThreshold.offset, CGSize(width: WorkoutShareInfoTransform.centerSnapThreshold, height: 40))
+    }
+
     func testOutOfRangeOffsetAndScaleClampToTheBoundsOnBothSides() {
         let far = WorkoutShareInfoTransform(offset: CGSize(width: 900, height: 900), scale: 8).clamped(cardSize: portraitCard)
 
@@ -2021,6 +2080,59 @@ final class WorkoutShareCardTests: XCTestCase {
             let geo = geometry(expectation.ratio, layout: .routeless, metricCount: 5)
             XCTAssertEqual(geo.metricRowSizes, expectation.rows, "\(expectation.ratio.rawValue) rows")
             XCTAssertEqual(geo.metricBlockStyle, expectation.style, "\(expectation.ratio.rawValue) block style")
+        }
+    }
+
+    /// A pick of none draws no blocks at all: no rows, no reserved height, and the
+    /// route square takes back the space a stack would have held.
+    func testZeroMetricsDrawNoBlocksAndGiveTheRouteTheRoom() {
+        for ratio in WorkoutShareAspectRatio.allCases {
+            for arrangement in WorkoutShareLandscapeArrangement.allCases {
+                for layout in [WorkoutShareCardLayout.centered, .routeless] {
+                    let geo = geometry(ratio, layout: layout, arrangement: arrangement, metricCount: 0)
+                    let label = "\(ratio.rawValue)/\(arrangement.rawValue)/\(layout)"
+
+                    XCTAssertEqual(geo.metricRowSizes, [], "\(label) reserved a row for no blocks")
+                    XCTAssertEqual(geo.metricContentHeight, 0, "\(label) reserved height for no blocks")
+
+                    guard layout == .centered else { continue }
+                    let threeUp = geometry(ratio, layout: layout, arrangement: arrangement, metricCount: 3)
+                    XCTAssertGreaterThan(geo.centeredRouteRect.width, 0, "\(label) route square collapsed")
+                    // The trace is the whole block now, so it centres rather than
+                    // staying anchored where a stack (or a column beside it) would be.
+                    XCTAssertEqual(
+                        geo.centeredRouteRect.midX,
+                        geo.size.width / 2,
+                        accuracy: 0.5,
+                        "\(label) solo trace isn't centred across the card"
+                    )
+                    if geo.centeredMode != .sideBySide {
+                        XCTAssertEqual(
+                            geo.centeredRouteRect.minY,
+                            geo.size.height - WorkoutShareCardGeometry.brandingZoneHeight - geo.centeredRouteRect.maxY,
+                            accuracy: 0.5,
+                            "\(label) solo trace isn't centred above the branding"
+                        )
+                    }
+                    XCTAssertGreaterThanOrEqual(
+                        geo.centeredRouteRect.width,
+                        threeUp.centeredRouteRect.width,
+                        "\(label) route square gave up room to blocks that aren't drawn"
+                    )
+                    XCTAssertLessThanOrEqual(
+                        geo.metricsFrame.minY + geo.metricContentHeight,
+                        geo.size.height - WorkoutShareCardGeometry.brandingZoneHeight,
+                        "\(label) empty block enters the branding zone"
+                    )
+                    // The pinch anchor has nothing but the trace to centre on now, so it
+                    // has to land on the trace rather than under an absent stack.
+                    let anchorY = geo.blockAnchor.y * geo.size.height
+                    XCTAssertTrue(
+                        (geo.centeredRouteRect.minY...geo.centeredRouteRect.maxY).contains(anchorY),
+                        "\(label) anchor sits off the trace it scales"
+                    )
+                }
+            }
         }
     }
 

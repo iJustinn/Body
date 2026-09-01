@@ -1766,18 +1766,18 @@
         }
       }
     },
-    "At least one metric stays on the card." : {
+    "At least one metric stays on the long image." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "At least one metric stays on the card."
+            "value" : "At least one metric stays on the long image."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "卡片至少保留一个指标。"
+            "value" : "长图至少保留一个指标。"
           }
         }
       }
@@ -1991,6 +1991,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "条形图"
+          }
+        }
+      }
+    },
+    "Bars" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bars"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "条形数量"
           }
         }
       }
@@ -5523,6 +5539,22 @@
         }
       }
     },
+    "Hide Weekdays" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Weekdays"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏星期"
+          }
+        }
+      }
+    },
     "Hiding the route doesn't apply to the Map background." : {
       "localizations" : {
         "en" : {
@@ -5616,6 +5648,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高心率警告"
+          }
+        }
+      }
+    },
+    "How many activity bars the card shows." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How many activity bars the card shows."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卡片显示的活动条形数量。"
           }
         }
       }
@@ -9532,22 +9580,6 @@
         }
       }
     },
-    "Pick 1 to 5 metrics." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pick 1 to 5 metrics."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择 1 到 5 个指标。"
-          }
-        }
-      }
-    },
     "Pick at least two sources to merge into this one." : {
       "localizations" : {
         "en" : {
@@ -9592,6 +9624,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最多选择 3 个指标。"
+          }
+        }
+      }
+    },
+    "Pick up to 5 metrics." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick up to 5 metrics."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最多选择 5 个指标。"
           }
         }
       }
@@ -11601,6 +11649,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示背景"
+          }
+        }
+      }
+    },
+    "Show Weekdays" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Weekdays"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示星期"
           }
         }
       }
@@ -13739,18 +13803,18 @@
         }
       }
     },
-    "v5" : {
+    "v6" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "v5"
+            "value" : "v6"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "v5"
+            "value" : "v6"
           }
         }
       }
