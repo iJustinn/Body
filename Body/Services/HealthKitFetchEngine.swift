@@ -1140,6 +1140,11 @@ actor HealthKitFetchEngine {
     /// that keeps running to its callback is strictly better than one abandoned
     /// mid-flight. `body` is `@Sendable` for that hop, so the call sites hoist
     /// `healthStore` (and any predicate built on the actor) into a local first.
+    /// Those hoisted `NSPredicate`/`NSSortDescriptor` locals are declared
+    /// `nonisolated(unsafe)`: Foundation doesn't mark them `Sendable`, but each
+    /// is built right there, never mutated afterwards, and only read by the
+    /// query across the hop — the `unsafe` asserts that immutability rather
+    /// than silencing a real race.
     /// `Task` rather than `Task.detached`: the orphan still has to inherit the
     /// `HealthKitQueryPool` task-local and the caller's priority.
     ///
@@ -1330,7 +1335,7 @@ actor HealthKitFetchEngine {
         // `maxDays` counts query days back from the interval end (the phase-1
         // trend window); the caller merges the cached older points back in.
         let startDate = Self.clampedTrendStart(interval: interval, maxDays: maxDays, calendar: calendar)
-        let predicate = combinedPredicate(
+        nonisolated(unsafe) let predicate = combinedPredicate(
             startDate: startDate,
             endDate: interval.end,
             sourceKind: sourceKind,
@@ -1591,7 +1596,7 @@ actor HealthKitFetchEngine {
         }
 
         let interval = recentHealthTrendInterval(calendar: calendar)
-        let predicate = combinedPredicate(
+        nonisolated(unsafe) let predicate = combinedPredicate(
             startDate: interval.start,
             endDate: interval.end,
             sourceKind: sourceKind
@@ -1851,7 +1856,7 @@ actor HealthKitFetchEngine {
         // callers that need the real reading time (the watch stamps freshness
         // from it) can use it.
         let interval = recentHealthTrendInterval(calendar: calendar)
-        let predicate = combinedPredicate(
+        nonisolated(unsafe) let predicate = combinedPredicate(
             startDate: interval.start,
             endDate: interval.end,
             sourceKind: sourceKind

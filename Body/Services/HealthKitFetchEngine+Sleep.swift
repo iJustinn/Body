@@ -27,8 +27,8 @@ extension HealthKitFetchEngine {
 
         let endDate = anchorDate ?? Date()
         let startDate = calendar.date(byAdding: .day, value: -14, to: endDate) ?? endDate.addingTimeInterval(-1_209_600)
-        let predicate = combinedPredicate(startDate: startDate, endDate: endDate, sourceKind: .sleep)
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+        nonisolated(unsafe) let predicate = combinedPredicate(startDate: startDate, endDate: endDate, sourceKind: .sleep)
+        nonisolated(unsafe) let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
@@ -114,13 +114,13 @@ extension HealthKitFetchEngine {
            clampedStart > startDate {
             startDate = clampedStart
         }
-        let predicate = combinedPredicate(
+        nonisolated(unsafe) let predicate = combinedPredicate(
             startDate: startDate,
             endDate: interval.end,
             sourceKind: .sleep,
             sourceOption: sourceOption
         )
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+        nonisolated(unsafe) let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
         let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
         let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
 
@@ -210,8 +210,8 @@ extension HealthKitFetchEngine {
         }
 
         let queryStart = calendar.date(byAdding: .day, value: -1, to: startDate) ?? startDate
-        let predicate = combinedPredicate(startDate: queryStart, endDate: endDate, sourceKind: .sleep)
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+        nonisolated(unsafe) let predicate = combinedPredicate(startDate: queryStart, endDate: endDate, sourceKind: .sleep)
+        nonisolated(unsafe) let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
 
         let store = healthStore
         let samplesOutcome = await trackedExternalHealthQuery(cancelledValue: .failure) {
@@ -408,7 +408,7 @@ extension HealthKitFetchEngine {
         // Hoisted off the actor: `body` runs unstructured and `@Sendable`, so both
         // the store and the source predicate have to be resolved up front.
         let store = healthStore
-        let sourcePredicate = sourceKind.flatMap { combinedPredicate(sourceKind: $0) }
+        nonisolated(unsafe) let sourcePredicate = sourceKind.flatMap { combinedPredicate(sourceKind: $0) }
         switch await trackedExternalHealthQuery(cancelledValue: .failure, {
             await BodySleepFetch.vitalWindowSamples(
                 store: store,
