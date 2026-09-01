@@ -179,28 +179,67 @@ final class BodyTrendRangeMorphEntryTests: XCTestCase {
 
     // MARK: - Line segments
 
-    func testSegmentsPairConsecutiveFinitePointsWithStartDateIds() {
+    func testSegmentsPairAdjacentFinitePointsWithStartDateIds() {
         let segments = BodyHealthMetricTrendChart.makeTrendLineSegments(
             selectedRange: .recentWeek,
             pointsByRange: Self.pointsByRange
         )
         let real = segments.filter { !$0.isPlaceholder }
-        let finite = Self.pointsByRange[.recentWeek]!.filter { $0.value?.isFinite == true }
-
-        XCTAssertEqual(real.count, finite.count - 1)
-        for (index, segment) in real.enumerated() {
-            XCTAssertEqual(segment.startDate, finite[index].date)
-            XCTAssertEqual(segment.endDate, finite[index + 1].date)
-            XCTAssertEqual(segment.startValue, finite[index].value)
-            XCTAssertEqual(segment.endValue, finite[index + 1].value)
-            XCTAssertEqual(segment.id, "seg-\(segment.startDate.timeIntervalSinceReferenceDate)")
+        let points = Self.pointsByRange[.recentWeek]!
+        let adjacentPairs = zip(points, points.dropFirst()).filter { start, end in
+            start.value?.isFinite == true && end.value?.isFinite == true
         }
 
-        // The pair around the gap day connects across it, like the drawn line.
-        XCTAssertTrue(real.contains {
-            $0.startDate == Self.dayStart(Self.gapDayOffset + 1)
-                && $0.endDate == Self.dayStart(Self.gapDayOffset - 1)
+        XCTAssertEqual(real.count, adjacentPairs.count)
+        for (segment, pair) in zip(real, adjacentPairs) {
+            XCTAssertEqual(segment.startDate, pair.0.date)
+            XCTAssertEqual(segment.endDate, pair.1.date)
+            XCTAssertEqual(segment.startValue, pair.0.value)
+            XCTAssertEqual(segment.endValue, pair.1.value)
+            XCTAssertEqual(segment.id, "seg-\(segment.startDate.timeIntervalSinceReferenceDate)")
+        }
+    }
+
+    func testTheLineBreaksAtADayWithNoReading() {
+        let segments = BodyHealthMetricTrendChart.makeTrendLineSegments(
+            selectedRange: .recentWeek,
+            pointsByRange: Self.pointsByRange
+        )
+        let real = segments.filter { !$0.isPlaceholder }
+
+        // Neither neighbour of the gap day pairs across it: the two dots keep
+        // their own values and nothing is drawn over the missing day.
+        XCTAssertFalse(real.contains { $0.startDate == Self.dayStart(Self.gapDayOffset + 1) })
+        XCTAssertFalse(real.contains { $0.endDate == Self.dayStart(Self.gapDayOffset - 1) })
+        XCTAssertFalse(real.contains { segment in
+            segment.startDate < Self.dayStart(Self.gapDayOffset)
+                && segment.endDate > Self.dayStart(Self.gapDayOffset)
         })
+    }
+
+    /// A sparse metric's series holds only readings, so consecutive points are
+    /// neighbours however far apart their dates fall — Cardio Fitness keeps one
+    /// line rather than a scatter of unconnected dots.
+    func testSparseReadingsStayConnectedAcrossTheirEmptyDays() {
+        let readings = [
+            HealthTrendCalendarPoint(date: Self.dayStart(20), value: 41),
+            HealthTrendCalendarPoint(date: Self.dayStart(6), value: 43),
+            HealthTrendCalendarPoint(date: Self.dayStart(0), value: 45)
+        ]
+        let segments = BodyHealthMetricTrendChart.makeTrendLineSegments(
+            selectedRange: .recentMonth,
+            pointsByRange: [.recentMonth: readings],
+            connectsEveryReading: true
+        )
+
+        XCTAssertEqual(segments.filter { !$0.isPlaceholder }.count, 2)
+
+        let gridSegments = BodyHealthMetricTrendChart.makeTrendLineSegments(
+            selectedRange: .recentMonth,
+            pointsByRange: [.recentMonth: readings]
+        )
+
+        XCTAssertTrue(gridSegments.filter { !$0.isPlaceholder }.isEmpty)
     }
 
     func testPlaceholderSegmentsAreZeroLengthAndFlagged() {

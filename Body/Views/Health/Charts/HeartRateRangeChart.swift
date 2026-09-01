@@ -442,7 +442,9 @@ struct BodyHeartRateRangeTrendChart: View {
                 sourceName: primarySourceName,
                 sourceRole: .primary,
                 date: point.date,
-                value: value
+                value: value,
+                spanStartDate: point.startDate,
+                spanEndDate: point.endDate
             )
         }
         let secondaryEntries = secondaryPoints.compactMap { point -> BodyHeartRateRangeAverageEntry? in
@@ -454,7 +456,9 @@ struct BodyHeartRateRangeTrendChart: View {
                 sourceName: secondarySourceName ?? String(localized: "Secondary"),
                 sourceRole: .secondary,
                 date: point.date,
-                value: value
+                value: value,
+                spanStartDate: point.startDate,
+                spanEndDate: point.endDate
             )
         }
 
@@ -500,8 +504,11 @@ struct BodyHeartRateRangeTrendChart: View {
         return segments
     }
 
-    /// One segment per consecutive pair of a source's (already finite) average
+    /// One segment per ADJACENT pair of a source's (already finite) average
     /// entries. Placeholder segments collapse onto their own start point.
+    ///
+    /// A pair straddling a bucket with no average draws nothing, so the average
+    /// line breaks at the gap instead of running straight across it.
     static func averageLineSegments(
         from entries: [BodyHeartRateRangeAverageEntry],
         isPlaceholder: Bool
@@ -509,8 +516,15 @@ struct BodyHeartRateRangeTrendChart: View {
         let entriesByRole = Dictionary(grouping: entries, by: \.sourceRole)
         return entriesByRole.keys.sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHeartRateRangeLineSegmentMark] in
             let sorted = (entriesByRole[role] ?? []).sorted { $0.date < $1.date }
-            return zip(sorted, sorted.dropFirst()).map { start, end in
-                BodyHeartRateRangeLineSegmentMark(
+            return zip(sorted, sorted.dropFirst()).compactMap { start, end -> BodyHeartRateRangeLineSegmentMark? in
+                guard bodyTrendChartPointsAreAdjacent(
+                    earlierSpanEnd: start.spanEndDate,
+                    laterSpanStart: end.spanStartDate
+                ) else {
+                    return nil
+                }
+
+                return BodyHeartRateRangeLineSegmentMark(
                     sourceRole: role,
                     startDate: start.date,
                     startValue: start.value,
@@ -548,7 +562,30 @@ struct BodyHeartRateRangeAverageEntry: Identifiable {
     let sourceRole: BodyHealthSourceRole
     let date: Date
     let value: Double
+    /// The days this average covers: the plotted day on Week/Month, the bucket
+    /// on 6M/Year. `averageLineSegments` joins two entries only when the spans
+    /// touch, so a bucket with no reading breaks the line.
+    let spanStartDate: Date
+    let spanEndDate: Date
     var isPlaceholder: Bool = false
+
+    init(
+        sourceName: String,
+        sourceRole: BodyHealthSourceRole,
+        date: Date,
+        value: Double,
+        spanStartDate: Date? = nil,
+        spanEndDate: Date? = nil,
+        isPlaceholder: Bool = false
+    ) {
+        self.sourceName = sourceName
+        self.sourceRole = sourceRole
+        self.date = date
+        self.value = value
+        self.spanStartDate = spanStartDate ?? date
+        self.spanEndDate = spanEndDate ?? date
+        self.isPlaceholder = isPlaceholder
+    }
 
     var id: String {
         "\(sourceRole.rawValue)-\(date.timeIntervalSinceReferenceDate)"

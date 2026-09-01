@@ -8,8 +8,9 @@
 //  placeholders carrying their own range's geometry — so a Week/Month/6M/Year
 //  switch animates opacity and positions instead of inserting/removing marks
 //  (which Swift Charts pops). The average line is split into one two-point
-//  series per consecutive-average pair with a stable role + start-date id;
-//  unmatched pairs collapse to zero-length placeholders at their own start.
+//  series per ADJACENT-average pair with a stable role + start-date id;
+//  unmatched pairs collapse to zero-length placeholders at their own start,
+//  and a bucket with no average breaks the line rather than being spanned.
 //
 
 import Foundation
@@ -171,6 +172,49 @@ final class BodyHeartRateRangeMorphTests: XCTestCase {
         XCTAssertEqual(segments.map(\.startValue), [60, 70, 55])
         XCTAssertEqual(segments.map(\.endValue), [70, 65, 58])
         XCTAssertTrue(segments.allSatisfy { !$0.isPlaceholder })
+    }
+
+    func testAverageLineSegmentsBreakAtABucketWithNoAverage() {
+        // Day 2 has no average, so it never becomes an entry: the line runs
+        // day 0 → day 1 and stops rather than striding over the missing day.
+        let segments = BodyHeartRateRangeTrendChart.averageLineSegments(
+            from: [
+                averageEntry(day: 0, value: 60),
+                averageEntry(day: 1, value: 70),
+                averageEntry(day: 3, value: 65)
+            ],
+            isPlaceholder: false
+        )
+
+        XCTAssertEqual(segments.map(\.startDate), [date(day: 0)])
+        XCTAssertEqual(segments.map(\.endDate), [date(day: 1)])
+    }
+
+    func testAverageLineSegmentsJoinBucketsWhoseSpansTouch() {
+        // 6M/Year buckets cover several days each: neighbours still connect,
+        // and a skipped bucket still breaks the line.
+        func bucketEntry(startDay: Int, endDay: Int, value: Double) -> BodyHeartRateRangeAverageEntry {
+            BodyHeartRateRangeAverageEntry(
+                sourceName: "Primary",
+                sourceRole: .primary,
+                date: date(day: endDay),
+                value: value,
+                spanStartDate: date(day: startDay),
+                spanEndDate: date(day: endDay)
+            )
+        }
+
+        let segments = BodyHeartRateRangeTrendChart.averageLineSegments(
+            from: [
+                bucketEntry(startDay: 0, endDay: 5, value: 60),
+                bucketEntry(startDay: 6, endDay: 11, value: 62),
+                bucketEntry(startDay: 18, endDay: 23, value: 64)
+            ],
+            isPlaceholder: false
+        )
+
+        XCTAssertEqual(segments.map(\.startDate), [date(day: 5)])
+        XCTAssertEqual(segments.map(\.endDate), [date(day: 11)])
     }
 
     func testAverageLineSegmentsLeaveASinglePointSourceWithoutPairs() {

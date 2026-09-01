@@ -414,8 +414,12 @@ struct BodyHealthSourceComparisonLineChart: View {
         return primaryEntries + secondaryEntries
     }
 
-    /// One segment per consecutive pair of a source's finite entries.
+    /// One segment per ADJACENT pair of a source's finite entries.
     /// Placeholder segments collapse onto their own start point.
+    ///
+    /// A pair straddling a day or bucket that source never recorded draws
+    /// nothing, so its line breaks at the gap instead of running straight
+    /// across it and the two dots stand alone.
     static func lineSegments(
         from entries: [BodyHealthSourceComparisonLineEntry],
         isPlaceholder: Bool
@@ -427,7 +431,11 @@ struct BodyHealthSourceComparisonLineChart: View {
         return entriesByRole.keys.sorted { $0.rawValue < $1.rawValue }.flatMap { role -> [BodyHealthSourceComparisonLineSegmentMark] in
             let sorted = (entriesByRole[role] ?? []).sorted { $0.date < $1.date }
             return zip(sorted, sorted.dropFirst()).compactMap { start, end in
-                guard let startValue = start.value, let endValue = end.value else {
+                guard let startValue = start.value, let endValue = end.value,
+                      bodyTrendChartPointsAreAdjacent(
+                          earlierSpanEnd: start.point.endDate,
+                          laterSpanStart: end.point.startDate
+                      ) else {
                     return nil
                 }
 
