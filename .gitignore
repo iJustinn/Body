@@ -95,6 +95,7 @@ build/
 # Local scratch/backup files
 IconArchive/
 Apple_Health_*.xlsx
+[Ii]ssues*.md
 *.tmp
 *.bak
 *.orig
