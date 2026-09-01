@@ -2,6 +2,7 @@
 
 ## 1.0.2 (build 1)
 
+- **Weekly Workout Time now measures actual workout time.** The Lock Screen widget and Apple Watch complication formerly named Exercise Minutes are renamed **Weekly Workout Time** and now sum each day's Apple Health workouts (every HKWorkout, counted toward the day it started) instead of activity ring Apple Exercise Minutes, with no bar at all on a rest day. Both are gated on the Workouts permission instead of a dashboard card, and the watch complication can also refresh its bars from the watch's own local compute.
 - Updated the app, widget, watch, and test bundle version to 1.0.2 build 1.
 
 ## 1.0.1 (build 9)
