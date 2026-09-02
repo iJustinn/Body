@@ -751,6 +751,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         initialCombinesHealthDataSourcesByName: Bool = UserDefaults.standard.bool(forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey),
         initialCustomHealthSourceGroups: [BodyCustomHealthSourceGroup] = HealthKitWorkoutStore.loadCustomHealthSourceGroups(),
         customNameDefaults: UserDefaults = .standard,
+        engineHealthStore: (any BodyHealthQuerying)? = nil,
+        timeZoneLedger: BodyTimeZoneLedger? = nil,
         date: Date = Date()
     ) {
         self.customNameDefaults = customNameDefaults
@@ -770,7 +772,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             healthDataSourceSelection: initialHealthDataSourceSelection,
             secondaryHealthDataSourceSelection: initialSecondaryHealthDataSourceSelection,
             combinesHealthDataSourcesByName: initialCombinesHealthDataSourcesByName,
-            customHealthSourceGroups: initialCustomHealthSourceGroups
+            customHealthSourceGroups: initialCustomHealthSourceGroups,
+            healthStore: engineHealthStore ?? HKHealthStore(),
+            timeZoneLedger: timeZoneLedger ?? BodyTimeZoneLedger()
         )
         // One decode, not two: the persisted envelope carries the snapshot and
         // the summary-context signature written beside it, but Swift evaluates

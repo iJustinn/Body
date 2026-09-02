@@ -77,7 +77,7 @@ extension HealthKitFetchEngine {
         let descriptor = HKActivitySummaryQueryDescriptor(predicate: predicate)
 
         do {
-            guard let summary = try await descriptor.result(for: healthStore).first else {
+            guard let summary = try await healthStore.result(for: descriptor).first else {
                 return .success(nil)
             }
 

@@ -326,11 +326,16 @@ final class HealthKitFetchEngineFailureSemanticsTests: XCTestCase {
 
         let kind = HealthMetricKind.restingHeartRate
         let primary = BodyHealthDataSourceOption(id: "com.garmin.connect", name: "Garmin")
+        let fake = FakeHealthStore()
         let engine = HealthKitFetchEngine(
             permission: .defaultValue,
             healthDataSourceSelection: BodyHealthDataSourceSelection(selectedOptions: [kind: primary]),
             secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection(selectedOptions: [kind: .allSources]),
-            combinesHealthDataSourcesByName: false
+            combinesHealthDataSourcesByName: false,
+            // A fake store rather than the real one: discovery is unresolved
+            // because nothing has run it, and the engine now provably cannot
+            // reach HealthKit behind the test's back to resolve it.
+            healthStore: fake
         )
 
         let resolvedSecondary = await engine.selectedSecondaryHealthDataSourceOption(for: kind)

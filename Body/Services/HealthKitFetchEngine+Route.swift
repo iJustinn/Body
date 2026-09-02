@@ -35,7 +35,7 @@ extension HealthKitFetchEngine {
             sortDescriptors: [],
             limit: 1
         )
-        return try await routeQuery.result(for: healthStore).isEmpty == false
+        return try await healthStore.result(for: routeQuery).isEmpty == false
     }
 
     /// Coordinates for the workout's route, downsampled for cheap polyline
@@ -58,12 +58,12 @@ extension HealthKitFetchEngine {
             predicates: [.workoutRoute(HKQuery.predicateForObjects(from: workout))],
             sortDescriptors: [SortDescriptor(\.startDate, order: .forward)]
         )
-        let routes = try await routeQuery.result(for: healthStore)
+        let routes = try await healthStore.result(for: routeQuery)
 
         var locations: [CLLocation] = []
         for route in routes {
             let locationQuery = HKWorkoutRouteQueryDescriptor(route)
-            for try await location in locationQuery.results(for: healthStore) {
+            for try await location in healthStore.results(for: locationQuery) {
                 locations.append(location)
             }
         }

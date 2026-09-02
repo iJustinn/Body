@@ -1,9 +1,10 @@
 //
-//  SourceQueryResumeBoxTests.swift
+//  BodyQueryResumeBoxTests.swift
 //  BodyTests
 //
-//  Exercises the lock-protected one-shot resume backing
-//  `BodyHealthSourceResolver.discoverSources(for sampleType:...)` (H4/M35).
+//  Exercises the lock-protected one-shot resume backing every leaf read on the
+//  `BodyHealthQuerying` conformance (H4/M35). This is where "the in-flight
+//  query is stopped exactly once" is proven.
 //  `stop` is injected rather than a real `HKHealthStore`, so these tests never
 //  call `HKHealthStore.execute`/`.stop`, which are not exercisable on an
 //  unsigned test host. Mirrors `CancellableQueryCoordinatorTests`' style for
@@ -17,18 +18,18 @@ import XCTest
 import HealthKit
 @testable import Body
 
-final class SourceQueryResumeBoxTests: XCTestCase {
+final class BodyQueryResumeBoxTests: XCTestCase {
     // MARK: - Cancel before install
 
     func testCancelBeforeInstallResumesNilWithoutExecutingBody() async {
         let recorder = StopCallRecorder()
-        let box = SourceQueryResumeBox(stop: { _ in recorder.recordStop() })
+        let box = BodyQueryResumeBox<[HKSource]?>(stop: { _ in recorder.recordStop() })
 
         var bodyCalled = false
-        box.cancel()
+        box.cancel(cancelledValue: nil)
 
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<[HKSource]?, Never>) in
-            box.install(continuation: continuation) { _ in
+            box.install(continuation: continuation, cancelledValue: nil) { _ in
                 bodyCalled = true
                 return Self.makeDummyQuery()
             }
@@ -43,18 +44,18 @@ final class SourceQueryResumeBoxTests: XCTestCase {
 
     func testCancelAfterInstallResumesNilAndStopsTheQuery() async {
         let recorder = StopCallRecorder()
-        let box = SourceQueryResumeBox(stop: { _ in recorder.recordStop() })
+        let box = BodyQueryResumeBox<[HKSource]?>(stop: { _ in recorder.recordStop() })
 
         // Cancel only after `install` has fully returned (the query already
         // stashed), so it takes the ordinary path and stops it itself.
         let installReturned = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
             installReturned.wait()
-            box.cancel()
+            box.cancel(cancelledValue: nil)
         }
 
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<[HKSource]?, Never>) in
-            box.install(continuation: continuation) { _ in
+            box.install(continuation: continuation, cancelledValue: nil) { _ in
                 Self.makeDummyQuery()
             }
             installReturned.signal()
@@ -65,7 +66,7 @@ final class SourceQueryResumeBoxTests: XCTestCase {
 
         // A second cancel is a no-op: no double resume (which would trap) and
         // no second stop.
-        box.cancel()
+        box.cancel(cancelledValue: nil)
         XCTAssertEqual(recorder.stopCount, 1)
     }
 
@@ -73,11 +74,11 @@ final class SourceQueryResumeBoxTests: XCTestCase {
 
     func testResumeThenCancelDoesNotResumeTwice() async {
         let recorder = StopCallRecorder()
-        let box = SourceQueryResumeBox(stop: { _ in recorder.recordStop() })
+        let box = BodyQueryResumeBox<[HKSource]?>(stop: { _ in recorder.recordStop() })
         let discoveredSources: [HKSource]? = []
 
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<[HKSource]?, Never>) in
-            box.install(continuation: continuation) { resume in
+            box.install(continuation: continuation, cancelledValue: nil) { resume in
                 let query = Self.makeDummyQuery()
                 resume(discoveredSources)
                 return query
@@ -89,7 +90,7 @@ final class SourceQueryResumeBoxTests: XCTestCase {
         // A cancel after the query already resumed must be a no-op: no double
         // resume (which would trap) and no stop for a query that already
         // finished.
-        box.cancel()
+        box.cancel(cancelledValue: nil)
         XCTAssertEqual(recorder.stopCount, 0)
     }
 

@@ -68,7 +68,7 @@ extension HealthKitFetchEngine {
         )
 
         var samples: [WorkoutDistanceSample] = []
-        for try await result in descriptor.results(for: healthStore) {
+        for try await result in healthStore.results(for: descriptor) {
             samples.append(WorkoutDistanceSample(
                 startDate: result.dateInterval.start,
                 endDate: result.dateInterval.end,
@@ -139,7 +139,7 @@ extension HealthKitFetchEngine {
         )
 
         var samples: [WorkoutStepSample] = []
-        for try await result in descriptor.results(for: healthStore) {
+        for try await result in healthStore.results(for: descriptor) {
             samples.append(WorkoutStepSample(
                 startDate: result.dateInterval.start,
                 endDate: result.dateInterval.end,

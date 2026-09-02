@@ -48,7 +48,7 @@ enum BodySleepFetch {
     /// `sort` is the caller's: the summary path reads newest-first, the history
     /// path oldest-first.
     static func sleepSamples(
-        store: HKHealthStore,
+        store: any BodyHealthQuerying,
         predicate: NSPredicate?,
         sort: NSSortDescriptor,
         onFailure: ((Error?) -> Void)? = nil
@@ -57,28 +57,24 @@ enum BodySleepFetch {
             return .success([])
         }
 
-        return await withCheckedContinuation { continuation in
-            let query = HKSampleQuery(
+        switch await store.samples(
+            BodySampleRequest(
                 sampleType: sleepType,
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
-            ) { _, samples, error in
-                guard let samples else {
-                    onFailure?(error)
-                    continuation.resume(returning: .failure)
-                    return
-                }
-
-                continuation.resume(
-                    returning: .success(
-                        (samples as? [HKCategorySample] ?? [])
-                            .filter(BodySleepSampleParser.isSleepTimelineSample)
-                    )
-                )
-            }
-
-            store.execute(query)
+            )
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let samples):
+            return .success(
+                (samples as? [HKCategorySample] ?? [])
+                    .filter(BodySleepSampleParser.isSleepTimelineSample)
+            )
         }
     }
 
@@ -152,7 +148,7 @@ enum BodySleepFetch {
     /// which transforms before averaging. Batching keeps a full-history sleep
     /// refresh at one query per vital instead of one per night.
     static func vitalWindowSamples(
-        store: HKHealthStore,
+        store: any BodyHealthQuerying,
         quantityType: HKQuantityType,
         intervals: [DateInterval],
         sourcePredicate: NSPredicate?,
@@ -176,36 +172,35 @@ enum BodySleepFetch {
             : NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
 
-        return await withCheckedContinuation { continuation in
-            let query = HKSampleQuery(
+        switch await store.samples(
+            BodySampleRequest(
                 sampleType: quantityType,
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [sort]
-            ) { _, samples, error in
-                guard let samples else {
-                    onFailure?(error)
-                    continuation.resume(returning: .failure)
-                    return
+            )
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let samples):
+            let windowSamples = samples.compactMap { sample -> SleepVitalWindowSample? in
+                guard let quantitySample = sample as? HKQuantitySample else {
+                    return nil
                 }
-                let windowSamples = samples.compactMap { sample -> SleepVitalWindowSample? in
-                    guard let quantitySample = sample as? HKQuantitySample else {
-                        return nil
-                    }
-                    let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
-                    guard value.isFinite else {
-                        return nil
-                    }
-                    return SleepVitalWindowSample(
-                        startDate: quantitySample.startDate,
-                        endDate: quantitySample.endDate,
-                        value: value
-                    )
+                let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
+                guard value.isFinite else {
+                    return nil
                 }
-                continuation.resume(returning: .success(windowSamples))
+                return SleepVitalWindowSample(
+                    startDate: quantitySample.startDate,
+                    endDate: quantitySample.endDate,
+                    value: value
+                )
             }
-
-            store.execute(query)
+            return .success(windowSamples)
         }
     }
 

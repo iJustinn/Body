@@ -19,7 +19,15 @@ actor HealthKitFetchEngine {
     // Because the actor is isolated, callers outside the actor still need
     // an `await` to read or write, so the broader visibility doesn't
     // change the threading model.
-    let healthStore = HKHealthStore()
+    /// Injected so tests can drive the query leaves against a scripted fake
+    /// (`BodyHealthQuerying`); production always gets the real `HKHealthStore`.
+    let healthStore: any BodyHealthQuerying
+
+    /// Device time-zone ledger consulted when a night's samples carry no
+    /// `HKMetadataKeyTimeZone` (Apple Watch sleep never does). An instance
+    /// rather than a shared static so tests can inject an ephemeral, isolated
+    /// ledger without mutating process-wide state.
+    nonisolated let timeZoneLedger: BodyTimeZoneLedger
 
     /// Single FIFO lane for every permission-sheet transaction (reads here,
     /// writes in HealthKitFetchEngine+Write.swift) so two sheets can't stack.
@@ -246,8 +254,12 @@ actor HealthKitFetchEngine {
         healthDataSourceSelection: BodyHealthDataSourceSelection,
         secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection,
         combinesHealthDataSourcesByName: Bool,
-        customHealthSourceGroups: [BodyCustomHealthSourceGroup] = []
+        customHealthSourceGroups: [BodyCustomHealthSourceGroup] = [],
+        healthStore: any BodyHealthQuerying = HKHealthStore(),
+        timeZoneLedger: BodyTimeZoneLedger = BodyTimeZoneLedger()
     ) {
+        self.healthStore = healthStore
+        self.timeZoneLedger = timeZoneLedger
         self.permissionSelection = permission
         self.healthDataSourceSelection = healthDataSourceSelection
         self.secondaryHealthDataSourceSelection = secondaryHealthDataSourceSelection

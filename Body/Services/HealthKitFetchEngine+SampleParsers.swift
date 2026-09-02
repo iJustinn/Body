@@ -13,12 +13,6 @@ import HealthKit
 // extension (called via `Self.foo` from the main engine file) are internal;
 // helpers used only by other helpers in this extension stay `private`.
 extension HealthKitFetchEngine {
-    /// Device time-zone ledger consulted when a night's samples carry no
-    /// `HKMetadataKeyTimeZone` (Apple Watch sleep never does). Static so the
-    /// `nonisolated` sleep parsers here and in `+Sleep.swift` can reach it;
-    /// a `var` so tests can inject an ephemeral, isolated ledger.
-    nonisolated(unsafe) static var timeZoneLedger = BodyTimeZoneLedger()
-
     nonisolated static func activityDateComponents(for date: Date, calendar: Calendar) -> DateComponents {
         var components = calendar.dateComponents([.era, .year, .month, .day], from: date)
         components.calendar = calendar
@@ -86,7 +80,8 @@ extension HealthKitFetchEngine {
         from samples: [HKCategorySample],
         date: Date,
         showsSubMinuteAwakeStages: Bool = true,
-        showsLeadingTrailingAwakeStages: Bool = true
+        showsLeadingTrailingAwakeStages: Bool = true,
+        timeZoneLedger: BodyTimeZoneLedger = BodyTimeZoneLedger()
     ) -> SleepSummary? {
         // Watch sleep samples carry no `HKMetadataKeyTimeZone`, so the shared
         // parser leaves the zone nil; the device time-zone ledger back-fills it

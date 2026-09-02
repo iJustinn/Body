@@ -39,28 +39,26 @@ enum BodyWorkoutFetch {
     /// filter (workouts are never source-selectable). `.failure` marks a query
     /// error so the caller keeps its cache instead of blanking the window.
     static func workouts(
-        store: HKHealthStore,
+        store: any BodyHealthQuerying,
         start: Date,
         end: Date,
         onFailure: ((Error?) -> Void)? = nil
     ) async -> WatchFetchOutcome<[HKWorkout]> {
-        await withCheckedContinuation { continuation in
-            let query = HKSampleQuery(
+        switch await store.samples(
+            BodySampleRequest(
                 sampleType: HKObjectType.workoutType(),
                 predicate: workoutPredicate(start: start, end: end),
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [startDateAscendingSort]
-            ) { _, samples, error in
-                guard error == nil else {
-                    onFailure?(error)
-                    continuation.resume(returning: .failure)
-                    return
-                }
-
-                continuation.resume(returning: .success(samples as? [HKWorkout] ?? []))
-            }
-
-            store.execute(query)
+            )
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let samples):
+            return .success(samples as? [HKWorkout] ?? [])
         }
     }
 

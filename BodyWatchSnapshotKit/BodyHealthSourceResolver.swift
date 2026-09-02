@@ -561,7 +561,7 @@ enum BodyHealthSourceResolver {
     /// the cache instead of silently querying all sources (H4).
     static func discoverSources(
         for sampleTypes: [HKSampleType],
-        store: HKHealthStore,
+        store: any BodyHealthQuerying,
         onFailure: ((String, Error?) -> Void)? = nil
     ) async -> [HKSource]? {
         // Fan the per-sample-type `HKSourceQuery` round-trips out concurrently
@@ -606,157 +606,21 @@ enum BodyHealthSourceResolver {
     /// (including the caller losing the race against its own deadline);
     /// `onFailure` receives the query context so the caller can log a genuine
     /// HealthKit failure its own way. Cancellation is not reported through
-    /// `onFailure` — it is not a query failure, and `SourceQueryResumeBox`
-    /// already stops the in-flight query.
+    /// `onFailure` — it is not a query failure, and the store's own
+    /// `BodyQueryResumeBox` already stops the in-flight query.
     static func discoverSources(
         for sampleType: HKSampleType,
-        store: HKHealthStore,
+        store: any BodyHealthQuerying,
         onFailure: ((String, Error?) -> Void)? = nil
     ) async -> [HKSource]? {
-        let box = SourceQueryResumeBox(stop: { query in store.stop(query) })
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                box.install(continuation: continuation) { resume in
-                    let query = HKSourceQuery(
-                        sampleType: sampleType,
-                        samplePredicate: nil
-                    ) { _, sources, error in
-                        guard let sources else {
-                            onFailure?("sources:\(sampleType.identifier)", error)
-                            resume(nil)
-                            return
-                        }
-                        resume(Array(sources))
-                    }
-
-                    store.execute(query)
-                    return query
-                }
-            }
-        } onCancel: {
-            box.cancel()
-        }
-    }
-}
-
-/// Lock-protected one-shot resume backing the single-sample-type
-/// `discoverSources` query above, so `withTaskCancellationHandler`'s
-/// `onCancel` (which can fire concurrently with `install`, before or after
-/// the query executes) and the `HKSourceQuery` completion callback can't both
-/// resume the continuation.
-///
-/// Mirrors `TrackedQueryResumeBox` in `HealthKitFetchEngine.swift` for the
-/// pending/armed/cancelledBeforeInstall/settled locking pattern, kept
-/// independent (rather than shared or moved) because this file compiles into
-/// both the iOS app and the watch app and must not reference
-/// `Body/Services` types. Unlike `TrackedQueryResumeBox` this box also has to
-/// stop the `HKQuery` on cancellation, the same concern
-/// `CancellableQueryCoordinator` handles in the engine — `stop` is injected
-/// rather than a stored `HKHealthStore` so the box stays testable (and
-/// `HKHealthStore.execute`/`.stop` are not safely callable from a test host
-/// without a HealthKit bundle identity).
-///
-/// `install`'s `body` builds and executes the query and returns it; if
-/// cancellation lands while `body` is still running (before the query is
-/// stashed), `install`'s post-call re-check stops it instead, so the query is
-/// stopped exactly once either way. `@unchecked Sendable` is sound because
-/// every access is lock-guarded.
-final class SourceQueryResumeBox: @unchecked Sendable {
-    private enum State {
-        case pending
-        case armed(CheckedContinuation<[HKSource]?, Never>)
-        case cancelledBeforeInstall
-        case settled
-    }
-
-    private let stop: (HKQuery) -> Void
-    private let lock = NSLock()
-    private var state: State = .pending
-    private var executedQuery: HKQuery?
-    /// Set only by `cancel()`: `install` uses it to tell "cancelled while the
-    /// query was executing" apart from "the query's callback already resumed
-    /// synchronously", which settles the state just the same but must not
-    /// stop a finished query.
-    private var wasCancelledWhileArmed = false
-
-    init(stop: @escaping (HKQuery) -> Void) {
-        self.stop = stop
-    }
-
-    /// Arms the box and runs `body`, which builds and executes the query and
-    /// returns it, unless cancellation already fired — in which case the
-    /// continuation resumes with `nil` and no query is ever created.
-    func install(
-        continuation: CheckedContinuation<[HKSource]?, Never>,
-        body: (@escaping ([HKSource]?) -> Void) -> HKQuery
-    ) {
-        lock.lock()
-        switch state {
-        case .cancelledBeforeInstall:
-            state = .settled
-            lock.unlock()
-            continuation.resume(returning: nil)
-            return
-        case .pending:
-            state = .armed(continuation)
-            lock.unlock()
-        case .armed, .settled:
-            // `install` runs exactly once; these are unreachable.
-            lock.unlock()
-            return
-        }
-        // Outside the lock: `body` builds and executes the query, and a
-        // same-thread callback would otherwise re-enter.
-        let query = body { [weak self] value in
-            self?.resume(value)
-        }
-
-        lock.lock()
-        if wasCancelledWhileArmed {
-            // Cancelled while `body` was still running, before this box had a
-            // query to hand to a concurrent `cancel()` — stop it here instead.
-            lock.unlock()
-            stop(query)
-        } else {
-            executedQuery = query
-            lock.unlock()
-        }
-    }
-
-    /// The query's callback. Drops the value if cancellation already resumed.
-    private func resume(_ value: [HKSource]?) {
-        lock.lock()
-        switch state {
-        case .armed(let continuation):
-            state = .settled
-            lock.unlock()
-            continuation.resume(returning: value)
-        case .pending, .cancelledBeforeInstall, .settled:
-            lock.unlock()
-        }
-    }
-
-    /// Resumes `nil` once and stops the executed query, if any. Safe to call
-    /// before, during, or after `install`.
-    func cancel() {
-        lock.lock()
-        switch state {
-        case .pending:
-            // Continuation not installed yet; `install` resumes immediately
-            // without ever executing the query.
-            state = .cancelledBeforeInstall
-            lock.unlock()
-        case .armed(let continuation):
-            state = .settled
-            wasCancelledWhileArmed = true
-            let query = executedQuery
-            lock.unlock()
-            continuation.resume(returning: nil)
-            if let query {
-                stop(query)
-            }
-        case .cancelledBeforeInstall, .settled:
-            lock.unlock()
+        switch await store.sources(for: sampleType) {
+        case .failure(let error):
+            onFailure?("sources:\(sampleType.identifier)", error)
+            return nil
+        case .cancelled:
+            return nil
+        case .success(let sources):
+            return sources
         }
     }
 }

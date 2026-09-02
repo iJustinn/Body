@@ -14,13 +14,48 @@ import XCTest
 @testable import Body
 
 final class HealthKitFetchEngineTrainingLoadTests: XCTestCase {
-    private func makeEngine() -> HealthKitFetchEngine {
+    private func makeEngine(healthStore: any BodyHealthQuerying = FakeHealthStore()) -> HealthKitFetchEngine {
         HealthKitFetchEngine(
             permission: .defaultValue,
             healthDataSourceSelection: .defaultValue,
             secondaryHealthDataSourceSelection: .defaultValue,
-            combinesHealthDataSourcesByName: false
+            combinesHealthDataSourcesByName: false,
+            healthStore: healthStore
         )
+    }
+
+    /// The previous test cancels BEFORE the leaf runs, so it never proves the
+    /// in-flight case. `FakeHealthStore` records the query and never resumes it
+    /// — exactly a HealthKit read that never answers — so cancelling a caller
+    /// that is already parked on the workout query must still come back
+    /// promptly rather than pinning the refresh until relaunch.
+    func testCancellingACallerParkedOnAnUnansweredWorkoutQueryReturnsPromptly() async {
+        let engine = makeEngine()
+        await engine.setHealthTrendAnchorDate(Date())
+        let window = await engine.trainingLoadWorkoutsWindow(calendar: .bodyGregorian)
+
+        let caller = Task { () -> Result<[WorkoutSummary], Error> in
+            do {
+                return .success(try await engine.sharedTrainingLoadWorkouts(window: window))
+            } catch {
+                return .failure(error)
+            }
+        }
+        // Let the caller reach the (never-answering) query first.
+        try? await Task.sleep(for: .milliseconds(100))
+        let cancelledAt = Date()
+        caller.cancel()
+
+        switch await caller.value {
+        case .failure:
+            XCTAssertLessThan(
+                Date().timeIntervalSince(cancelledAt),
+                1,
+                "a cancelled caller must not wait on a query that never answers"
+            )
+        case .success(let workouts):
+            XCTFail("Expected the cancelled fetch to throw, got \(workouts.count) workouts")
+        }
     }
 
     func testCancelledCallerCancelsTheSharedFetchAndDoesNotMemoizeTheFailure() async {

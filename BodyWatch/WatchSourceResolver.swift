@@ -42,7 +42,7 @@ enum WatchSourceResolver {
         expectedSourceIDsByKind: [String: [String]]?,
         customGroups: [BodyCustomHealthSourceGroup],
         permission: BodyHealthPermissionSelection,
-        store: HKHealthStore
+        store: any BodyHealthQuerying
     ) async -> WatchSourceRead {
         guard permission.includes(BodyHealthSourceResolver.permission(forSourceKind: kind)) else {
             return .skip
@@ -121,7 +121,7 @@ enum WatchSourceResolver {
         expectedSourceIDsByKind: [String: [String]]?,
         customGroups: [BodyCustomHealthSourceGroup],
         permission: BodyHealthPermissionSelection,
-        store: HKHealthStore
+        store: any BodyHealthQuerying
     ) async -> [HealthMetricKind: WatchSourceRead] {
         await withTaskGroup(of: (HealthMetricKind, WatchSourceRead).self) { group in
             for kind in kinds {
@@ -154,7 +154,7 @@ enum WatchSourceResolver {
         for kind: HealthMetricKind,
         expectedSourceIDs: [String]?,
         customGroups: [BodyCustomHealthSourceGroup],
-        store: HKHealthStore
+        store: any BodyHealthQuerying
     ) async -> WatchSourceRead {
         guard let expectedSourceIDs, !expectedSourceIDs.isEmpty else {
             return .run(nil)

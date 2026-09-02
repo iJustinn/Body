@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import HealthKit
 import UserNotifications
 
 /// Runs ONE headless metric-warning evaluation for the background refresh task:
@@ -43,16 +44,21 @@ actor MetricWarningBackgroundEvaluator {
     private let calendar: Calendar
     private let notificationCenter: UNUserNotificationCenter
     private let isForegroundActive: @Sendable () async -> Bool
+    /// Injected so the deadline behaviour can be exercised against a fake store
+    /// whose reads never resume.
+    private let healthStore: any BodyHealthQuerying
 
     init(
         defaults: UserDefaults = .standard,
         calendar: Calendar = .bodyGregorian,
         notificationCenter: UNUserNotificationCenter = .current(),
+        healthStore: any BodyHealthQuerying = HKHealthStore(),
         isForegroundActive: @escaping @Sendable () async -> Bool
     ) {
         self.defaults = defaults
         self.calendar = calendar
         self.notificationCenter = notificationCenter
+        self.healthStore = healthStore
         self.isForegroundActive = isForegroundActive
     }
 
@@ -147,8 +153,12 @@ actor MetricWarningBackgroundEvaluator {
     /// `await work.value` under a cancelling sleeper — would still wait on a
     /// HealthKit query that never resumes. The deadline now returns without the
     /// work, which is left cancelled and abandoned.
-    private func fetchWarnings(
-        kinds: Set<MetricWarningKind>
+    /// Internal (not private) and with an injectable `deadline` so the
+    /// deadline behaviour itself is testable against a store whose reads never
+    /// resume; production always uses `evaluationDeadline`.
+    func fetchWarnings(
+        kinds: Set<MetricWarningKind>,
+        deadline: Duration = MetricWarningBackgroundEvaluator.evaluationDeadline
     ) async -> [MetricWarningKind: HealthKitFetchEngine.QueryOutcome<MetricWarningEvent>]? {
         let engine = HealthKitFetchEngine(
             permission: BodyHealthPermissionSelection.load(),
@@ -157,7 +167,8 @@ actor MetricWarningBackgroundEvaluator {
             combinesHealthDataSourcesByName: defaults.bool(
                 forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey
             ),
-            customHealthSourceGroups: HealthKitWorkoutStore.loadCustomHealthSourceGroups(defaults: defaults)
+            customHealthSourceGroups: HealthKitWorkoutStore.loadCustomHealthSourceGroups(defaults: defaults),
+            healthStore: healthStore
         )
 
         let calendar = calendar
@@ -166,7 +177,7 @@ actor MetricWarningBackgroundEvaluator {
         let work = Task.detached {
             await engine.fetchCurrentMetricWarnings(kinds: kinds, calendar: calendar, now: Date())
         }
-        let outcome = await OneShotDeadlineRace.run(deadline: Self.evaluationDeadline) {
+        let outcome = await OneShotDeadlineRace.run(deadline: deadline) {
             await work.value
         }
         guard case .finished(let results) = outcome, !Task.isCancelled else {
