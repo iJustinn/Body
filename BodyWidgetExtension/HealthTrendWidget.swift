@@ -141,17 +141,19 @@ struct HealthTrendProvider: AppIntentTimelineProvider {
         configuration: BodyTrendWidgetConfigurationIntent,
         usePlaceholderWhenEmpty: Bool
     ) -> HealthTrendEntry {
+        let now = Date()
         let metric = (configuration.metric ?? .readiness).widgetMetric
         let range = (configuration.range ?? .week).widgetRange
         let loaded = HealthWidgetSnapshotStore.load()
-        let snapshot = loaded ?? (usePlaceholderWhenEmpty ? .placeholder : .empty)
+        let snapshot = (loaded ?? (usePlaceholderWhenEmpty ? .placeholder : .empty)).sanitizingStaleSleep(asOf: now)
         return entry(
             snapshot: snapshot,
             metric: metric,
             range: range,
             background: configuration.background ?? .system,
             // Preview/gallery shows the real widget; the live timeline respects the flag.
-            isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked
+            isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked,
+            date: now
         )
     }
 
@@ -160,10 +162,11 @@ struct HealthTrendProvider: AppIntentTimelineProvider {
         metric: HealthWidgetMetric,
         range: HealthWidgetTrendRange,
         background: BodyWidgetBackgroundSelection,
-        isPro: Bool
+        isPro: Bool,
+        date: Date = Date()
     ) -> HealthTrendEntry {
         HealthTrendEntry(
-            date: Date(),
+            date: date,
             background: background,
             metric: metric,
             range: range,

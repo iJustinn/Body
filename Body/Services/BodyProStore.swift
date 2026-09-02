@@ -5,7 +5,6 @@
 
 import Foundation
 import RevenueCat
-import WidgetKit
 
 /// Owns the Body Pro purchase and the app's reactive entitlement, backed by RevenueCat.
 ///
@@ -69,9 +68,13 @@ final class BodyProStore {
             }
         }
 
+        // Independent: `loadProduct` writes `product`/`productLoadFailed`, `refreshEntitlement`
+        // writes `isPro`/`purchaseState`/`hasResolved`, so neither reads the other's state.
         Task { [weak self] in
-            await self?.loadProduct()
-            await self?.refreshEntitlement()
+            guard let self else { return }
+            async let product: Void = loadProduct()
+            async let entitlement: Void = refreshEntitlement()
+            _ = await (product, entitlement)
         }
     }
 
@@ -208,10 +211,12 @@ final class BodyProStore {
             purchaseState = .idle
         }
         // Writes the shared cache (value-guarded post) so the widget process and
-        // HealthKitWorkoutStore pick up the change; refresh widgets only when it flips.
+        // HealthKitWorkoutStore pick up the change. This store is the single owner of the
+        // Pro widget refresh, so it fires regardless of any view's lifecycle, and only
+        // when the entitlement actually flips.
         BodyProEntitlement.setUnlocked(unlocked)
         if didChange {
-            WidgetCenter.shared.reloadAllTimelines()
+            BodyWidgetReloadCoalescer.shared.requestReload()
         }
     }
 }

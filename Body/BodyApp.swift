@@ -47,9 +47,6 @@ struct BodyApp: App {
                 .onChange(of: workoutColorOverridesRawValue) { _, _ in
                     BodyWidgetReloadCoalescer.shared.requestReload()
                 }
-                .onChange(of: proStore.isPro) { _, _ in
-                    BodyWidgetReloadCoalescer.shared.requestReload()
-                }
                 .task(priority: .utility) {
                     BodyBackgroundRefreshScheduler.setForegroundActive(true)
                     BodyBackgroundRefreshScheduler.schedule()

@@ -125,12 +125,6 @@ enum HealthWidgetTrendRange: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    var chartTitle: String {
-        switch self {
-        case .week: return "Last 7 Days"
-        case .month: return "Last 30 Days"
-        }
-    }
 }
 
 // MARK: - Trend data
@@ -419,8 +413,9 @@ struct HealthWidgetSnapshot: Codable, Equatable {
     /// this with the current `Date()` at entry-build time so widgets never
     /// keep showing yesterday's sleep after midnight. Only blanks the
     /// "current sleep" style displays (`sleep` stages, the `.sleep` metric's
-    /// `displayValues`); the week/month trend series are per-day dated
-    /// history, not stale carry-over, and are left untouched.
+    /// `displayValues`, and the trend series' `latestText` footer label); the
+    /// week/month trend series' plotted points are per-day dated history, not
+    /// stale carry-over, and are left untouched.
     func sanitizingStaleSleep(asOf date: Date, calendar: Calendar = .bodyGregorian) -> HealthWidgetSnapshot {
         guard sleep.isStale(asOf: date, calendar: calendar) else { return self }
         var sanitized = self
@@ -429,6 +424,8 @@ struct HealthWidgetSnapshot: Codable, Equatable {
             sanitized.metricTrends[index].displayValues = sanitized.metricTrends[index].displayValues.map { _ in
                 HealthWidgetDisplayValue(value: "--", unit: "")
             }
+            sanitized.metricTrends[index].week.latestText = "--"
+            sanitized.metricTrends[index].month.latestText = "--"
         }
         return sanitized
     }

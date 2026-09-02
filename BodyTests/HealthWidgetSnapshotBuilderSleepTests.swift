@@ -112,6 +112,13 @@ final class HealthWidgetSnapshotBuilderSleepTests: XCTestCase {
         for displayValue in sleepTrend.displayValues {
             XCTAssertEqual(displayValue.value, "--")
         }
+        // The trend widget's footer reads the series' own latest label, so it
+        // is blanked too while the plotted history stays.
+        XCTAssertEqual(sleepTrend.week.latestText, "--")
+        XCTAssertEqual(sleepTrend.month.latestText, "--")
+        let persistedSleepTrend = try XCTUnwrap(persistedSnapshot.metricTrends.first { $0.metric == .sleep })
+        XCTAssertEqual(sleepTrend.week.points, persistedSleepTrend.week.points)
+        XCTAssertEqual(sleepTrend.month.points, persistedSleepTrend.month.points)
     }
 
     /// A same-day snapshot passes through `sanitizingStaleSleep` unchanged.

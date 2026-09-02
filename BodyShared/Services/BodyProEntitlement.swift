@@ -18,9 +18,7 @@ enum BodyProEntitlement {
 
     private static let unlockedKey = "bodyProUnlocked"
 
-    private static var sharedDefaults: UserDefaults? {
-        UserDefaults(suiteName: WorkoutSnapshotStore.appGroupIdentifier)
-    }
+    private static let sharedDefaults: UserDefaults? = UserDefaults(suiteName: WorkoutSnapshotStore.appGroupIdentifier)
 
     /// Whether Body Pro is currently unlocked. Falls back to `false` (locked) when the
     /// App Group suite can't be reached, mirroring the guarded-container pattern the

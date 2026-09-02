@@ -2676,6 +2676,22 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         XCTAssertEqual(reloadCount, 2)
     }
 
+    @MainActor
+    func testWidgetReloadCoalescerServesReloadRequestedDuringReload() async {
+        var reloadCount = 0
+        var coalescer: BodyWidgetReloadCoalescer?
+        coalescer = BodyWidgetReloadCoalescer(debounceNanoseconds: 5_000_000) {
+            reloadCount += 1
+            if reloadCount == 1 {
+                coalescer?.requestReload()
+            }
+        }
+
+        coalescer?.requestReload()
+        try? await Task.sleep(nanoseconds: 120_000_000)
+        XCTAssertEqual(reloadCount, 2)
+    }
+
     func testPartitionHeartRateSamplesMatchesPerWorkoutWindowFiltering() {
         let base = Date(timeIntervalSinceReferenceDate: 790_000_000)
         let samples = (0..<500).map { offset in
