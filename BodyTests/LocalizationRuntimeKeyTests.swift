@@ -7,6 +7,10 @@ import XCTest
 @testable import Body
 
 final class LocalizationRuntimeKeyTests: XCTestCase {
+    override func setUpWithError() throws {
+        try BodyTestSupport.requireProjectRoot()
+    }
+
     func testSleepVitalTitlesResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
@@ -779,14 +783,10 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
     }
 
     private func loadCatalog(at relativePath: String) throws -> [String: Any] {
-        let data = try Data(contentsOf: projectRoot.appendingPathComponent(relativePath))
-        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any], relativePath)
-        return try XCTUnwrap(root["strings"] as? [String: Any], relativePath)
+        try BodyTestSupport.catalogStrings(at: relativePath)
     }
 
     private var projectRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+        BodyTestSupport.projectRoot
     }
 }

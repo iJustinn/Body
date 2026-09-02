@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "808918F0-37AB-4F92-BBCD-55E2E35A6BA0",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:body.xcodeproj",
+        "identifier" : "BDA000000000000000000001",
+        "name" : "BodyWatchTests"
+      }
+    }
+  ],
+  "version" : 1
+}

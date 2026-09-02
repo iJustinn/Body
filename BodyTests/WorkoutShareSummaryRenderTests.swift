@@ -334,11 +334,7 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
             "Set BODY_SHARE_EXAMPLES=1 to regenerate the sample share cards"
         )
 
-        // BodyTests/WorkoutShareSummaryRenderTests.swift → BodyTests → repo root.
-        let repoRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let directory = repoRoot.appendingPathComponent("share-examples", isDirectory: true)
+        let directory = BodyTestSupport.projectRoot.appendingPathComponent("share-examples", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         for metricCount in [1, 2, 3] {

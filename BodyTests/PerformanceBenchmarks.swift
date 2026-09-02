@@ -1,5 +1,5 @@
 //
-//  PerformanceBaselineTests.swift
+//  PerformanceBenchmarks.swift
 //  BodyTests
 //
 //  Baseline `measure` benchmarks for the CPU-bound helpers touched by the
@@ -7,14 +7,29 @@
 //  functions themselves stay behavior-identical, so these double as
 //  regression guards for the hot paths.
 //
+//  Skipped by default: this class is in the `Parallel` test-plan
+//  configuration's skip list because `measure` timings are noisy across
+//  machines and don't belong in a normal CI run. To run it deliberately,
+//  select the class in Xcode's Test navigator, or from the CLI:
+//  xcodebuild -project body.xcodeproj -scheme Body \
+//    -destination 'platform=iOS Simulator,name=iPhone 17' \
+//    -only-testing:BodyTests/PerformanceBenchmarks test
+//
 
 import XCTest
 @testable import Body
 
-final class PerformanceBaselineTests: XCTestCase {
-    private static let calendar = Calendar.bodyGregorian
+final class PerformanceBenchmarks: XCTestCase {
+    private static let calendar: Calendar = {
+        var calendar = Calendar.bodyGregorian
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }()
 
-    private func dailySeries(days: Int, endingAt end: Date = Date()) -> HealthTrendSeries {
+    /// 2026-09-01 00:00 UTC, fixed so fixtures are deterministic across runs.
+    private static let anchor = Date(timeIntervalSince1970: 1_788_220_800)
+
+    private func dailySeries(days: Int, endingAt end: Date = PerformanceBenchmarks.anchor) -> HealthTrendSeries {
         let calendar = Self.calendar
         let endDay = calendar.startOfDay(for: end)
         let points = (0..<days).compactMap { offset -> HealthTrendDataPoint? in
@@ -26,7 +41,7 @@ final class PerformanceBaselineTests: XCTestCase {
         return HealthTrendSeries(points: points.reversed())
     }
 
-    private func intradaySeries(pointCount: Int, endingAt end: Date = Date()) -> HealthTrendSeries {
+    private func intradaySeries(pointCount: Int, endingAt end: Date = PerformanceBenchmarks.anchor) -> HealthTrendSeries {
         let sampleSpacing: TimeInterval = 5 * 60
         let points = (0..<pointCount).map { offset in
             HealthTrendDataPoint(
@@ -56,7 +71,7 @@ final class PerformanceBaselineTests: XCTestCase {
 
     func testBaselineHourlyBucketsOverLargeIntradaySeries() {
         let series = intradaySeries(pointCount: 50_000)
-        let day = Self.calendar.startOfDay(for: Date())
+        let day = Self.calendar.startOfDay(for: Self.anchor)
         measure {
             _ = series.hourlyAverageBuckets(on: day)
         }
