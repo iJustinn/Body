@@ -1,5 +1,18 @@
 # Version History
 
+## 1.1.0 (build 2)
+
+- **Complications keep up after midnight.** Watch complications now carry an extra entry for the next midnight, so a finished sleep night clears and the weekly workout bars advance without opening the watch app, and the fallback reload runs less often in the background to save battery.
+- **Fewer redundant complication reloads.** The watch no longer republishes its snapshot or asks the system to reload complications when a pushed update did not actually change anything.
+- **Fewer wasted recomputes when there is nothing to show.** A watch that cannot fill its dashboard, because Apple Health access is off or there is no data, now recomputes at most once every 30 minutes instead of every time the app is opened.
+- **Live heart rate reads the newest beat.** During and after a workout, the watch's live heart rate now shows the most recent reading instead of an average across the whole workout.
+- **Skin Temp gauge follows the unit setting.** The corner complication's Skin Temp gauge now labels its range in the temperature unit chosen on the phone, instead of guessing from the displayed text.
+- **Settings changes no longer roll back newer values.** A settings change push older than what is already on screen no longer clears newer values that arrived after it.
+- **Pushes apply in order.** Updates pushed from the iPhone are now processed in the order they arrive, and handling a push in the background completes promptly instead of risking a delay.
+- **Faster push handling.** The watch now decodes the compute data attached to a push once instead of repeatedly.
+- **Sanitizing moved to display time.** The watch now stores a pushed snapshot as received and only clears stale values, like a finished sleep night, when reading it for display, so a metric with a cleared headline shows no dot in today's sparkline slot.
+- Updated the app, widget, watch, and test bundle version to 1.1.0 build 2.
+
 ## 1.1.0 (build 1)
 
 - **Sleep Score sheet temperature chip follows your unit setting.** The Temperature row in the Detailed Scoring sheet now shows last night's wrist temperature in the unit chosen in Settings > Units (or the system unit), instead of always Celsius.
