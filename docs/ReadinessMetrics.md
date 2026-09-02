@@ -75,11 +75,18 @@ Each band exposes `lowerBound`/`upperBound`/`title`/`color` so the line chart pa
 
 Confidence:
 
-- `high`: at least 3 scored components and at least 28 valid baseline days for a core signal.
-- `medium`: at least 2 scored components and at least 14 valid baseline days for a core signal.
+- `high`: at least 3 scored components and at least 28 baseline days for a core signal.
+- `medium`: at least 2 scored components and at least 14 baseline days for a core signal.
 - `low`: a score exists, but baseline or component coverage is thin — always
   the cap when the autonomic core is neutral-filled (no HRV and no HR data).
 - `unavailable`: no score.
+
+The baseline-day count is the best coverage across the scored core signals:
+the autonomic and vitals baselines report their own `validDayCount`, and sleep
+reports the number of usable nights (a night with a positive duration) inside
+the 56-day window before the scored day. Training is not counted: its baseline
+is an exponentially weighted average, so the size of its series says nothing
+about how mature the baseline is.
 
 Robust baseline:
 
@@ -93,8 +100,8 @@ Baseline window:
 
 - Use prior 56 calendar days.
 - Exclude the scored day.
-- If at least 28 older valid values remain, exclude the most recent 3 days before the scored day.
-- Require 14 valid values for baseline-driven sub-scores.
+- If at least 28 older valid days remain, exclude the most recent 3 days before the scored day.
+- Require 14 valid days for baseline-driven sub-scores; a day with several readings counts once, keeping its latest value.
 
 ## File Map
 
