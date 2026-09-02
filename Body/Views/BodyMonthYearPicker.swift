@@ -65,7 +65,6 @@ struct BodyMonthYearPicker: View {
     @State private var monthYearList: [BodyMonthYear]
     @State private var selectedIndex: Int = 0
     @State private var dragOffset: CGFloat = 0
-    @State private var isSyncingSelectedIndex = false
 
     private let pickerHeight: CGFloat = 60
 
@@ -133,16 +132,18 @@ struct BodyMonthYearPicker: View {
         }
         .frame(height: pickerHeight)
         .onChange(of: selectedIndex) {
-            if isSyncingSelectedIndex {
-                isSyncingSelectedIndex = false
-                return
-            }
-
             guard monthYearList.indices.contains(selectedIndex) else {
                 return
             }
 
             let monthYear = monthYearList[selectedIndex]
+            // A programmatic sync (from `syncSelectedIndex`) lands here too; if the
+            // index it moved to already matches the bound month/year there is
+            // nothing left to do, so bail before re-requesting or re-publishing it.
+            guard monthYear.month != selectedMonth || monthYear.year != selectedYear else {
+                return
+            }
+
             if !allowFutureMonths && monthYear.isFuture() {
                 syncSelectedIndex()
             } else if let onMonthYearRequested {
@@ -240,7 +241,6 @@ struct BodyMonthYearPicker: View {
             return
         }
 
-        isSyncingSelectedIndex = true
         selectedIndex = index
     }
 

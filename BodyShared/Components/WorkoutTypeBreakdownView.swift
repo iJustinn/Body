@@ -72,35 +72,36 @@ struct WorkoutTypeBreakdownView: View {
     /// Both morph snapshots stay nil until the first `.task` pass, and the widgets
     /// never run one — every read falls back to the live snapshot, so a widget renders
     /// exactly the data it was handed.
-    private var chartBreakdown: [WorkoutTypeBreakdown] {
-        Array((displayedBreakdown ?? snapshot.workoutTypeBreakdown).prefix(displayLimit))
+    private func chartBreakdown(_ live: [WorkoutTypeBreakdown]) -> [WorkoutTypeBreakdown] {
+        Array((displayedBreakdown ?? live).prefix(displayLimit))
     }
 
-    private var textBreakdown: [WorkoutTypeBreakdown] {
-        displayedTextBreakdown ?? snapshot.workoutTypeBreakdown
+    private func textBreakdown(_ live: [WorkoutTypeBreakdown]) -> [WorkoutTypeBreakdown] {
+        displayedTextBreakdown ?? live
     }
 
     /// Percentages are taken against the whole month's total, so rows hidden by
     /// the display limit still count and the visible rows can add up to less than 100%.
-    private var distributionTotal: TimeInterval {
-        textBreakdown.reduce(0) { $0 + $1.duration }
-    }
-
-    private var maxDuration: TimeInterval {
-        chartBreakdown.map(\.duration).max() ?? 0
+    private func distributionTotal(_ text: [WorkoutTypeBreakdown]) -> TimeInterval {
+        text.reduce(0) { $0 + $1.duration }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            rows
+        // The live breakdown is read once per pass and handed down: every row used
+        // to re-derive it (and the percentage total behind it) through the chained
+        // computed properties above.
+        let live = snapshot.workoutTypeBreakdown
+
+        return VStack(alignment: .leading, spacing: 14) {
+            rows(live)
         }
         .frame(
             maxWidth: .infinity,
             maxHeight: style == .app ? nil : .infinity,
             alignment: .topLeading
         )
-        .task(id: snapshot.workoutTypeBreakdown) {
-            publishBreakdown(snapshot.workoutTypeBreakdown)
+        .task(id: live) {
+            publishBreakdown(live)
         }
     }
 
@@ -132,17 +133,20 @@ struct WorkoutTypeBreakdownView: View {
     }
 
     @ViewBuilder
-    private var rows: some View {
+    private func rows(_ live: [WorkoutTypeBreakdown]) -> some View {
         if style == .app {
-            rowStack
+            rowStack(live)
         } else {
-            rowStack
+            rowStack(live)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
 
-    private var rowStack: some View {
-        let rows = chartBreakdown
+    private func rowStack(_ live: [WorkoutTypeBreakdown]) -> some View {
+        let rows = chartBreakdown(live)
+        let text = textBreakdown(live)
+        let total = distributionTotal(text)
+        let maxDuration = rows.map(\.duration).max() ?? 0
 
         return VStack(alignment: .leading, spacing: rowSpacing) {
             if rows.isEmpty {
@@ -163,7 +167,8 @@ struct WorkoutTypeBreakdownView: View {
                 ForEach(rows.indices, id: \.self) { index in
                     workoutTypeDistributionRow(
                         rows[index],
-                        rank: index,
+                        percentage: percentage(atRank: index, in: text, total: total),
+                        maxDuration: maxDuration,
                         switchAction: index == rows.count - 1 ? onSwitchChart : nil
                     )
                     .transition(.opacity)
@@ -196,7 +201,8 @@ struct WorkoutTypeBreakdownView: View {
 
     private func workoutTypeDistributionRow(
         _ entry: WorkoutTypeBreakdown,
-        rank: Int,
+        percentage: Int,
+        maxDuration: TimeInterval,
         switchAction: (() -> Void)? = nil
     ) -> some View {
         GeometryReader { geometry in
@@ -212,7 +218,7 @@ struct WorkoutTypeBreakdownView: View {
 
             HStack(spacing: rowHorizontalSpacing) {
                 HStack(spacing: rowHorizontalSpacing) {
-                    percentageBar(entry, rank: rank)
+                    percentageBar(entry, percentage: percentage)
                         .frame(width: barWidth, height: rowHeight)
 
                     workoutTypeDetails(entry)
@@ -239,10 +245,8 @@ struct WorkoutTypeBreakdownView: View {
         .frame(height: rowHeight)
     }
 
-    private func percentageBar(_ entry: WorkoutTypeBreakdown, rank: Int) -> some View {
-        let percentage = percentage(atRank: rank)
-
-        return ZStack(alignment: .leading) {
+    private func percentageBar(_ entry: WorkoutTypeBreakdown, percentage: Int) -> some View {
+        ZStack(alignment: .leading) {
             BodyGlassChip(color: palette.color(for: entry.type), cornerRadius: barCornerRadius)
 
             // Verbatim: an interpolated `Text` would register `%lld%%` as a
@@ -297,11 +301,10 @@ struct WorkoutTypeBreakdownView: View {
     /// Read at the rank slot rather than from the row's own entry: the number comes
     /// from the text snapshot, which is already showing the new arrangement while the
     /// bar under it is still traveling to its new width.
-    private func percentage(atRank rank: Int) -> Int {
-        let breakdown = textBreakdown
-        guard distributionTotal > 0, rank < breakdown.count else { return 0 }
+    private func percentage(atRank rank: Int, in breakdown: [WorkoutTypeBreakdown], total: TimeInterval) -> Int {
+        guard total > 0, rank < breakdown.count else { return 0 }
 
-        return Int(((breakdown[rank].duration / distributionTotal) * 100).rounded())
+        return Int(((breakdown[rank].duration / total) * 100).rounded())
     }
 
     private func detailReserveWidth(for availableWidth: CGFloat) -> CGFloat {

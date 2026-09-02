@@ -15,7 +15,10 @@ struct EnergyEquivalentCardContent: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @State private var scene = EnergyEquivalentScene()
+    /// Created lazily on first appearance of `physicsView`, so a reduce-motion
+    /// card (which never shows the physics view) never pays for the SpriteKit
+    /// scene and its motion manager. Nil renders `staticRow` until it exists.
+    @State private var scene: EnergyEquivalentScene?
     // No scroll-visibility callback fires outside a ScrollView, so default to visible.
     @State private var isScrollVisible = true
 
@@ -40,36 +43,45 @@ struct EnergyEquivalentCardContent: View {
             .frame(maxWidth: .infinity)
     }
 
+    @ViewBuilder
     private var physicsView: some View {
-        GeometryReader { proxy in
-            SpriteView(scene: scene, options: [.allowsTransparency])
-                .onAppear {
-                    scene.size = CGSize(width: proxy.size.width, height: Self.physicsHeight)
-                    scene.hapticsEnabled = hapticsEnabled
-                    scene.emojiScale = emojiScale
-                    scene.updateEmojis(emojis)
-                    updateRunState()
-                }
-                .onChange(of: proxy.size.width) { _, width in
-                    scene.size = CGSize(width: width, height: Self.physicsHeight)
-                }
+        if let scene {
+            GeometryReader { proxy in
+                SpriteView(scene: scene, options: [.allowsTransparency])
+                    .onAppear {
+                        scene.size = CGSize(width: proxy.size.width, height: Self.physicsHeight)
+                        scene.hapticsEnabled = hapticsEnabled
+                        scene.emojiScale = emojiScale
+                        scene.updateEmojis(emojis)
+                        updateRunState()
+                    }
+                    .onChange(of: proxy.size.width) { _, width in
+                        scene.size = CGSize(width: width, height: Self.physicsHeight)
+                    }
+            }
+            .frame(height: Self.physicsHeight)
+            .onScrollVisibilityChange(threshold: 0.2) { visible in
+                isScrollVisible = visible
+                updateRunState()
+            }
+            .onChange(of: scenePhase) { _, _ in updateRunState() }
+            .onChange(of: emojis) { _, newValue in scene.updateEmojis(newValue) }
+            .onChange(of: hapticsEnabled) { _, newValue in scene.hapticsEnabled = newValue }
+            .onChange(of: emojiScale) { _, newValue in
+                scene.emojiScale = newValue
+                scene.rebuildEmojis()
+            }
+            .onDisappear { scene.stop() }
+        } else {
+            // Shown for exactly one frame while the scene spins up.
+            staticRow
+                .frame(height: Self.physicsHeight)
+                .task { scene = EnergyEquivalentScene() }
         }
-        .frame(height: Self.physicsHeight)
-        .onScrollVisibilityChange(threshold: 0.2) { visible in
-            isScrollVisible = visible
-            updateRunState()
-        }
-        .onChange(of: scenePhase) { _, _ in updateRunState() }
-        .onChange(of: emojis) { _, newValue in scene.updateEmojis(newValue) }
-        .onChange(of: hapticsEnabled) { _, newValue in scene.hapticsEnabled = newValue }
-        .onChange(of: emojiScale) { _, newValue in
-            scene.emojiScale = newValue
-            scene.rebuildEmojis()
-        }
-        .onDisappear { scene.stop() }
     }
 
     private func updateRunState() {
+        guard let scene else { return }
         if isScrollVisible, scenePhase == .active {
             scene.start()
         } else {

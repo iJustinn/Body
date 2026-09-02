@@ -6,12 +6,21 @@
 import SwiftUI
 
 enum BodyWorkoutListSelection: Identifiable {
-    case day(WorkoutDaySummary)
+    /// The day's workouts, sorted ascending by start date once at construction
+    /// (`BodyWorkoutListSelection.day(_:)` below) rather than on every read of
+    /// `workouts`.
+    case day(WorkoutDaySummary, workouts: [WorkoutSummary])
     case type(BodyWorkoutType, workouts: [WorkoutSummary])
+
+    /// Builds a `.day` selection with its workouts pre-sorted, so `workouts`
+    /// below is a plain stored read.
+    static func day(_ day: WorkoutDaySummary) -> BodyWorkoutListSelection {
+        .day(day, workouts: day.workouts.sorted { $0.startDate < $1.startDate })
+    }
 
     var id: String {
         switch self {
-        case .day(let day):
+        case .day(let day, _):
             return "day-\(day.dateKey)"
         case .type(let type, _):
             return "type-\(type.rawValue)"
@@ -20,7 +29,7 @@ enum BodyWorkoutListSelection: Identifiable {
 
     var title: String {
         switch self {
-        case .day(let day):
+        case .day(let day, _):
             return dayTitle(for: day)
         case .type(let type, _):
             return type.displayName
@@ -42,7 +51,7 @@ enum BodyWorkoutListSelection: Identifiable {
 
     func accentColor(palette: BodyWorkoutColorPalette) -> Color {
         switch self {
-        case .day(let day):
+        case .day(let day, _):
             return day.primaryWorkoutType.map { palette.color(for: $0) } ?? Color.accentColor
         case .type(let type, _):
             return palette.color(for: type)
@@ -51,8 +60,8 @@ enum BodyWorkoutListSelection: Identifiable {
 
     var workouts: [WorkoutSummary] {
         switch self {
-        case .day(let day):
-            return day.workouts.sorted { $0.startDate < $1.startDate }
+        case .day(_, let workouts):
+            return workouts
         case .type(_, let workouts):
             return workouts
         }
