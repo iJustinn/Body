@@ -142,7 +142,8 @@ enum VitalsCalculator {
             sleepHistory: sleepHistory,
             currentDaySleep: currentDaySleep,
             today: today,
-            calendar: calendar
+            calendar: calendar,
+            windowStart: nil
         )
 
         let nights = nightDates(in: series).compactMap { date in
@@ -163,14 +164,22 @@ enum VitalsCalculator {
         today: Date,
         calendar: Calendar
     ) -> VitalsNightAssessment? {
+        let todayKey = calendar.startOfDay(for: today)
+        // Only tonight is graded, so history older than the baseline window
+        // cannot reach the baseline and does not need to be walked.
         let series = seriesByKind(
             sleepHistory: sleepHistory,
             currentDaySleep: currentDaySleep,
             today: today,
-            calendar: calendar
+            calendar: calendar,
+            windowStart: calendar.date(
+                byAdding: .day,
+                value: -ReadinessScoreCalculator.baselineDayCount,
+                to: todayKey
+            )
         )
 
-        return assessment(on: calendar.startOfDay(for: today), series: series, calendar: calendar)
+        return assessment(on: todayKey, series: series, calendar: calendar)
     }
 
     private struct VitalSeries {
@@ -180,12 +189,15 @@ enum VitalsCalculator {
     }
 
     /// One value per night per vital from the hydrated sleep history, plus the
-    /// current day's sleep summary when history does not cover it.
+    /// current day's sleep summary when history does not cover it. A
+    /// `windowStart` drops nights older than the oldest day any baseline in
+    /// the caller's range can read.
     private static func seriesByKind(
         sleepHistory: SleepHistorySnapshot,
         currentDaySleep: SleepSummary?,
         today: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        windowStart: Date?
     ) -> [VitalKind: VitalSeries] {
         let todayKey = calendar.startOfDay(for: today)
         let todaySleep = currentDaySleep?.asOf(today, calendar: calendar)
@@ -193,6 +205,9 @@ enum VitalsCalculator {
         var valuesByDayByKind: [VitalKind: [Date: Double]] = [:]
         for day in sleepHistory.days {
             let dayKey = calendar.startOfDay(for: day.date)
+            if let windowStart, dayKey < windowStart {
+                continue
+            }
             for kind in VitalKind.allCases {
                 guard let value = value(of: kind, in: day.summary) else {
                     continue

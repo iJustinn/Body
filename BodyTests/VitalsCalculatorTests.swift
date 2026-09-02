@@ -214,6 +214,34 @@ final class VitalsCalculatorTests: XCTestCase {
         XCTAssertEqual(latest, snapshot.latestNight)
     }
 
+    /// The cheap path only walks the nights the current night's baseline can
+    /// read, so an extreme night 120 days back is invisible to both paths and
+    /// the windowed result must still match the full snapshot.
+    func testCurrentNightAssessmentSkipsNightsOutsideTheBaselineWindow() throws {
+        let history = sleepHistory(nightCount: 365, endingOn: today) { offset in
+            SleepSummary(
+                duration: nil,
+                vitals: SleepVitalsSummary(heartRate: offset == 244 ? 200 : 52 + Double(offset % 5))
+            )
+        }
+
+        let latest = try XCTUnwrap(VitalsCalculator.currentNightAssessment(
+            sleepHistory: history,
+            currentDaySleep: nil,
+            today: today,
+            calendar: calendar
+        ))
+
+        let snapshot = VitalsCalculator.snapshot(
+            sleepHistory: history,
+            currentDaySleep: nil,
+            today: today,
+            calendar: calendar
+        )
+        XCTAssertEqual(history.days[244].date, date(daysBefore: 120), "the extreme night must sit outside the 56-day window")
+        XCTAssertEqual(latest, snapshot.latestNight)
+    }
+
     // MARK: - Floors
 
     func testFloorsMatchTheReadinessMetricFloors() {

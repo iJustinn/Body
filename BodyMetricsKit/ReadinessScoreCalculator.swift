@@ -50,7 +50,6 @@ enum ReadinessScoreCalculator {
         var componentScore: Int
         var ratio: Double
         var driver: ReadinessDriver?
-        var pointCount: Int
     }
 
     private struct VitalsAssessment {
@@ -66,6 +65,11 @@ enum ReadinessScoreCalculator {
         private let wholeDayBaselineCachesByMetric: [ReadinessMetric: ReadinessBaselineCache]
         private let overnightValuesByMetric: [ReadinessMetric: [Date: Double]]
         private let overnightBaselineCachesByMetric: [ReadinessMetric: ReadinessBaselineCache]
+        private let sleepDaysByDay: [Date: SleepDaySummary]
+        /// Ascending day keys of the nights that clear `sleepAssessment`'s
+        /// duration bar, so counting the usable nights before a scoring day
+        /// stays a binary search instead of a scan of the whole history.
+        private let usableSleepNightDays: [Date]
 
         init(
             trends: HealthTrendSnapshot,
@@ -113,6 +117,27 @@ enum ReadinessScoreCalculator {
                 .oxygenSaturation: ReadinessBaselineCache(series: overnightSeriesByMetric[.oxygenSaturation] ?? .empty, floor: MetricFloor.oxygenSaturation, calendar: calendar),
                 .wristTemperature: ReadinessBaselineCache(series: overnightSeriesByMetric[.wristTemperature] ?? .empty, floor: MetricFloor.wristTemperature, calendar: calendar)
             ]
+
+            // First entry wins on a duplicate day, exactly what
+            // `SleepHistorySnapshot.summary(on:)` returns from `days.first`.
+            var sleepDays: [Date: SleepDaySummary] = [:]
+            for day in trends.sleepHistory.days {
+                let dayKey = calendar.startOfDay(for: day.date)
+                if sleepDays[dayKey] == nil {
+                    sleepDays[dayKey] = day
+                }
+            }
+            sleepDaysByDay = sleepDays
+            usableSleepNightDays = sleepDays
+                .filter { _, day in
+                    guard let duration = day.summary.duration else {
+                        return false
+                    }
+
+                    return duration > 0
+                }
+                .keys
+                .sorted()
         }
 
         func wholeDayValue(on date: Date, metric: ReadinessMetric) -> Double? {
@@ -129,6 +154,42 @@ enum ReadinessScoreCalculator {
 
         func overnightBaseline(for date: Date, metric: ReadinessMetric) -> Baseline? {
             overnightBaselineCachesByMetric[metric]?.baseline(for: date)
+        }
+
+        func sleepDay(on date: Date) -> SleepDaySummary? {
+            sleepDaysByDay[calendar.startOfDay(for: date)]
+        }
+
+        /// Usable nights in the half-open window
+        /// `[scoringDay - baselineDayCount, scoringDay)`, the same days
+        /// `Baseline.validDayCount` counts, so the sleep coverage number is
+        /// comparable with the autonomic and vitals baseline day counts.
+        func usableSleepNightCount(before scoringDay: Date) -> Int {
+            let scoringDayStart = calendar.startOfDay(for: scoringDay)
+            let oldestDay = calendar.date(
+                byAdding: .day,
+                value: -ReadinessScoreCalculator.baselineDayCount,
+                to: scoringDayStart
+            ) ?? scoringDayStart.addingTimeInterval(-Double(ReadinessScoreCalculator.baselineDayCount) * 86_400)
+
+            return usableSleepNightLowerBound(for: scoringDayStart)
+                - usableSleepNightLowerBound(for: oldestDay)
+        }
+
+        private func usableSleepNightLowerBound(for day: Date) -> Int {
+            var lower = 0
+            var upper = usableSleepNightDays.count
+
+            while lower < upper {
+                let middle = (lower + upper) / 2
+                if usableSleepNightDays[middle] < day {
+                    lower = middle + 1
+                } else {
+                    upper = middle
+                }
+            }
+
+            return lower
         }
 
         private static func currentValuesByDay(
@@ -191,24 +252,19 @@ enum ReadinessScoreCalculator {
         init(series: HealthTrendSeries, floor: Double, calendar: Calendar) {
             self.floor = floor
             self.calendar = calendar
-            points = series.points.compactMap { point in
-                guard point.value.isFinite else {
-                    return nil
+            // One point per day, latest reading wins, matching
+            // `currentValuesByDay`, so `validDayCount` counts baseline days
+            // rather than however many samples a day happened to carry.
+            var latestPointByDay: [Date: BaselinePoint] = [:]
+            for point in series.points where point.value.isFinite {
+                let day = calendar.startOfDay(for: point.date)
+                if let existing = latestPointByDay[day], existing.date > point.date {
+                    continue
                 }
-
-                return BaselinePoint(
-                    day: calendar.startOfDay(for: point.date),
-                    date: point.date,
-                    value: point.value
-                )
+                latestPointByDay[day] = BaselinePoint(day: day, date: point.date, value: point.value)
             }
-            .sorted { first, second in
-                guard first.day == second.day else {
-                    return first.day < second.day
-                }
 
-                return first.date < second.date
-            }
+            points = latestPointByDay.values.sorted { $0.day < $1.day }
         }
 
         func baseline(for date: Date) -> Baseline? {
@@ -282,7 +338,6 @@ enum ReadinessScoreCalculator {
         readinessSummary(
             on: date,
             healthSummary: healthSummary,
-            trends: trends,
             idealSleepDuration: idealSleepDuration,
             calendar: calendar,
             today: today,
@@ -298,7 +353,6 @@ enum ReadinessScoreCalculator {
     private static func readinessSummary(
         on date: Date,
         healthSummary: HealthSummarySnapshot,
-        trends: HealthTrendSnapshot,
         idealSleepDuration: TimeInterval,
         calendar: Calendar,
         today: Date,
@@ -308,12 +362,12 @@ enum ReadinessScoreCalculator {
         let sleep = sleepAssessment(
             on: date,
             healthSummary: healthSummary,
-            trends: trends,
             idealSleepDuration: idealSleepDuration,
             calendar: calendar,
-            today: today
+            today: today,
+            context: context
         )
-        let training = trainingAssessment(on: date, trends: trends, context: context)
+        let training = trainingAssessment(on: date, context: context)
         let vitals = vitalsAssessment(on: date, context: context)
 
         guard autonomic != nil || sleep != nil || training != nil || vitals != nil else {
@@ -334,6 +388,9 @@ enum ReadinessScoreCalculator {
         }
 
         var components: [ReadinessComponent] = []
+        // Baseline maturity of the best-covered signal. Training is left out:
+        // its baseline is an exponentially weighted average, so its point
+        // count says nothing about how many days the baseline has seen.
         var bestBaselineDayCounts: [Int] = []
         if let autonomic {
             components.append(ReadinessComponent(
@@ -360,7 +417,6 @@ enum ReadinessScoreCalculator {
                 weight: 25,
                 message: String(localized: "Recent load relative to your longer baseline.", table: "BodyMetricsKit")
             ))
-            bestBaselineDayCounts.append(training.pointCount)
         }
         if let vitals {
             components.append(ReadinessComponent(
@@ -418,12 +474,21 @@ enum ReadinessScoreCalculator {
             to: scoringDay
         ) ?? scoringDay
 
-        let priorValues = values
-            .filter { value in
-                let day = calendar.startOfDay(for: value.date)
-                return day < scoringDay && day >= oldestDay && value.value.isFinite
+        // One value per day, latest reading wins, so `validDayCount` counts
+        // baseline days rather than raw samples.
+        var latestValueByDay: [Date: DailyValue] = [:]
+        for value in values where value.value.isFinite {
+            let day = calendar.startOfDay(for: value.date)
+            guard day < scoringDay, day >= oldestDay else {
+                continue
             }
-            .sorted { $0.date < $1.date }
+            if let existing = latestValueByDay[day], existing.date > value.date {
+                continue
+            }
+            latestValueByDay[day] = value
+        }
+
+        let priorValues = latestValueByDay.values.sorted { $0.date < $1.date }
 
         let olderValues = priorValues.filter { calendar.startOfDay(for: $0.date) < recentCutoff }
         let baselineValues = olderValues.count >= 28 ? olderValues : priorValues
@@ -479,7 +544,6 @@ enum ReadinessScoreCalculator {
             let readiness = readinessSummary(
                 on: day,
                 healthSummary: healthSummary,
-                trends: trends,
                 idealSleepDuration: idealSleepDuration,
                 calendar: calendar,
                 today: today,
@@ -613,17 +677,18 @@ enum ReadinessScoreCalculator {
     private static func sleepAssessment(
         on date: Date,
         healthSummary: HealthSummarySnapshot,
-        trends: HealthTrendSnapshot,
         idealSleepDuration: TimeInterval,
         calendar: Calendar,
-        today: Date
+        today: Date,
+        context: ReadinessDailySeriesContext
     ) -> SleepAssessment? {
-        let sleepSummary = trends.sleepHistory.summary(
-            on: date,
-            currentDaySummary: currentDaySleepSummary(healthSummary.sleep, for: date, today: today, calendar: calendar),
-            today: today,
-            calendar: calendar
-        )
+        // History first, then the current day's summary when history has no
+        // night filed under that day, mirroring
+        // `SleepHistorySnapshot.summary(on:currentDaySummary:today:calendar:)`.
+        var sleepSummary = context.sleepDay(on: date)?.summary
+        if sleepSummary == nil, calendar.isDate(date, inSameDayAs: today) {
+            sleepSummary = currentDaySleepSummary(healthSummary.sleep, for: date, today: today, calendar: calendar)
+        }
         guard let sleepSummary, let duration = sleepSummary.duration, duration > 0 else {
             return nil
         }
@@ -665,7 +730,7 @@ enum ReadinessScoreCalculator {
             componentScore: averageScore(scores),
             quality: qualityValues.reduce(0, +) / Double(qualityValues.count),
             drivers: drivers,
-            historyDayCount: trends.sleepHistory.days.count
+            historyDayCount: context.usableSleepNightCount(before: date)
         )
     }
 
@@ -688,7 +753,6 @@ enum ReadinessScoreCalculator {
 
     private static func trainingAssessment(
         on date: Date,
-        trends: HealthTrendSnapshot,
         context: ReadinessDailySeriesContext
     ) -> TrainingAssessment? {
         guard let value = context.wholeDayValue(on: date, metric: .trainingLoad), value.isFinite else {
@@ -699,8 +763,7 @@ enum ReadinessScoreCalculator {
         return TrainingAssessment(
             componentScore: result.score,
             ratio: value,
-            driver: result.driver,
-            pointCount: trends.trainingLoad.points.count
+            driver: result.driver
         )
     }
 

@@ -326,6 +326,62 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
         XCTAssertEqual(baseline.validDayCount, 20)
     }
 
+    /// A baseline must be mature in *days*: a burst of readings crammed into a
+    /// few days is not 20 days of history no matter how many samples it holds.
+    func testRobustBaselineRejectsManySamplesSpreadOverTooFewDays() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        var values: [ReadinessScoreCalculator.DailyValue] = []
+        for dayOffset in 1...5 {
+            guard let day = calendar.date(byAdding: .day, value: -dayOffset, to: scoreDay) else {
+                continue
+            }
+            for sample in 0..<4 {
+                values.append(ReadinessScoreCalculator.DailyValue(
+                    date: day.addingTimeInterval(Double(sample) * 3_600),
+                    value: 60
+                ))
+            }
+        }
+
+        XCTAssertEqual(values.count, 20)
+        XCTAssertNil(ReadinessScoreCalculator.robustBaseline(
+            for: scoreDay,
+            values: values,
+            floor: 0.1,
+            calendar: calendar
+        ))
+    }
+
+    func testRobustBaselineCountsDaysAndKeepsTheLatestValuePerDay() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        var values: [ReadinessScoreCalculator.DailyValue] = []
+        for dayOffset in 1...14 {
+            guard let day = calendar.date(byAdding: .day, value: -dayOffset, to: scoreDay) else {
+                continue
+            }
+            // Two early readings far off the day's settled value, so a
+            // sample-counting baseline would land nowhere near 17.5.
+            values.append(ReadinessScoreCalculator.DailyValue(date: day.addingTimeInterval(6 * 3_600), value: 200))
+            values.append(ReadinessScoreCalculator.DailyValue(date: day.addingTimeInterval(12 * 3_600), value: 300))
+            values.append(ReadinessScoreCalculator.DailyValue(
+                date: day.addingTimeInterval(18 * 3_600),
+                value: Double(10 + dayOffset)
+            ))
+        }
+
+        let baseline = try XCTUnwrap(ReadinessScoreCalculator.robustBaseline(
+            for: scoreDay,
+            values: values,
+            floor: 0.1,
+            calendar: calendar
+        ))
+
+        XCTAssertEqual(baseline.validDayCount, 14)
+        XCTAssertEqual(baseline.median, 17.5, accuracy: 0.0001, "median of the per-day latest values 11...24")
+    }
+
     // MARK: - Robust Z-Score
 
     func testRobustZScoreFormula() {
@@ -666,6 +722,81 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
 
         XCTAssertNotNil(summary.score)
         XCTAssertEqual(summary.confidence, .low, "neutral autonomic core must cap confidence at low")
+    }
+
+    /// Training load is an exponentially weighted average, so the length of
+    /// its series says nothing about baseline maturity: a long zero-filled
+    /// load history must not turn two weeks of signals into high confidence.
+    func testTrainingLoadPointCountDoesNotLiftConfidence() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = overnightSignalTrends(priorNightCount: 14, on: scoreDay, calendar: calendar)
+        trends.trainingLoad = zeroTrainingLoadSeries(pointCount: 400, endingOn: scoreDay, calendar: calendar)
+
+        let summary = ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+        )
+
+        XCTAssertNotNil(summary.score)
+        XCTAssertEqual(summary.components.count, 3)
+        XCTAssertEqual(summary.confidence, .medium, "14 nights of real signals is medium, whatever the load series length")
+    }
+
+    func testThirtyPriorNightsOfSignalsReachHighConfidence() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = overnightSignalTrends(priorNightCount: 30, on: scoreDay, calendar: calendar)
+        trends.trainingLoad = zeroTrainingLoadSeries(pointCount: 400, endingOn: scoreDay, calendar: calendar)
+
+        let summary = ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+        )
+
+        XCTAssertNotNil(summary.score)
+        XCTAssertEqual(summary.confidence, .high)
+    }
+
+    /// Sleep coverage is counted inside the 56-day baseline window, so a long
+    /// but stale history cannot claim maturity the other signals do not have.
+    func testSleepHistoryOutsideTheBaselineWindowDoesNotLiftConfidence() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = HealthTrendSnapshot.empty
+        var hrv: [HealthTrendDataPoint] = [HealthTrendDataPoint(date: scoreDay, value: 60)]
+        var heartRate: [HealthTrendDataPoint] = [HealthTrendDataPoint(date: scoreDay, value: 58)]
+        for offset in 1...14 {
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: scoreDay) else {
+                continue
+            }
+            hrv.append(HealthTrendDataPoint(date: date, value: 60))
+            heartRate.append(HealthTrendDataPoint(date: date, value: 58))
+        }
+        trends.heartRateVariability = HealthTrendSeries(points: hrv)
+        trends.restingHeartRate = HealthTrendSeries(points: heartRate)
+        trends.trainingLoad = HealthTrendSeries(points: [HealthTrendDataPoint(date: scoreDay, value: 1.0)])
+
+        // 100 logged nights, but only the 14 most recent fall inside the
+        // window; the other 85 sit well past 56 days back.
+        var sleepDays = [SleepDaySummary(date: scoreDay, summary: SleepSummary(duration: 7.9 * 3_600))]
+        for offset in Array(1...14) + Array(60...144) {
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: scoreDay) else {
+                continue
+            }
+            sleepDays.append(SleepDaySummary(date: date, summary: SleepSummary(duration: 7.9 * 3_600)))
+        }
+        trends.sleepHistory = SleepHistorySnapshot(days: sleepDays)
+        XCTAssertEqual(trends.sleepHistory.days.count, 100)
+
+        let summary = ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+        )
+
+        XCTAssertNotNil(summary.score)
+        XCTAssertEqual(summary.components.count, 3)
+        XCTAssertEqual(summary.confidence, .medium, "stale nights outside the window must not read as mature coverage")
     }
 
     // MARK: - Activity drain + frozen morning record
@@ -1337,6 +1468,45 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
         ))
         trends.sleepHistory = SleepHistorySnapshot(days: days)
         return trends
+    }
+
+    /// `priorNightCount` prior nights plus the scoring night, each carrying
+    /// overnight HRV/HR and a full sleep duration and nothing else, so the
+    /// autonomic and sleep coverage numbers are exactly `priorNightCount`.
+    private func overnightSignalTrends(
+        priorNightCount: Int,
+        on scoreDay: Date,
+        calendar: Calendar
+    ) -> HealthTrendSnapshot {
+        var days: [SleepDaySummary] = []
+        for offset in 0...priorNightCount {
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: scoreDay) else {
+                continue
+            }
+            days.append(SleepDaySummary(
+                date: date,
+                summary: SleepSummary(
+                    duration: 7.9 * 3_600,
+                    vitals: SleepVitalsSummary(heartRate: 58, heartRateVariability: 60)
+                )
+            ))
+        }
+        var trends = HealthTrendSnapshot.empty
+        trends.sleepHistory = SleepHistorySnapshot(days: days)
+        return trends
+    }
+
+    /// A long, flat training-load history: one zero point per day ending on
+    /// the scoring day.
+    private func zeroTrainingLoadSeries(
+        pointCount: Int,
+        endingOn scoreDay: Date,
+        calendar: Calendar
+    ) -> HealthTrendSeries {
+        HealthTrendSeries(points: (0..<pointCount).compactMap { offset in
+            calendar.date(byAdding: .day, value: -(pointCount - 1 - offset), to: scoreDay)
+                .map { HealthTrendDataPoint(date: $0, value: 0) }
+        })
     }
 
     private struct ExportFixture {
