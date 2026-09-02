@@ -67,7 +67,9 @@ enum TrainingLoadCalculator {
         var acuteLoad: Double?
         var chronicLoad: Double?
 
-        let points = dailyLoads.compactMap { day, load -> HealthTrendDataPoint? in
+        var points: [HealthTrendDataPoint] = []
+        points.reserveCapacity(dailyLoads.count)
+        for (day, load) in dailyLoads {
             acuteLoad = exponentiallyWeightedAverage(
                 previousValue: acuteLoad,
                 newValue: load,
@@ -84,10 +86,10 @@ enum TrainingLoadCalculator {
                   chronicLoad > 0,
                   acuteLoad.isFinite,
                   chronicLoad.isFinite else {
-                return nil
+                continue
             }
 
-            return HealthTrendDataPoint(date: day, value: acuteLoad / chronicLoad)
+            points.append(HealthTrendDataPoint(date: day, value: acuteLoad / chronicLoad))
         }
 
         return HealthTrendSeries(points: points)

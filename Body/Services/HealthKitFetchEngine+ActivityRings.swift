@@ -459,7 +459,11 @@ extension HealthKitFetchEngine {
         calendar: Calendar
     ) async -> ActivityRingOlderHistoryProbe {
         guard permissionSelection.includes(.activityRings) else {
-            return .failed
+            // A Body-side toggle off is a settled answer, not a transient read failure:
+            // there is no older history to page while rings are excluded, and the store
+            // resets `hasMoreActivityRingHistory` on every refresh, so re-enabling the
+            // toggle restores pagination.
+            return .noOlderData
         }
 
         guard

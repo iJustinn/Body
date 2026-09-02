@@ -834,7 +834,7 @@ enum ReadinessScoreCalculator {
                     return first.impact > second.impact
                 }
 
-                return first.message < second.message
+                return first.kind.rawValue < second.kind.rawValue
             }
             .prefix(3)
             .map { $0 }

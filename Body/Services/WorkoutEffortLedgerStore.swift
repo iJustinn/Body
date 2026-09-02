@@ -88,7 +88,7 @@ struct WorkoutEffortLedger: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         let stored = try container.decode([StoredEntry].self, forKey: .entries)
-        entries = Dictionary(uniqueKeysWithValues: stored.map { ($0.id, $0.entry) })
+        entries = stored.reduce(into: [:]) { $0[$1.id] = $1.entry }
     }
 
     func encode(to encoder: Encoder) throws {

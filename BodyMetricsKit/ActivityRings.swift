@@ -348,27 +348,6 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
         return ActivityRingHistorySnapshot(days: days, loadedMonthKeys: keptKeys)
     }
 
-    func merging(
-        _ other: ActivityRingHistorySnapshot,
-        calendar: Calendar = .bodyGregorian
-    ) -> ActivityRingHistorySnapshot {
-        var summariesByDay: [Date: ActivityRingSummary] = [:]
-        for day in days {
-            summariesByDay[calendar.startOfDay(for: day.date)] = day.summary
-        }
-        for day in other.days {
-            summariesByDay[calendar.startOfDay(for: day.date)] = day.summary
-        }
-
-        let mergedDays = summariesByDay
-            .map { ActivityRingDaySummary(date: $0.key, summary: $0.value) }
-            .sorted { $0.date < $1.date }
-        return ActivityRingHistorySnapshot(
-            days: mergedDays,
-            loadedMonthKeys: loadedMonthKeySet(calendar: calendar) + other.loadedMonthKeySet(calendar: calendar)
-        )
-    }
-
     /// REPLACES, it does not merge. Every month `other` claims as loaded loses
     /// the days this snapshot holds for it, and keeps only the days `other`
     /// supplies; months `other` does not claim are untouched. That is what

@@ -371,7 +371,7 @@ struct WorkoutRecordLedger: Codable {
         scannedThrough = try container.decodeIfPresent(Date.self, forKey: .scannedThrough)
         baselineComplete = try container.decode(Bool.self, forKey: .baselineComplete)
         let stored = try container.decode([StoredContribution].self, forKey: .contributions)
-        contributions = Dictionary(uniqueKeysWithValues: stored.map { ($0.id, $0.contribution) })
+        contributions = stored.reduce(into: [:]) { $0[$1.id] = $1.contribution }
         rebuildIndex()
     }
 

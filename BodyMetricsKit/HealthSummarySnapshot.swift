@@ -727,7 +727,8 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         HealthDashboardSnapshot(
             summary: summary.filtered(by: selection),
             trends: trends.filtered(by: selection),
-            activityRingHistory: selection.includes(.activityRings) ? activityRingHistory : .empty
+            activityRingHistory: selection.includes(.activityRings) ? activityRingHistory : .empty,
+            schemaVersion: schemaVersion
         )
     }
 

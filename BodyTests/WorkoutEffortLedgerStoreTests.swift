@@ -68,6 +68,33 @@ final class WorkoutEffortLedgerStoreTests: XCTestCase {
         XCTAssertNil(WorkoutEffortLedgerStore.load(directoryURL: directoryURL))
     }
 
+    /// A file that carries the same id twice must load, not trap: the old
+    /// `Dictionary(uniqueKeysWithValues:)` decode crashed on a duplicate.
+    func testDuplicateIdInStoredEntriesLoadsWithTheLastEntryWinning() throws {
+        let id = UUID()
+        XCTAssertTrue(
+            WorkoutEffortLedgerStore.save(
+                WorkoutEffortLedger(entries: [id: entry(effort: 3, daysAgo: 5)]),
+                directoryURL: directoryURL
+            )
+        )
+
+        let fileURL = directoryURL.appendingPathComponent("ledger.json")
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [String: Any]
+        )
+        var entries = try XCTUnwrap(object["entries"] as? [[String: Any]])
+        var duplicate = try XCTUnwrap(entries.first)
+        duplicate["effort"] = 8
+        entries.append(duplicate)
+        object["entries"] = entries
+        try JSONSerialization.data(withJSONObject: object).write(to: fileURL)
+
+        let loaded = try XCTUnwrap(WorkoutEffortLedgerStore.load(directoryURL: directoryURL))
+        XCTAssertEqual(loaded.entries.count, 1)
+        XCTAssertEqual(loaded.entries[id]?.effort, 8)
+    }
+
     func testDeleteAllRemovesTheLedger() {
         let ledger = WorkoutEffortLedger(entries: [UUID(): entry(effort: 6, daysAgo: 15)])
         XCTAssertTrue(WorkoutEffortLedgerStore.save(ledger, directoryURL: directoryURL))

@@ -2098,7 +2098,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             emojis: emojis
         )
         energyEquivalentCache[workout.id] = payload
-        persistWorkoutDetail(for: workout) { $0.energyEquivalent = payload }
+        if permissionSelection.includes(.workouts) {
+            persistWorkoutDetail(for: workout) { $0.energyEquivalent = payload }
+        }
         return emojis
     }
 
