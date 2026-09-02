@@ -2,6 +2,14 @@
 
 ## 1.1.0 (build 1)
 
+- **Sleep Score sheet temperature chip follows your unit setting.** The Temperature row in the Detailed Scoring sheet now shows last night's wrist temperature in the unit chosen in Settings > Units (or the system unit), instead of always Celsius.
+- **Share card end time for paused workouts.** The workout share card's time range now ends at the workout's recorded end time, so a workout with pauses no longer shows an end time that is earlier than when it actually finished.
+- **Activity Rings month headers in locale order.** Month titles in the Activity Rings history now use the locale's own month and year order, so English reads "Oct 2025" and other locales get their native order.
+- **Trend widget hides stale sleep.** The Health Trend widget now clears a Sleep headline and its Latest footer label from a previous night while keeping the plotted history, the same way the metric and Sleep Stages widgets already do.
+- **Day-count chips localized.** The short "7d"-style chips on the Readiness, Training Load, and Cardio Fitness breakdown charts are now localized (Chinese reads "7天").
+- **Widget extension display name.** The iPhone widget extension now reports the app name ohmybody in system UI instead of the internal target name.
+- **Pro widget refresh coalesced.** A Body Pro unlock or lapse now refreshes widgets through the same debounced reload path as other changes, owned by the store so it fires even before the app's first screen is on screen.
+- **Hardening.** Cached workout record and effort ledgers no longer crash on load if a file carries a duplicated entry; chart y-axis domains can no longer invert on all-negative or all-equal data; source-comparison and Sleep Consistency charts tolerate duplicate dates; the ring history pager treats the Activity Rings permission being off in Body as "no older data" rather than a failure; failed deletions of previous effort samples are logged; the watch session ignores an activation callback that did not activate; readiness driver ordering ties break deterministically.
 - Updated the app, widget, watch, and test bundle version to 1.1.0 build 1.
 
 ## 1.0.2 (build 2)
