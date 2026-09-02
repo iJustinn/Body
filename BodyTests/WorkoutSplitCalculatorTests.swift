@@ -680,6 +680,68 @@ final class WorkoutSplitCalculatorTests: XCTestCase {
         XCTAssertTrue(rows[0].valueText.contains("km/h"))
     }
 
+    func testSlowPartialTailDoesNotShrinkCompleteSplitBars() {
+        // M-29: 3 complete km splits around 5:00, then a 40 m tail that took 10 minutes
+        // (a cool-down walk). Scaling to the tail's 15 s/m would squash every real split
+        // to about 2% of the bar; the scale must come from the complete splits and the
+        // tail is clamped to a full bar.
+        let splits = [
+            split(1, 1000, 300, start: 0),
+            split(2, 1000, 280, start: 300),
+            split(3, 1000, 320, start: 580),
+            split(4, 40, 600, partial: true, start: 900)
+        ]
+        let presentation = WorkoutSplitsPresentation(
+            splits: splits,
+            paceStyle: .distancePace,
+            distanceUnitPreference: .kilometers,
+            locale: enUS
+        )
+        let rows = try! XCTUnwrap(presentation).rows
+        XCTAssertEqual(rows.count, 4)
+
+        // Slowest complete split fills the bar; the other two scale to it.
+        XCTAssertEqual(rows[2].barFraction, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(rows[0].barFraction, 300.0 / 320.0, accuracy: 0.0001)
+        XCTAssertEqual(rows[1].barFraction, 280.0 / 320.0, accuracy: 0.0001)
+
+        // The partial tail is slower than every complete split, so it clamps to a full
+        // bar rather than becoming the scale.
+        XCTAssertTrue(rows[3].isPartial)
+        XCTAssertEqual(rows[3].barFraction, 1.0, accuracy: 0.0001)
+    }
+
+    func testPerSplitHeartRateIsIndependentOfSampleOrder() {
+        // L-22: the samples are sorted once in the initializer, so an unsorted payload
+        // must still produce the sorted-order averages (160 / 172).
+        let splits = [
+            split(1, 1000, 300, start: 0),
+            split(2, 1000, 250, start: 300)
+        ]
+        let heartRate = [
+            heartRateSample(10, 150),
+            heartRateSample(120, 160),
+            heartRateSample(400, 170),
+            heartRateSample(500, 180)
+        ]
+        let sorted = try! XCTUnwrap(WorkoutSplitsPresentation(
+            splits: splits,
+            paceStyle: .distancePace,
+            distanceUnitPreference: .kilometers,
+            heartRateSamples: heartRate,
+            locale: enUS
+        ))
+        let reversed = try! XCTUnwrap(WorkoutSplitsPresentation(
+            splits: splits,
+            paceStyle: .distancePace,
+            distanceUnitPreference: .kilometers,
+            heartRateSamples: Array(heartRate.reversed()),
+            locale: enUS
+        ))
+        XCTAssertEqual(reversed.rows.map(\.heartRateText), ["160", "172"])
+        XCTAssertEqual(reversed.rows.map(\.heartRateText), sorted.rows.map(\.heartRateText))
+    }
+
     func testPresentationReturnsNilForSwimPace() {
         let splits = [split(1, 1000, 300)]
         XCTAssertNil(WorkoutSplitsPresentation(
