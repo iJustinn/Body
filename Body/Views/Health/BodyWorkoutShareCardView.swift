@@ -706,6 +706,7 @@ struct BodyWorkoutShareCardView: View {
     /// The blocks in the rows `WorkoutShareCardGeometry.metricRowSizes` wrapped them
     /// into — and, on the short cards, in the compact type that keeps those rows clear
     /// of the branding.
+    @MainActor
     private var metricGrid: some View {
         let style = geometry.metricBlockStyle
         let valueSize = gridValueSize
@@ -732,13 +733,18 @@ struct BodyWorkoutShareCardView: View {
     /// two-wide row under it. The widest value is measured against the narrowest
     /// column, and every block takes that size (never above the style's own, never
     /// below its 0.45 floor — the per-text scale stays as the backstop).
+    @MainActor
     private var gridValueSize: CGFloat {
         let style = geometry.metricBlockStyle
         let columns = CGFloat(geometry.metricRowSizes.max() ?? 1)
         let rowWidth = layout == .centered && showsTrace ? geometry.metricsFrame.width : geometry.size.width - 48
         let columnWidth = (rowWidth - 24 * (columns - 1)) / columns
+        // One resolved font for the whole grid: `withDesign` walks the font descriptor
+        // registry, which is far more expensive than the measurement it feeds, and every
+        // metric here is measured in the same face.
+        let font = Self.valueFont(size: style.valueSize, design: fontDesign)
         let widest = centeredMetrics
-            .map { Self.measuredWidth($0.value, size: style.valueSize, design: fontDesign) }
+            .map { Self.measuredWidth($0.value, in: font) }
             .max() ?? 0
         guard widest > columnWidth, widest > 0 else { return style.valueSize }
         return max(style.valueSize * 0.45, style.valueSize * columnWidth / widest)
@@ -746,7 +752,23 @@ struct BodyWorkoutShareCardView: View {
 
     /// Width of `text` in the card's bold value face — the same system design the
     /// SwiftUI font uses, so the fit is measured in the face that's drawn.
-    private static func measuredWidth(_ text: String, size: CGFloat, design: Font.Design) -> CGFloat {
+    private static func measuredWidth(_ text: String, in font: UIFont) -> CGFloat {
+        (text as NSString).size(withAttributes: [.font: font]).width
+    }
+
+    private struct FontKey: Hashable {
+        let size: CGFloat
+        let design: UIFontDescriptor.SystemDesign
+    }
+
+    /// Resolved value faces, kept for the session. The card re-measures on every gesture
+    /// frame and only ever asks for a handful of (size, design) pairs, so resolving the
+    /// descriptor each time would be pure repeat work.
+    @MainActor private static var fontCache: [FontKey: UIFont] = [:]
+
+    /// The card's bold value face at `size` in `design`, resolved once per pair.
+    @MainActor
+    private static func valueFont(size: CGFloat, design: Font.Design) -> UIFont {
         let systemDesign: UIFontDescriptor.SystemDesign
         switch design {
         case .rounded: systemDesign = .rounded
@@ -754,10 +776,13 @@ struct BodyWorkoutShareCardView: View {
         case .monospaced: systemDesign = .monospaced
         default: systemDesign = .default
         }
+        let key = FontKey(size: size, design: systemDesign)
+        if let cached = fontCache[key] { return cached }
         var descriptor = UIFont.systemFont(ofSize: size, weight: .bold).fontDescriptor
         if let designed = descriptor.withDesign(systemDesign) { descriptor = designed }
         let font = UIFont(descriptor: descriptor, size: size)
-        return (text as NSString).size(withAttributes: [.font: font]).width
+        fontCache[key] = font
+        return font
     }
 
     private var metricGridRows: [[WorkoutShareMetric]] {

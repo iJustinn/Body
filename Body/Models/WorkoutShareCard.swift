@@ -625,10 +625,7 @@ enum WorkoutShareRouteProjection {
     private static let degenerateSpanEpsilon = 2.5e-4
 
     static func normalizedPoints(for coordinates: [RouteCoordinate]) -> [CGPoint]? {
-        let validCoordinates = coordinates.filter {
-            $0.latitude.isFinite && $0.longitude.isFinite &&
-            abs($0.latitude) <= 90 && abs($0.longitude) <= 180
-        }
+        let validCoordinates = coordinates.drawable
         guard validCoordinates.count >= 2, let referenceLongitude = validCoordinates.first?.longitude else {
             return nil
         }

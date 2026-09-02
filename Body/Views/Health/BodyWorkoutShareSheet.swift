@@ -57,10 +57,13 @@ struct BodyWorkoutShareSheet: View {
     /// that came from a detail page, which is what keeps the workout flow untouched.
     /// Its presence is the single switch summary mode turns on (`isSummaryMode`).
     let monthSummary: WorkoutShareMonthSummary?
-    /// "Today" for the summary card's calendar, captured once when the sheet is built.
-    /// The preview and the export are two separate renders; reading `Date()` inside each
-    /// would let a midnight crossing between them ship an image the user never saw.
-    let summaryReferenceDate: Date
+    /// "Today" for the summary card's calendar, captured once when the sheet first
+    /// appears. The preview and the export are two separate renders; reading `Date()`
+    /// inside each would let a midnight crossing between them ship an image the user
+    /// never saw. `@State` rather than a stored `let`: the detail page's cover closure
+    /// re-evaluates while the sheet is up, and a fresh `Date()` per re-evaluation would
+    /// re-render every summary card body for a value that never changes.
+    @State private var summaryReferenceDate = Date()
 
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @Environment(\.dismiss) private var dismiss
@@ -162,12 +165,16 @@ struct BodyWorkoutShareSheet: View {
     /// Which rail tray is open, if any — one at a time, so the trays never stack up
     /// over the card.
     @State private var expandedOption: RailOption?
-    /// One snapshot per dimension *and* ratio: 2D composites the flat route onto the
-    /// roads, 3D the lifted ribbon, each ratio frames a differently shaped region, and
-    /// the snapshot is baked at the card's own pixel size — so no other key's image can
-    /// stand in, and none is thrown away when the user switches back. Session-only,
-    /// like the failure set below.
+    /// One snapshot per dimension *and* ratio *and* tint: 2D composites the flat route
+    /// onto the roads, 3D the lifted ribbon, each ratio frames a differently shaped
+    /// region, and the snapshot is baked at the card's own pixel size — so no other
+    /// key's image can stand in. Session-only, like the failure set below, and capped:
+    /// each entry is a full-card 3x bitmap, so an unbounded dictionary would hold tens
+    /// of megabytes after a few ratio and colour passes.
     @State private var mapSnapshots: [MapSnapshotKey: UIImage] = [:]
+    /// Insertion order for `mapSnapshots`, oldest first — a Swift dictionary has none of
+    /// its own, so the cap needs somewhere to read the eviction candidate from.
+    @State private var mapSnapshotOrder: [MapSnapshotKey] = []
     @State private var loadingMapKeys: Set<MapSnapshotKey> = []
     /// A snapshot failure is session-only: the stored choice stays `.map`, so a
     /// transient failure (offline, say) doesn't discard the user's background — the
@@ -290,7 +297,6 @@ struct BodyWorkoutShareSheet: View {
         // The workout entry point is never the summary one: no month, and the chart
         // style is seeded to a value nothing here ever reads.
         self.monthSummary = nil
-        self.summaryReferenceDate = Date()
         _summaryChartStyle = State(initialValue: .calendar)
 
         var options = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: workout.type)
@@ -339,7 +345,6 @@ struct BodyWorkoutShareSheet: View {
         self.maxHeartRate = nil
         self.heartRateRecoveryBPM = nil
         self.monthSummary = monthSummary
-        self.summaryReferenceDate = Date()
         self.availableMetricOptions = []
         self.defaultMetricIDs = []
         self.longTilePool = []
@@ -1268,8 +1273,9 @@ struct BodyWorkoutShareSheet: View {
             // A clamp is only valid for the card it was computed on: an offset that
             // parks the block near 16:9's edge would throw it off a 1:1 card entirely,
             // and the photo's overhang changes shape with the card too.
-            .onChange(of: activeAspectRatio) { _, _ in
+            .onChange(of: activeAspectRatio) { _, newRatio in
                 resetPhotoAdjustments()
+                evictMapSnapshots(keeping: newRatio)
             }
             .task(id: photoItem) { await loadSelectedPhoto() }
             .task(id: videoItem) { await loadSelectedVideo() }
@@ -1283,18 +1289,19 @@ struct BodyWorkoutShareSheet: View {
                 profileAvatarImage = newValue.isEmpty ? nil : UIImage(data: newValue)
             }
             // Everything the clip owns goes with the sheet: the encode nothing can
-            // receive any more, the player, and every scratch directory still on disk.
+            // receive any more, the player, and every scratch directory nothing else
+            // is still reading.
             .onDisappear {
                 videoExportTask?.cancel()
                 videoExportTask = nil
                 teardownPreviewPlayer()
+                // Retired, not deleted outright: the system share panel over this sheet
+                // holds the exported file, and a save may still be writing it. Whichever
+                // of those finishes last runs the removal.
                 if let clip = selectedVideo {
                     pendingScratchIDs.append(clip.id)
                 }
-                for id in pendingScratchIDs {
-                    WorkoutShareVideoClip.removeScratch(for: id)
-                }
-                pendingScratchIDs.removeAll()
+                removePendingScratch()
             }
             // Opens on the map without waiting for a tap, and re-fires whenever the
             // snapshot on screen changes identity — so a Pro lapse (3D → 2D, or a
@@ -1303,7 +1310,8 @@ struct BodyWorkoutShareSheet: View {
             .task(id: MapLoadKey(
                 isMapActive: activeSelection == .map,
                 dimension: activeDimension,
-                aspectRatio: activeAspectRatio
+                aspectRatio: activeAspectRatio,
+                tintHex: activeMapKey.tintHex
             )) {
                 let key = activeMapKey
                 guard activeSelection == .map,
@@ -2862,8 +2870,17 @@ struct BodyWorkoutShareSheet: View {
         removePendingScratch()
     }
 
+    /// Whether a retired clip's files can go now. False while the system share panel
+    /// still holds the exported URL, and while a save is writing it — both outlive the
+    /// sheet that made them.
+    static func canRemoveScratch(hasVideoPayload: Bool, isSavingImage: Bool) -> Bool {
+        !hasVideoPayload && !isSavingImage
+    }
+
     private func removePendingScratch() {
-        guard videoPayload == nil, !isSavingImage else { return }
+        guard Self.canRemoveScratch(
+            hasVideoPayload: videoPayload != nil, isSavingImage: isSavingImage
+        ) else { return }
         for id in pendingScratchIDs {
             WorkoutShareVideoClip.removeScratch(for: id)
         }
@@ -2929,6 +2946,10 @@ struct BodyWorkoutShareSheet: View {
 
         case .cardImage, .longImage:
             isRendering = true
+            // The rasterization below blocks the main actor for as long as it takes, so
+            // yield once first: without it SwiftUI never gets a pass to paint the
+            // spinner `isRendering` just turned on, and a long image looks frozen.
+            await Task.yield()
             defer { isRendering = false }
 
             if let image = renderShareImage() {
@@ -3092,6 +3113,10 @@ struct BodyWorkoutShareSheet: View {
     /// (and the share extension receiving it) would rather not see.
     private static let maximumLongOutputPixels: CGFloat = 12_000
 
+    /// How many full-card map bitmaps stay in memory at once. Four covers the dimension
+    /// and tint passes a user makes on one ratio without holding a session's worth.
+    private static let maximumCachedMapSnapshots = 4
+
     /// How far the long image may be upscaled: the card's 3× unless that would break the
     /// pixel budget, and `nil` — export refused, "Couldn't Create Image" shown — when
     /// even 1× would. Pure, so the rule can be read and tested without rasterizing
@@ -3103,11 +3128,12 @@ struct BodyWorkoutShareSheet: View {
     }
 
     /// The long image: 360 pt wide, naturally tall. `ImageRenderer` has no
-    /// `sizeThatFits`, so the height comes from a scale-1 pass — which is also the image
-    /// itself when no upscaling is affordable. The scale then backs off from 3 so a very
-    /// tall workout stays under `maximumLongOutputPixels`; a page so long that even 1×
-    /// exceeds it renders nothing and falls into the "Couldn't Create Image" alert
-    /// rather than allocating a bitmap that would take the app down.
+    /// `sizeThatFits`, so the height comes from a measuring pass — which reports its
+    /// `size` in points, so it runs at 0.25 scale and rasterizes ~16x less for a height
+    /// that is unchanged. The scale then backs off from 3 so a very tall workout stays
+    /// under `maximumLongOutputPixels`; a page so long that even 1x exceeds it renders
+    /// nothing and falls into the "Couldn't Create Image" alert rather than allocating a
+    /// bitmap that would take the app down.
     ///
     /// Reduce Motion is forced on for the same reason the colour scheme and type size
     /// are: the chart helpers read it, and an export must not depend on the device's
@@ -3127,11 +3153,10 @@ struct BodyWorkoutShareSheet: View {
                 .transaction { $0.disablesAnimations = true }
         )
         renderer.proposedSize = ProposedViewSize(width: BodyWorkoutShareLongCardView.width, height: nil)
-        renderer.scale = 1
+        renderer.scale = 0.25
 
         guard let measured = renderer.uiImage else { return nil }
         guard let scale = Self.longExportScale(forHeight: measured.size.height) else { return nil }
-        guard scale > 1 else { return measured }
 
         renderer.scale = scale
         return renderer.uiImage
@@ -3252,6 +3277,32 @@ struct BodyWorkoutShareSheet: View {
         }
     }
 
+    /// Stores a snapshot, keeping at most `maximumCachedMapSnapshots` of them: the
+    /// oldest goes when a new one would push past the cap.
+    @MainActor
+    private func cacheMapSnapshot(_ image: UIImage, for key: MapSnapshotKey) {
+        if mapSnapshots[key] == nil {
+            mapSnapshotOrder.append(key)
+        }
+        mapSnapshots[key] = image
+        while mapSnapshotOrder.count > Self.maximumCachedMapSnapshots {
+            let oldest = mapSnapshotOrder.removeFirst()
+            mapSnapshots.removeValue(forKey: oldest)
+        }
+    }
+
+    /// Drops every cached, failed and in-flight key framed for a ratio the card is no
+    /// longer on. A snapshot is baked for one card shape, so none of them can ever be
+    /// shown again in this session unless the user comes back to that ratio, which
+    /// re-requests it anyway.
+    @MainActor
+    private func evictMapSnapshots(keeping aspectRatio: WorkoutShareAspectRatio) {
+        mapSnapshots = mapSnapshots.filter { $0.key.aspectRatio == aspectRatio }
+        mapSnapshotOrder.removeAll { $0.aspectRatio != aspectRatio }
+        failedMapKeys = failedMapKeys.filter { $0.aspectRatio == aspectRatio }
+        loadingMapKeys = loadingMapKeys.filter { $0.aspectRatio == aspectRatio }
+    }
+
     @MainActor
     private func loadMapSnapshot(key: MapSnapshotKey, isUserInitiated: Bool) async {
         // Before the flag, not after: a route-less sheet has no map to load, and
@@ -3270,7 +3321,7 @@ struct BodyWorkoutShareSheet: View {
         if let image {
             // Cache even if the user switched away meanwhile — re-selecting this
             // dimension/ratio then shows the snapshot instantly.
-            mapSnapshots[key] = image
+            cacheMapSnapshot(image, for: key)
         } else if Task.isCancelled {
             // Not a failure: flipping the ratio A→B→A cancels A's in-flight load, and
             // recording that as a failure would leave A stuck on Midnight until the
@@ -3310,17 +3361,14 @@ struct BodyWorkoutShareSheet: View {
         // Drop non-finite/out-of-range fixes before any bounds math (matching
         // WorkoutShareRouteProjection) — one NaN latitude would otherwise poison
         // the min/max region and the composited polyline.
-        let validCoordinates = route.coordinates.filter {
-            $0.latitude.isFinite && $0.longitude.isFinite &&
-            abs($0.latitude) <= 90 && abs($0.longitude) <= 180
-        }
+        let validCoordinates = route.coordinates.drawable
         let coordinates = validCoordinates.map {
             CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
         }
         guard coordinates.count >= 2 else { return nil }
 
-        // Unit lift per fix, index-aligned with `validCoordinates` (the projection
-        // filters by the same predicate). A route without usable altitude comes back
+        // Unit lift per fix, index-aligned with `validCoordinates`: both sides keep the
+        // fixes that pass `isDrawable`. A route without usable altitude comes back
         // nil and simply draws flat — the 3D row is unavailable for it anyway.
         let lift = dimension == .threeD ? WorkoutRoute3DProjection.liftUnits(for: validCoordinates) : nil
 
@@ -3368,7 +3416,9 @@ struct BodyWorkoutShareSheet: View {
     /// - Parameters size, band: The card's point size and its clear band — passed in
     ///   from the geometry rather than hard-coded, so the region can't be framed for a
     ///   different shape than the snapshot is taken at.
-    private static func mapRegion(
+    /// Internal rather than private so the tests can frame a region without taking a
+    /// snapshot.
+    static func mapRegion(
         for coordinates: [CLLocationCoordinate2D],
         liftFraction: Double,
         size: CGSize,
@@ -3502,6 +3552,11 @@ private struct MapLoadKey: Equatable {
     let isMapActive: Bool
     let dimension: WorkoutShareRouteDimension
     let aspectRatio: WorkoutShareAspectRatio
+    /// Mirrors `MapSnapshotKey.tintHex`: a colour customization mid-session mints a new
+    /// snapshot key, so the loading task has to restart for it too. Without this the
+    /// sheet would wait forever on a snapshot nobody is fetching, leaving Share and Save
+    /// disabled with no loader running.
+    let tintHex: String
 }
 
 /// The in-flight half of an adjust gesture: the composite gesture's drag and

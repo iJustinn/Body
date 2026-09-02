@@ -30,6 +30,22 @@ struct RouteCoordinate: Sendable, Equatable {
     }
 }
 
+extension RouteCoordinate {
+    /// Whether this fix can take part in any bounds or projection math: a NaN or an
+    /// out-of-range degree would poison a min/max span and every point derived from it.
+    /// The single definition of that predicate, so the projection, the 3D lift and the
+    /// map snapshot all keep the same fixes and stay index-aligned with each other.
+    var isDrawable: Bool {
+        latitude.isFinite && longitude.isFinite &&
+        abs(latitude) <= 90 && abs(longitude) <= 180
+    }
+}
+
+extension Array where Element == RouteCoordinate {
+    /// The fixes that pass `isDrawable`, in order.
+    var drawable: [RouteCoordinate] { filter(\.isDrawable) }
+}
+
 /// What the workout detail page knows about a workout's GPS route while it loads.
 /// `.unknown` until the cheap `HKWorkoutRoute` presence probe answers — and after a
 /// probe that failed or was denied, since HealthKit read authorization is opaque and a
