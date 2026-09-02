@@ -74,6 +74,10 @@ final class WatchComputeSeedIntakeTests: XCTestCase {
             publisherEpoch: "epoch-a", revision: 5
         )
         let seedData = try XCTUnwrap(seed().encodedCompressed())
+        // `.replace` now carries the seed the intake decoded from these exact
+        // bytes; `publishedAt` is deliberately not encoded, so compare against
+        // the round-tripped seed rather than the fixture.
+        let decodedSeed = try XCTUnwrap(WatchComputeSeed.decoded(from: seedData))
 
         // Snapshot does NOT supersede `current` (older revision, same epoch):
         // the seed is still adopted; nothing to persist on the display side.
@@ -86,7 +90,7 @@ final class WatchComputeSeedIntakeTests: XCTestCase {
             WatchComputeSeed.applicationContextKey: seedData
         ]
         let nonSupersedingResolution = WatchMetricsModel.resolution(for: nonSupersedingContext, over: current)
-        XCTAssertEqual(nonSupersedingResolution.seedIntake, .replace(seedData))
+        XCTAssertEqual(nonSupersedingResolution.seedIntake, .replace(seedData, decodedSeed))
         XCTAssertNil(nonSupersedingResolution.resolvedSnapshot)
 
         // No "snapshot" key at all (a permission-only push): same outcome —
@@ -94,7 +98,7 @@ final class WatchComputeSeedIntakeTests: XCTestCase {
         // supersedes stays seedless forever.
         let noSnapshotContext: [String: Any] = [WatchComputeSeed.applicationContextKey: seedData]
         let noSnapshotResolution = WatchMetricsModel.resolution(for: noSnapshotContext, over: current)
-        XCTAssertEqual(noSnapshotResolution.seedIntake, .replace(seedData))
+        XCTAssertEqual(noSnapshotResolution.seedIntake, .replace(seedData, decodedSeed))
         XCTAssertNil(noSnapshotResolution.resolvedSnapshot)
 
         // A SUPERSEDING snapshot + seed: both a seed replacement AND a
@@ -108,7 +112,7 @@ final class WatchComputeSeedIntakeTests: XCTestCase {
             WatchComputeSeed.applicationContextKey: seedData
         ]
         let supersedingResolution = WatchMetricsModel.resolution(for: supersedingContext, over: current)
-        XCTAssertEqual(supersedingResolution.seedIntake, .replace(seedData))
+        XCTAssertEqual(supersedingResolution.seedIntake, .replace(seedData, decodedSeed))
         XCTAssertNotNil(supersedingResolution.resolvedSnapshot)
     }
 
@@ -166,6 +170,25 @@ final class WatchComputeSeedIntakeTests: XCTestCase {
         changedSeed.settingsSignature = "sig-2"
         let changedData = try XCTUnwrap(changedSeed.encodedCompressed())
         XCTAssertTrue(WatchComputeSeedStore.save(changedData, fileURL: fileURL))
+    }
+
+    /// M-34: the intake already decoded the seed it is saving, so the store
+    /// primes its decode memo with it. The compute's next `load()` must then
+    /// return that seed without repeating the zlib decompress plus JSON parse.
+    func testSaveWithDecodedSeedPrimesTheDecodeMemo() throws {
+        let fileURL = try uniqueFileURL()
+        let decoded = seed(settingsSignature: "sig-memo")
+        let data = try XCTUnwrap(decoded.encodedCompressed())
+
+        XCTAssertTrue(WatchComputeSeedStore.save(data, decoded: decoded, fileURL: fileURL))
+        XCTAssertEqual(WatchComputeSeedStore.load(fileURL: fileURL), decoded)
+
+        // A later save of DIFFERENT bytes must not be served from the primed
+        // entry: the memo is keyed by the bytes it came from.
+        let replacement = seed(settingsSignature: "sig-memo-2")
+        let replacementData = try XCTUnwrap(replacement.encodedCompressed())
+        XCTAssertTrue(WatchComputeSeedStore.save(replacementData, decoded: replacement, fileURL: fileURL))
+        XCTAssertEqual(WatchComputeSeedStore.load(fileURL: fileURL)?.settingsSignature, "sig-memo-2")
     }
 
     func testStoredSeedRoundTripsAndClearsOnce() throws {
@@ -280,20 +303,21 @@ final class WatchComputeSeedIntakeTests: XCTestCase {
     // MARK: - Settings-signature change detection (local-provenance strip)
 
     func testSettingsChangedOnlyBetweenTwoKnownDifferentSignatures() throws {
-        let seedData = try XCTUnwrap(seed(settingsSignature: "sig-NEW").encodedCompressed())
+        let newSeed = seed(settingsSignature: "sig-NEW")
+        let seedData = try XCTUnwrap(newSeed.encodedCompressed())
 
         // Prior signature differs -> the local values were derived under a
         // superseded configuration and must be stripped.
         XCTAssertTrue(WatchMetricsModel.settingsChanged(
-            intake: .replace(seedData), priorSignature: "sig-OLD", seedChanged: true
+            intake: .replace(seedData, newSeed), priorSignature: "sig-OLD", seedChanged: true
         ))
         // Same signature -> an ordinary data refresh of the seed.
         XCTAssertFalse(WatchMetricsModel.settingsChanged(
-            intake: .replace(seedData), priorSignature: "sig-NEW", seedChanged: true
+            intake: .replace(seedData, newSeed), priorSignature: "sig-NEW", seedChanged: true
         ))
         // No prior seed -> no old configuration anything local was derived under.
         XCTAssertFalse(WatchMetricsModel.settingsChanged(
-            intake: .replace(seedData), priorSignature: nil, seedChanged: true
+            intake: .replace(seedData, newSeed), priorSignature: nil, seedChanged: true
         ))
         // Signature-only push that cleared a mismatched stored seed.
         XCTAssertTrue(WatchMetricsModel.settingsChanged(

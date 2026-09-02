@@ -19,6 +19,7 @@
 //
 
 import Foundation
+import os
 import SwiftUI
 import WatchConnectivity
 import WatchKit
@@ -80,12 +81,43 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     }
     private static let lastComputeAttemptDateKey = "watchLastComputeAttemptDate"
     private var pendingConnectivityTasks: [WKWatchConnectivityRefreshBackgroundTask] = []
+    /// Background tasks already completed, by identity. `setTaskCompletedWithSnapshot`
+    /// must be called exactly once per task, and the expiration handler now
+    /// completes synchronously off the main thread while the main-actor finish
+    /// paths may be completing the same task, so the once-only rule needs a lock
+    /// rather than the `pendingConnectivityTasks` array alone (M-36).
+    private nonisolated let completedConnectivityTaskIDs = OSAllocatedUnfairLock<Set<ObjectIdentifier>>(initialState: [])
 
-    private override init() {
+    /// The last snapshot that actually reached disk, so `apply` can skip a
+    /// republish + timeline reload for an unchanged push, and retry a save that
+    /// failed. Raw, never sanitized: it has to compare against what `apply` is
+    /// asked to persist.
+    private var lastPersistedSnapshot: WatchMetricsSnapshot?
+    private let persistSnapshot: (WatchMetricsSnapshot) -> Bool
+    private let reloadTimelines: () -> Void
+
+    /// Received WatchConnectivity contexts, consumed one at a time in delivery
+    /// order by the single consumer started in `init` (M-37). Unbounded
+    /// buffering on purpose: a dropping policy would silently lose a push.
+    private nonisolated let contextContinuation: AsyncStream<[String: Any]>.Continuation
+    /// Contexts yielded into the stream but not yet consumed. Kept under a lock
+    /// rather than on the main actor so the increment happens at yield time and
+    /// can never trail the consumer's decrement, which would let a background
+    /// task complete with a push still queued.
+    private nonisolated let contextsInFlight = OSAllocatedUnfairLock<Int>(initialState: 0)
+
+    init(
+        persistSnapshot: @escaping (WatchMetricsSnapshot) -> Bool = { WatchMetricsSnapshotStore.save($0) },
+        reloadTimelines: @escaping () -> Void = { WidgetCenter.shared.reloadAllTimelines() }
+    ) {
+        self.persistSnapshot = persistSnapshot
+        self.reloadTimelines = reloadTimelines
         // Runs before the first `BodyHealthPermissionSelection.load()` on this
         // process: `load` is a pure read, so the migrations have to happen here.
         BodyHealthPermissionSelection.migrateIfNeeded()
-        snapshot = (WatchMetricsSnapshotStore.load() ?? .empty).sanitized()
+        let stored = WatchMetricsSnapshotStore.load()
+        lastPersistedSnapshot = stored
+        snapshot = (stored ?? .empty).sanitized()
         hiddenMetricKinds = Self.loadHiddenMetricKinds()
         if UserDefaults.standard.object(forKey: Self.lastComputeAttemptDateKey) != nil {
             let persisted = Date(
@@ -100,7 +132,17 @@ final class WatchMetricsModel: NSObject, ObservableObject {
                 lastComputeAttemptDate = persisted
             }
         }
+        let (stream, continuation) = AsyncStream.makeStream(of: [String: Any].self)
+        contextContinuation = continuation
         super.init()
+        Task { @MainActor [weak self] in
+            for await context in stream {
+                guard let self else { return }
+                await self.applyReceivedContext(context)
+                self.contextsInFlight.withLock { $0 -= 1 }
+                self.completePendingConnectivityTasksIfDrained()
+            }
+        }
     }
 
     func activate() {
@@ -111,13 +153,17 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     }
 
     func onAppear() {
-        if let stored = WatchMetricsSnapshotStore.load(), stored.generatedAt >= snapshot.generatedAt {
-            snapshot = stored
+        // `supersedes`, not a bare `generatedAt` compare: the stored snapshot
+        // must not roll back a newer publish line that is already on screen.
+        // A cached snapshot can also outlive midnight, so re-gate its Sleep
+        // metric at display time (mirrors the phone's build-time
+        // `SleepSummary.asOf`) — but only publish when something changed.
+        if let stored = WatchMetricsSnapshotStore.load(), stored.supersedes(snapshot) {
+            lastPersistedSnapshot = stored
+            snapshot = stored.sanitized()
+        } else if snapshot.sanitized() != snapshot {
+            snapshot = snapshot.sanitized()
         }
-        // A cached snapshot can outlive midnight; re-gate its Sleep metric at
-        // display time so a night that's no longer today doesn't linger (mirrors
-        // the phone's build-time `SleepSummary.asOf`).
-        snapshot = snapshot.sanitized()
         Task {
             // Compute first: it refreshes HR/HRV from real samples too, so a
             // successful run leaves them fresh and the live path below
@@ -128,6 +174,15 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     }
 
     // MARK: - WatchConnectivity intake
+
+    /// Hands a received context to the single intake consumer. `nonisolated` so
+    /// the WC delegate can enqueue without a hop: the in-flight count is bumped
+    /// under the lock BEFORE the yield, so a background task can never be
+    /// completed in the window between delivery and consumption.
+    private nonisolated func enqueueReceivedContext(_ context: [String: Any]) {
+        contextsInFlight.withLock { $0 += 1 }
+        contextContinuation.yield(context)
+    }
 
     private func applyReceivedContext(_ context: [String: Any]) async {
         // Permission selection — independent of snapshot freshness, so a
@@ -142,14 +197,14 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         // actor: the seed is zlib-compressed JSON over ~70 days of trends, and
         // decoding it (plus the store's read/compare/write) on every push — and
         // again on every activation replay — is far too much work to do while
-        // the UI is waiting. Serial queue, not a detached task, so back-to-back
-        // pushes persist their seeds in the order they arrived.
+        // the UI is waiting.
         //
-        // `async`, not fire-and-forget: the WC delegate completes any held
-        // `WKWatchConnectivityRefreshBackgroundTask` right after this returns,
-        // and watchOS may suspend the process the moment it does. Returning
-        // before the queued intake ran would let a closed-watch push be dropped
-        // with its background task already "completed" — the exact failure the
+        // Ordering across pushes is the intake stream's job (see
+        // `contextContinuation`): this method runs once per context, to
+        // completion, in delivery order. The held
+        // `WKWatchConnectivityRefreshBackgroundTask` is completed only once the
+        // stream has drained, so a closed-watch push can't be dropped with its
+        // background task already "completed" — the exact failure the
         // task-holding machinery exists to prevent.
         let current = snapshot
         let (resolution, seedChanged, settingsChanged) = await withCheckedContinuation { continuation in
@@ -184,15 +239,12 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         seedChanged: Bool
     ) -> Bool {
         switch intake {
-        case .replace(let data):
+        case .replace(_, let seed):
             // Only a change BETWEEN two known signatures counts: with no prior
             // seed there was no old configuration for local values to have
             // been derived under.
-            guard let priorSignature,
-                  let newSignature = WatchComputeSeed.decoded(from: data)?.settingsSignature else {
-                return false
-            }
-            return newSignature != priorSignature
+            guard let priorSignature else { return false }
+            return seed.settingsSignature != priorSignature
         case .clearIfSettingsMismatch:
             // The persist cleared the stored seed precisely because its
             // signature no longer matched the phone's.
@@ -204,8 +256,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         }
     }
 
-    /// Serial so seed persistence keeps receive order; off the main actor so the
-    /// seed decode + file I/O never blocks the UI (see `applyReceivedContext`).
+    /// Off the main actor so the seed decode + file I/O never blocks the UI
+    /// (see `applyReceivedContext`). Receive order is guaranteed upstream by the
+    /// single-consumer intake stream, not by this queue.
     private static let contextIntakeQueue = DispatchQueue(
         label: "com.zihengthedeveloper.Body.watchContextIntake"
     )
@@ -224,46 +277,60 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             bumpComputeGeneration()
         }
 
-        if settingsChanged {
-            // The compute settings this push announces supersede the ones every
-            // locally-derived value on screen was computed under (e.g. a
-            // switched primary Health source: the old source's data must not
-            // survive behind fresh local stamps, or a blank card from the new
-            // source could never clear it). Strip the local provenance FIRST,
-            // then resolve the received snapshot against the stripped state —
-            // the off-main resolve already ran against the unstripped snapshot
-            // and may have preserved exactly the values that must go.
-            let stripped = WatchComputeMerge.strippingLocalProvenance(from: snapshot)
-            apply(stripped.sanitized())
-            // Blanks in this push are authoritative: it was built under the new
-            // compute settings, so a "--" card here means the new configuration
-            // produces no value — the ordinary blank-preserve rule would keep
-            // the old configuration's value behind it forever (later blank
-            // watch computes never displace a displayed value).
-            if let received = resolution.received,
-               let resolved = Self.resolvedSnapshot(
-                   applying: received,
-                   over: stripped,
-                   treatingBlanksAsAuthoritative: true
-               ) {
-                apply(resolved.sanitized())
-            }
+        guard settingsChanged else {
+            guard let resolved = resolution.resolvedSnapshot else { return }
+            // The resolve ran against the snapshot as of dispatch. Re-check it
+            // against the live one: a push that landed while this one was
+            // decoding must not be rolled back by an out-of-order hop back.
+            // (Unchanged state always passes — `resolved` carries the received
+            // publish line, which already superseded it.)
+            guard resolved.supersedes(snapshot) else { return }
+            apply(resolved)
             return
         }
 
-        guard let resolved = resolution.resolvedSnapshot else { return }
-        // The resolve ran against the snapshot as of dispatch. Re-check it
-        // against the live one: a push that landed while this one was decoding
-        // must not be rolled back by an out-of-order hop back. (Unchanged state
-        // always passes — `resolved` carries the received publish line, which
-        // already superseded it.)
-        guard resolved.supersedes(snapshot) else { return }
-        // Sanitize AFTER resolving: a snapshot built before midnight can be
-        // delivered after it, and the merge's don't-downgrade rule can also
-        // resurrect a stale local sleep value over an incoming blank one. (A
-        // reset tombstone carries no Sleep metric, so sanitizing is a no-op for
-        // it.)
-        apply(resolved.sanitized())
+        // The compute settings this push announces supersede the ones every
+        // locally-derived value on screen was computed under (e.g. a switched
+        // primary Health source: the old source's data must not survive behind
+        // fresh local stamps, or a blank card from the new source could never
+        // clear it). Strip the local provenance FIRST, then resolve the
+        // received snapshot against the stripped state — the off-main resolve
+        // already ran against the unstripped snapshot and may have preserved
+        // exactly the values that must go. `strippingLocalProvenance` only
+        // clears per-metric liveUpdatedAt/computedAt, so `supersedes` against
+        // `stripped` equals `supersedes` against `snapshot`.
+        let stripped = WatchComputeMerge.strippingLocalProvenance(from: snapshot)
+        // Blanks in this push are authoritative: it was built under the new
+        // compute settings, so a "--" card here means the new configuration
+        // produces no value — the ordinary blank-preserve rule would keep the
+        // old configuration's value behind it forever (later blank watch
+        // computes never displace a displayed value).
+        //
+        // When the push does not supersede what is already on screen, `adopt`
+        // applies nothing and the strip is skipped. The new signature has
+        // already been persisted, so no later push will strip either; that is
+        // accepted, because the newer on-screen snapshot was itself produced
+        // under the newer settings.
+        guard let received = resolution.received else {
+            apply(stripped)
+            return
+        }
+        adopt(received, over: stripped, treatingBlanksAsAuthoritative: true)
+    }
+
+    /// The only route from a received push to `snapshot` (S-09); `resolvedSnapshot`
+    /// carries the `supersedes` ordering check and the reset-tombstone rule.
+    private func adopt(
+        _ received: WatchMetricsSnapshot,
+        over base: WatchMetricsSnapshot,
+        treatingBlanksAsAuthoritative: Bool
+    ) {
+        guard let resolved = Self.resolvedSnapshot(
+            applying: received,
+            over: base,
+            treatingBlanksAsAuthoritative: treatingBlanksAsAuthoritative
+        ) else { return }
+        apply(resolved)
     }
 
     /// Everything a received context decides, in one value. Bundling the two is
@@ -309,8 +376,8 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         case .clear:
             WatchComputeSeedStore.clear()
             return true
-        case .replace(let seedData):
-            return WatchComputeSeedStore.save(seedData)
+        case .replace(let seedData, let seed):
+            return WatchComputeSeedStore.save(seedData, decoded: seed)
         case .keepPrior:
             return false
         case .clearIfSettingsMismatch(let signature):
@@ -338,7 +405,7 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         /// corrupt or wrong-schema payload lands here rather than wiping a good
         /// seed on the strength of a bad push.
         case keepPrior
-        case replace(Data)
+        case replace(Data, WatchComputeSeed)
         /// A reset tombstone: the phone cleared its data, so the seed must go.
         case clear
         /// The push carried the phone's current compute-settings SIGNATURE but
@@ -369,7 +436,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
               seed.schemaVersion == WatchComputeSeed.currentSchemaVersion else {
             return .keepPrior
         }
-        return .replace(data)
+        // Carry the seed decoded here so nothing downstream repeats the zlib
+        // decompress plus JSON parse of ~70 days of trends (M-34).
+        return .replace(data, seed)
     }
 
     /// Invalidates every in-flight compute. Wrapping arithmetic because the
@@ -432,7 +501,7 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         // compute — timestamp comparison alone would preserve exactly what must
         // go. Strip the local provenance so the push resolving in this same
         // intake wins every per-metric compare.
-        apply(WatchComputeMerge.strippingLocalProvenance(from: snapshot).sanitized())
+        apply(WatchComputeMerge.strippingLocalProvenance(from: snapshot))
     }
 
     /// The live HR/HRV path reads HealthKit only after the phone's permission
@@ -441,11 +510,31 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         defaults.string(forKey: BodyAppearancePreference.healthPermissionSelectionKey) != nil
     }
 
-    private func apply(_ newSnapshot: WatchMetricsSnapshot) {
-        snapshot = newSnapshot
-        if WatchMetricsSnapshotStore.save(newSnapshot) {
-            WidgetCenter.shared.reloadAllTimelines()
+    /// Persists the RAW snapshot (sanitization is a display-time guard; the
+    /// complication provider and `onAppear` sanitize at read, see L-36) and
+    /// shows the sanitized value. Early-outs against the last snapshot that
+    /// actually reached disk, so a failed save is retried on the next call and
+    /// an unchanged push does not republish or reload the complications.
+    ///
+    /// Known limit: the merge base is still the sanitized in-memory `snapshot`,
+    /// so a metric cleared at display time can still be persisted through a
+    /// later merge. This phase only stops the direct write of sanitized output.
+    private func apply(_ raw: WatchMetricsSnapshot) {
+        let display = raw.sanitized()
+        if display != snapshot { snapshot = display }
+        guard raw != lastPersistedSnapshot else { return }
+        if persistSnapshot(raw) {
+            lastPersistedSnapshot = raw
+            reloadTimelines()
         }
+    }
+
+    /// Test seam for `apply`: every production caller is private and reaches it
+    /// only through an async HealthKit or WatchConnectivity path, so there is no
+    /// deterministic way to exercise the persist early-out and the failed-save
+    /// retry from outside.
+    func applyForTesting(_ raw: WatchMetricsSnapshot) {
+        apply(raw)
     }
 
     // MARK: - Dashboard metric visibility (watch-local)
@@ -636,7 +725,7 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         }
 
         lastComputeDate = Date()
-        apply(WatchComputeMerge.mergingComputed(result, into: snapshot).sanitized())
+        apply(WatchComputeMerge.mergingComputed(result, into: snapshot))
     }
 
     /// Awaits the broader compute-read authorization, requesting it once and
@@ -694,29 +783,55 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         return elapsed >= -WatchMetricsSnapshot.staleInterval && elapsed <= limit
     }
 
+    private func isComputeStale(now: Date) -> Bool {
+        // Weekly Workout Time IS stamped in `dataAsOf`, but only while Workouts
+        // is permitted (see `WatchComputeCoordinator.dataAsOf`); without that
+        // permission a compute can never freshen it, so scanning it would make
+        // this gate permanently true.
+        Self.isComputeStale(
+            snapshot: snapshot,
+            lastComputeAttemptDate: lastComputeAttemptDate,
+            lastComputeDate: lastComputeDate,
+            scansWorkoutMinutes: BodyHealthPermissionSelection.load().includes(.workouts),
+            isMetricVisible: { self.isMetricVisible($0) },
+            now: now
+        )
+    }
+
     /// Whether an on-device compute would be worth running now.
     ///
     /// A compute is ~20 HealthKit round trips, so the visible-staleness scan
     /// alone is not a sufficient gate: it can be permanently true (see
     /// `lastComputeAttemptDate`). Both halves must agree — something on screen
     /// is stale AND the last attempt is itself outside the stale window.
-    private func isComputeStale(now: Date) -> Bool {
-        // Nothing on screen yet: a compute is the only way to populate it.
-        guard !snapshot.metrics.isEmpty else { return true }
-
+    ///
+    /// An EMPTY snapshot is stale too (a compute is the only way to populate
+    /// it), but it is checked BELOW the attempt throttle: a watch that can
+    /// never fill the snapshot — HealthKit denied, no readable data — would
+    /// otherwise run a full compute on every single app open (H-09). At most
+    /// one attempt per `staleInterval` either way.
+    ///
+    /// `nonisolated static` + pure over its inputs so the gate is testable
+    /// without the stores and the HealthKit round trip.
+    nonisolated static func isComputeStale(
+        snapshot: WatchMetricsSnapshot,
+        lastComputeAttemptDate: Date?,
+        lastComputeDate: Date?,
+        scansWorkoutMinutes: Bool,
+        isMetricVisible: (String) -> Bool,
+        now: Date
+    ) -> Bool {
         // A compute that just ran can't have changed anything a compute would
         // change. Rate-limits the whole gate below, including the always-stale
         // cases it can't do anything about.
         if let lastComputeAttemptDate,
-           Self.isFreshLocalDate(lastComputeAttemptDate, limit: WatchMetricsSnapshot.staleInterval, now: now) {
+           isFreshLocalDate(lastComputeAttemptDate, limit: WatchMetricsSnapshot.staleInterval, now: now) {
             return false
         }
 
-        // Weekly Workout Time IS stamped in `dataAsOf`, but only while Workouts
-        // is permitted (see `WatchComputeCoordinator.dataAsOf`); without that
-        // permission a compute can never freshen it, so scanning it would make
-        // this gate permanently true.
-        let scansWorkoutMinutes = BodyHealthPermissionSelection.load().includes(.workouts)
+        // Nothing on screen yet: a compute is the only way to populate it.
+        guard !snapshot.metrics.isEmpty else { return true }
+
         let visibleMetrics = snapshot.metrics.filter {
             // Skin Temp is deliberately absent from the compute's `dataAsOf`
             // (its headline is the seeded daily summary — the watch refetches
@@ -733,14 +848,14 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         }
         let anyVisibleMetricStale = visibleMetrics.contains { metric in
             guard let measuredAt = metric.liveUpdatedAt ?? metric.computedAt else { return true }
-            return !Self.isFreshPhoneDate(measuredAt, limit: WatchMetricKindKey.liveFreshnessLimit(forKind: metric.kind), now: now)
+            return !isFreshPhoneDate(measuredAt, limit: WatchMetricKindKey.liveFreshnessLimit(forKind: metric.kind), now: now)
         }
         if anyVisibleMetricStale { return true }
 
         // Nothing visibly stale, but the compute itself hasn't produced a result
         // recently (or at all this launch) — re-run so a watch left open keeps up.
         guard let lastComputeDate else { return true }
-        return !Self.isFreshLocalDate(lastComputeDate, limit: WatchMetricsSnapshot.staleInterval, now: now)
+        return !isFreshLocalDate(lastComputeDate, limit: WatchMetricsSnapshot.staleInterval, now: now)
     }
 
     // MARK: - WatchConnectivity background tasks
@@ -753,14 +868,37 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// handler is the watchOS budget backstop — every background task must be
     /// completed even if the session never reports the content drained.
     func handleConnectivityBackgroundTask(_ task: WKWatchConnectivityRefreshBackgroundTask) {
-        task.expirationHandler = { [weak self, weak task] in
-            Task { @MainActor in
-                guard let task else { return }
-                self?.finishConnectivityTask(task)
-            }
+        // WatchKit can hand the same task over more than once; a duplicate entry
+        // would be completed twice.
+        guard !pendingConnectivityTasks.contains(where: { $0 === task }) else { return }
+        task.expirationHandler = { [weak self] in
+            // Complete SYNCHRONOUSLY, off the main thread: watchOS is asking for
+            // the task back right now, and hopping to the main actor first can
+            // miss that window. The bookkeeping hop follows.
+            self?.completeOnce(task)
+            Task { @MainActor in self?.removePendingConnectivityTask(task) }
         }
         pendingConnectivityTasks.append(task)
         completePendingConnectivityTasksIfDrained()
+    }
+
+    /// Completes a background task at most once, whichever path gets there
+    /// first (the expiration handler off the main thread, or the drained/finish
+    /// paths on the main actor).
+    private nonisolated func completeOnce(_ task: WKWatchConnectivityRefreshBackgroundTask) {
+        let isFirst = completedConnectivityTaskIDs.withLock { ids in
+            ids.insert(ObjectIdentifier(task)).inserted
+        }
+        guard isFirst else { return }
+        task.setTaskCompletedWithSnapshot(false)
+    }
+
+    /// Drops a task from the pending array and forgets its completion record
+    /// (the identity is only meaningful while WatchKit holds the object).
+    private func removePendingConnectivityTask(_ task: WKWatchConnectivityRefreshBackgroundTask) {
+        guard let index = pendingConnectivityTasks.firstIndex(where: { $0 === task }) else { return }
+        pendingConnectivityTasks.remove(at: index)
+        completedConnectivityTaskIDs.withLock { _ = $0.remove(ObjectIdentifier(task)) }
     }
 
     /// Completes held WC tasks once the session is activated and has drained all
@@ -768,6 +906,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// end as soon as delivery finishes.
     private func completePendingConnectivityTasksIfDrained() {
         guard !pendingConnectivityTasks.isEmpty else { return }
+        // A context sitting unconsumed in the intake stream is undelivered work:
+        // completing here would let watchOS suspend the app before it ran.
+        guard contextsInFlight.withLock({ $0 }) == 0 else { return }
         if WCSession.isSupported() {
             let session = WCSession.default
             guard session.activationState == .activated, !session.hasContentPending else { return }
@@ -775,15 +916,13 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         finishAllConnectivityTasks()
     }
 
-    private func finishConnectivityTask(_ task: WKWatchConnectivityRefreshBackgroundTask) {
-        guard let index = pendingConnectivityTasks.firstIndex(where: { $0 === task }) else { return }
-        pendingConnectivityTasks.remove(at: index)
-        task.setTaskCompletedWithSnapshot(false)
-    }
-
     private func finishAllConnectivityTasks() {
-        pendingConnectivityTasks.forEach { $0.setTaskCompletedWithSnapshot(false) }
+        let tasks = pendingConnectivityTasks
         pendingConnectivityTasks.removeAll()
+        tasks.forEach { task in
+            completeOnce(task)
+            completedConnectivityTaskIDs.withLock { _ = $0.remove(ObjectIdentifier(task)) }
+        }
     }
 }
 
@@ -803,21 +942,19 @@ extension WatchMetricsModel: WCSessionDelegate {
                 self.finishAllConnectivityTasks()
                 return
             }
-            // Await the intake: any held WC background task must stay open
-            // until the seed is persisted and the snapshot applied, or watchOS
-            // can suspend the app mid-intake and drop the push.
-            await self.applyReceivedContext(WCSession.default.receivedApplicationContext)
+            // Queue the intake: any held WC background task stays open until
+            // the stream has drained (the seed persisted and the snapshot
+            // applied), or watchOS can suspend the app mid-intake and drop the
+            // push.
+            self.enqueueReceivedContext(WCSession.default.receivedApplicationContext)
             self.completePendingConnectivityTasksIfDrained()
         }
     }
 
     nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        Task { @MainActor in
-            // Await the intake before draining held WC background tasks — see
-            // the activation callback above for why.
-            await self.applyReceivedContext(applicationContext)
-            self.completePendingConnectivityTasksIfDrained()
-        }
+        // Straight onto the intake stream, no per-push task: back-to-back pushes
+        // are then consumed in delivery order rather than racing (M-37).
+        enqueueReceivedContext(applicationContext)
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
