@@ -95,6 +95,48 @@ enum BodyHealthQuantityFetch {
         }
     }
 
+    /// The newest BEAT of a quantity type matching `predicate`, read via a
+    /// discrete-most-recent statistics query instead of a sample query. Some
+    /// kinds (heart rate during a workout) are stored as `HKQuantitySeries`
+    /// samples, and a plain `HKSampleQuery` returns one aggregated entry per
+    /// series blob rather than the individual readings inside it; a
+    /// statistics query resolves the series at datum granularity in one round
+    /// trip, so this is the "live HR" read `latestQuantitySample` cannot do.
+    ///
+    /// Returns the quantity and its `mostRecentQuantityDateInterval().end`
+    /// (not a sample, since a statistics query has none) so callers can stamp
+    /// freshness the same way `latestQuantitySample` callers do.
+    static func mostRecentQuantity(
+        store: HKHealthStore,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<(quantity: HKQuantity, endDate: Date)?> {
+        await withCheckedContinuation { continuation in
+            let query = HKStatisticsQuery(
+                quantityType: quantityType,
+                quantitySamplePredicate: predicate,
+                options: .mostRecent
+            ) { _, statistics, error in
+                guard let statistics else {
+                    onFailure?(error)
+                    continuation.resume(returning: .failure)
+                    return
+                }
+
+                guard let quantity = statistics.mostRecentQuantity(),
+                      let endDate = statistics.mostRecentQuantityDateInterval()?.end else {
+                    continuation.resume(returning: .success(nil))
+                    return
+                }
+
+                continuation.resume(returning: .success((quantity: quantity, endDate: endDate)))
+            }
+
+            store.execute(query)
+        }
+    }
+
     /// One point per calendar day over `[start, end]`, from a statistics
     /// collection anchored at the window's `startOfDay` with a one-day
     /// interval. Days with no statistic are omitted (not zero-filled), and a

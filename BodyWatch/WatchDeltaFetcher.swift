@@ -228,14 +228,34 @@ actor WatchDeltaFetcher {
             return nil
         }
 
+        let predicate = BodyHealthSourceResolver.combinedPredicate(
+            startDate: BodyHealthTrendRange.recentTrendWindowStart(anchor: now, calendar: calendar),
+            endDate: now,
+            sourcePredicate: resolvedSourcePredicate
+        )
+
+        if identifier == .heartRate {
+            // The watch stores workout heart rate as `HKQuantitySeries`
+            // samples, so a plain `HKSampleQuery` (below) returns one
+            // aggregated entry per series blob instead of the newest beat.
+            // A discrete-most-recent statistics query resolves the series at
+            // datum granularity, so it is used here to get the actual latest
+            // reading during a workout.
+            let outcome = await BodyHealthQuantityFetch.mostRecentQuantity(
+                store: store,
+                quantityType: quantityType,
+                predicate: predicate
+            )
+            guard case .success(let result) = outcome, let result else { return nil }
+            let value = result.quantity.doubleValue(for: unit)
+            guard value.isFinite else { return nil }
+            return WatchDeltaSample(value: value, measuredAt: result.endDate)
+        }
+
         let outcome = await BodyHealthQuantityFetch.latestQuantitySample(
             store: store,
             quantityType: quantityType,
-            predicate: BodyHealthSourceResolver.combinedPredicate(
-                startDate: BodyHealthTrendRange.recentTrendWindowStart(anchor: now, calendar: calendar),
-                endDate: now,
-                sourcePredicate: resolvedSourcePredicate
-            )
+            predicate: predicate
         )
         // Both `.failure` and a genuine `.success(nil)` yield nil here: on the
         // watch an absent reading means "this device has no local data", not an
