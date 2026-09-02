@@ -26,12 +26,17 @@ extension HealthKitFetchEngine {
     /// workout window. Concurrent callers within the same refresh await the
     /// same `Task`; the memo is invalidated whenever the trend anchor date is
     /// (re)set on the engine.
+    ///
+    /// Cancelling any one caller cancels the shared fetch for all of them. That
+    /// is intended: the three callers belong to the same refresh generation, so
+    /// a cancelled refresh should stop the query rather than leave it running
+    /// for siblings that are being cancelled alongside it.
     func sharedTrainingLoadWorkouts(
         window: TrainingLoadWorkoutsWindow
     ) async throws -> [WorkoutSummary] {
         if let task = sharedTrainingLoadWorkoutsTask,
            sharedTrainingLoadWorkoutsWindow == window {
-            return try await task.value
+            return try await awaitSharedTrainingLoadWorkouts(task, window: window)
         }
 
         let task = Task<[WorkoutSummary], Error> { [self] in
@@ -46,7 +51,31 @@ extension HealthKitFetchEngine {
         }
         sharedTrainingLoadWorkoutsTask = task
         sharedTrainingLoadWorkoutsWindow = window
-        return try await task.value
+        return try await awaitSharedTrainingLoadWorkouts(task, window: window)
+    }
+
+    /// Shared by both await sites above: propagates the caller's cancellation to
+    /// the memoized task, and drops the memo when it throws so a failure isn't
+    /// replayed to every later caller in this refresh.
+    private func awaitSharedTrainingLoadWorkouts(
+        _ task: Task<[WorkoutSummary], Error>,
+        window: TrainingLoadWorkoutsWindow
+    ) async throws -> [WorkoutSummary] {
+        do {
+            return try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+        } catch {
+            // Only if the memo is still this fetch: an anchor change may have
+            // replaced it while we were suspended, and that entry is valid.
+            if sharedTrainingLoadWorkoutsTask == task, sharedTrainingLoadWorkoutsWindow == window {
+                sharedTrainingLoadWorkoutsTask = nil
+                sharedTrainingLoadWorkoutsWindow = nil
+            }
+            throw error
+        }
     }
 
     func fetchTrainingLoadSummary(calendar: Calendar) async -> QueryOutcome<HealthMetricSummary> {

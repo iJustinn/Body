@@ -282,7 +282,11 @@ actor HealthKitFetchEngine {
     func setHealthTrendAnchorDate(_ date: Date?) {
         anchorDate = date
         // The shared training-load fetch is keyed by the anchor-derived window;
-        // crossing a refresh boundary should always re-fetch.
+        // crossing a refresh boundary should always re-fetch. Cancel before
+        // dropping the memo: once the reference is gone nothing else can stop
+        // the fetch, and it would keep a HealthKit query alive for a window no
+        // caller wants any more.
+        sharedTrainingLoadWorkoutsTask?.cancel()
         sharedTrainingLoadWorkoutsTask = nil
         sharedTrainingLoadWorkoutsWindow = nil
     }
@@ -2141,14 +2145,19 @@ actor HealthKitFetchEngine {
     ///   must not read "off" as "confirmed fine".
     func fetchCurrentMetricWarnings(
         kinds: Set<MetricWarningKind>,
-        calendar: Calendar
+        calendar: Calendar,
+        now: Date = Date()
     ) async -> [MetricWarningKind: QueryOutcome<MetricWarningEvent>] {
         guard !kinds.isEmpty else { return [:] }
 
         // Pin "today" to one instant for every kind, the way a foreground
         // refresh pins `anchorDate` before fanning out; the warning fetches
         // below read it for both their window and their workout exclusions.
-        anchorDate = Date()
+        // Restored on the way out so a warning pass never leaves the engine's
+        // anchor moved under whoever set it.
+        let previous = anchorDate
+        anchorDate = now
+        defer { anchorDate = previous }
 
         // A fresh engine starts with an empty `healthSourcesByKind`, which
         // leaves any pinned source `.unresolved` and would fail every warning.
@@ -2847,12 +2856,24 @@ actor HealthKitFetchEngine {
         // A clear landed while the fan-out was suspended, so this gather's view
         // of the cache is stale: merging it back would repopulate the maps and
         // enqueue a save AFTER the clear's ledger delete, recreating on disk
-        // exactly what the user just wiped. The fetched values are still handed
-        // to the caller — they are fresh, and the caller's apply path is
-        // generation-gated at the store level — but nothing is cached or
+        // exactly what the user just wiped. The caller still gets a full answer
+        // (the fetched values are fresh, and the caller's apply path is
+        // generation-gated at the store level), but nothing is cached or
         // persisted; the next fetch re-queries these candidates.
         guard effortCacheGeneration == generation else {
-            return (levels: fetched, failedIDs: failedIDs.subtracting(fetched.keys))
+            // Same shape as the normal return below: whatever the cache holds
+            // now for these workouts, with this gather's values on top. Reading
+            // only `fetched` here would report every non-candidate workout as
+            // score-less and blank efforts the caller already had.
+            var results: [UUID: Double] = [:]
+            results.reserveCapacity(workouts.count)
+            for workout in workouts {
+                if let effort = effortLevelsByWorkoutID[workout.uuid] {
+                    results[workout.uuid] = effort
+                }
+            }
+            results.merge(fetched) { _, fresh in fresh }
+            return (levels: results, failedIDs: failedIDs.subtracting(results.keys))
         }
 
         // Single post-gather cache mutation: no mid-stream writes a concurrent
@@ -3452,9 +3473,14 @@ actor HealthKitFetchEngine {
         // permission or comparison toggle-off clears a chart, and splicing the
         // cached tail back on would resurrect it); and an input-only Stress
         // leaf runs its own narrower clamp, which also replaces.
+        //
+        // Snapshotted once: the merge boundary is read again after the leaves
+        // have suspended, and a permission change landing mid-fetch must not
+        // make one leaf splice while its sibling replaces.
+        let mergePermissions = permissionSelection
         func windowMergeStart(for kind: HealthMetricKind) -> Date? {
             guard selection.includesFullPayload(kind),
-                  permissionSelection.includes(Self.healthPermission(forMetric: kind)) else {
+                  mergePermissions.includes(Self.healthPermission(forMetric: kind)) else {
                 return nil
             }
             return windowStart

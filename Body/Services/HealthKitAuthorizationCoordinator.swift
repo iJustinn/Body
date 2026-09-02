@@ -36,9 +36,14 @@ actor HealthKitAuthorizationCoordinator {
         let previous = chain
         let mine = Task { () throws -> T in
             await previous.value
+            try Task.checkCancellation()
             return try await operation()
         }
         chain = Task { _ = try? await mine.value }
-        return try await mine.value
+        return try await withTaskCancellationHandler {
+            try await mine.value
+        } onCancel: {
+            mine.cancel()
+        }
     }
 }

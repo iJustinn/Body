@@ -113,6 +113,62 @@ final class HealthKitAuthorizationCoordinatorTests: XCTestCase {
         let value = try await coordinator.run { "authorized" }
         XCTAssertEqual(value, "authorized")
     }
+
+    // MARK: - Cancellation
+
+    /// A caller that cancels while waiting behind a slow predecessor must
+    /// never run its own operation, and the lane must still serve the next
+    /// enqueued caller once the slow predecessor finishes.
+    func testCancellingAWaitingCallerSkipsItsOperationAndLaneContinues() async throws {
+        let coordinator = HealthKitAuthorizationCoordinator()
+        let log = EventLog()
+        let gate = Gate()
+
+        let firstTask = Task {
+            try await coordinator.run {
+                await log.append("first-start")
+                await gate.wait()
+                await log.append("first-end")
+            }
+        }
+
+        await log.waitUntil(count: 1)
+
+        let secondTask = Task {
+            try await coordinator.run {
+                await log.append("second-start")
+            }
+        }
+
+        // Give the second operation a moment to enqueue behind the first
+        // before it is cancelled and before a third is enqueued behind it.
+        try await Task.sleep(nanoseconds: 20_000_000)
+        secondTask.cancel()
+
+        let thirdTask = Task {
+            try await coordinator.run {
+                await log.append("third-start")
+            }
+        }
+
+        await gate.open()
+        _ = try await firstTask.value
+
+        do {
+            try await secondTask.value
+            XCTFail("Expected the cancelled operation to throw")
+        } catch is CancellationError {
+            // expected
+        }
+
+        try await thirdTask.value
+
+        let finalEvents = await log.events
+        XCTAssertEqual(finalEvents, ["first-start", "first-end", "third-start"])
+
+        let isBusyAfter = await coordinator.isBusy
+        XCTAssertFalse(isBusyAfter)
+    }
 }
 
 // MARK: - Test helpers

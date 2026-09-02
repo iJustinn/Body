@@ -141,9 +141,12 @@ actor MetricWarningBackgroundEvaluator {
 
     // MARK: - Fetch
 
-    /// `nil` when the evaluation overran `evaluationDeadline`. Raced against a
-    /// sleep rather than run in a task group: cancellation is cooperative, so a
-    /// group would still wait on a HealthKit query that never resumes.
+    /// `nil` when the evaluation overran `evaluationDeadline`, or the task was
+    /// cancelled. Raced through `OneShotDeadlineRace` rather than run in a task
+    /// group: cancellation is cooperative, so a group — and the old
+    /// `await work.value` under a cancelling sleeper — would still wait on a
+    /// HealthKit query that never resumes. The deadline now returns without the
+    /// work, which is left cancelled and abandoned.
     private func fetchWarnings(
         kinds: Set<MetricWarningKind>
     ) async -> [MetricWarningKind: HealthKitFetchEngine.QueryOutcome<MetricWarningEvent>]? {
@@ -158,17 +161,16 @@ actor MetricWarningBackgroundEvaluator {
         )
 
         let calendar = calendar
-        let work = Task {
-            await engine.fetchCurrentMetricWarnings(kinds: kinds, calendar: calendar)
+        // Detached so the fetch does not sit on this actor's executor while it
+        // awaits the engine actor.
+        let work = Task.detached {
+            await engine.fetchCurrentMetricWarnings(kinds: kinds, calendar: calendar, now: Date())
         }
-        let timeout = Task {
-            try await Task.sleep(for: Self.evaluationDeadline, clock: ContinuousClock())
+        let outcome = await OneShotDeadlineRace.run(deadline: Self.evaluationDeadline) {
+            await work.value
+        }
+        guard case .finished(let results) = outcome, !Task.isCancelled else {
             work.cancel()
-        }
-        defer { timeout.cancel() }
-
-        let results = await work.value
-        guard !Task.isCancelled, !work.isCancelled else {
             return nil
         }
         return results
