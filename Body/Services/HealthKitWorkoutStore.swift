@@ -370,8 +370,11 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// load and the recovery load concurrently: a flag written only on completion
     /// would let three of them hydrate in parallel, and a flag written up front
     /// would let them skip past a hydration that hasn't read the file yet. Awaiting
-    /// the shared task gives every entry point the seeded caches exactly once.
-    private var detailHydrations: [UUID: Task<WorkoutDetailSnapshot?, Never>] = [:]
+    /// the shared task gives every entry point the seeded caches exactly once —
+    /// which is why the task spans the read AND the seeding rather than
+    /// resolving to the loaded snapshot: awaiting a read-only task would resume
+    /// the other three before a single cache had been written.
+    private var detailHydrations: [UUID: Task<Void, Never>] = [:]
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
     private var monthLoadOrder: [BodyWorkoutMonthKey] = []
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
@@ -389,6 +392,12 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// The in-flight phase-2 full-window trend load, so overlapping refreshes
     /// don't stack year-long trend refetches.
     private var fullTrendWindowLoadTask: Task<Void, Never>?
+    /// The pending refetch a warning-threshold edit queued, so dragging the
+    /// picker wheel across a dozen values leaves one refresh rather than twelve.
+    private var metricWarningThresholdRefreshTask: Task<Void, Never>?
+    /// The pending debounced companion republish (see
+    /// `republishCompanionSnapshots`).
+    private var republishCompanionSnapshotsTask: Task<Void, Never>?
     /// Retains the Body Pro entitlement observer so secondary-source gating (which this
     /// store resolves from `BodyProEntitlement`, not the SwiftUI environment) recomputes
     /// when the entitlement flips.
@@ -467,6 +476,29 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
         await refreshCompletionWaiters.park()
+    }
+
+    /// Waits until no refresh holds the slot. Returns false if cancelled while waiting.
+    /// Loops because `finishRefresh()` resumes every parked waiter and only the first
+    /// to run can claim `isRefreshing`; a single park lets the others fall into the
+    /// `guard !isRefreshing` in the refresh entry points and lose their refetch.
+    ///
+    /// Internal so the Stress backfill extension parks on the same barrier.
+    func awaitRefreshSlotFree() async -> Bool {
+        while isRefreshing {
+            await awaitNextRefreshCompletion()
+            if Task.isCancelled { return false }
+        }
+        return true
+    }
+
+    /// Test seam: holds the refresh slot for the duration of `body` exactly as the
+    /// refresh entry points do, so waiter orchestration can be exercised without
+    /// HealthKit.
+    func withRefreshSlotHeld(_ body: @MainActor () async -> Void) async {
+        isRefreshing = true
+        defer { finishRefresh() }
+        await body()
     }
 
     /// Hard ceiling on one user-facing refresh. Nothing in the app used to time
@@ -602,6 +634,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             trends: healthTrends,
             activityRingHistory: activityRingHistory
         )
+        // Read every signature in the same synchronous span as the snapshot
+        // above. Taken after the `await` below they could describe a selection
+        // the abandoned refresh never published, stamping the payload with a
+        // signature that doesn't match it.
+        let daySampleSignatures = currentDaySampleSignatures()
+        let secondarySignature = currentSecondarySelectionSignature()
+        let summaryContextSignature = healthSummaryPrimarySignature
         let hydratedDaySamples = await persistedDaySamplesHydration?.value
         // Nothing landed at all, or the trends are still the empty placeholder
         // while a real sidecar sits on disk — either way the write can only
@@ -611,9 +650,6 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
 
-        let daySampleSignatures = currentDaySampleSignatures()
-        let secondarySignature = currentSecondarySelectionSignature()
-        let summaryContextSignature = healthSummaryPrimarySignature
         await withCheckedContinuation { continuation in
             Self.snapshotPersistQueue.async {
                 HealthDashboardSnapshotStore.save(
@@ -875,7 +911,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 // hydrate BEFORE clearing so the sidecar's primary scope is restored
                 // and its payload is memoized, because the clear has to reach that
                 // memo too (see `invalidateMemoizedComparisonDaySamples`).
-                await self.awaitNextRefreshCompletion()
+                guard await self.awaitRefreshSlotFree() else { return }
                 await self.hydratePersistedDaySamplesIfNeeded()
                 self.healthTrends = self.healthTrends.clearingSecondarySeries()
                 await self.invalidateMemoizedComparisonDaySamples()
@@ -1207,7 +1243,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// pull-to-refresh would otherwise never flow into the dashboard until the
     /// next manual refresh.
     private func refreshAfterWrite(_ kind: HealthMetricKind) async {
-        await awaitNextRefreshCompletion()
+        guard await awaitRefreshSlotFree() else { return }
         // A write already raised its own (share) permission sheet; this read-side
         // refresh must never stack a second one on top of it.
         await refreshHealthMetric(kind, intent: .passiveResume)
@@ -1687,14 +1723,10 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// invariant of `autoApplyPredictedEffortIfNeeded` — its internal `refresh(monthKeys:)`
     /// calls can't interleave with a concurrently starting real refresh, and every other
     /// entry point (all `guard !isRefreshing`) stays out while the pass runs. The
-    /// wait-first mirrors `refreshAfterWrite`; the while-loop covers a fresh refresh
-    /// claiming the slot between our resume and our claim (as in
-    /// `loadIntradayMetricSamplesIfNeeded`).
+    /// wait-first mirrors `refreshAfterWrite`; `awaitRefreshSlotFree` covers a fresh
+    /// refresh claiming the slot between our resume and our claim.
     func autoApplyPredictedEffortNow() async {
-        while isRefreshing {
-            await awaitNextRefreshCompletion()
-            guard !Task.isCancelled else { return }
-        }
+        guard await awaitRefreshSlotFree() else { return }
         isRefreshing = true
         defer { finishRefresh() }
         await autoApplyPredictedEffortIfNeeded(monthKeys: [])
@@ -2107,7 +2139,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// Seeds the per-workout detail session caches from the workout's persisted
     /// snapshot, so reopening a settled workout after a cold launch paints its map,
     /// charts and recovery tile without re-scanning HealthKit. Idempotent;
-    /// concurrent callers share one file read.
+    /// concurrent callers share one file read and resume on the finished seed.
     ///
     /// Only *missing* entries are seeded — a value this session already read from
     /// HealthKit is always the fresher one. Nothing on disk is a negative (the store
@@ -2115,60 +2147,69 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// recovery" answer.
     private func hydrateWorkoutDetailIfNeeded(for workout: WorkoutSummary) async {
         if let existing = detailHydrations[workout.id] {
-            _ = await existing.value
+            await existing.value
             return
         }
 
         let epoch = cacheEpoch
-        let task = Task.detached(priority: .userInitiated) {
-            WorkoutDetailSnapshotStore.load(workoutID: workout.id)
+        // The stored task covers the read AND the seeding, so the early-return
+        // above hands a second caller fully seeded caches. Seeding after an
+        // awaited read outside the task instead would let that caller resume on
+        // the read alone and miss every entry.
+        let task = Task { @MainActor [weak self] in
+            let snapshot = await Task.detached(priority: .userInitiated) {
+                WorkoutDetailSnapshotStore.load(workoutID: workout.id)
+            }.value
+            guard let self else {
+                return
+            }
+
+            // A cache clear landed while the file read was in flight — the workout this
+            // describes is gone, so don't re-seed the wiped caches (H7).
+            guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: self.cacheEpoch) else {
+                return
+            }
+
+            // Every seed is gated on the CURRENT selection, not the one the file was
+            // written under: the at-rest strip is queued, so a file can outlive an
+            // opt-out (app killed before the queue drained, or a hydration racing the
+            // toggle). This gate is what guarantees stripped-permission data never
+            // surfaces, whatever state the file is in.
+            if let route = snapshot?.route,
+               self.routeCache[workout.id] == nil,
+               self.permissionSelection.includes(.workouts) {
+                self.routeCache[workout.id] = .some(route.toModel())
+                self.routePresenceCache[workout.id] = true
+            }
+            // A payload from before a series joined the bundle is ignored once: the
+            // loader re-reads live and re-persists it at the current version.
+            if let series = snapshot?.metricSeries,
+               series.seriesVersion == PersistedWorkoutMetricSeries.currentSeriesVersion,
+               self.metricSeriesCache[workout.id] == nil,
+               self.permissionSelection.includes(.workoutMetrics) {
+                self.metricSeriesCache[workout.id] = series.toModel()
+            }
+            if let splitDTO = snapshot?.splitData,
+               self.distanceSampleCache[workout.id] == nil,
+               self.permissionSelection.includes(.workouts),
+               self.permissionSelection.includes(.workoutMetrics) {
+                self.distanceSampleCache[workout.id] = splitDTO.toModel()
+            }
+            if let bpm = snapshot?.heartRateRecoveryBPM,
+               self.heartRateRecoveryCache[workout.id] == nil,
+               self.permissionSelection.includes(.heart) {
+                self.heartRateRecoveryCache[workout.id] = .some(bpm)
+            }
+            // Energy equivalent derives from active-energy kilocalories, which rides
+            // the Workouts permission like the route and split caches above.
+            if let energyEquivalent = snapshot?.energyEquivalent,
+               self.energyEquivalentCache[workout.id] == nil,
+               self.permissionSelection.includes(.workouts) {
+                self.energyEquivalentCache[workout.id] = energyEquivalent
+            }
         }
         detailHydrations[workout.id] = task
-        let snapshot = await task.value
-
-        // A cache clear landed while the file read was in flight — the workout this
-        // describes is gone, so don't re-seed the wiped caches (H7).
-        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
-            return
-        }
-
-        // Every seed is gated on the CURRENT selection, not the one the file was
-        // written under: the at-rest strip is queued, so a file can outlive an
-        // opt-out (app killed before the queue drained, or a hydration racing the
-        // toggle). This gate is what guarantees stripped-permission data never
-        // surfaces, whatever state the file is in.
-        if let route = snapshot?.route,
-           routeCache[workout.id] == nil,
-           permissionSelection.includes(.workouts) {
-            routeCache[workout.id] = .some(route.toModel())
-            routePresenceCache[workout.id] = true
-        }
-        // A payload from before a series joined the bundle is ignored once: the
-        // loader re-reads live and re-persists it at the current version.
-        if let series = snapshot?.metricSeries,
-           series.seriesVersion == PersistedWorkoutMetricSeries.currentSeriesVersion,
-           metricSeriesCache[workout.id] == nil,
-           permissionSelection.includes(.workoutMetrics) {
-            metricSeriesCache[workout.id] = series.toModel()
-        }
-        if let splitDTO = snapshot?.splitData,
-           distanceSampleCache[workout.id] == nil,
-           permissionSelection.includes(.workouts),
-           permissionSelection.includes(.workoutMetrics) {
-            distanceSampleCache[workout.id] = splitDTO.toModel()
-        }
-        if let bpm = snapshot?.heartRateRecoveryBPM,
-           heartRateRecoveryCache[workout.id] == nil,
-           permissionSelection.includes(.heart) {
-            heartRateRecoveryCache[workout.id] = .some(bpm)
-        }
-        // Energy equivalent derives from active-energy kilocalories, which rides
-        // the Workouts permission like the route and split caches above.
-        if let energyEquivalent = snapshot?.energyEquivalent,
-           energyEquivalentCache[workout.id] == nil,
-           permissionSelection.includes(.workouts) {
-            energyEquivalentCache[workout.id] = energyEquivalent
-        }
+        await task.value
     }
 
     /// Whether a workout's details are worth keeping on disk: it has settled (the
@@ -2335,7 +2376,15 @@ final class HealthKitWorkoutStore: ObservableObject {
         case .stress:
             // Stress reads four series plus the beat-to-beat scan and then
             // recomputes, so it has its own loader (with the same guards).
-            await loadStressInputSamples()
+            // Share the refresh's in-flight load rather than starting a second
+            // one: the two would fetch and merge the same state at once, and
+            // the detail page has to observe the result before it returns.
+            // `startStressInputLoad` rather than `startStressInputLoadIfNeeded`
+            // because the dashboard-card gate the latter applies must not reach
+            // a detail page the user opened explicitly.
+            guard permissionSelection.includes(.heart) else { return }
+            if stressInputLoadTask == nil { startStressInputLoad() }
+            await stressInputLoadTask?.value
             return
         default:
             return
@@ -2436,15 +2485,12 @@ final class HealthKitWorkoutStore: ObservableObject {
         // suspended. It captured `healthTrends` before these day samples existed
         // and will overwrite our write below when it completes — dropping the
         // just-loaded intraday series and persisting that regression. Wait for
-        // any in-flight refresh (the loop covers a fresh one claiming the slot
-        // before we resume), then merge onto the now-current `healthTrends`.
-        // There is no suspension point between the loop exit and the write, so
-        // on the MainActor nothing can clobber it.
-        while isRefreshing {
-            await awaitNextRefreshCompletion()
-            guard !Task.isCancelled else {
-                return
-            }
+        // any in-flight refresh (the helper loops over a fresh one claiming the
+        // slot before we resume), then merge onto the now-current
+        // `healthTrends`. There is no suspension point between the wait and the
+        // write, so on the MainActor nothing can clobber it.
+        guard await awaitRefreshSlotFree() else {
+            return
         }
 
         // Both queries failed — nothing to merge, keep every cached series.
@@ -2504,7 +2550,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
         // A cache clear landed while the intraday samples fetched — don't merge
         // them back onto the wiped trends. The signature check covers the other
-        // mid-flight invalidations: the engine fetches and the `while isRefreshing`
+        // mid-flight invalidations: the engine fetches and the refresh-slot
         // wait above can straddle a source switch, combine flip, or permission
         // change, all of which strip the day samples. Merging old-source samples
         // onto the freshly stripped trends would stamp them into the sidecar under
@@ -2536,6 +2582,14 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
 
+        startStressInputLoad()
+    }
+
+    /// Starts the Stress input load unconditionally. Split out of
+    /// `startStressInputLoadIfNeeded` for the metric detail page, which loads
+    /// Stress on demand and so must not inherit the dashboard-card gate; it
+    /// applies its own permission and in-flight checks before calling this.
+    private func startStressInputLoad() {
         stressInputLoadTask = Task { [weak self] in
             await self?.loadStressInputSamples()
             self?.stressInputLoadTask = nil
@@ -2620,11 +2674,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Same hazard as `loadIntradayMetricSamplesIfNeeded`: a refresh that
         // started while the fetches were suspended captured `healthTrends`
         // before these samples existed and would overwrite the merge below.
-        while isRefreshing {
-            await awaitNextRefreshCompletion()
-            guard !Task.isCancelled else {
-                return
-            }
+        guard await awaitRefreshSlotFree() else {
+            return
         }
         guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
               currentDaySampleSignatures() == capturedDaySampleSignatures else {
@@ -2721,11 +2772,8 @@ final class HealthKitWorkoutStore: ObservableObject {
         // than this fetch's everywhere the two overlap, and the merge it
         // published keeps the older-than-window points this pass would have
         // reconciled. The next refresh fires phase 2 again.
-        while isRefreshing {
-            await awaitNextRefreshCompletion()
-            guard !Task.isCancelled else {
-                return
-            }
+        guard await awaitRefreshSlotFree() else {
+            return
         }
         // A query failure means some leaf resolved to its cached (possibly
         // merged) value, which is exactly what is already published — nothing
@@ -2901,8 +2949,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             // `isRefreshing` guard would otherwise silently drop this refetch,
             // leaving old-permission data on screen. Mirror the secondary-source
             // variants: wait it out, then refetch under the new selection.
-            await awaitNextRefreshCompletion()
-            guard !Task.isCancelled else {
+            guard await awaitRefreshSlotFree() else {
                 return
             }
             await requestAuthorizationAndRefresh()
@@ -2922,16 +2969,31 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// cached warning for that metric is stale as soon as Settings writes the new
     /// value. The engine reads the stored thresholds itself, so refetching the
     /// metric is all that's needed. Fire-and-forget so the picker stays responsive.
+    ///
+    /// Only the newest edit survives: each call cancels the pending one, so a
+    /// wheel dragged across a dozen values queues a single refetch. Cancelling
+    /// after the refetch has started is harmless, since `refreshHealthMetric`
+    /// runs under the deadline runner and checks cancellation cooperatively.
     func metricWarningThresholdsDidChange(for metric: HealthMetricKind) {
-        Task { [weak self] in
+        metricWarningThresholdRefreshTask?.cancel()
+        metricWarningThresholdRefreshTask = Task { [weak self] in
             // `refreshHealthMetric` drops the call while a refresh is in flight;
             // wait it out like the source/permission mutators do.
-            await self?.awaitNextRefreshCompletion()
-            guard !Task.isCancelled else {
+            guard let self, await self.awaitRefreshSlotFree(), !Task.isCancelled else {
                 return
             }
-            await self?.refreshHealthMetric(metric)
+            await self.refreshHealthMetric(metric)
+            // Only this task may clear the slot: a cancellation means a newer
+            // edit already stored its own task here.
+            if !Task.isCancelled {
+                self.metricWarningThresholdRefreshTask = nil
+            }
         }
+    }
+
+    /// Whether a warning-threshold edit still has a refetch queued.
+    var hasPendingMetricWarningThresholdRefresh: Bool {
+        metricWarningThresholdRefreshTask != nil
     }
 
     /// Records the warnings the user has just been shown on screen, so the
@@ -2942,7 +3004,11 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// anywhere in the refresh means a published warning could be stale cache
     /// rather than a fresh read, and nothing is seeded. A missed seed only costs
     /// one duplicate notification; a wrong seed silences a real one.
-    private func seedMetricWarningNotificationLedger(hadQueryFailure: Bool, calendar: Calendar) async {
+    /// Fire-and-forget: the evaluator is an actor that can be busy inside its
+    /// own (deadline-guarded) background pass, and the refresh must never park
+    /// on it. The kinds are read on the main actor first so the detached task
+    /// carries a value rather than reaching back into published state.
+    private func seedMetricWarningNotificationLedger(hadQueryFailure: Bool, calendar: Calendar) {
         guard !hadQueryFailure else {
             return
         }
@@ -2955,12 +3021,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             return
         }
 
-        await MetricWarningBackgroundEvaluator.shared.seed(
-            kinds: Dictionary(
-                todaysEvents.map { ($0.kind, $0.startDate) },
-                uniquingKeysWith: { first, _ in first }
-            )
+        let seedKinds = Dictionary(
+            todaysEvents.map { ($0.kind, $0.startDate) },
+            uniquingKeysWith: { first, _ in first }
         )
+        Task.detached {
+            await MetricWarningBackgroundEvaluator.shared.seed(kinds: seedKinds)
+        }
     }
 
     func healthDataSourceOptions(for kind: HealthMetricKind) -> [BodyHealthDataSourceOption] {
@@ -3091,8 +3158,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Wait out any in-flight refresh so the `isRefreshing` guard in
         // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
         // (matches the secondary-source variants).
-        await awaitNextRefreshCompletion()
-        guard !Task.isCancelled else {
+        guard await awaitRefreshSlotFree() else {
             return
         }
 
@@ -3247,8 +3313,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Wait out any in-flight refresh so the `isRefreshing` guard in
         // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
         // (matches the secondary-source variants).
-        await awaitNextRefreshCompletion()
-        guard !Task.isCancelled else {
+        guard await awaitRefreshSlotFree() else {
             return
         }
 
@@ -3277,8 +3342,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Wait out any in-flight refresh so the `isRefreshing` guard in
         // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
         // (matches the secondary-source variants).
-        await awaitNextRefreshCompletion()
-        guard !Task.isCancelled else {
+        guard await awaitRefreshSlotFree() else {
             return
         }
 
@@ -3299,8 +3363,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// bare `Task { requestAuthorizationAndRefresh() }` the Settings onChange used
     /// to fire was lost whenever it landed during a launch/resume refresh).
     func refetchAfterSleepDisplayPreferenceChange() async {
-        await awaitNextRefreshCompletion()
-        guard !Task.isCancelled else {
+        guard await awaitRefreshSlotFree() else {
             return
         }
 
@@ -3318,9 +3381,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         nextSelection.save()
         await engine.setSecondaryHealthDataSourceSelection(nextSelection)
 
-        await awaitNextRefreshCompletion()
-
-        guard !Task.isCancelled else {
+        guard await awaitRefreshSlotFree() else {
             return
         }
 
@@ -3346,8 +3407,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Wait out any in-flight refresh so the `isRefreshing` guard in
         // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
         // (matches the secondary-source variants).
-        await awaitNextRefreshCompletion()
-        guard !Task.isCancelled else {
+        guard await awaitRefreshSlotFree() else {
             return
         }
 
@@ -3370,9 +3430,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         nextSelection.save()
         await engine.setSecondaryHealthDataSourceSelection(nextSelection)
 
-        await awaitNextRefreshCompletion()
-
-        guard !Task.isCancelled else {
+        guard await awaitRefreshSlotFree() else {
             return
         }
 
@@ -4230,28 +4288,6 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
-    func refreshCurrentMonth(date: Date = Date()) async {
-        guard !isRefreshing else {
-            return
-        }
-
-        guard HKHealthStore.isHealthDataAvailable() else {
-            authorizationState = .unavailable
-            healthDataNotice = String(localized: "Apple Health is not available on this device.")
-            return
-        }
-
-        isRefreshing = true
-        defer { finishRefresh() }
-
-        let calendar = Calendar.bodyGregorian
-        let month = calendar.component(.month, from: date)
-        let year = calendar.component(.year, from: date)
-        await runRefreshWithDeadline {
-            await self.refresh(month: month, year: year, calendar: calendar, updatesHealthSummary: true)
-        }
-    }
-
     func clearLocalCache(date: Date = Date()) async {
         // Don't clear on top of an in-flight refresh (which would resurrect what
         // we wipe) or a wipe already running.
@@ -4536,7 +4572,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             // HealthKit query ran, so the badge must not confirm "Health data
             // updated" for this no-op.
             markRefreshSucceeded(date: date, refreshedVitals: true, publishesWatch: false, hadQueryFailure: hadQueryFailure, advancesSyncBadge: true, ranQueries: permissionSelectionCanRunQueries)
-            await seedMetricWarningNotificationLedger(hadQueryFailure: hadQueryFailure, calendar: calendar)
+            seedMetricWarningNotificationLedger(hadQueryFailure: hadQueryFailure, calendar: calendar)
             updateCurrentMonthSnapshot(date: date, calendar: calendar)
             await reapplyActivityReadinessAfterWorkouts(date: date, calendar: calendar, persists: false)
             // Same ordering fix, for Stress's activity mask.
@@ -4988,7 +5024,14 @@ final class HealthKitWorkoutStore: ObservableObject {
         // onto the wiped history. Rings being switched off is the same story:
         // cancelling the walk can't help a chunk that is already mid-flight, so
         // the opt-out is enforced here, at the point of application.
+        //
+        // `mayApplyRefreshResults` for the same reason: a refresh abandoned at
+        // the deadline can still return from a stuck ring query minutes later,
+        // and its chunk must not overwrite what the retry has since published.
+        // Outside a deadline-guarded refresh the task-local is nil and this is
+        // always true, so the lazy pagination path is unaffected.
         guard Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: cacheEpoch),
+              mayApplyRefreshResults,
               permissionSelection.includes(.activityRings) else {
             return false
         }
@@ -6013,10 +6056,20 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// score) a full refetch is unnecessary — a rebuild from what's already
     /// published is enough. Skipped while a cache clear is in flight so it
     /// can't resurrect state the clear is wiping.
+    ///
+    /// Debounced by 300 ms, because a held stepper or a dragged slider fires one
+    /// `onChange` per tick and each rebuild encodes both snapshots and reloads
+    /// the widget timelines. Known trade: a preference change followed within
+    /// 300 ms by app suspension publishes on the next refresh instead. The task
+    /// lives on the store, so dismissing the settings view does not drop it.
     func republishCompanionSnapshots() {
-        guard !isClearingCache else { return }
-        saveHealthWidgetSnapshot()
-        publishWatchSnapshot()
+        republishCompanionSnapshotsTask?.cancel()
+        republishCompanionSnapshotsTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self, !self.isClearingCache else { return }
+            self.saveHealthWidgetSnapshot()
+            self.publishWatchSnapshot()
+        }
     }
 
     /// The trailing week's workout minutes (oldest → today, 7 slots) for the

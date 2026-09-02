@@ -3963,4 +3963,130 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
             successDate
         )
     }
+
+    /// `finishRefresh` resumes every parked waiter at once, so a single park is
+    /// not enough: only the first waiter to run can claim the slot, and the
+    /// others used to fall straight into the `guard !isRefreshing` in the
+    /// refresh entry points and lose their refetch. The helper loops instead.
+    @MainActor
+    func testRefreshSlotWaitersAllResumeAfterTheSlotIsReleased() async {
+        let store = emptyHealthDataStore()
+
+        var first = false
+        var second = false
+        await store.withRefreshSlotHeld {
+            let a = Task { @MainActor in await store.awaitRefreshSlotFree() }
+            let b = Task { @MainActor in await store.awaitRefreshSlotFree() }
+
+            // Both are parked on the held slot, so neither has resumed yet.
+            var spins = 0
+            while spins < 100 {
+                await Task.yield()
+                spins += 1
+            }
+            XCTAssertTrue(store.isRefreshing)
+
+            Task { @MainActor in
+                first = await a.value
+                second = await b.value
+            }
+        }
+
+        var spins = 0
+        while !(first && second), spins < 1_000 {
+            await Task.yield()
+            spins += 1
+        }
+        XCTAssertTrue(first)
+        XCTAssertTrue(second)
+        XCTAssertFalse(store.isRefreshing)
+    }
+
+    /// A waiter cancelled while parked must report the slot was never won, so
+    /// its caller stands down instead of refetching on a dead task.
+    @MainActor
+    func testCancelledRefreshSlotWaiterReturnsFalseWithoutWaitingForTheSlot() async {
+        let store = emptyHealthDataStore()
+        let resumed = expectation(description: "cancelled waiter resumed")
+        var wonSlot = true
+
+        await store.withRefreshSlotHeld {
+            let waiter = Task { @MainActor in
+                wonSlot = await store.awaitRefreshSlotFree()
+                resumed.fulfill()
+            }
+
+            var spins = 0
+            while spins < 100 {
+                await Task.yield()
+                spins += 1
+            }
+            waiter.cancel()
+            await waiter.value
+        }
+
+        await fulfillment(of: [resumed], timeout: 5)
+        XCTAssertFalse(wonSlot)
+    }
+
+    /// The threshold picker fires one change per wheel tick. Each edit must
+    /// replace the pending refetch rather than stack another one behind the
+    /// running refresh.
+    @MainActor
+    func testRepeatedWarningThresholdEditsLeaveOneQueuedRefresh() async {
+        let store = emptyHealthDataStore()
+        XCTAssertFalse(store.hasPendingMetricWarningThresholdRefresh)
+
+        await store.withRefreshSlotHeld {
+            store.metricWarningThresholdsDidChange(for: .heartRate)
+            XCTAssertTrue(store.hasPendingMetricWarningThresholdRefresh)
+            // The second edit cancels the first, so one refetch stays parked on
+            // the held slot rather than two.
+            store.metricWarningThresholdsDidChange(for: .heartRate)
+            XCTAssertTrue(store.hasPendingMetricWarningThresholdRefresh)
+
+            var spins = 0
+            while spins < 200 {
+                await Task.yield()
+                spins += 1
+            }
+            XCTAssertTrue(store.isRefreshing)
+            // Neither edit refetched behind the held slot, and the second's task
+            // is the only one still holding the handle.
+            XCTAssertEqual(store.syncBadgeSuccessCount, 0)
+            XCTAssertTrue(store.hasPendingMetricWarningThresholdRefresh)
+        }
+    }
+
+    /// Ring history now arrives in chunks that can land long after the refresh
+    /// that asked for them was abandoned at its deadline. The chunk must be
+    /// refused then, exactly as a month snapshot is, or a stuck query's answer
+    /// overwrites what the retry has since published.
+    @MainActor
+    func testAbandonedRefreshCannotApplyActivityRingHistoryChunk() async throws {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let calendar = Calendar.bodyGregorian
+        let store = activityRingsEnabledStore()
+        let march5 = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 5)))
+        let chunk = activityRingChunk(
+            days: [march5],
+            loadedMonthKeys: [ActivityRingMonthKey(month: 3, year: 2026)]
+        )
+
+        let lateChunk = expectation(description: "abandoned ring walk returned")
+        let completed = await store.runRefreshWithDeadline(.milliseconds(50)) {
+            try? await Task.sleep(for: .seconds(30))
+            XCTAssertFalse(store.applyActivityRingHistoryChunk(chunk, capturedEpoch: 0))
+            lateChunk.fulfill()
+        }
+
+        XCTAssertFalse(completed)
+        await fulfillment(of: [lateChunk], timeout: 5)
+        XCTAssertTrue(store.activityRingHistory.days.isEmpty)
+        // The lazy pagination path runs outside a deadline-guarded refresh, so
+        // the new guard leaves it alone.
+        XCTAssertTrue(store.applyActivityRingHistoryChunk(chunk, capturedEpoch: 0))
+    }
 }

@@ -148,10 +148,7 @@ extension HealthKitWorkoutStore {
             // Same hazard the intraday loads guard: a refresh that started while
             // the fetches were suspended captured `healthTrends` before this
             // chunk existed and would overwrite the publish below.
-            while isRefreshing {
-                await awaitNextRefreshCompletion()
-                guard !Task.isCancelled else { return }
-            }
+            guard await awaitRefreshSlotFree() else { return }
             guard mayApplyStressBackfill(capturedEpoch: capturedEpoch, capturedSignature: capturedSignature) else {
                 return
             }

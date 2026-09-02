@@ -4025,6 +4025,7 @@ private struct BodyMetricWarningThresholdRow: View {
 
     @State private var showingPicker = false
     @State private var pickedValue = 0
+    @State private var skipsDismissCommit = false
 
     private var thresholdValues: [Int] {
         Array(stride(
@@ -4075,6 +4076,15 @@ private struct BodyMetricWarningThresholdRow: View {
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .opacity(isEnabled ? 1 : 0.5)
         .disabled(!isEnabled)
+        .onChange(of: showingPicker) { _, isShowing in
+            guard !isShowing else { return }
+            if skipsDismissCommit {
+                skipsDismissCommit = false
+                return
+            }
+            guard pickedValue != threshold else { return }
+            onChange(pickedValue)
+        }
     }
 
     private var picker: some View {
@@ -4088,11 +4098,9 @@ private struct BodyMetricWarningThresholdRow: View {
             .pickerStyle(.wheel)
             .labelsHidden()
             .frame(width: 210, height: 172)
-            .onChange(of: pickedValue) { _, newValue in
-                onChange(newValue)
-            }
 
             Button {
+                skipsDismissCommit = true
                 onChange(nil)
                 showingPicker = false
             } label: {
