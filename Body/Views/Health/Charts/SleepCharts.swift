@@ -178,7 +178,6 @@ struct BodySleepStageChart: View {
     ) {
         transitionGeneration += 1
         let generation = transitionGeneration
-        selectedStageDate = nil
 
         // Covers a snapshot that changed before `onAppear` seeded the lagging
         // copy — the outgoing night is what the collapse animates from, and
@@ -186,6 +185,31 @@ struct BodySleepStageChart: View {
         if displayedSnapshot == nil {
             displayedSnapshot = oldSnapshot
         }
+
+        // A refresh of the same night (new same-day samples), not a date
+        // switch: swap the data in place with no collapse/expand choreography.
+        // `disablesAnimations` is required here rather than
+        // `transaction.animation = nil` because the phases use scoped
+        // `.animation(_:value:)` modifiers that an ambient transaction's
+        // `animation` override does not suppress.
+        if isSameNight(renderSnapshot, newSnapshot) {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                displayedSnapshot = newSnapshot
+                displayedAxisMarkIntervals = newIntervals
+                isFlattened = false
+            }
+
+            if let selectedStageDate,
+               let realDate = Self.realDate(forNormalized: selectedStageDate, nightSpan: Self.nightSpan(of: newSnapshot)),
+               segmentSelection(for: realDate) == nil {
+                self.selectedStageDate = nil
+            }
+            return
+        }
+
+        selectedStageDate = nil
 
         guard !reduceMotion,
               !renderSnapshot.segments.isEmpty,
@@ -301,6 +325,21 @@ struct BodySleepStageChart: View {
             return nil
         }
         return start...end
+    }
+
+    /// Whether two snapshots describe the same night, so a refresh (new
+    /// same-day samples) can be told apart from an actual date switch. Falls
+    /// back to comparing `date` when either snapshot has no segments to
+    /// derive a span from.
+    private func isSameNight(_ lhs: SleepStageSnapshot, _ rhs: SleepStageSnapshot) -> Bool {
+        let calendar = Calendar.bodyGregorian
+        if let lhsStart = Self.nightSpan(of: lhs)?.lowerBound, let rhsStart = Self.nightSpan(of: rhs)?.lowerBound {
+            return calendar.isDate(lhsStart, inSameDayAs: rhsStart)
+        }
+        guard let lhsDate = lhs.date, let rhsDate = rhs.date else {
+            return false
+        }
+        return calendar.isDate(lhsDate, inSameDayAs: rhsDate)
     }
 
     private struct StageBridge: Identifiable {

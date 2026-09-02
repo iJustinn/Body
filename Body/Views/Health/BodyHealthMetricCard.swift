@@ -55,7 +55,7 @@ struct BodyHealthMetricCard: View {
             previewDotEntries: [DotEntry] = [],
             levelPreviewEntry: LevelEntry? = nil,
             warningSymbolName: String? = nil,
-            previewDayCount: Int = BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width)
+            previewDayCount: Int = BodyHomeMetricCardPreview.previewDayCount
         ) {
             self.kind = kind
             self.title = title
@@ -148,6 +148,12 @@ struct BodyHealthMetricCard: View {
     /// separates a pending preview from an unavailable one, so the card takes
     /// it rather than guessing from emptiness.
     var isRefreshing: Bool = false
+    /// The width of the container the card is laid out in, measured by the host
+    /// rather than read from `UIScreen`: under Split View and Stage Manager the
+    /// screen is wider than the page, and the card sized its preview for a screen
+    /// it did not have. Zero (the default outside the Home grid) draws the
+    /// compact preview.
+    var containerWidth: CGFloat = 0
 
     var body: some View {
         cardContent
@@ -249,7 +255,8 @@ struct BodyHealthMetricCard: View {
                     levelPreviewEntry: metric.levelPreviewEntry,
                     tintColor: metric.symbolColor,
                     style: metric.chartPreviewStyle,
-                    phase: PreviewPhase.resolved(for: metric, isRefreshing: isRefreshing)
+                    phase: PreviewPhase.resolved(for: metric, isRefreshing: isRefreshing),
+                    containerWidth: containerWidth
                 )
             }
 
@@ -264,7 +271,7 @@ struct BodyHealthMetricCard: View {
                 .accessibilityHidden(true)
         }
         .frame(
-            width: BodyHomeMetricCardPreview.previewWidth(for: metric.chartPreviewStyle, screenWidth: UIScreen.main.bounds.width),
+            width: BodyHomeMetricCardPreview.previewWidth(for: metric.chartPreviewStyle, screenWidth: containerWidth),
             alignment: .bottomTrailing
         )
         .padding(.bottom, 4)
@@ -325,6 +332,8 @@ struct BodyHealthMetricCardTrendPreview: View {
     let tintColor: Color
     let style: BodyHomeMetricCardPreview.Style
     let phase: BodyHealthMetricCard.PreviewPhase
+    /// See `BodyHealthMetricCard.containerWidth`.
+    let containerWidth: CGFloat
 
     init(
         calendarPoints: [HealthTrendCalendarPoint],
@@ -333,7 +342,8 @@ struct BodyHealthMetricCardTrendPreview: View {
         levelPreviewEntry: BodyHealthMetricCard.Model.LevelEntry? = nil,
         tintColor: Color,
         style: BodyHomeMetricCardPreview.Style,
-        phase: BodyHealthMetricCard.PreviewPhase = .data
+        phase: BodyHealthMetricCard.PreviewPhase = .data,
+        containerWidth: CGFloat = 0
     ) {
         self.calendarPoints = calendarPoints
         self.rangeCalendarPoints = rangeCalendarPoints
@@ -342,6 +352,7 @@ struct BodyHealthMetricCardTrendPreview: View {
         self.tintColor = tintColor
         self.style = style
         self.phase = phase
+        self.containerWidth = containerWidth
     }
 
     private var refreshAnimation: Animation? {
@@ -415,11 +426,11 @@ struct BodyHealthMetricCardTrendPreview: View {
     }
 
     private var previewWidth: CGFloat {
-        BodyHomeMetricCardPreview.previewWidth(for: style, screenWidth: UIScreen.main.bounds.width)
+        BodyHomeMetricCardPreview.previewWidth(for: style, screenWidth: containerWidth)
     }
 
     private var previewHeight: CGFloat {
-        BodyHomeMetricCardPreview.previewHeight(forScreenWidth: UIScreen.main.bounds.width)
+        BodyHomeMetricCardPreview.previewHeight(forScreenWidth: containerWidth)
     }
 
     private var barPreview: some View {
@@ -1064,8 +1075,27 @@ struct AnimatableVector: VectorArithmetic {
         values.reduce(0) { $0 + $1 * $1 }
     }
 
+    /// Pads the shorter operand so a polyline can interpolate against one with a
+    /// different point count.
+    ///
+    /// An empty vector keeps zero padding: `.zero` IS the empty vector, and
+    /// `VectorArithmetic` requires `.zero + v == v`, so padding it with anything
+    /// else would make insert and remove transitions draw nothing. A non-empty
+    /// vector repeats its last POINT instead of zeros: zero padding used to drag
+    /// the extra vertices to the origin, so growing a preview by a day swept a
+    /// line across the corner of the card. Repeating the last point parks them on
+    /// the final vertex, which is inside the polyline's own bounding box.
     private static func padded(_ values: [Double], to count: Int) -> [Double] {
         guard values.count < count else { return values }
-        return values + Array(repeating: 0, count: count - values.count)
+        guard values.count >= 2 else {
+            return values + Array(repeating: 0, count: count - values.count)
+        }
+
+        var padded = values
+        let lastPoint = Array(values.suffix(2))
+        while padded.count < count {
+            padded.append(lastPoint[padded.count % 2])
+        }
+        return padded
     }
 }

@@ -104,7 +104,10 @@ struct BodyHealthSourceComparisonLineChart: View {
         isSleepDetail: Bool,
         immersive: Bool = false,
         chartIdentity: String,
-        floatingCallout: BodyChartFloatingCalloutState? = nil
+        floatingCallout: BodyChartFloatingCalloutState? = nil,
+        date: Date,
+        primaryPointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]? = nil,
+        secondaryPointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]? = nil
     ) {
         self.title = title
         self.comparison = comparison
@@ -117,8 +120,15 @@ struct BodyHealthSourceComparisonLineChart: View {
         self.chartIdentity = chartIdentity
         self.floatingCallout = floatingCallout
 
-        let primaryPoints = comparison.primary.series.lineChartCalendarPoints(to: selectedRange)
-        let secondaryPoints = comparison.secondary.series.lineChartCalendarPoints(to: selectedRange)
+        // The host passes each range's points in from a cache that survives a
+        // re-render; the inline fallback keeps previews and one-off callers
+        // working.
+        let primaryPointsByRange = primaryPointsByRange
+            ?? Self.makePointsByRange(for: comparison.primary.series, date: date)
+        let secondaryPointsByRange = secondaryPointsByRange
+            ?? Self.makePointsByRange(for: comparison.secondary.series, date: date)
+        let primaryPoints = primaryPointsByRange[selectedRange] ?? []
+        let secondaryPoints = secondaryPointsByRange[selectedRange] ?? []
         let primaryEntries = primaryPoints.map {
             BodyHealthSourceComparisonLineEntry(
                 sourceName: comparison.primary.sourceName,
@@ -140,7 +150,13 @@ struct BodyHealthSourceComparisonLineChart: View {
         // marks in place instead of popping them.
         let otherRangeEntries = BodyHealthTrendRange.allCases
             .filter { $0 != selectedRange }
-            .map { Self.lineEntries(comparison: comparison, range: $0) }
+            .map { range in
+                Self.lineEntries(
+                    comparison: comparison,
+                    primaryPoints: primaryPointsByRange[range] ?? [],
+                    secondaryPoints: secondaryPointsByRange[range] ?? []
+                )
+            }
         self.lineSegments = Self.unionLineSegments(currentEntries: allEntries, otherRangeEntries: otherRangeEntries)
         self.dotEntries = Self.unionDotEntries(currentEntries: allEntries, otherRangeEntries: otherRangeEntries)
         self.primaryPointsByDate = Dictionary(primaryEntries.compactMap { entry in
@@ -151,8 +167,8 @@ struct BodyHealthSourceComparisonLineChart: View {
         }, uniquingKeysWith: { first, _ in first })
         self.latestPrimaryDate = primaryEntries.last { $0.value?.isFinite == true }?.date
         self.latestSecondaryDate = secondaryEntries.last { $0.value?.isFinite == true }?.date
-        let domainDates = comparison.primary.series.calendarPoints(to: selectedRange).map(\.date)
-            + comparison.secondary.series.calendarPoints(to: selectedRange).map(\.date)
+        let domainDates = comparison.primary.series.calendarPoints(to: selectedRange, date: date).map(\.date)
+            + comparison.secondary.series.calendarPoints(to: selectedRange, date: date).map(\.date)
         self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)
         self.chartYDomain = BodyHealthMetricTrendChart.computeYDomain(
             from: allEntries.compactMap(\.value).filter(\.isFinite),
@@ -390,29 +406,37 @@ struct BodyHealthSourceComparisonLineChart: View {
     /// seed placeholder geometry for off-range dates.
     static func lineEntries(
         comparison: BodyHealthSourceComparisonTrend,
-        range: BodyHealthTrendRange,
-        calendar: Calendar = .bodyGregorian,
-        date: Date = Date()
+        primaryPoints: [HealthTrendCalendarPoint],
+        secondaryPoints: [HealthTrendCalendarPoint]
     ) -> [BodyHealthSourceComparisonLineEntry] {
-        let primaryEntries = comparison.primary.series
-            .lineChartCalendarPoints(to: range, calendar: calendar, date: date)
-            .map {
-                BodyHealthSourceComparisonLineEntry(
-                    sourceName: comparison.primary.sourceName,
-                    sourceRole: .primary,
-                    point: $0
-                )
-            }
-        let secondaryEntries = comparison.secondary.series
-            .lineChartCalendarPoints(to: range, calendar: calendar, date: date)
-            .map {
-                BodyHealthSourceComparisonLineEntry(
-                    sourceName: comparison.secondary.sourceName,
-                    sourceRole: .secondary,
-                    point: $0
-                )
-            }
+        let primaryEntries = primaryPoints.map {
+            BodyHealthSourceComparisonLineEntry(
+                sourceName: comparison.primary.sourceName,
+                sourceRole: .primary,
+                point: $0
+            )
+        }
+        let secondaryEntries = secondaryPoints.map {
+            BodyHealthSourceComparisonLineEntry(
+                sourceName: comparison.secondary.sourceName,
+                sourceRole: .secondary,
+                point: $0
+            )
+        }
         return primaryEntries + secondaryEntries
+    }
+
+    /// Each range's line points for `series`.
+    static func makePointsByRange(
+        for series: HealthTrendSeries,
+        calendar: Calendar = .bodyGregorian,
+        date: Date
+    ) -> [BodyHealthTrendRange: [HealthTrendCalendarPoint]] {
+        var pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
+        for range in BodyHealthTrendRange.allCases {
+            pointsByRange[range] = series.lineChartCalendarPoints(to: range, calendar: calendar, date: date)
+        }
+        return pointsByRange
     }
 
     /// One segment per ADJACENT pair of a source's finite entries.
@@ -560,7 +584,10 @@ struct BodyHealthSourceComparisonBarChart: View {
         valueFormatter: @escaping (Double) -> String,
         immersive: Bool = false,
         chartIdentity: String,
-        floatingCallout: BodyChartFloatingCalloutState? = nil
+        floatingCallout: BodyChartFloatingCalloutState? = nil,
+        date: Date,
+        primaryPointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]? = nil,
+        secondaryPointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]? = nil
     ) {
         self.title = title
         self.comparison = comparison
@@ -572,8 +599,15 @@ struct BodyHealthSourceComparisonBarChart: View {
         self.chartIdentity = chartIdentity
         self.floatingCallout = floatingCallout
 
-        let primaryPoints = comparison.primary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
-        let secondaryPoints = comparison.secondary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
+        // The host passes each range's buckets in from a cache that survives a
+        // re-render; the inline fallback keeps previews and one-off callers
+        // working.
+        let primaryPointsByRange = primaryPointsByRange
+            ?? Self.makePointsByRange(for: comparison.primary.series, date: date)
+        let secondaryPointsByRange = secondaryPointsByRange
+            ?? Self.makePointsByRange(for: comparison.secondary.series, date: date)
+        let primaryPoints = primaryPointsByRange[selectedRange] ?? []
+        let secondaryPoints = secondaryPointsByRange[selectedRange] ?? []
         let dateOffset = selectedRange.sourceComparisonChartDateOffset
         // For Week, `point.date` is the day start (the midnight gridline), so the raw
         // ±offset pair straddles it and the primary bar lands in the previous day's
@@ -606,7 +640,14 @@ struct BodyHealthSourceComparisonBarChart: View {
             currentEntries: allEntries,
             otherRangeEntries: BodyHealthTrendRange.allCases
                 .filter { $0 != selectedRange }
-                .map { Self.barEntries(comparison: comparison, range: $0) }
+                .map { range in
+                    Self.barEntries(
+                        comparison: comparison,
+                        range: range,
+                        primaryPoints: primaryPointsByRange[range] ?? [],
+                        secondaryPoints: secondaryPointsByRange[range] ?? []
+                    )
+                }
         )
         self.finiteEntries = allEntries.filter { $0.value?.isFinite == true }
 
@@ -771,16 +812,25 @@ struct BodyHealthSourceComparisonBarChart: View {
     /// Both sources' entries at `range`'s own doubled-bucket aggregation and
     /// per-source pair offsets (mirroring the init's current-range math), used
     /// to seed placeholder geometry for off-range bucket dates.
+    /// Each range's paired-bar buckets for `series`.
+    static func makePointsByRange(
+        for series: HealthTrendSeries,
+        calendar: Calendar = .bodyGregorian,
+        date: Date
+    ) -> [BodyHealthTrendRange: [HealthTrendCalendarPoint]] {
+        var pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
+        for range in BodyHealthTrendRange.allCases {
+            pointsByRange[range] = series.sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
+        }
+        return pointsByRange
+    }
+
     static func barEntries(
         comparison: BodyHealthSourceComparisonTrend,
         range: BodyHealthTrendRange,
-        calendar: Calendar = .bodyGregorian,
-        date: Date = Date()
+        primaryPoints: [HealthTrendCalendarPoint],
+        secondaryPoints: [HealthTrendCalendarPoint]
     ) -> [BodyHealthSourceComparisonBarEntry] {
-        let primaryPoints = comparison.primary.series
-            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
-        let secondaryPoints = comparison.secondary.series
-            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
         let dateOffset = range.sourceComparisonChartDateOffset
         let pairShift: TimeInterval = range.sourceComparisonChartAggregationDayCount == 1 ? dateOffset * 2 : 0
         let primaryEntries = primaryPoints.map { point in
@@ -875,7 +925,10 @@ struct BodyHealthSourceComparisonRangeChart: View {
         yDomain: (([Double]) -> ClosedRange<Double>)? = nil,
         immersive: Bool = false,
         chartIdentity: String,
-        floatingCallout: BodyChartFloatingCalloutState? = nil
+        floatingCallout: BodyChartFloatingCalloutState? = nil,
+        date: Date,
+        primaryPointsByRange: [BodyHealthTrendRange: [HealthTrendRangeCalendarPoint]]? = nil,
+        secondaryPointsByRange: [BodyHealthTrendRange: [HealthTrendRangeCalendarPoint]]? = nil
     ) {
         self.title = title
         self.comparison = comparison
@@ -887,8 +940,15 @@ struct BodyHealthSourceComparisonRangeChart: View {
         self.chartIdentity = chartIdentity
         self.floatingCallout = floatingCallout
 
-        let primaryPoints = comparison.primary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
-        let secondaryPoints = comparison.secondary.series.sourceComparisonChartCalendarPoints(to: selectedRange)
+        // The host passes each range's buckets in from a cache that survives a
+        // re-render; the inline fallback keeps previews and one-off callers
+        // working.
+        let primaryPointsByRange = primaryPointsByRange
+            ?? Self.makePointsByRange(for: comparison.primary.series, date: date)
+        let secondaryPointsByRange = secondaryPointsByRange
+            ?? Self.makePointsByRange(for: comparison.secondary.series, date: date)
+        let primaryPoints = primaryPointsByRange[selectedRange] ?? []
+        let secondaryPoints = secondaryPointsByRange[selectedRange] ?? []
         let dateOffset = selectedRange.sourceComparisonChartDateOffset
         // For Week, `point.date` is the day start (the midnight gridline), so the raw
         // ±offset pair straddles it and the primary bar lands in the previous day's
@@ -921,7 +981,14 @@ struct BodyHealthSourceComparisonRangeChart: View {
             currentEntries: allEntries,
             otherRangeEntries: BodyHealthTrendRange.allCases
                 .filter { $0 != selectedRange }
-                .map { Self.rangeEntries(comparison: comparison, range: $0) }
+                .map { range in
+                    Self.rangeEntries(
+                        comparison: comparison,
+                        range: range,
+                        primaryPoints: primaryPointsByRange[range] ?? [],
+                        secondaryPoints: secondaryPointsByRange[range] ?? []
+                    )
+                }
         )
         self.finiteEntries = allEntries.filter(\.hasValue)
 
@@ -1120,16 +1187,25 @@ struct BodyHealthSourceComparisonRangeChart: View {
     /// One range's paired entries, carrying that range's own aggregation and
     /// pair offsets so a placeholder sits exactly where the mark would sit if
     /// the range were selected.
+    /// Each range's paired-bar buckets for `series`.
+    static func makePointsByRange(
+        for series: HealthTrendRangeSeries,
+        calendar: Calendar = .bodyGregorian,
+        date: Date
+    ) -> [BodyHealthTrendRange: [HealthTrendRangeCalendarPoint]] {
+        var pointsByRange: [BodyHealthTrendRange: [HealthTrendRangeCalendarPoint]] = [:]
+        for range in BodyHealthTrendRange.allCases {
+            pointsByRange[range] = series.sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
+        }
+        return pointsByRange
+    }
+
     static func rangeEntries(
         comparison: BodyHealthSourceRangeComparisonTrend,
         range: BodyHealthTrendRange,
-        calendar: Calendar = .bodyGregorian,
-        date: Date = Date()
+        primaryPoints: [HealthTrendRangeCalendarPoint],
+        secondaryPoints: [HealthTrendRangeCalendarPoint]
     ) -> [BodyHealthSourceComparisonRangeEntry] {
-        let primaryPoints = comparison.primary.series
-            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
-        let secondaryPoints = comparison.secondary.series
-            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
         let dateOffset = range.sourceComparisonChartDateOffset
         let pairShift: TimeInterval = range.sourceComparisonChartAggregationDayCount == 1 ? dateOffset * 2 : 0
         let primaryEntries = primaryPoints.map { point in

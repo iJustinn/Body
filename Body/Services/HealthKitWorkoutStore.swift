@@ -102,7 +102,15 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     @Published private(set) var authorizationState: AuthorizationState = .unknown
     @Published private(set) var snapshot: WorkoutMonthSnapshot
-    @Published private(set) var monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot]
+    @Published private(set) var monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot] {
+        didSet { monthSnapshotsGeneration &+= 1 }
+    }
+    /// Bumped on every `monthSnapshots` write, including subscript writes and
+    /// `removeValue`. Views key their derived caches on it instead of
+    /// re-deriving from the dictionary. Deliberately not `@Published`: the
+    /// dictionary's own publish already re-runs any `body` that reads this, and
+    /// a second publish from `didSet` would double every store invalidation.
+    private(set) var monthSnapshotsGeneration = 0
     /// Session-scoped manual effort ratings the user just saved from the workout
     /// detail screen, keyed by workout UUID. The detail card prefers these over
     /// the cached snapshot value so an edit shows immediately; the snapshot's
@@ -126,7 +134,12 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// switching source/permission never resurrects stale other-source data.
     /// In-memory only (nil on cold start → conservative empty-on-failure).
     private var healthSummaryPrimarySignature: String?
-    @Published private(set) var healthTrends: HealthTrendSnapshot = .empty
+    @Published private(set) var healthTrends: HealthTrendSnapshot = .empty {
+        didSet { trendsGeneration &+= 1 }
+    }
+    /// Bumped on every `healthTrends` write. Same contract as
+    /// `monthSnapshotsGeneration`: a cache discriminator, not `@Published`.
+    private(set) var trendsGeneration = 0
     @Published private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty
     @Published private(set) var permissionSelection: BodyHealthPermissionSelection
     @Published private(set) var healthDataSourceSelection: BodyHealthDataSourceSelection

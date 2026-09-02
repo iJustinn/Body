@@ -194,6 +194,14 @@ struct BodyVitalsOutlierBucket: Identifiable {
 /// band, fading to purple above it and pink below it — how far the color has
 /// turned tells you how far a night ran from your own normal, not from a
 /// population reference.
+/// Every trend range's day grid and outlier buckets for one set of nights,
+/// so the chart's placeholder marks come from a cache rather than being
+/// rebuilt on every render.
+struct BodyVitalsOutlierRangeBuckets {
+    let dayGrids: [BodyHealthTrendRange: [Date]]
+    let buckets: [BodyHealthTrendRange: [BodyVitalsOutlierBucket]]
+}
+
 struct BodyVitalsOutlierTrendChart: View {
     let selectedRange: BodyHealthTrendRange
     let immersive: Bool
@@ -215,33 +223,48 @@ struct BodyVitalsOutlierTrendChart: View {
         immersive: Bool = false,
         floatingCallout: BodyChartFloatingCalloutState? = nil,
         calendar: Calendar = .bodyGregorian,
-        date: Date = Date()
+        date: Date,
+        rangeBuckets: BodyVitalsOutlierRangeBuckets? = nil
     ) {
         self.selectedRange = selectedRange
         self.immersive = immersive
         self.floatingCallout = floatingCallout
 
-        let domainDates = Self.dayGrid(for: selectedRange, calendar: calendar, date: date)
-        let buckets = Self.buckets(from: nights, days: domainDates, selectedRange: selectedRange, calendar: calendar)
-        self.buckets = buckets
-        // Every range's buckets, not just the selected one: end dates outside
-        // the current range render as invisible placeholders carrying their
-        // own range's geometry, so a range switch morphs shared marks in place
-        // and fades the rest instead of inserting/removing marks (which Swift
-        // Charts pops).
-        let otherRanges = BodyHealthTrendRange.allCases.filter { $0 != selectedRange }
+        // Every range's day grid and buckets, not just the selected one: end
+        // dates outside the current range render as invisible placeholders
+        // carrying their own range's geometry, so a range switch morphs shared
+        // marks in place and fades the rest instead of inserting/removing marks
+        // (which Swift Charts pops). The host passes them in from a cache that
+        // survives a re-render; the inline fallback keeps previews and one-off
+        // callers working.
+        let rangeBuckets = rangeBuckets
+            ?? Self.makeRangeBuckets(nights: nights, calendar: calendar, date: date)
+        let domainDates = rangeBuckets.dayGrids[selectedRange] ?? []
+        let selectedBuckets = rangeBuckets.buckets[selectedRange] ?? []
+        self.buckets = selectedBuckets
         self.barEntries = Self.unionBarEntries(
-            currentBuckets: buckets,
-            otherRangeBuckets: otherRanges.map { range in
-                Self.buckets(
-                    from: nights,
-                    days: Self.dayGrid(for: range, calendar: calendar, date: date),
-                    selectedRange: range,
-                    calendar: calendar
-                )
-            }
+            currentBuckets: selectedBuckets,
+            otherRangeBuckets: BodyHealthTrendRange.allCases
+                .filter { $0 != selectedRange }
+                .map { rangeBuckets.buckets[$0] ?? [] }
         )
         self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)
+    }
+
+    /// Every range's day grid and buckets for `nights`.
+    static func makeRangeBuckets(
+        nights: [VitalsNightAssessment],
+        calendar: Calendar = .bodyGregorian,
+        date: Date
+    ) -> BodyVitalsOutlierRangeBuckets {
+        var dayGrids: [BodyHealthTrendRange: [Date]] = [:]
+        var buckets: [BodyHealthTrendRange: [BodyVitalsOutlierBucket]] = [:]
+        for range in BodyHealthTrendRange.allCases {
+            let days = Self.dayGrid(for: range, calendar: calendar, date: date)
+            dayGrids[range] = days
+            buckets[range] = Self.buckets(from: nights, days: days, selectedRange: range, calendar: calendar)
+        }
+        return BodyVitalsOutlierRangeBuckets(dayGrids: dayGrids, buckets: buckets)
     }
 
     var body: some View {

@@ -78,7 +78,8 @@ struct BodyHealthMetricTrendChart: View {
         usesSparseReadings: Bool = false,
         additionalDomainValues: [Double] = [],
         hidesYAxisLabels: Bool = false,
-        chartIdentity: String
+        chartIdentity: String,
+        pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]? = nil
     ) {
         self.title = title
         self.chartStyle = chartStyle
@@ -102,22 +103,14 @@ struct BodyHealthMetricTrendChart: View {
         // Every range's points, not just the selected one: dates outside the
         // current range become invisible placeholder marks, so switching
         // ranges morphs shared dates in place and fades the rest instead of
-        // replacing the whole mark set.
-        var pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
-        for range in BodyHealthTrendRange.allCases {
-            switch chartStyle {
-            case .line:
-                // Sparse metrics keep each reading on its own day; bucketing
-                // them would shift a point days away from when it was measured.
-                // Either path still emits one entry per date, which is all the
-                // range morph needs to match marks across a range switch.
-                pointsByRange[range] = usesSparseReadings
-                    ? series.sparseLineChartCalendarPoints(to: range)
-                    : series.lineChartCalendarPoints(to: range)
-            case .bar:
-                pointsByRange[range] = series.chartCalendarPoints(to: range)
-            }
-        }
+        // replacing the whole mark set. The host passes them in from a cache
+        // that survives a re-render; the inline fallback keeps previews and
+        // one-off callers working.
+        let pointsByRange = pointsByRange ?? Self.makePointsByRange(
+            series: series,
+            chartStyle: chartStyle,
+            usesSparseReadings: usesSparseReadings
+        )
         let calendarPoints = pointsByRange[selectedRange] ?? []
         self.visibleFinitePoints = calendarPoints.filter { $0.value?.isFinite == true }
         let markEntries = Self.makeTrendMarkEntries(
@@ -166,6 +159,31 @@ struct BodyHealthMetricTrendChart: View {
 
         let span = yDomain.upperBound - yDomain.lowerBound
         self.placeholderBarYValue = yDomain.lowerBound + max(span * 0.025, 0.025)
+    }
+
+    /// Each range's calendar points for `series`. Sparse metrics keep each
+    /// reading on its own day; bucketing them would shift a point days away
+    /// from when it was measured. Either path still emits one entry per date,
+    /// which is all the range morph needs to match marks across a switch.
+    static func makePointsByRange(
+        series: HealthTrendSeries,
+        chartStyle: BodyHealthMetricChartStyle,
+        usesSparseReadings: Bool,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [BodyHealthTrendRange: [HealthTrendCalendarPoint]] {
+        var pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
+        for range in BodyHealthTrendRange.allCases {
+            switch chartStyle {
+            case .line:
+                pointsByRange[range] = usesSparseReadings
+                    ? series.sparseLineChartCalendarPoints(to: range, calendar: calendar, date: date)
+                    : series.lineChartCalendarPoints(to: range, calendar: calendar, date: date)
+            case .bar:
+                pointsByRange[range] = series.chartCalendarPoints(to: range, calendar: calendar, date: date)
+            }
+        }
+        return pointsByRange
     }
 
     private var activeHighlightedRange: BodyHealthMetricTrendHighlightedRange? {

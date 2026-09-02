@@ -350,9 +350,21 @@ struct BodyHomeView: View {
     /// box, so per-scrub-frame updates re-render only the callout layer, not this body).
     /// Rendered as the topmost overlay below, above the nav bar's back chevron/title.
     @State private var heroChartCallout = BodyChartFloatingCalloutState()
+    /// The width of the Home content column, measured from the layout rather than
+    /// read off `UIScreen`: under Split View and Stage Manager the screen is wider
+    /// than the page, and the metric cards sized their previews for a screen they
+    /// did not have. Quantized to 8 pt so a resize drag does not rebuild every card
+    /// model per point. Zero until the first layout pass, and the grid renders a
+    /// placeholder until then so the cards are never built at the wrong width and
+    /// then rebuilt.
+    @State private var homeContentWidth: CGFloat = 0
 
     var body: some View {
-        let metricCardLookup = metricCardsByKind
+        let metricCardLookup = homeContentWidth > 0 ? metricCardsByKind : [:]
+        // Derived once per body: the visible list, the "has trends" check and the
+        // "Show all" affordance used to rebuild the card factory's output up to
+        // three times per pass, on both layout paths.
+        let trendCards = homeTrendCards
 
         return NavigationStack {
             ZStack {
@@ -375,21 +387,29 @@ struct BodyHomeView: View {
                                 metricCardsGrid(lookup: metricCardLookup)
                                     .frame(maxWidth: .infinity, alignment: .top)
 
-                                if hasHomeTrends {
-                                    homeTrendsContent
+                                if !trendCards.visible.isEmpty {
+                                    homeTrendsContent(trendCards)
                                         .frame(maxWidth: .infinity, alignment: .top)
                                 }
                             }
                         } else {
                             metricCardsGrid(lookup: metricCardLookup)
 
-                            homeTrendsSection
+                            homeTrendsSection(trendCards)
                         }
                     }
                     .padding(.horizontal)
                     .padding(.top, 10)
                     .padding(.bottom, 110)
                     .readableContentColumn(maxWidth: AppLayout.homeContentWidth)
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        // Rounded up to the next 8 pt: the preview sizing reads
+                        // thresholds, so a sub-point difference must not churn
+                        // the memoized card models.
+                        (proxy.size.width / 8).rounded(.up) * 8
+                    } action: { width in
+                        homeContentWidth = width
+                    }
                     // Pin the content to the viewport width: a vertical ScrollView becomes
                     // horizontally pannable as soon as its content reports even a fraction
                     // of a point wider than the viewport, which let the whole page drift
@@ -647,14 +667,23 @@ struct BodyHomeView: View {
     /// One flat `ForEach` inside `BodyHomeCardGridLayout` rather than a `ForEach` of rows:
     /// a card keeps the same identity wherever it lands, so the reorder that runs while a
     /// drag is in flight moves the dragged card's view instead of destroying it.
+    @ViewBuilder
     private func metricCardsGrid(lookup: [HealthMetricKind: BodyHealthMetricCard.Model]) -> some View {
-        BodyHomeCardGridLayout(spacing: 14) {
-            ForEach(visibleHomeCards) { card in
-                reorderableHomeCard(for: card, lookup: lookup)
-                    .bodyHomeCardSlots(card.slotCount)
+        if homeContentWidth > 0 {
+            BodyHomeCardGridLayout(spacing: 14) {
+                ForEach(visibleHomeCards) { card in
+                    reorderableHomeCard(for: card, lookup: lookup)
+                        .bodyHomeCardSlots(card.slotCount)
+                }
             }
+            .animation(.spring(response: 0.25, dampingFraction: 0.85), value: homeCardOrder)
+        } else {
+            // The width lands in the same layout pass that measures it, so this
+            // placeholder holds the column open for one pass rather than showing.
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 132)
         }
-        .animation(.spring(response: 0.25, dampingFraction: 0.85), value: homeCardOrder)
     }
 
     private var summaryCardSelection: BodySummaryCardSelection {
@@ -673,18 +702,14 @@ struct BodyHomeView: View {
         BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
     }
 
-    private var hasHomeTrends: Bool {
-        !visibleHomeTrendCards.isEmpty
-    }
-
     /// The trends list without the leading section divider, shared by the iPhone
     /// (stacked below the metrics) and iPad (right-hand column) layouts.
     @ViewBuilder
-    private var homeTrendsContent: some View {
-        if hasHomeTrends {
+    private func homeTrendsContent(_ cards: HomeTrendCards) -> some View {
+        if !cards.visible.isEmpty {
             BodyHomeTrendsSection(
-                cards: visibleHomeTrendCards,
-                canToggleAll: canToggleAllHomeTrends,
+                cards: cards.visible,
+                canToggleAll: cards.canToggleAll,
                 showsAllTrends: showsAllHomeTrends,
                 toggleAll: toggleAllHomeTrends,
                 zoomNamespace: metricZoom
@@ -694,12 +719,12 @@ struct BodyHomeView: View {
 
     /// iPhone layout: trends stacked beneath the metrics with a divider separator.
     @ViewBuilder
-    private var homeTrendsSection: some View {
-        if hasHomeTrends {
+    private func homeTrendsSection(_ cards: HomeTrendCards) -> some View {
+        if !cards.visible.isEmpty {
             BodyHomeSectionDivider()
                 .padding(.top, 8)
 
-            homeTrendsContent
+            homeTrendsContent(cards)
                 .padding(.top, 8)
         }
     }
@@ -707,7 +732,11 @@ struct BodyHomeView: View {
     private var metricCardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model] {
         let inputs = metricCardsInputs
         return trendComputationCache.metricCards(inputs: inputs) {
-            self.buildMetricCards(today: inputs.dayStart, metricWarningSelectionRawValue: inputs.metricWarningSelectionRawValue)
+            self.buildMetricCards(
+                today: inputs.dayStart,
+                metricWarningSelectionRawValue: inputs.metricWarningSelectionRawValue,
+                previewDayCount: inputs.previewDayCount
+            )
         }
     }
 
@@ -725,14 +754,18 @@ struct BodyHomeView: View {
             showSleepScore: showSleepScore,
             sleepDurationGoalMinutes: sleepDurationGoalMinutes,
             dayStart: Calendar.bodyGregorian.startOfDay(for: Date()),
-            previewDayCount: BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width),
+            previewDayCount: BodyHomeMetricCardPreview.dayCount(forScreenWidth: homeContentWidth),
             localeIdentifier: Locale.current.identifier,
             timeZoneIdentifier: TimeZone.current.identifier,
             metricWarningSelectionRawValue: metricWarningSelectionRawValue
         )
     }
 
-    private func buildMetricCards(today: Date, metricWarningSelectionRawValue: String) -> [BodyHealthMetricCard.Model] {
+    private func buildMetricCards(
+        today: Date,
+        metricWarningSelectionRawValue: String,
+        previewDayCount: Int
+    ) -> [BodyHealthMetricCard.Model] {
         let summary = workoutStore.healthSummary
         let trends = workoutStore.healthTrends
         let warningSelection = BodyMetricWarningSelection.storedValue(from: metricWarningSelectionRawValue)
@@ -740,12 +773,14 @@ struct BodyHomeView: View {
         return [
             readinessMetric(
                 summary: summary.readiness,
-                chartPreview: trends.series(for: .readiness)
+                chartPreview: trends.series(for: .readiness),
+                previewDayCount: previewDayCount
             ),
             stressMetric(
                 summary: summary.stress,
                 currentScore: summary.stressCurrentScore,
-                chartPreview: trends.series(for: .stress)
+                chartPreview: trends.series(for: .stress),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .exerciseMinutes,
@@ -756,7 +791,8 @@ struct BodyHomeView: View {
                 symbolName: "figure.run",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .bar,
-                chartPreview: trends.series(for: .exerciseMinutes)
+                chartPreview: trends.series(for: .exerciseMinutes),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .trainingLoad,
@@ -767,11 +803,13 @@ struct BodyHomeView: View {
                 symbolName: "figure.strengthtraining.traditional",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .line,
-                chartPreview: trends.series(for: .trainingLoad)
+                chartPreview: trends.series(for: .trainingLoad),
+                previewDayCount: previewDayCount
             ),
             wristTemperatureMetric(
                 summary: summary,
-                chartPreview: trends.series(for: .wristTemperature)
+                chartPreview: trends.series(for: .wristTemperature),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .timeInDaylight,
@@ -782,7 +820,8 @@ struct BodyHomeView: View {
                 symbolName: "sun.max.fill",
                 symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
                 chartStyle: .bar,
-                chartPreview: trends.series(for: .timeInDaylight)
+                chartPreview: trends.series(for: .timeInDaylight),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .steps,
@@ -793,16 +832,18 @@ struct BodyHomeView: View {
                 symbolName: "figure.walk",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .bar,
-                chartPreview: trends.series(for: .steps)
+                chartPreview: trends.series(for: .steps),
+                previewDayCount: previewDayCount
             ),
             sleepMetric(
                 summary: summary,
                 sleepHistory: trends.sleepHistory,
                 chartPreview: trends.series(for: .sleep),
-                today: today
+                today: today,
+                previewDayCount: previewDayCount
             ),
             vitalsMetric(summary: summary, trends: trends, today: today),
-            basicsMetric(summary: summary, chartPreview: trends.series(for: .bodyMass)),
+            basicsMetric(summary: summary, chartPreview: trends.series(for: .bodyMass), previewDayCount: previewDayCount),
             metric(
                 kind: .heartRate,
                 title: "Heart Rate",
@@ -812,7 +853,8 @@ struct BodyHomeView: View {
                 symbolName: "heart.fill",
                 symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
                 chartPreview: trends.series(for: .heartRate),
-                warningSymbolName: warningSymbolName(for: .heartRate, summary: summary, selection: warningSelection)
+                warningSymbolName: warningSymbolName(for: .heartRate, summary: summary, selection: warningSelection),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .restingHeartRate,
@@ -822,7 +864,8 @@ struct BodyHomeView: View {
                 decimals: 0,
                 symbolName: "heart.fill",
                 symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                chartPreview: trends.series(for: .restingHeartRate)
+                chartPreview: trends.series(for: .restingHeartRate),
+                previewDayCount: previewDayCount
             ),
             cardioFitnessMetric(summary: summary),
             metric(
@@ -833,7 +876,8 @@ struct BodyHomeView: View {
                 decimals: 1,
                 symbolName: "waveform.path.ecg",
                 symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                chartPreview: trends.series(for: .heartRateVariability)
+                chartPreview: trends.series(for: .heartRateVariability),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .oxygenSaturation,
@@ -845,7 +889,8 @@ struct BodyHomeView: View {
                 symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
                 chartPreviewStyle: .range,
                 chartRangePreview: trends.rangeSeries(for: .oxygenSaturation),
-                warningSymbolName: warningSymbolName(for: .oxygenSaturation, summary: summary, selection: warningSelection)
+                warningSymbolName: warningSymbolName(for: .oxygenSaturation, summary: summary, selection: warningSelection),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .respiratoryRate,
@@ -856,7 +901,8 @@ struct BodyHomeView: View {
                 symbolName: "lungs.fill",
                 symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
                 chartPreviewStyle: .range,
-                chartRangePreview: trends.rangeSeries(for: .respiratoryRate)
+                chartRangePreview: trends.rangeSeries(for: .respiratoryRate),
+                previewDayCount: previewDayCount
             ),
             energyMetric(
                 kind: .activeEnergy,
@@ -864,7 +910,8 @@ struct BodyHomeView: View {
                 summary: summary.activeEnergy,
                 symbolName: "flame.fill",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                chartPreview: trends.series(for: .activeEnergy)
+                chartPreview: trends.series(for: .activeEnergy),
+                previewDayCount: previewDayCount
             ),
             energyMetric(
                 kind: .restingEnergy,
@@ -872,29 +919,27 @@ struct BodyHomeView: View {
                 summary: summary.restingEnergy,
                 symbolName: "leaf.fill",
                 symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                chartPreview: trends.series(for: .restingEnergy)
+                chartPreview: trends.series(for: .restingEnergy),
+                previewDayCount: previewDayCount
             )
         ]
     }
 
-    private var visibleHomeTrendCards: [BodyHomeTrendCard.Model] {
+    /// The trend list plus the "Show all" affordance, derived together so `body`
+    /// runs the card factory at most twice per pass instead of once per reader.
+    struct HomeTrendCards {
+        let visible: [BodyHomeTrendCard.Model]
+        let canToggleAll: Bool
+    }
+
+    private var homeTrendCards: HomeTrendCards {
+        let all = makeHomeTrendCards(includesStable: true)
         if showsAllHomeTrends {
-            return allHomeTrendCards
+            return HomeTrendCards(visible: all, canToggleAll: true)
         }
 
-        return Array(significantHomeTrendCards.prefix(4))
-    }
-
-    private var canToggleAllHomeTrends: Bool {
-        showsAllHomeTrends || allHomeTrendCards.count > visibleHomeTrendCards.count
-    }
-
-    private var significantHomeTrendCards: [BodyHomeTrendCard.Model] {
-        makeHomeTrendCards(includesStable: false)
-    }
-
-    private var allHomeTrendCards: [BodyHomeTrendCard.Model] {
-        makeHomeTrendCards(includesStable: true)
+        let visible = Array(makeHomeTrendCards(includesStable: false).prefix(4))
+        return HomeTrendCards(visible: visible, canToggleAll: all.count > visible.count)
     }
 
     private func makeHomeTrendCards(includesStable: Bool) -> [BodyHomeTrendCard.Model] {
@@ -905,6 +950,7 @@ struct BodyHomeView: View {
             energyUnitPreference: selectedEnergyUnitPreference,
             weightUnitPreference: selectedWeightUnitPreference,
             includesStable: includesStable,
+            generation: workoutStore.trendsGeneration,
             cache: trendComputationCache
         )
     }
@@ -959,7 +1005,8 @@ struct BodyHomeView: View {
         chartPreviewStyle: BodyHomeMetricCardPreview.Style? = nil,
         chartPreview: HealthTrendSeries? = nil,
         chartRangePreview: HealthTrendRangeSeries? = nil,
-        warningSymbolName: String? = nil
+        warningSymbolName: String? = nil,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         BodyHealthMetricCard.Model(
             kind: kind,
@@ -971,13 +1018,15 @@ struct BodyHomeView: View {
             chartPreviewStyle: chartPreviewStyle ?? BodyHomeMetricCardPreview.Style.matching(chartStyle: chartStyle),
             chartPreview: chartPreview,
             chartRangePreview: chartRangePreview,
-            warningSymbolName: warningSymbolName
+            warningSymbolName: warningSymbolName,
+            previewDayCount: previewDayCount
         )
     }
 
     private func readinessMetric(
         summary: ReadinessSummary,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let scoreText = summary.score.map { "\($0)" } ?? "--"
 
@@ -989,14 +1038,16 @@ struct BodyHomeView: View {
             symbolName: "bolt.heart.fill",
             symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
             chartPreviewStyle: .line,
-            chartPreview: chartPreview
+            chartPreview: chartPreview,
+            previewDayCount: previewDayCount
         )
     }
 
     private func stressMetric(
         summary: StressDaySummary?,
         currentScore: Int?,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let scoreText = summary?.averageScore.map { "\($0)" } ?? "--"
         // Band follows the CURRENT stress reading when one is fresh (see
@@ -1016,7 +1067,8 @@ struct BodyHomeView: View {
             symbolColor: Color(red: 0.90, green: 0.35, blue: 0.75),
             prominentMetrics: bandDisplay.map { [$0] } ?? [],
             chartPreviewStyle: .line,
-            chartPreview: chartPreview
+            chartPreview: chartPreview,
+            previewDayCount: previewDayCount
         )
     }
 
@@ -1026,7 +1078,8 @@ struct BodyHomeView: View {
         summary: HealthMetricSummary,
         symbolName: String,
         symbolColor: Color,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let display = summary.value.map {
             BodyValueFormat.energyValue(kilocalories: $0, energyUnitPreference: selectedEnergyUnitPreference)
@@ -1045,13 +1098,15 @@ struct BodyHomeView: View {
                     kilocalories: $0,
                     energyUnitPreference: selectedEnergyUnitPreference
                 ).value
-            }
+            },
+            previewDayCount: previewDayCount
         )
     }
 
     private func wristTemperatureMetric(
         summary: HealthSummarySnapshot,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let display = summary.wristTemperature.value.map {
             BodyValueFormat.temperatureDisplay(
@@ -1070,7 +1125,10 @@ struct BodyHomeView: View {
         )
         let deviationDisplay = wristTemperatureBaselineDeviationDisplay(
             currentCelsius: summary.wristTemperature.value,
-            baseline: trendComputationCache.wristTemperatureBaseline(from: chartPreview),
+            baseline: trendComputationCache.wristTemperatureBaseline(
+                from: chartPreview,
+                generation: workoutStore.trendsGeneration
+            ),
             temperatureUnitPreference: selectedTemperatureUnitPreference
         )
 
@@ -1083,7 +1141,8 @@ struct BodyHomeView: View {
             symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
             prominentMetrics: [deviationDisplay, actualDisplay],
             chartPreviewStyle: .line,
-            chartPreview: chartPreview
+            chartPreview: chartPreview,
+            previewDayCount: previewDayCount
         )
     }
 
@@ -1091,7 +1150,8 @@ struct BodyHomeView: View {
         summary: HealthSummarySnapshot,
         sleepHistory: SleepHistorySnapshot,
         chartPreview: HealthTrendSeries,
-        today: Date
+        today: Date,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let todaySleep = summary.sleep.asOf(today)
         let prominentMetrics: [BodyMetricDisplayValue]
@@ -1127,7 +1187,8 @@ struct BodyHomeView: View {
             symbolName: "bed.double.fill",
             symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
             prominentMetrics: prominentMetrics,
-            chartPreview: chartPreview
+            chartPreview: chartPreview,
+            previewDayCount: previewDayCount
         )
     }
 
@@ -1209,7 +1270,8 @@ struct BodyHomeView: View {
 
     private func basicsMetric(
         summary: HealthSummarySnapshot,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let weightDisplay = summary.bodyMass.value.map {
             BodyValueFormat.massDisplay(
@@ -1247,7 +1309,8 @@ struct BodyHomeView: View {
                     ).unit
                 )
             ],
-            chartPreview: chartPreview
+            chartPreview: chartPreview,
+            previewDayCount: previewDayCount
         )
     }
 
@@ -1308,7 +1371,11 @@ struct BodyHomeView: View {
             if let metricKind = card.healthMetricKind,
                let metric = lookup[metricKind] {
                 NavigationLink(value: HomeMetricRoute.metric(metric.kind)) {
-                    BodyHealthMetricCard(metric: metric, isRefreshing: workoutStore.isRefreshing)
+                    BodyHealthMetricCard(
+                        metric: metric,
+                        isRefreshing: workoutStore.isRefreshing,
+                        containerWidth: homeContentWidth
+                    )
                         .matchedTransitionSource(id: HomeMetricRoute.metric(metric.kind), in: metricZoom) {
                             $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
                         }
@@ -2554,14 +2621,21 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         let lastTimestamp: TimeInterval?
         let firstValue: Double?
         let lastValue: Double?
-        // Hash over every point so a backdated edit to a non-edge day (manually
-        // editable Basics metrics: weight/body fat) invalidates the cache instead
-        // of colliding on the count + first/last fields above.
-        let contentHash: Int
+        // The store's trend generation, bumped whenever `healthTrends` is written.
+        // A discriminator only: it cannot stand in for the series compare below,
+        // because sub-series that never came from `healthTrends` (the Skin
+        // Temperature baseline, the detail page's own instance) share this cache.
+        let generation: Int
     }
 
+    /// The cached series is compared alongside the fingerprint instead of hashing
+    /// every point into it: `==` on an unchanged array is an identity check, so a
+    /// hit costs a pointer compare rather than an O(n) walk on every render, while
+    /// a backdated edit to a non-edge day (manually editable Basics metrics:
+    /// weight/body fat) still misses.
     private struct Entry {
         let fingerprint: Fingerprint
+        let series: HealthTrendSeries
         let result: BodyHomeTrendCardPresentation.WindowResult?
     }
 
@@ -2597,7 +2671,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
     }
 
     private var entries: [CacheKey: Entry] = [:]
-    private var wristTemperatureBaselineEntry: (fingerprint: Fingerprint, baseline: Double?)?
+    private var wristTemperatureBaselineEntry: (fingerprint: Fingerprint, series: HealthTrendSeries, baseline: Double?)?
     private var vitalsSnapshotEntry: (fingerprint: VitalsFingerprint, snapshot: VitalsSnapshot)?
     private var metricCardsEntry: (inputs: MetricCardsInputs, cardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model])?
 
@@ -2605,12 +2679,17 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         for kind: HealthMetricKind,
         series: HealthTrendSeries,
         includesStable: Bool,
+        generation: Int = 0,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> BodyHomeTrendCardPresentation.WindowResult? {
-        let fingerprint = Self.fingerprint(for: series, dayStart: calendar.startOfDay(for: date))
+        let fingerprint = Self.fingerprint(
+            for: series,
+            dayStart: calendar.startOfDay(for: date),
+            generation: generation
+        )
         let key = CacheKey(kind: kind, includesStable: includesStable)
-        if let entry = entries[key], entry.fingerprint == fingerprint {
+        if let entry = entries[key], entry.fingerprint == fingerprint, entry.series == series {
             return entry.result
         }
         let result = BodyHomeTrendCardPresentation.bestWindowResult(
@@ -2620,7 +2699,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
             calendar: calendar,
             date: date
         )
-        entries[key] = Entry(fingerprint: fingerprint, result: result)
+        entries[key] = Entry(fingerprint: fingerprint, series: series, result: result)
         return result
     }
 
@@ -2645,16 +2724,23 @@ final class BodyHomeTrendComputationCache: ObservableObject {
     /// metric-card build, and the series only changes when a refresh lands.
     func wristTemperatureBaseline(
         from series: HealthTrendSeries,
+        generation: Int = 0,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> Double? {
-        let fingerprint = Self.fingerprint(for: series, dayStart: calendar.startOfDay(for: date))
-        if let entry = wristTemperatureBaselineEntry, entry.fingerprint == fingerprint {
+        let fingerprint = Self.fingerprint(
+            for: series,
+            dayStart: calendar.startOfDay(for: date),
+            generation: generation
+        )
+        if let entry = wristTemperatureBaselineEntry,
+           entry.fingerprint == fingerprint,
+           entry.series == series {
             return entry.baseline
         }
 
         let baseline = wristTemperatureBaselineIfAvailable(from: series, calendar: calendar, date: date)
-        wristTemperatureBaselineEntry = (fingerprint, baseline)
+        wristTemperatureBaselineEntry = (fingerprint, series, baseline)
         return baseline
     }
 
@@ -2719,20 +2805,15 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         hasher.combine(summary.vitals.wristTemperatureCelsius)
     }
 
-    private static func fingerprint(for series: HealthTrendSeries, dayStart: Date) -> Fingerprint {
-        var hasher = Hasher()
-        for point in series.points {
-            hasher.combine(point.date)
-            hasher.combine(point.value)
-        }
-        return Fingerprint(
+    private static func fingerprint(for series: HealthTrendSeries, dayStart: Date, generation: Int) -> Fingerprint {
+        Fingerprint(
             dayStart: dayStart,
             pointCount: series.points.count,
             firstTimestamp: series.points.first?.date.timeIntervalSinceReferenceDate,
             lastTimestamp: series.points.last?.date.timeIntervalSinceReferenceDate,
             firstValue: series.points.first?.value,
             lastValue: series.points.last?.value,
-            contentHash: hasher.finalize()
+            generation: generation
         )
     }
 }

@@ -187,6 +187,9 @@ enum BodyHomeTrendCardFactory {
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
         weightUnitPreference: BodyValueFormat.WeightUnitPreference,
         includesStable: Bool,
+        /// The store's `healthTrends` generation, forwarded to the cache as a
+        /// discriminator. Defaults to 0 for callers outside the Home page.
+        generation: Int = 0,
         cache: BodyHomeTrendComputationCache
     ) -> [BodyHomeTrendCard.Model] {
         BodyHomeTrendCardKind.defaultOrder.compactMap { trendKind in
@@ -201,6 +204,7 @@ enum BodyHomeTrendCardFactory {
                 energyUnitPreference: energyUnitPreference,
                 weightUnitPreference: weightUnitPreference,
                 includesStable: includesStable,
+                generation: generation,
                 cache: cache
             )
         }
@@ -213,6 +217,9 @@ enum BodyHomeTrendCardFactory {
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
         weightUnitPreference: BodyValueFormat.WeightUnitPreference,
         includesStable: Bool,
+        /// The store's `healthTrends` generation, forwarded to the cache as a
+        /// discriminator. Defaults to 0 for callers outside the Home page.
+        generation: Int = 0,
         cache: BodyHomeTrendComputationCache
     ) -> BodyHomeTrendCard.Model? {
         guard let trendKind = BodyHomeTrendCardKind(metricKind: metricKind) else {
@@ -226,6 +233,7 @@ enum BodyHomeTrendCardFactory {
             energyUnitPreference: energyUnitPreference,
             weightUnitPreference: weightUnitPreference,
             includesStable: includesStable,
+            generation: generation,
             cache: cache
         )
     }
@@ -237,6 +245,9 @@ enum BodyHomeTrendCardFactory {
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
         weightUnitPreference: BodyValueFormat.WeightUnitPreference,
         includesStable: Bool,
+        /// The store's `healthTrends` generation, forwarded to the cache as a
+        /// discriminator. Defaults to 0 for callers outside the Home page.
+        generation: Int = 0,
         cache: BodyHomeTrendComputationCache
     ) -> BodyHomeTrendCard.Model? {
         let configuration = configuration(
@@ -249,7 +260,8 @@ enum BodyHomeTrendCardFactory {
         guard let result = cache.result(
             for: configuration.kind,
             series: configuration.series,
-            includesStable: includesStable
+            includesStable: includesStable,
+            generation: generation
         ) else {
             return nil
         }
@@ -558,28 +570,37 @@ struct BodyHomeTrendComparisonChart: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            let entries = plotEntries(in: proxy.size)
+        // The domain and the average-line segments are derived once per pass and
+        // handed down: they used to be recomputed inside `barHeight`, `yPosition`
+        // and `averageLine`, so a card with 30 bars walked the point list dozens
+        // of times per render.
+        let domain = Self.domain(for: presentation)
+
+        return GeometryReader { proxy in
+            let entries = plotEntries(in: proxy.size, domain: domain)
+            let segments = presentation.averageLineSegments(in: proxy.size.width)
             ZStack {
                 switch presentation.chartStyle {
                 case .line:
                     linePlot(entries: entries)
                 case .bar:
-                    barPlot(entries: entries, size: proxy.size)
+                    barPlot(entries: entries, size: proxy.size, domain: domain)
                 }
 
                 averageLine(
                     value: presentation.baselineAverage,
                     in: proxy.size,
+                    domain: domain,
                     color: Color.secondary.opacity(0.64),
-                    xRange: presentation.averageLineSegments(in: proxy.size.width).baseline
+                    xRange: segments.baseline
                 )
 
                 averageLine(
                     value: presentation.recentAverage,
                     in: proxy.size,
+                    domain: domain,
                     color: color,
-                    xRange: presentation.averageLineSegments(in: proxy.size.width).recent
+                    xRange: segments.recent
                 )
             }
         }
@@ -613,21 +634,30 @@ struct BodyHomeTrendComparisonChart: View {
         }
     }
 
-    private func barPlot(entries: [PlotEntry], size: CGSize) -> some View {
+    private func barPlot(entries: [PlotEntry], size: CGSize, domain: Domain) -> some View {
         let layout = BodyHomeTrendBarLayout.fitting(barCount: entries.count, availableWidth: size.width)
 
         return HStack(alignment: .bottom, spacing: layout.spacing) {
             ForEach(entries) { entry in
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(barColor(for: entry))
-                    .frame(width: layout.barWidth, height: barHeight(for: entry.point.value, in: size.height))
+                    .frame(
+                        width: layout.barWidth,
+                        height: Self.barHeight(for: entry.point.value, in: size.height, domain: domain)
+                    )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
 
-    private func averageLine(value: Double, in size: CGSize, color: Color, xRange: ClosedRange<CGFloat>) -> some View {
-        let y = yPosition(for: value, in: size)
+    private func averageLine(
+        value: Double,
+        in size: CGSize,
+        domain: Domain,
+        color: Color,
+        xRange: ClosedRange<CGFloat>
+    ) -> some View {
+        let y = Self.yPosition(for: value, in: size, domain: domain)
 
         return Path { path in
             path.move(to: CGPoint(x: xRange.lowerBound, y: y))
@@ -642,12 +672,12 @@ struct BodyHomeTrendComparisonChart: View {
         )
     }
 
-    private func plotEntries(in size: CGSize) -> [PlotEntry] {
+    private func plotEntries(in size: CGSize, domain: Domain) -> [PlotEntry] {
         let points = presentation.displayCalendarPoints
         let denominator = max(CGFloat(points.count - 1), 1)
         return points.enumerated().map { index, point in
             let x = size.width * CGFloat(index) / denominator
-            let y = yPosition(for: point.value ?? chartMinimum, in: size)
+            let y = Self.yPosition(for: point.value ?? domain.minimum, in: size, domain: domain)
             return PlotEntry(point: point, position: CGPoint(x: x, y: y), index: index)
         }
     }
@@ -662,42 +692,47 @@ struct BodyHomeTrendComparisonChart: View {
             : Color.secondary.opacity(0.28)
     }
 
-    private func barHeight(for value: Double?, in height: CGFloat) -> CGFloat {
+    /// The chart's value domain, derived once per render from the visible points
+    /// plus the two average lines. Static and input-only so it can be tested
+    /// directly against degenerate series (all equal, a single point, none).
+    struct Domain: Equatable {
+        let minimum: Double
+        let maximum: Double
+    }
+
+    static func domain(for presentation: BodyHomeTrendCardPresentation) -> Domain {
+        domain(
+            values: presentation.displayCalendarPoints.compactMap(\.value).filter(\.isFinite)
+                + [presentation.baselineAverage, presentation.recentAverage],
+            chartStyle: presentation.chartStyle
+        )
+    }
+
+    static func domain(values: [Double], chartStyle: BodyHealthMetricChartStyle) -> Domain {
+        let finite = values.filter(\.isFinite)
+        let lowest = finite.min() ?? 0
+        let highest = finite.max() ?? (finite.isEmpty ? 1 : lowest)
+        let padding = max((highest - lowest) * 0.16, 1)
+        // Bars are read against zero; a line chart pads both ends so a flat series
+        // still draws inside the plot rather than along its edge.
+        let minimum = chartStyle == .line ? max(0, lowest - padding) : 0
+        return Domain(minimum: minimum, maximum: highest + padding)
+    }
+
+    static func barHeight(for value: Double?, in height: CGFloat, domain: Domain) -> CGFloat {
         guard let value, value.isFinite else {
             return max(height * 0.05, 4)
         }
 
-        let range = max(chartMaximum - chartMinimum, 1)
-        let normalized = min(max((value - chartMinimum) / range, 0), 1)
-        return max(height * CGFloat(normalized), 4)
+        return max(height * CGFloat(normalized(value, in: domain)), 4)
     }
 
-    private func yPosition(for value: Double, in size: CGSize) -> CGFloat {
-        let range = max(chartMaximum - chartMinimum, 1)
-        let normalized = min(max((value - chartMinimum) / range, 0), 1)
-        return size.height - (size.height * CGFloat(normalized))
+    static func yPosition(for value: Double, in size: CGSize, domain: Domain) -> CGFloat {
+        size.height - (size.height * CGFloat(normalized(value, in: domain)))
     }
 
-    private var chartValues: [Double] {
-        presentation.displayCalendarPoints.compactMap(\.value).filter(\.isFinite)
-            + [presentation.baselineAverage, presentation.recentAverage]
-    }
-
-    private var chartMinimum: Double {
-        let minimum = chartValues.min() ?? 0
-        guard presentation.chartStyle == .line else {
-            return 0
-        }
-
-        let maximum = chartValues.max() ?? minimum
-        let padding = max((maximum - minimum) * 0.16, 1)
-        return max(0, minimum - padding)
-    }
-
-    private var chartMaximum: Double {
-        let maximum = chartValues.max() ?? 1
-        let minimum = chartValues.min() ?? maximum
-        let padding = max((maximum - minimum) * 0.16, 1)
-        return maximum + padding
+    private static func normalized(_ value: Double, in domain: Domain) -> Double {
+        let range = max(domain.maximum - domain.minimum, 1)
+        return min(max((value - domain.minimum) / range, 0), 1)
     }
 }

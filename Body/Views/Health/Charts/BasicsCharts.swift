@@ -45,7 +45,9 @@ struct BodyBasicsTrendChart: View {
         weightFormatter: @escaping (Double) -> String,
         bodyFatFormatter: @escaping (Double) -> String,
         immersive: Bool = false,
-        floatingCallout: BodyChartFloatingCalloutState? = nil
+        floatingCallout: BodyChartFloatingCalloutState? = nil,
+        weightPointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]? = nil,
+        bodyFatPointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]? = nil
     ) {
         self.selectedRange = selectedRange
         self.weightColor = weightColor
@@ -58,19 +60,11 @@ struct BodyBasicsTrendChart: View {
         // Every range's points, not just the selected one: dates outside the
         // current range stay resident as invisible placeholder marks, so a
         // range switch morphs the shared dates in place and fades the rest
-        // instead of replacing the whole chart.
-        var weightPointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
-        var bodyFatPointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
-        for range in BodyHealthTrendRange.allCases {
-            weightPointsByRange[range] = trend.weight.lineChartCalendarPoints(
-                to: range,
-                maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
-            )
-            bodyFatPointsByRange[range] = trend.bodyFat.lineChartCalendarPoints(
-                to: range,
-                maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
-            )
-        }
+        // instead of replacing the whole chart. The host passes them in from a
+        // cache that survives a re-render; the inline fallback keeps previews
+        // and one-off callers working.
+        let weightPointsByRange = weightPointsByRange ?? Self.makePointsByRange(for: trend.weight)
+        let bodyFatPointsByRange = bodyFatPointsByRange ?? Self.makePointsByRange(for: trend.bodyFat)
         let weightPoints = weightPointsByRange[selectedRange] ?? []
         let bodyFatPoints = bodyFatPointsByRange[selectedRange] ?? []
         self.weightMarkEntries = BodyHealthMetricTrendChart.makeTrendMarkEntries(
@@ -89,8 +83,11 @@ struct BodyBasicsTrendChart: View {
             selectedRange: selectedRange,
             pointsByRange: bodyFatPointsByRange
         )
-        self.weightDomain = Self.paddedDomain(from: weightPoints)
-        self.bodyFatDomain = Self.paddedDomain(from: bodyFatPoints)
+        // Every range's values, not just the selected one: a per-range domain
+        // re-scales the axis on a range switch, so the same reading lands at a
+        // different height and the morph reads as the data moving.
+        self.weightDomain = Self.paddedDomain(from: weightPointsByRange.values.flatMap { $0 })
+        self.bodyFatDomain = Self.paddedDomain(from: bodyFatPointsByRange.values.flatMap { $0 })
 
         let domainDates = trend.weight.calendarPoints(to: selectedRange).map(\.date)
             + trend.bodyFat.calendarPoints(to: selectedRange).map(\.date)
@@ -396,6 +393,25 @@ struct BodyBasicsTrendChart: View {
         selectedRange.usesPreviewLineChartStyle ? BodyLineChartPreviewStyle.lineWidth : selectedRange.trendLineWidth
     }
 
+    /// Each range's compressed weight/body-fat points. Both series share the
+    /// Basics-specific point cap, so the two calls only differ by series.
+    static func makePointsByRange(
+        for series: HealthTrendSeries,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [BodyHealthTrendRange: [HealthTrendCalendarPoint]] {
+        var pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
+        for range in BodyHealthTrendRange.allCases {
+            pointsByRange[range] = series.lineChartCalendarPoints(
+                to: range,
+                calendar: calendar,
+                date: date,
+                maximumPointCount: BodyHealthTrendRange.bodyFatWeightLineChartMaximumPointCount
+            )
+        }
+        return pointsByRange
+    }
+
     private static func paddedDomain(from points: [HealthTrendCalendarPoint]) -> ClosedRange<Double> {
         let finiteValues = points.compactMap(\.value).filter(\.isFinite)
         guard let minimum = finiteValues.min(), let maximum = finiteValues.max() else {
@@ -480,7 +496,8 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
         series: HealthTrendSeries,
         selectedRange: BodyHealthTrendRange,
         color: Color,
-        valueFormatter: @escaping (Double) -> String
+        valueFormatter: @escaping (Double) -> String,
+        pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]? = nil
     ) {
         self.selectedRange = selectedRange
         self.color = color
@@ -490,10 +507,7 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
         // current range stay resident as invisible placeholder marks, so a
         // range switch morphs the shared dates in place and fades the rest
         // instead of replacing the whole chart.
-        var pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
-        for range in BodyHealthTrendRange.allCases {
-            pointsByRange[range] = series.lineChartCalendarPoints(to: range)
-        }
+        let pointsByRange = pointsByRange ?? Self.makePointsByRange(for: series)
         let points = pointsByRange[selectedRange] ?? []
         self.markEntries = BodyHealthMetricTrendChart.makeTrendMarkEntries(
             selectedRange: selectedRange,
@@ -695,6 +709,19 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
             .onEnded { _ in
                 selectedDate = nil
             }
+    }
+
+    /// Each range's BMI points.
+    static func makePointsByRange(
+        for series: HealthTrendSeries,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [BodyHealthTrendRange: [HealthTrendCalendarPoint]] {
+        var pointsByRange: [BodyHealthTrendRange: [HealthTrendCalendarPoint]] = [:]
+        for range in BodyHealthTrendRange.allCases {
+            pointsByRange[range] = series.lineChartCalendarPoints(to: range, calendar: calendar, date: date)
+        }
+        return pointsByRange
     }
 
     private static func computeYDomain(from points: [HealthTrendCalendarPoint]) -> ClosedRange<Double> {
