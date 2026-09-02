@@ -214,6 +214,12 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// the schema-evolution note below.
     var weeklyCurrentValue: Double? = nil
 
+    /// Whether `displayValue`/`unit` are in Fahrenheit, stamped by the builder
+    /// for Skin Temp only (`nil` for every other metric, and for snapshots from
+    /// a phone build before this field). Lets the corner gauge convert its
+    /// carried Celsius range without sniffing the unit string.
+    var usesFahrenheit: Bool? = nil
+
     var id: String { kind }
 
     /// Whether this metric carries a real reading (vs. a `--` placeholder). Used

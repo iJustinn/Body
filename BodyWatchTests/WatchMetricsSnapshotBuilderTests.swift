@@ -284,4 +284,38 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         XCTAssertNil(sleep?.score)
         XCTAssertNil(sleep?.rawValue)
     }
+
+    // MARK: - Skin Temp `usesFahrenheit` (L-38)
+
+    private func snapshot(
+        wristTemperatureCelsius celsius: Double,
+        pref: BodyValueFormat.TemperatureUnitPreference
+    ) -> WatchMetricsSnapshot {
+        var summary = HealthSummarySnapshot.placeholder
+        summary.wristTemperature = HealthMetricSummary(value: celsius)
+        return WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary,
+            trends: .empty,
+            lastRefreshDate: nil,
+            permissionSelection: .defaultValue,
+            temperatureUnitPreference: pref,
+            idealSleepDuration: 8 * 3_600,
+            now: day(4)
+        )
+    }
+
+    func testSkinTempUsesFahrenheitTrueUnderFahrenheitPreference() {
+        let snapshot = snapshot(wristTemperatureCelsius: 34.1, pref: .fahrenheit)
+        XCTAssertEqual(snapshot.metric(forKind: WatchMetricKindKey.wristTemperature)?.usesFahrenheit, true)
+    }
+
+    func testSkinTempUsesFahrenheitFalseUnderCelsiusPreference() {
+        let snapshot = snapshot(wristTemperatureCelsius: 34.1, pref: .celsius)
+        XCTAssertEqual(snapshot.metric(forKind: WatchMetricKindKey.wristTemperature)?.usesFahrenheit, false)
+    }
+
+    func testOtherMetricsLeaveUsesFahrenheitNil() {
+        let snapshot = snapshot(wristTemperatureCelsius: 34.1, pref: .fahrenheit)
+        XCTAssertNil(snapshot.metric(forKind: WatchMetricKindKey.sleep)?.usesFahrenheit)
+    }
 }

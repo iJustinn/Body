@@ -376,7 +376,8 @@ enum WatchMetricsSnapshotBuilder {
             fillFraction: celsius.map { fraction(of: $0, low: low, high: high, invert: false) } ?? 0,
             rawValue: celsius,
             rangeMin: low,
-            rangeMax: high
+            rangeMax: high,
+            usesFahrenheit: pref == .fahrenheit
         )
     }
 

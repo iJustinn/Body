@@ -21,9 +21,13 @@ import SwiftUI
 
 struct WatchMetricDetailView: View {
     let metric: WatchMetric
-    /// The day the metric's weekly series ends on — the snapshot's generation
-    /// date — so a cached snapshot shown on a later day still labels its days
-    /// against when the data was built, not against the current date.
+    /// The day the snapshot was generated on — `metric.weekly`'s last real
+    /// slot. Used to re-window the series onto `referenceDate` when a cached
+    /// snapshot is shown on a later day.
+    var generatedAt: Date = Date()
+    /// Today, the day the weekly series and its weekday labels should end on
+    /// (a cached snapshot shown after midnight still labels "today", not the
+    /// day it was generated).
     var referenceDate: Date = Date()
 
     /// The page theme (title, background wash, chart line): the metric's static
@@ -34,7 +38,22 @@ struct WatchMetricDetailView: View {
     private var statusTint: Color { Color(metric.resolvedTint) }
 
     private var weekly: [Double?]? {
-        guard let weekly = metric.weekly, weekly.contains(where: { $0 != nil }) else { return nil }
+        Self.sparklineWeekly(metric: metric, generatedAt: generatedAt, today: referenceDate)
+    }
+
+    /// The weekly series for the sparkline, first re-windowed from the
+    /// snapshot's generation day onto `today` (so a cached snapshot shown
+    /// after midnight shifts its slots rather than mislabeling them). When
+    /// the metric's own headline is cleared (`!hasValue`, e.g. a sleep night
+    /// sanitized as not-today), today's slot is forced to nil so the chart
+    /// doesn't show a value under a "--" headline (L-36); `cleared()` itself
+    /// still keeps `weekly` for history.
+    static func sparklineWeekly(metric: WatchMetric, generatedAt: Date, today: Date, calendar: Calendar = .current) -> [Double?]? {
+        var weekly = metric.weeklyRewound(from: generatedAt, to: today, calendar: calendar)
+        guard weekly.contains(where: { $0 != nil }) else { return nil }
+        if !metric.hasValue, !weekly.isEmpty {
+            weekly[weekly.count - 1] = nil
+        }
         return weekly
     }
 
