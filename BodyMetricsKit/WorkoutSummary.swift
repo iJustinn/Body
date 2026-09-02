@@ -14,6 +14,16 @@ struct WorkoutHeartRateSample: Codable, Equatable, Hashable, Identifiable {
     }
 }
 
+extension KeyedDecodingContainer {
+    /// Legacy month snapshots predate `heartRateSamples`; a missing key decodes as empty.
+    /// Non-generic, so it wins overload resolution over the generic `decode(_:forKey:)`
+    /// in `WorkoutSummary`'s synthesized decoder. `WorkoutSummary` is the only Codable
+    /// type keyed on this element type.
+    func decode(_ type: [WorkoutHeartRateSample].Type, forKey key: Key) throws -> [WorkoutHeartRateSample] {
+        try decodeIfPresent(type, forKey: key) ?? []
+    }
+}
+
 /// One heart-rate zone row for the workout-detail breakdown: its index (0 = recovery …
 /// 5 = max effort), bpm bounds (nil = open-ended), and the time/share spent in it.
 struct WorkoutHeartRateZone: Equatable, Identifiable {
@@ -162,7 +172,9 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     /// (genuinely unrated / resolved), and so the M10 byte-dedupe only sees a
     /// change when the flag actually flips.
     let effortUnresolved: Bool?
-    let heartRateSamples: [WorkoutHeartRateSample]?
+    /// Never nil: snapshots persisted before this key existed decode as empty via the
+    /// `KeyedDecodingContainer` overload above.
+    let heartRateSamples: [WorkoutHeartRateSample]
     let elevationAscendedMeters: Double?
     let averagePowerWatts: Double?
     let averageStepCadenceSPM: Double?
@@ -307,7 +319,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
             maximumHeartRateBeatsPerMinute: maximumHeartRateBeatsPerMinute,
             effortLevel: effortLevel,
             effortUnresolved: effortUnresolved,
-            heartRateSamples: heartRateSamples ?? [],
+            heartRateSamples: heartRateSamples,
             elevationAscendedMeters: elevationAscendedMeters,
             averagePowerWatts: nil,
             averageStepCadenceSPM: nil,
@@ -343,7 +355,7 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
             maximumHeartRateBeatsPerMinute: maximumHeartRateBeatsPerMinute,
             effortLevel: effortLevel,
             effortUnresolved: effortUnresolved,
-            heartRateSamples: heartRateSamples ?? [],
+            heartRateSamples: heartRateSamples,
             elevationAscendedMeters: elevationAscendedMeters,
             averagePowerWatts: averagePowerWatts,
             averageStepCadenceSPM: averageStepCadenceSPM,
@@ -647,7 +659,7 @@ enum WorkoutMetricComparisonBuilder {
         if let stored = workout.averageHeartRateBeatsPerMinute {
             return stored
         }
-        let samples = workout.heartRateSamples ?? []
+        let samples = workout.heartRateSamples
         guard !samples.isEmpty else { return nil }
         return samples.reduce(0) { $0 + $1.beatsPerMinute } / Double(samples.count)
     }
@@ -854,7 +866,7 @@ struct WorkoutDetailPresentation: Equatable {
             )
         }
         let storedHeartRate = workout.averageHeartRateBeatsPerMinute
-        let sortedHeartRateSamples = (workout.heartRateSamples ?? [])
+        let sortedHeartRateSamples = workout.heartRateSamples
             .sorted { $0.date < $1.date }
         let computedHeartRate = Self.averageHeartRate(from: sortedHeartRateSamples)
         averageHeartRateText = (storedHeartRate ?? computedHeartRate).map {

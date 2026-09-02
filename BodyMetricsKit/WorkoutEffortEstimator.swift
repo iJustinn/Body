@@ -353,8 +353,8 @@ enum WorkoutEffortEstimator {
         basis: Basis,
         input: Input
     ) -> Double {
+        let samples = workout.heartRateSamples
         guard effortFamily(for: workout.type) != .standard,
-              let samples = workout.heartRateSamples,
               let peakHeartRate = workingPeakHeartRate(samples: samples),
               let peakFraction = intensityFraction(beatsPerMinute: peakHeartRate, basis: basis, input: input) else {
             return avgFraction
@@ -444,9 +444,9 @@ enum WorkoutEffortEstimator {
     /// fraction `baseScore` used, so a family peak blend and this bump can't credit the
     /// same hard samples twice.
     private static func zoneBump(for workout: WorkoutSummary, basis: Basis, baseFraction: Double?, input: Input) -> Double {
+        let samples = workout.heartRateSamples
         guard let baseFraction,
               let maxHeartRate = positive(input.userMaxHeartRate),
-              let samples = workout.heartRateSamples,
               let zones = WorkoutHeartRateZones.zones(samples: samples, maxHeartRate: maxHeartRate) else {
             return 0
         }
@@ -482,8 +482,8 @@ enum WorkoutEffortEstimator {
     /// basis. Returns nil — so the caller falls back to `zoneBump` — when the samples are
     /// too few, the session too short, or the sampling too coarse to trust the count.
     private static func setDensityBump(for workout: WorkoutSummary) -> Double? {
-        guard let samples = workout.heartRateSamples,
-              samples.count >= minimumSamplesForPeakBlend else {
+        let samples = workout.heartRateSamples
+        guard samples.count >= minimumSamplesForPeakBlend else {
             return nil
         }
         let durationMinutes = workout.duration / 60

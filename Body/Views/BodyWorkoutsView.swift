@@ -2814,7 +2814,7 @@ enum WorkoutDetailChartPresentations {
             splits: splits,
             paceStyle: workout.type.paceStyle,
             distanceUnitPreference: distanceUnitPreference,
-            heartRateSamples: heartRateSamplesOverride.flatMap { $0.isEmpty ? nil : $0 } ?? workout.heartRateSamples ?? [],
+            heartRateSamples: heartRateSamplesOverride.flatMap { $0.isEmpty ? nil : $0 } ?? workout.heartRateSamples,
             stepSamples: splitData.stepSamples
         )
     }

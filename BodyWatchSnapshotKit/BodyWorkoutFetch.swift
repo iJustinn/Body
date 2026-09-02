@@ -158,7 +158,7 @@ enum BodyWorkoutFetch {
             maximumHeartRateBeatsPerMinute: cached.maximumHeartRateBeatsPerMinute,
             effortLevel: effortLevel,
             effortUnresolved: effortUnresolved,
-            heartRateSamples: cached.heartRateSamples ?? [],
+            heartRateSamples: cached.heartRateSamples,
             elevationAscendedMeters: elevationAscendedMeters(for: workout),
             averagePowerWatts: includesWorkoutMetrics ? averagePowerWatts(for: workout, type: type) : nil,
             averageStepCadenceSPM: includesWorkoutMetrics ? averageStepCadenceSPM : nil,

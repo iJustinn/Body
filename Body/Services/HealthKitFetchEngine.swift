@@ -2542,9 +2542,8 @@ actor HealthKitFetchEngine {
             guard let cached = cachedSummaries[workout.id],
                   abs(cached.startDate.timeIntervalSince(workout.startDate)) <= dateTolerance,
                   abs(cached.duration - workout.duration) <= dateTolerance,
-                  let samples = cached.heartRateSamples, !samples.isEmpty,
-                  let firstSampleDate = samples.map(\.date).min(),
-                  let lastSampleDate = samples.map(\.date).max(),
+                  let firstSampleDate = cached.heartRateSamples.map(\.date).min(),
+                  let lastSampleDate = cached.heartRateSamples.map(\.date).max(),
                   firstSampleDate.timeIntervalSince(workout.startDate) <= heartRateReuseCoverageTolerance,
                   endDate.timeIntervalSince(lastSampleDate) <= heartRateReuseCoverageTolerance,
                   now.timeIntervalSince(endDate) > heartRateReuseMinimumAge else {

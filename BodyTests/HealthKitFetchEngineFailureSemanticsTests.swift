@@ -394,7 +394,7 @@ final class HealthKitFetchEngineFailureSemanticsTests: XCTestCase {
 
         XCTAssertEqual(summary.averageHeartRateBeatsPerMinute, 142)
         XCTAssertEqual(summary.maximumHeartRateBeatsPerMinute, 165)
-        XCTAssertEqual(summary.heartRateSamples?.isEmpty, true)
+        XCTAssertTrue(summary.heartRateSamples.isEmpty)
     }
 
     /// ...and that empty payload can't be locked in: the reuse-eligibility gate

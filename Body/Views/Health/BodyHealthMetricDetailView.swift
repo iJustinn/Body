@@ -235,7 +235,7 @@ enum BodyMetricActivityAverages {
             }
 
             let sampleAverage = average(in: workoutInterval, from: heartRateSeries)
-                ?? average(in: workoutInterval, from: workout.heartRateSamples ?? [])
+                ?? average(in: workoutInterval, from: workout.heartRateSamples)
             let fallbackAverage = workout.averageHeartRateBeatsPerMinute
                 .flatMap { $0.isFinite ? $0 : nil }
             guard let average = sampleAverage ?? fallbackAverage else {
