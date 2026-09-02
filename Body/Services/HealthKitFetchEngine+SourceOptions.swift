@@ -181,16 +181,64 @@ extension HealthKitFetchEngine {
     }
 
     private func fetchKindSources(for kind: HealthMetricKind) async -> KindSources {
-        KindSources(
-            kind: kind,
-            sources: await BodyHealthSourceResolver.discoverSources(
-                for: healthSampleTypes(forSourceKind: kind),
+        KindSources(kind: kind, sources: await discoverKindSourcesBudgeted(for: kind))
+    }
+
+    /// One kind's source discovery, spending a query-pool permit and raced
+    /// against `activityRingQueryTimeout`, exactly like `runActivityRingDayQuery`
+    /// in `+ActivityRings.swift`. Shared by `fetchKindSources` (used by
+    /// `fetchHealthDataSourceOptions`) and, through it, `discoverHealthSources(for:)`
+    /// — the only two callers of kind-level source discovery.
+    ///
+    /// Returns `nil` on a genuine query failure, cancellation, or a timeout, so
+    /// the caller keeps its prior source map rather than treating a stalled
+    /// discovery as "no sources" (H4). Only the timeout case is logged here — a
+    /// genuine per-sample-type failure is already logged, with a more specific
+    /// context, by `BodyHealthSourceResolver.discoverSources`'s `onFailure`.
+    ///
+    /// Residual: `.basics` fans out over three sample types
+    /// (`bodyMass`/`bodyFatPercentage`/`bodyMassIndex`) inside
+    /// `BodyHealthSourceResolver.discoverSources` unbudgeted — that fan-out lives
+    /// in the shared kit, which cannot reference `HealthKitQueryPool`, so this
+    /// permit covers the kind as a whole rather than each of its leaf queries.
+    /// The ceiling this budgets to is therefore about 3x the permit count for
+    /// that one kind, not exact.
+    private func discoverKindSourcesBudgeted(for kind: HealthMetricKind) async -> [HKSource]? {
+        let semaphore = HealthKitQueryPool.current.semaphore
+        await semaphore.acquire()
+        defer { semaphore.release() }
+        guard !Task.isCancelled else { return nil }
+
+        let healthStore = healthStore
+        let sampleTypes = healthSampleTypes(forSourceKind: kind)
+        let queryTask = Task {
+            await BodyHealthSourceResolver.discoverSources(
+                for: sampleTypes,
                 store: healthStore,
                 onFailure: { context, error in
                     Self.logTrendQueryFailure(context, error: error)
                 }
             )
-        )
+        }
+        let deadlineTask = Task {
+            try? await ContinuousClock().sleep(for: Self.activityRingQueryTimeout)
+            queryTask.cancel()
+        }
+
+        let sources = await withTaskCancellationHandler {
+            await queryTask.value
+        } onCancel: {
+            queryTask.cancel()
+        }
+        deadlineTask.cancel()
+
+        if sources == nil, queryTask.isCancelled, !Task.isCancelled {
+            // The only way `queryTask` ends up cancelled while this task
+            // itself is not is the deadline winning the race.
+            Self.logTrendQueryFailure("sources:\(kind)", error: nil)
+        }
+
+        return sources
     }
 
     /// The user-facing source name. Localized — unlike

@@ -111,7 +111,10 @@ enum WatchSourceResolver {
         }
     }
 
-    /// Batch form for the compute's input kinds.
+    /// Batch form for the compute's input kinds. Fans the per-kind resolution
+    /// out concurrently instead of awaiting one kind at a time, the same
+    /// reasoning as the phone's `fetchHealthDataSourceOptions`: each kind's
+    /// `read(for:...)` is its own round trip of `HKSourceQuery`s.
     static func reads(
         for kinds: [HealthMetricKind],
         selection: BodyHealthDataSourceSelection?,
@@ -120,18 +123,27 @@ enum WatchSourceResolver {
         permission: BodyHealthPermissionSelection,
         store: HKHealthStore
     ) async -> [HealthMetricKind: WatchSourceRead] {
-        var reads: [HealthMetricKind: WatchSourceRead] = [:]
-        for kind in kinds {
-            reads[kind] = await read(
-                for: kind,
-                selection: selection,
-                expectedSourceIDsByKind: expectedSourceIDsByKind,
-                customGroups: customGroups,
-                permission: permission,
-                store: store
-            )
+        await withTaskGroup(of: (HealthMetricKind, WatchSourceRead).self) { group in
+            for kind in kinds {
+                group.addTask {
+                    let result = await read(
+                        for: kind,
+                        selection: selection,
+                        expectedSourceIDsByKind: expectedSourceIDsByKind,
+                        customGroups: customGroups,
+                        permission: permission,
+                        store: store
+                    )
+                    return (kind, result)
+                }
+            }
+
+            var reads: [HealthMetricKind: WatchSourceRead] = [:]
+            for await (kind, result) in group {
+                reads[kind] = result
+            }
+            return reads
         }
-        return reads
     }
 
     /// The All-Sources validation described in `read(for:...)`: unfiltered only
