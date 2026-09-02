@@ -56,9 +56,12 @@ extension HealthKitFetchEngine {
 
         let routeQuery = HKSampleQueryDescriptor(
             predicates: [.workoutRoute(HKQuery.predicateForObjects(from: workout))],
-            sortDescriptors: [SortDescriptor(\.startDate, order: .forward)]
+            sortDescriptors: []
         )
+        // Sorted here rather than by a `SortDescriptor`: a key path into
+        // `HKWorkoutRoute` isn't `Sendable`, and the ordering is the same.
         let routes = try await healthStore.result(for: routeQuery)
+            .sorted { $0.startDate < $1.startDate }
 
         var locations: [CLLocation] = []
         for route in routes {

@@ -150,7 +150,7 @@ actor HealthKitFetchEngine {
     /// value) from a genuine absence (`.success(nil)` — no samples, permission
     /// off, or selection off — resolver clears the tile). Mirrors the trend
     /// convention (`resolvedTrendSeries`) without a `Value??` double-optional.
-    enum QueryOutcome<Value> {
+    enum QueryOutcome<Value>: Sendable where Value: Sendable {
         case success(Value?)
         case failure
 
@@ -1128,7 +1128,7 @@ actor HealthKitFetchEngine {
     /// nobody will read (the semaphore wait itself stays uncancellable by design).
     func trackedHealthQuery<Value>(
         cancelledValue: @Sendable @autoclosure @escaping () -> Value,
-        _ body: (@escaping (Value) -> Void) -> Void
+        _ body: (@escaping @Sendable (Value) -> Void) -> Void
     ) async -> Value {
         let semaphore = HealthKitQueryPool.current.semaphore
         await semaphore.acquire()
@@ -1215,7 +1215,7 @@ actor HealthKitFetchEngine {
     /// `CancellationError`, which every caller already treats as a query failure
     /// (keep the cache, don't render) rather than as confirmed-absent data.
     func trackedThrowingHealthQuery<Value>(
-        _ body: (@escaping (Result<Value, Error>) -> Void) -> Void
+        _ body: (@escaping @Sendable (Result<Value, Error>) -> Void) -> Void
     ) async throws -> Value {
         try await trackedHealthQuery(cancelledValue: .failure(CancellationError()), body).get()
     }
@@ -1354,7 +1354,7 @@ actor HealthKitFetchEngine {
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
         maxDays: Int? = nil,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> HealthTrendSeries? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .empty
@@ -1407,7 +1407,7 @@ actor HealthKitFetchEngine {
         calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> HealthTrendRangeSeries? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .empty
@@ -1486,7 +1486,7 @@ actor HealthKitFetchEngine {
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
         maxDays: Int? = nil,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> (HealthTrendSeries, HealthTrendRangeSeries)? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return (.empty, .empty)
@@ -1568,7 +1568,7 @@ actor HealthKitFetchEngine {
         endDate: Date,
         aggregation: DailyQuantityAggregation,
         sourceKind: HealthMetricKind? = nil,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> QueryOutcome<HealthMetricSummary> {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .success(nil)
@@ -1618,7 +1618,7 @@ actor HealthKitFetchEngine {
         aggregation: DailyQuantityAggregation,
         calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> QueryOutcome<HealthMetricSummary> {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .success(nil)
@@ -1661,7 +1661,7 @@ actor HealthKitFetchEngine {
         unit: HKUnit,
         calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> QueryOutcome<HealthMetricSummary> {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .success(nil)
@@ -1725,7 +1725,7 @@ actor HealthKitFetchEngine {
         calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
-        valueTransform: @escaping (Double) -> Double = { $0 },
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
         startDate: Date? = nil,
         endDate: Date? = nil
     ) async -> HealthTrendSeries? {
@@ -1798,7 +1798,7 @@ actor HealthKitFetchEngine {
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
         maxDays: Int? = nil,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> HealthTrendSeries? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .empty
@@ -1866,7 +1866,7 @@ actor HealthKitFetchEngine {
         unit: HKUnit,
         calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> QueryOutcome<HealthMetricSummary> {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .success(nil)
@@ -1920,7 +1920,7 @@ actor HealthKitFetchEngine {
         calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
-        valueTransform: @escaping (Double) -> Double = { $0 },
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
         startDate: Date? = nil,
         endDate: Date? = nil
     ) async -> HealthTrendSeries? {
@@ -2236,7 +2236,7 @@ actor HealthKitFetchEngine {
     /// resumes exactly once, and drops a late HealthKit callback.
     func runCancellableQuery<Value>(
         cancelledValue: @Sendable @autoclosure @escaping () -> Value,
-        makeQuery: (@escaping (Value) -> Void) -> HKQuery
+        makeQuery: (@escaping @Sendable (Value) -> Void) -> HKQuery
     ) async -> Value {
         let coordinator = CancellableQueryCoordinator<Value>(
             execute: { [healthStore] in healthStore.execute($0) },
@@ -4574,7 +4574,7 @@ final class TrackedQueryResumeBox<Value>: @unchecked Sendable {
     func install(
         continuation: CheckedContinuation<Value, Never>,
         cancelledValue: Value,
-        body: (@escaping (Value) -> Void) -> Void
+        body: (@escaping @Sendable (Value) -> Void) -> Void
     ) {
         lock.lock()
         switch state {
@@ -4672,7 +4672,7 @@ final class CancellableQueryCoordinator<Value>: @unchecked Sendable {
     func install(
         continuation: CheckedContinuation<Value, Never>,
         cancelledValue: Value,
-        makeQuery: (@escaping (Value) -> Void) -> HKQuery
+        makeQuery: (@escaping @Sendable (Value) -> Void) -> HKQuery
     ) {
         lock.lock()
         switch state {

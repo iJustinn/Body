@@ -160,7 +160,7 @@ actor WatchDeltaFetcher {
         start: Date,
         end: Date,
         calendar: Calendar,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> WatchFetchOutcome<HealthTrendSeries> {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier),
               case .run(let resolvedSourcePredicate) = reads[sourceKind] else {
@@ -389,7 +389,7 @@ actor WatchDeltaFetcher {
         sourceKind: HealthMetricKind,
         reads: [HealthMetricKind: WatchSourceRead],
         intervals: [DateInterval],
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> [Double?]? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier),
               case .run(let resolvedSourcePredicate) = reads[sourceKind] else {

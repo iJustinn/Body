@@ -6763,6 +6763,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             primarySourceNames[kind] = selectedHealthDataSourceOption(for: metric.sourceSelectionKind).name
         }
 
+        let resolvedPrimarySourceNames = primarySourceNames
         Self.snapshotPersistQueue.async {
             let snapshot = HealthWidgetSnapshotBuilder.make(
                 trends: trends,
@@ -6772,7 +6773,7 @@ final class HealthKitWorkoutStore: ObservableObject {
                 weightUnitPreference: weightUnitPreference,
                 idealSleepDuration: idealSleepDuration,
                 showSleepScore: showSleepScore,
-                primarySourceName: { primarySourceNames[$0] }
+                primarySourceName: { resolvedPrimarySourceNames[$0] }
             )
             if HealthWidgetSnapshotStore.save(snapshot) {
                 Task { await BodyWidgetReloadCoalescer.shared.requestReload() }

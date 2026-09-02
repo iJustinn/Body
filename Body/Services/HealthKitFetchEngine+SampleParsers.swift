@@ -38,7 +38,7 @@ extension HealthKitFetchEngine {
 
     /// Shared with the watch's delta re-query via `BodyHealthQuantityFetch` so
     /// both sides normalize a percentage read the same way.
-    nonisolated static func normalizedPercentDisplayValue(_ value: Double) -> Double {
+    @Sendable nonisolated static func normalizedPercentDisplayValue(_ value: Double) -> Double {
         BodyHealthQuantityFetch.normalizedPercent(value)
     }
 

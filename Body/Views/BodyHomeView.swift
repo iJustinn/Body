@@ -1919,7 +1919,7 @@ struct BodyHomeView: View {
         cardioFitnessValue: Double? = nil,
         cardioFitnessProfile: CardioFitnessProfile? = nil,
         sleepHistory: SleepHistorySnapshot = .empty,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) -> BodyHealthMetricDetailModel {
         let suffix = unit.isEmpty ? "" : " " + unit
         let transformedValue = summary.value.map(valueTransform)

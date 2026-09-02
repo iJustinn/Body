@@ -153,7 +153,7 @@ enum BodySleepFetch {
         intervals: [DateInterval],
         sourcePredicate: NSPredicate?,
         unit: HKUnit,
-        valueTransform: @escaping (Double) -> Double = { $0 },
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
         onFailure: ((Error?) -> Void)? = nil
     ) async -> WatchFetchOutcome<[SleepVitalWindowSample]> {
         let intervalPredicates = intervals.map { interval in

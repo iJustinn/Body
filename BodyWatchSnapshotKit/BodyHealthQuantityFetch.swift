@@ -53,7 +53,7 @@ enum BodyHealthQuantityFetch {
     /// some write 0…100 directly, so anything at-or-below 1 is scaled up. Shared
     /// so the watch's delta re-query normalizes identically — an unnormalized
     /// SpO₂ point would splice a 0.97 into a series of 97s.
-    static func normalizedPercent(_ value: Double) -> Double {
+    @Sendable static func normalizedPercent(_ value: Double) -> Double {
         value <= 1 ? value * 100 : value
     }
 
@@ -145,7 +145,7 @@ enum BodyHealthQuantityFetch {
         start: Date,
         end: Date,
         calendar: Calendar,
-        valueTransform: @escaping (Double) -> Double = { $0 },
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
         onFailure: ((Error?) -> Void)? = nil
     ) async -> WatchFetchOutcome<HealthTrendSeries> {
         let anchor = calendar.startOfDay(for: start)
@@ -203,7 +203,7 @@ enum BodyHealthQuantityFetch {
         start: Date,
         end: Date,
         calendar: Calendar,
-        valueTransform: @escaping (Double) -> Double = { $0 },
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
         onFailure: ((Error?) -> Void)? = nil
     ) async -> WatchFetchOutcome<HealthMetricSummary?> {
         let series = await dailyQuantitySeries(

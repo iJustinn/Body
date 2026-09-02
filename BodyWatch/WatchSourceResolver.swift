@@ -22,7 +22,10 @@ import HealthKit
 /// Whether a watch-side read may run, and with which source filter. `.skip`
 /// covers both "the phone hid this category" and "the selected source is
 /// unresolvable here" — in both cases the caller keeps what it already has.
-enum WatchSourceRead {
+/// `@unchecked Sendable`: the only payload is an `NSPredicate` built at the
+/// resolution site and never mutated afterwards, so it is read-only across the
+/// task-group hop in `reads(for:...)`.
+enum WatchSourceRead: @unchecked Sendable {
     case skip
     case run(NSPredicate?)
 }

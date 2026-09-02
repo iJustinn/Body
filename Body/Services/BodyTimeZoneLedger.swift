@@ -10,7 +10,10 @@ import Foundation
 /// be read in the zone the device was in on that night rather than always
 /// falling back to the current zone. Records are stored in `UserDefaults`
 /// (device-local, matching the app's other small-state stores).
-struct BodyTimeZoneLedger {
+/// `@unchecked Sendable`: both stored properties are immutable references to
+/// thread-safe Foundation types (`UserDefaults` is documented as thread-safe;
+/// `Calendar` is a value type), so the struct carries no mutable shared state.
+struct BodyTimeZoneLedger: @unchecked Sendable {
     struct Record: Codable, Equatable {
         let effectiveFrom: Date
         let identifier: String

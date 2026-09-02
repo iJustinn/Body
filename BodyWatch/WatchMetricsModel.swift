@@ -207,9 +207,13 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         // background task already "completed" — the exact failure the
         // task-holding machinery exists to prevent.
         let current = snapshot
+        // `[String: Any]` isn't `Sendable` because of `Any`, but a received
+        // context is a value dictionary of `Data`/`String` payloads that nobody
+        // mutates after delivery, so reading it on the intake queue is sound.
+        nonisolated(unsafe) let receivedContext = context
         let (resolution, seedChanged, settingsChanged) = await withCheckedContinuation { continuation in
             Self.contextIntakeQueue.async {
-                let resolution = Self.resolution(for: context, over: current)
+                let resolution = Self.resolution(for: receivedContext, over: current)
                 // Read the PRIOR stored signature before `persist` overwrites
                 // it: a changed compute-settings signature (source selection,
                 // sleep goal, display flags, …) means everything the watch

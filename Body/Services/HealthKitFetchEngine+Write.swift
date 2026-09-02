@@ -304,7 +304,7 @@ extension HealthKitFetchEngine {
     // genuinely absent workout (`nil` without error); route/splits propagate
     // that error rather than caching a false empty.
     func fetchWorkout(id: UUID) async throws -> HKWorkout? {
-        try await trackedThrowingHealthQuery { (resume: @escaping (Result<HKWorkout?, Error>) -> Void) in
+        try await trackedThrowingHealthQuery { (resume: @escaping @Sendable (Result<HKWorkout?, Error>) -> Void) in
             let query = HKSampleQuery(
                 sampleType: HKObjectType.workoutType(),
                 predicate: HKQuery.predicateForObject(with: id),

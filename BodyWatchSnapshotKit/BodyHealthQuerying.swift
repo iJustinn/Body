@@ -249,7 +249,7 @@ extension HKHealthStore: BodyHealthQuerying {
     /// Runs one callback query under `BodyQueryResumeBox`, so the awaiting task's
     /// cancellation resumes `.cancelled` and stops the query exactly once.
     private func bodyCancellableRead<Value>(
-        _ body: @escaping (@escaping (BodyHealthReadOutcome<Value>) -> Void) -> HKQuery
+        _ body: @escaping (@escaping @Sendable (BodyHealthReadOutcome<Value>) -> Void) -> HKQuery
     ) async -> BodyHealthReadOutcome<Value> {
         let box = BodyQueryResumeBox<BodyHealthReadOutcome<Value>>(stop: { [self] query in self.stop(query) })
         return await withTaskCancellationHandler {
@@ -312,7 +312,7 @@ final class BodyQueryResumeBox<Value>: @unchecked Sendable {
     func install(
         continuation: CheckedContinuation<Value, Never>,
         cancelledValue: @autoclosure () -> Value,
-        body: (@escaping (Value) -> Void) -> HKQuery
+        body: (@escaping @Sendable (Value) -> Void) -> HKQuery
     ) {
         lock.lock()
         switch state {

@@ -372,7 +372,7 @@ extension HealthKitFetchEngine {
         unit: HKUnit,
         sourceKind: HealthMetricKind?,
         intervals: [DateInterval],
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> QueryOutcome<[Double?]> {
         switch await fetchVitalSamples(
             for: identifier,
@@ -396,7 +396,7 @@ extension HealthKitFetchEngine {
         unit: HKUnit,
         sourceKind: HealthMetricKind?,
         intervals: [DateInterval],
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> QueryOutcome<[SleepVitalWindowSample]> {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .success(nil)
