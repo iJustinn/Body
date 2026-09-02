@@ -119,17 +119,13 @@ func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint) -> Str
 // baseline away from the robust median Readiness's vitals component uses.
 // Without this, the card can show "Baseline +0.3 °C" while Readiness shows
 // no wrist-temperature driver (or vice versa) for the same day.
-func wristTemperatureBaselineValue(from finiteValues: [Double]) -> Double {
+private func wristTemperatureBaselineValue(from finiteValues: [Double]) -> Double {
     let sorted = finiteValues.sorted()
     let middle = sorted.count / 2
     if sorted.count.isMultiple(of: 2) {
         return (sorted[middle - 1] + sorted[middle]) / 2
     }
     return sorted[middle]
-}
-
-func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double {
-    wristTemperatureBaselineIfAvailable(from: series) ?? 0
 }
 
 /// The chart-stable baseline median over the recent year, or `nil` when the

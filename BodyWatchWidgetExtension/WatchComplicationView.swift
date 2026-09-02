@@ -97,11 +97,13 @@ struct WatchComplicationView: View {
     /// fillFraction with the recent-range labels.
     private func cornerGaugeModel(_ metric: WatchMetric) -> (fill: Double, min: String, max: String) {
         if let low = metric.levelMin, let high = metric.levelMax, high > low, let value = metric.rawValue {
-            let fill = min(max((value - low) / (high - low), 0), 1)
+            let rawFill = (value - low) / (high - low)
+            let fill = rawFill.isFinite ? min(max(rawFill, 0), 1) : 0
             return (fill, levelLabel(low, kind: metric.kind), levelLabel(high, kind: metric.kind))
         }
         let ends = gaugeEndLabels(metric)
-        return (metric.fillFraction, ends?.min ?? "", ends?.max ?? "")
+        let fallbackFill = metric.fillFraction.isFinite ? min(max(metric.fillFraction, 0), 1) : 0
+        return (fallbackFill, ends?.min ?? "", ends?.max ?? "")
     }
 
     private func levelLabel(_ value: Double, kind: String) -> String {

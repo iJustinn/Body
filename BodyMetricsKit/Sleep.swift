@@ -551,7 +551,8 @@ struct SleepScoreSummary: Equatable {
         kind: SleepScoreCategory.Kind,
         progress: Double,
         maximumPoints: Int,
-        valueDescription: String? = nil
+        valueDescription: String? = nil,
+        temperatureCelsius: Double? = nil
     ) -> SleepScoreCategory {
         let clampedProgress = min(max(progress, 0), 1)
         return SleepScoreCategory(
@@ -559,7 +560,8 @@ struct SleepScoreSummary: Equatable {
             points: Int((clampedProgress * Double(maximumPoints)).rounded()),
             maximumPoints: maximumPoints,
             progress: clampedProgress,
-            valueDescription: valueDescription
+            valueDescription: valueDescription,
+            temperatureCelsius: temperatureCelsius
         )
     }
 
@@ -801,7 +803,7 @@ struct SleepScoreSummary: Equatable {
             kind: .temperature,
             progress: progress,
             maximumPoints: 5,
-            valueDescription: "\(BodyValueFormat.numberText(wristTemperatureCelsius, decimals: 1))C"
+            temperatureCelsius: wristTemperatureCelsius
         )
     }
 
@@ -1121,6 +1123,9 @@ struct SleepScoreCategory: Equatable, Identifiable {
     let maximumPoints: Int
     let progress: Double
     let valueDescription: String?
+    /// Set only by the temperature category, which formats its own chip in the
+    /// viewer's unit preference instead of carrying a pre-formatted string.
+    let temperatureCelsius: Double?
 
     var id: Kind {
         kind

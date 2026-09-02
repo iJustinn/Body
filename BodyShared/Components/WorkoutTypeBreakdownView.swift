@@ -80,8 +80,8 @@ struct WorkoutTypeBreakdownView: View {
         displayedTextBreakdown ?? snapshot.workoutTypeBreakdown
     }
 
-    /// Percentages are taken against the sum of what the text snapshot holds, so the
-    /// visible rows always add up to ~100%.
+    /// Percentages are taken against the whole month's total, so rows hidden by
+    /// the display limit still count and the visible rows can add up to less than 100%.
     private var distributionTotal: TimeInterval {
         textBreakdown.reduce(0) { $0 + $1.duration }
     }

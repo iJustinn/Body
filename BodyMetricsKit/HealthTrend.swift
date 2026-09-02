@@ -1562,7 +1562,7 @@ struct HealthTrendRangeSeries: Codable, Equatable {
             return nil
         }
 
-        return low...high
+        return min(low, high)...max(low, high)
     }
 
     static let empty = HealthTrendRangeSeries(points: [])

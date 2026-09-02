@@ -343,6 +343,35 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertNil(presentation.heroDistanceValue)
     }
 
+    /// A paused workout records an `endDate` later than `startDate + duration`.
+    /// The time range must end at the recorded end, not at the elapsed-time
+    /// approximation, so the share card matches the Fitness app.
+    func testWorkoutDetailTimeRangeUsesRecordedEndDateForPausedWorkouts() throws {
+        let calendar = Calendar.bodyGregorian
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let startDate = try XCTUnwrap(calendar.date(
+            from: DateComponents(timeZone: timeZone, year: 2026, month: 5, day: 11, hour: 15, minute: 57, second: 21)
+        ))
+        // 1 hour of moving time, but the session sat paused until 6:57 PM.
+        let endDate = startDate.addingTimeInterval(3 * 60 * 60)
+        let workout = WorkoutSummary(
+            type: .strengthTraining,
+            startDate: startDate,
+            duration: 3_600,
+            endDate: endDate
+        )
+
+        let presentation = WorkoutDetailPresentation(
+            workout: workout,
+            calendar: calendar,
+            locale: Locale(identifier: "en_US_POSIX"),
+            timeZone: timeZone,
+            unitPreference: .metric
+        )
+
+        XCTAssertEqual(presentation.timeRangeText, "3:57\u{202F}PM-6:57\u{202F}PM")
+    }
+
     func testWorkoutEffortPresentationMapsScoresToAppleStyleBars() throws {
         let locale = Locale(identifier: "en_US_POSIX")
 
@@ -3954,6 +3983,44 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.duration(for: .deep), 1.2 * 60 * 60, accuracy: 0.01)
     }
 
+    /// The temperature category carries the raw Celsius reading instead of a
+    /// pre-formatted string so the sheet can render it in the viewer's unit.
+    func testSleepScoreTemperatureCategoryCarriesCelsiusInsteadOfFormattedText() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)
+        ))
+        let snapshot = SleepStageSnapshot(
+            date: Calendar.bodyGregorian.startOfDay(for: startDate),
+            segments: [
+                SleepStageSegment(
+                    stage: .core,
+                    startDate: startDate,
+                    endDate: startDate.addingTimeInterval(8 * 60 * 60)
+                )
+            ]
+        )
+        let summary = SleepSummary(
+            duration: 8 * 60 * 60,
+            stageSnapshot: snapshot,
+            vitals: SleepVitalsSummary(
+                heartRate: 55,
+                heartRateVariability: 72,
+                respiratoryRate: 14,
+                oxygenSaturation: 98,
+                wristTemperatureCelsius: 36.4
+            )
+        )
+        let score = try XCTUnwrap(summary.score)
+        let temperature = try XCTUnwrap(score.category(for: .temperature))
+
+        XCTAssertEqual(temperature.temperatureCelsius, 36.4)
+        XCTAssertNil(temperature.valueDescription)
+        // Every other category keeps its own formatted string and no Celsius.
+        for category in score.categories where category.kind != .temperature {
+            XCTAssertNil(category.temperatureCelsius)
+        }
+    }
+
     func testSleepScoreNormalizesToAvailableContributors() throws {
         let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
             from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)
@@ -5465,13 +5532,12 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             exercise: ActivityRingMetric(value: 12, goal: 30),
             stand: ActivityRingMetric(value: 4, goal: 12)
         )
-        let existingHistory = ActivityRingHistorySnapshot(
+        // A loaded-but-empty March alongside a populated April: March must stay in
+        // the loaded set without inserting placeholder months before April.
+        let mergedHistory = ActivityRingHistorySnapshot(
             days: [ActivityRingDaySummary(date: april2, summary: aprilSummary)],
-            loadedMonthKeys: [aprilKey]
+            loadedMonthKeys: [marchKey, aprilKey]
         )
-        let emptyMarchHistory = ActivityRingHistorySnapshot(days: [], loadedMonthKeys: [marchKey])
-
-        let mergedHistory = existingHistory.merging(emptyMarchHistory, calendar: calendar)
         let months = mergedHistory.calendarMonths(calendar: calendar, date: currentDate)
 
         XCTAssertEqual(mergedHistory.loadedMonthKeySet(calendar: calendar), [marchKey, aprilKey])

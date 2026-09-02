@@ -593,16 +593,18 @@ struct BodyHealthMetricTrendChart: View {
 
         if chartStyle == .bar {
             let padding = max(maximum * 0.12, 1)
-            return 0...(maximum + padding)
+            return 0...max(maximum + padding, 1)
         }
 
         guard minimum != maximum else {
             let padding = max(abs(minimum) * 0.12, 1)
-            return max(0, minimum - padding)...(maximum + padding)
+            let lower = max(0, minimum - padding)
+            return lower...max(maximum + padding, lower + 1)
         }
 
         let padding = max((maximum - minimum) * 0.12, 1)
-        return max(0, minimum - padding)...(maximum + padding)
+        let lower = max(0, minimum - padding)
+        return lower...max(maximum + padding, lower + 1)
     }
 
     /// One mark per distinct date across ALL ranges' calendar points. Dates
@@ -910,8 +912,8 @@ struct BodyHealthMetricDayChart: View {
             configuredRoles: configuredRoles
         )
         self.finiteEntries = allEntries.filter { $0.averageValue.isFinite }
-        self.primaryEntriesByDate = Dictionary(uniqueKeysWithValues: primaryEntries.map { ($0.plotDate, $0) })
-        self.secondaryEntriesByDate = Dictionary(uniqueKeysWithValues: secondaryEntries.map { ($0.plotDate, $0) })
+        self.primaryEntriesByDate = Dictionary(primaryEntries.map { ($0.plotDate, $0) }, uniquingKeysWith: { first, _ in first })
+        self.secondaryEntriesByDate = Dictionary(secondaryEntries.map { ($0.plotDate, $0) }, uniquingKeysWith: { first, _ in first })
         self.chartYDomain = Self.computeYDomain(
             from: buckets + secondaryBuckets,
             rangeEntries: rangeEntries
@@ -1169,11 +1171,13 @@ struct BodyHealthMetricDayChart: View {
 
         guard minimum != maximum else {
             let padding = max(abs(minimum) * 0.02, 1)
-            return max(0, minimum - padding)...(maximum + padding)
+            let lower = max(0, minimum - padding)
+            return lower...max(maximum + padding, lower + 1)
         }
 
         let padding = max((maximum - minimum) * 0.16, 1)
-        return max(0, minimum - padding)...(maximum + padding)
+        let lower = max(0, minimum - padding)
+        return lower...max(maximum + padding, lower + 1)
     }
 
     /// The selected day's time-of-day offsets, replotted onto the fixed

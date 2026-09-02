@@ -941,7 +941,7 @@ struct BodySleepConsistencyChart: View {
     }
 
     private var dayIndices: [Date: Int] {
-        Dictionary(uniqueKeysWithValues: model.days.enumerated().map { ($1, $0) })
+        Dictionary(model.days.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     private func isSelected(_ day: Date) -> Bool {

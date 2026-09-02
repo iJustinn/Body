@@ -800,7 +800,7 @@ struct WorkoutDetailPresentation: Equatable {
         /// stays on the stored summary average so it can't flicker when this lands.
         heartRateSamplesOverride: [WorkoutHeartRateSample]? = nil
     ) {
-        let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
+        let endDate = workout.effectiveEndDate
 
         title = WorkoutSummary.normalizedCustomName(customName) ?? workout.type.displayName
         dateTitle = Self.formattedDate(

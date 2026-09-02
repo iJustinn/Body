@@ -107,6 +107,29 @@ struct BodySleepScoreCategoryRow: View {
     let category: SleepScoreCategory
     let color: Color
 
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
+
+    private var selectedTemperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.TemperatureUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
+    }
+
+    private var valueText: String? {
+        guard let temperatureCelsius = category.temperatureCelsius else {
+            return category.valueDescription
+        }
+
+        let display = BodyValueFormat.temperatureDisplay(
+            celsius: temperatureCelsius,
+            temperatureUnitPreference: selectedTemperatureUnitPreference
+        )
+        return "\(display.value)\(display.unit)"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
@@ -116,8 +139,8 @@ struct BodySleepScoreCategoryRow: View {
                         .fontWeight(.semibold)
                         .foregroundColor(.primary)
 
-                    if let valueDescription = category.valueDescription {
-                        Text(valueDescription)
+                    if let valueText {
+                        Text(valueText)
                             .font(.system(.caption, design: .rounded))
                             .fontWeight(.semibold)
                             .foregroundColor(.secondary)

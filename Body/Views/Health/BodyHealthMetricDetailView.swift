@@ -1907,8 +1907,7 @@ struct BodyHealthMetricDetailView: View {
             return nil
         }
 
-        let baselineCelsius = wristTemperatureBaseline(from: workoutStore.healthTrends.wristTemperature)
-        guard baselineCelsius.isFinite, baselineCelsius != 0 else {
+        guard let baselineCelsius = wristTemperatureBaselineIfAvailable(from: workoutStore.healthTrends.wristTemperature) else {
             return nil
         }
 

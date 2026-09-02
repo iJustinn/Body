@@ -404,11 +404,13 @@ struct BodyBasicsTrendChart: View {
 
         guard minimum != maximum else {
             let padding = max(abs(minimum) * 0.05, 1)
-            return max(0, minimum - padding)...(maximum + padding)
+            let lower = max(0, minimum - padding)
+            return lower...max(maximum + padding, lower + 1)
         }
 
         let padding = max((maximum - minimum) * 0.12, 1)
-        return max(0, minimum - padding)...(maximum + padding)
+        let lower = max(0, minimum - padding)
+        return lower...max(maximum + padding, lower + 1)
     }
 
     private func normalized(_ value: Double, in domain: ClosedRange<Double>) -> Double {
@@ -703,10 +705,12 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
 
         guard minimum != maximum else {
             let padding = max(abs(minimum) * 0.05, 1)
-            return max(0, minimum - padding)...(maximum + padding)
+            let lower = max(0, minimum - padding)
+            return lower...max(maximum + padding, lower + 1)
         }
 
         let padding = max((maximum - minimum) * 0.12, 1)
-        return max(0, minimum - padding)...(maximum + padding)
+        let lower = max(0, minimum - padding)
+        return lower...max(maximum + padding, lower + 1)
     }
 }

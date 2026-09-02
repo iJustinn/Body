@@ -143,12 +143,12 @@ struct BodyHealthSourceComparisonLineChart: View {
             .map { Self.lineEntries(comparison: comparison, range: $0) }
         self.lineSegments = Self.unionLineSegments(currentEntries: allEntries, otherRangeEntries: otherRangeEntries)
         self.dotEntries = Self.unionDotEntries(currentEntries: allEntries, otherRangeEntries: otherRangeEntries)
-        self.primaryPointsByDate = Dictionary(uniqueKeysWithValues: primaryEntries.compactMap { entry in
+        self.primaryPointsByDate = Dictionary(primaryEntries.compactMap { entry in
             entry.value?.isFinite == true ? (entry.date, entry) : nil
-        })
-        self.secondaryPointsByDate = Dictionary(uniqueKeysWithValues: secondaryEntries.compactMap { entry in
+        }, uniquingKeysWith: { first, _ in first })
+        self.secondaryPointsByDate = Dictionary(secondaryEntries.compactMap { entry in
             entry.value?.isFinite == true ? (entry.date, entry) : nil
-        })
+        }, uniquingKeysWith: { first, _ in first })
         self.latestPrimaryDate = primaryEntries.last { $0.value?.isFinite == true }?.date
         self.latestSecondaryDate = secondaryEntries.last { $0.value?.isFinite == true }?.date
         let domainDates = primaryEntries.map(\.date) + secondaryEntries.map(\.date)
