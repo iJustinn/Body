@@ -13,6 +13,7 @@
 //
 
 import AVFoundation
+import CoreImage
 import CoreMedia
 import XCTest
 import UIKit
@@ -339,6 +340,95 @@ final class WorkoutShareVideoTests: XCTestCase {
         XCTAssertTrue(audioTracks.isEmpty)
     }
 
+    // MARK: - Compositor
+
+    /// A gap in the source track must not fail the export: the frame comes back as the
+    /// card over black rather than an error that would throw away the whole encode.
+    func testComposedFrameWithoutASourceDrawsTheOverlayOverBlack() throws {
+        let renderSize = CGSize(width: 400, height: 600)
+        let overlay = Self.makeOverlay(renderSize: renderSize)
+        let instruction = WorkoutShareVideoOverlayInstruction(
+            timeRange: CMTimeRange(
+                start: .zero, duration: CMTime(seconds: 1, preferredTimescale: 600)
+            ),
+            trackID: 1,
+            transform: .identity,
+            overlay: CIImage(cgImage: try XCTUnwrap(overlay.cgImage)),
+            renderSize: renderSize
+        )
+
+        let frame = WorkoutShareVideoCompositor.composedFrame(
+            source: nil, instruction: instruction
+        )
+        let rect = CGRect(origin: .zero, size: renderSize)
+        XCTAssertEqual(frame.extent, rect, "the frame must fill the render rect")
+
+        let cgImage = try XCTUnwrap(CIContext(options: nil).createCGImage(frame, from: rect))
+        let raster = try Self.raster(cgImage)
+        let inset = 40
+        Self.assertColor(raster.pixel(inset, inset), near: (1, 0, 1), "top-left magenta")
+        Self.assertColor(
+            raster.pixel(raster.width - inset, inset), near: (0, 1, 1), "top-right cyan"
+        )
+        Self.assertColor(
+            raster.pixel(inset, raster.height - inset), near: (1, 1, 1), "bottom-left white"
+        )
+        Self.assertColor(
+            raster.pixel(raster.width - inset, raster.height - inset), near: (1, 0.5, 0),
+            "bottom-right orange"
+        )
+        // Everywhere the overlay does not cover, the missing source reads as black
+        // rather than as transparency the encoder would have to guess at.
+        Self.assertColor(
+            raster.pixel(raster.width / 2, raster.height / 2), near: (0, 0, 0), "centre black"
+        )
+    }
+
+    /// A portrait phone clip is stored landscape with a 90 degree `preferredTransform`.
+    /// The source is uprighted by `fillTransform`, and the overlay, which is already in
+    /// render space, must not turn with it.
+    func testExportKeepsTheOverlayUprightOverARotatedSource() async throws {
+        let scratch = makeScratch()
+        let url = try await Self.makeVideoFixture(
+            seconds: 2, audioSeconds: nil, in: scratch,
+            // 640x480 stored, presented 480x640.
+            transform: CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 480, ty: 0)
+        )
+        let clip = try await WorkoutShareVideoClip.load(url: url)
+        defer { WorkoutShareVideoClip.removeScratch(for: clip.id) }
+        XCTAssertFalse(clip.preferredTransform.isIdentity, "fixture must carry a rotation")
+        XCTAssertEqual(clip.orientedSize, CGSize(width: 480, height: 640))
+
+        let cardSize = WorkoutShareAspectRatio.portrait9x16.cardSize
+        let renderSize = WorkoutShareVideoComposer.renderSize(for: cardSize)
+        let output = try await WorkoutShareVideoComposer.export(
+            clip: clip,
+            overlay: Self.makeOverlay(renderSize: renderSize),
+            cardSize: cardSize,
+            photoTransform: .identity
+        )
+
+        let frame = try await Self.frame(
+            of: AVURLAsset(url: output), at: CMTime(seconds: 1, preferredTimescale: 600)
+        )
+        let raster = try Self.raster(frame)
+        XCTAssertEqual(raster.width, Int(renderSize.width))
+        XCTAssertEqual(raster.height, Int(renderSize.height))
+
+        let inset = 40
+        Self.assertColor(raster.pixel(inset, inset), near: (1, 0, 1), "top-left magenta")
+        Self.assertColor(
+            raster.pixel(raster.width - inset, inset), near: (0, 1, 1), "top-right cyan"
+        )
+        Self.assertColor(
+            raster.pixel(inset, raster.height - inset), near: (1, 1, 1), "bottom-left white"
+        )
+        Self.assertColor(
+            raster.pixel(raster.width - inset, raster.height - inset), near: (1, 0.5, 0),
+            "bottom-right orange"
+        )
+    }
+
     // MARK: - Scratch
 
     private func makeScratch() -> URL {
@@ -393,7 +483,8 @@ extension WorkoutShareVideoTests {
     /// optionally with a silent 44.1 kHz AAC track that is deliberately shorter than
     /// the video so the export's audio range is observable.
     fileprivate static func makeVideoFixture(
-        seconds: Double, audioSeconds: Double?, in directory: URL
+        seconds: Double, audioSeconds: Double?, in directory: URL,
+        transform: CGAffineTransform = .identity
     ) async throws -> URL {
         let url = directory.appendingPathComponent("fixture-\(UUID().uuidString).mov")
         let width = 640
@@ -409,6 +500,9 @@ extension WorkoutShareVideoTests {
             ]
         )
         videoInput.expectsMediaDataInRealTime = false
+        // Becomes the track's `preferredTransform`: how a portrait phone clip is stored
+        // landscape and rotated on playback.
+        videoInput.transform = transform
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: videoInput,
             sourcePixelBufferAttributes: [

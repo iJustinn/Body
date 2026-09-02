@@ -1189,12 +1189,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(whyBlock.contains("status.explanation"))
         XCTAssertTrue(whyBlock.contains("BodyReadinessStatusPresentation.color(for: status)"))
         XCTAssertTrue(whyBlock.contains("activeStatus"))
-        XCTAssertTrue(source.contains("@State private var activeReadinessTrendValue: Double?"))
-        XCTAssertTrue(source.contains("private var activeReadinessStatus: ReadinessStatus?"))
-        XCTAssertTrue(source.contains("readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)"))
+        XCTAssertTrue(source.contains("@State private var activeTrendValues = BodyActiveTrendValueState()"))
+        XCTAssertTrue(source.contains("private func readinessStatus(forActiveTrendValue activeValue: Double?) -> ReadinessStatus?"))
+        XCTAssertTrue(source.contains("readinessWhyCard(for: readiness, activeStatus: readinessStatus(forActiveTrendValue: activeValue))"))
         XCTAssertTrue(source.contains("activeHighlightedValue: activeTrendValueBinding"))
         XCTAssertTrue(source.contains("private var activeTrendValueBinding: Binding<Double?>?"))
-        XCTAssertTrue(source.contains("case .readiness:\n            return $activeReadinessTrendValue"))
+        XCTAssertTrue(source.contains("case .readiness:\n            return Binding { values.readiness } set: { values.readiness = $0 }"))
         XCTAssertFalse(whyBlock.contains("ForEach(readiness.components)"))
     }
 
@@ -1511,7 +1511,7 @@ final class ProjectConfigurationTests: XCTestCase {
     func testWristTemperatureCardUsesLineChartDetailWithoutDayView() throws {
         let source = try bodyHomeViewText()
         let cardStart = try XCTUnwrap(source.range(of: "private func wristTemperatureMetric")?.lowerBound)
-        let cardBlock = String(source[cardStart...].prefix(1_500))
+        let cardBlock = String(source[cardStart...].prefix(1_800))
         let factoryStart = try XCTUnwrap(source.range(of: "enum BodyHomeTrendCardFactory")?.lowerBound)
         let trendCardStart = try XCTUnwrap(
             source.range(of: "case .wristTemperature:", range: factoryStart..<source.endIndex)?.lowerBound
@@ -1624,11 +1624,16 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(breakdownContainerBlock.contains("series: model.series"))
         XCTAssertTrue(breakdownContainerBlock.contains("selectedRange: selectedTrendRange"))
         XCTAssertTrue(breakdownBlock.contains("TrainingLoadIntervalBreakdown.entries("))
-        XCTAssertTrue(breakdownBlock.contains("GeometryReader { geometry in"))
-        XCTAssertTrue(breakdownBlock.contains("BodyGlassChip("))
-        XCTAssertTrue(breakdownBlock.contains("dayCountText(for: entry.dayCount)"))
-        XCTAssertTrue(breakdownBlock.contains("entry.interval.title"))
-        XCTAssertTrue(breakdownBlock.contains("entry.interval.symbolName"))
+        XCTAssertTrue(breakdownBlock.contains("BodyMetricBandBreakdownChart(entries: entries)"))
+        // The row layout is shared by the three band breakdown charts.
+        let bandSource = try text(at: "Body/Views/Health/Charts/BandBreakdownChart.swift")
+        let bandStart = try XCTUnwrap(bandSource.range(of: "struct BodyMetricBandBreakdownChart")?.lowerBound)
+        let bandBlock = String(bandSource[bandStart...])
+        XCTAssertTrue(bandBlock.contains("GeometryReader { geometry in"))
+        XCTAssertTrue(bandBlock.contains("BodyGlassChip("))
+        XCTAssertTrue(bandBlock.contains("dayCountText(for: entry.dayCount)"))
+        XCTAssertTrue(bandBlock.contains("entry.title"))
+        XCTAssertTrue(bandBlock.contains("entry.symbolName"))
     }
 
     func testTrainingLoadDetailShowsAboutYourIntervalCardAboveHelpText() throws {
@@ -1660,10 +1665,10 @@ final class ProjectConfigurationTests: XCTestCase {
         // The Current chip follows the scrubbed point, falling back to the trend
         // chart's last plotted point (via the chart's active-value binding), and
         // to the live summary value only when the chart is empty.
-        XCTAssertTrue(source.contains("private var activeTrainingLoadInterval: TrainingLoadInterval?"))
-        XCTAssertTrue(source.contains("TrainingLoadInterval.interval(for: activeTrainingLoadTrendValue)"))
+        XCTAssertTrue(source.contains("private func trainingLoadInterval(forActiveTrendValue activeValue: Double?) -> TrainingLoadInterval?"))
+        XCTAssertTrue(source.contains("TrainingLoadInterval.interval(for: activeValue)"))
         XCTAssertTrue(source.contains("TrainingLoadInterval.interval(for: model.trainingLoadValue)"))
-        XCTAssertTrue(source.contains("case .trainingLoad:\n            return $activeTrainingLoadTrendValue"))
+        XCTAssertTrue(source.contains("case .trainingLoad:\n            return Binding { values.trainingLoad } set: { values.trainingLoad = $0 }"))
     }
 
     func testHeartRateAndRespiratoryRateDayViewsDrawHourlyRangeBarsBehindTheAverageLine() throws {
@@ -2002,14 +2007,14 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(comparisonChartBlock.contains("x: .value(\"Date\", entry.chartDate)"))
         XCTAssertFalse(comparisonChartBlock.contains(".position(by: .value(\"Source\", entry.sourceRole.rawValue), axis: .horizontal)"))
         XCTAssertTrue(comparisonChartBlock.contains("sourceComparisonChartBarWidth(forAvailableWidth:"))
-        XCTAssertTrue(comparisonChartBlock.contains("sourceComparisonChartCalendarPoints(to: selectedRange)"))
+        XCTAssertTrue(comparisonChartBlock.contains("primaryPointsByRange[selectedRange] ?? []"))
         XCTAssertTrue(comparisonChartBlock.contains("BodyChartSelectionValue("))
         XCTAssertTrue(rangeBandChartBlock.contains("secondaryRangePoints"))
         XCTAssertTrue(rangeBandChartBlock.contains("BarMark("))
         XCTAssertTrue(rangeBandChartBlock.contains("series: .value(\"Segment\", segment.id)"))
         XCTAssertTrue(rangeBandChartBlock.contains("BodyChartSelectionValue("))
         XCTAssertTrue(rangeComparisonChartBlock.contains("sourceComparisonRangeChartBarWidth(forAvailableWidth:"))
-        XCTAssertTrue(rangeComparisonChartBlock.contains("sourceComparisonChartCalendarPoints(to: selectedRange)"))
+        XCTAssertTrue(rangeComparisonChartBlock.contains("primaryPointsByRange[selectedRange] ?? []"))
         XCTAssertTrue(rangeComparisonChartBlock.contains("x: .value(\"Date\", entry.chartDate)"))
         XCTAssertTrue(storeSource.contains("func sourceComparisonTrend(for kind: HealthMetricKind) -> BodyHealthSourceComparisonTrend?"))
         XCTAssertTrue(storeSource.contains("func sourceRangeComparisonTrend(for kind: HealthMetricKind) -> BodyHealthSourceRangeComparisonTrend?"))
@@ -2029,8 +2034,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(appearanceSource.contains("var usesSourceComparisonLineChart: Bool"))
         XCTAssertTrue(trendCardBlock.contains("sourceLineComparisonTrend"))
         XCTAssertTrue(trendCardBlock.contains("BodyHealthSourceComparisonLineChart("))
-        XCTAssertTrue(lineComparisonChartBlock.contains("comparison.primary.series.lineChartCalendarPoints(to: selectedRange)"))
-        XCTAssertTrue(lineComparisonChartBlock.contains("comparison.secondary.series.lineChartCalendarPoints(to: selectedRange)"))
+        XCTAssertTrue(lineComparisonChartBlock.contains("?? Self.makePointsByRange(for: comparison.primary.series, date: date)"))
+        XCTAssertTrue(lineComparisonChartBlock.contains("?? Self.makePointsByRange(for: comparison.secondary.series, date: date)"))
         XCTAssertTrue(lineComparisonChartBlock.contains("series: .value(\"Segment\", segment.id)"))
         XCTAssertTrue(lineComparisonChartBlock.contains("BodyChartSelectionValue("))
         XCTAssertTrue(storeSource.contains("func sourceLineComparisonTrend(for kind: HealthMetricKind) -> BodyHealthSourceComparisonTrend?"))
@@ -2927,8 +2932,9 @@ final class ProjectConfigurationTests: XCTestCase {
 
         // The widgets never run a `.task`, so every read falls back to the snapshot
         // they were handed — a widget must not render an empty chart.
-        XCTAssertTrue(breakdownSource.contains("displayedBreakdown ?? snapshot.workoutTypeBreakdown"))
-        XCTAssertTrue(breakdownSource.contains("displayedTextBreakdown ?? snapshot.workoutTypeBreakdown"))
+        XCTAssertTrue(breakdownSource.contains("let live = snapshot.workoutTypeBreakdown"))
+        XCTAssertTrue(breakdownSource.contains("displayedBreakdown ?? live"))
+        XCTAssertTrue(breakdownSource.contains("displayedTextBreakdown ?? live"))
 
         // Digits roll instead of cutting; the activity group cross-fades in its slot.
         XCTAssertTrue(breakdownSource.contains(".numericText(value: Double(percentage))"))
