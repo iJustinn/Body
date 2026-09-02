@@ -4,20 +4,20 @@
 //
 
 import Foundation
-import RevenueCat
 
-/// Owns the Body Pro purchase and the app's reactive entitlement, backed by RevenueCat.
+/// Owns the Body Pro purchase and the app's reactive entitlement, backed by a
+/// `BodyPurchasesClient` (RevenueCat in production).
 ///
 /// SwiftUI gates read `isPro` from this `@Observable` store via the environment. Deep
 /// clamps that can't reach the environment (the widget process, the plain
 /// `HealthKitWorkoutStore`) read the cached `BodyProEntitlement` flag instead, which this
-/// store keeps in sync from RevenueCat's `CustomerInfo`.
+/// store keeps in sync from the purchase provider's entitlement updates.
 @MainActor
 @Observable
 final class BodyProStore {
     /// The single non-consumable that unlocks Body Pro for life. RevenueCat maps this App
     /// Store product to the Pro entitlement; we also fetch it by id for the display price.
-    static let lifetimeProductID = "com.zihengthedeveloper.body.pro.lifetime"
+    nonisolated static let lifetimeProductID = "com.zihengthedeveloper.body.pro.lifetime"
 
     /// RevenueCat entitlement identifier that unlocks Body Pro.
     static let entitlementID = RevenueCatConfiguration.proEntitlementID
@@ -36,35 +36,40 @@ final class BodyProStore {
     }
 
     /// Seeded synchronously from the cached entitlement so a returning Pro user never
-    /// flashes the locked UI before RevenueCat resolves.
-    private(set) var isPro: Bool = BodyProEntitlement.isUnlocked
+    /// flashes the locked UI before the entitlement resolves.
+    private(set) var isPro: Bool
     /// `false` until the first async entitlement refresh completes — lets the paywall
     /// show "checking…" rather than "buy" during a reinstall's resolve window.
     private(set) var hasResolved = false
-    private(set) var product: StoreProduct?
+    private(set) var product: BodyProProduct?
     /// `true` once a `loadProduct()` attempt has completed without resolving a product —
     /// distinguishes "still loading" from "failed", so the paywall never shows a guessed
     /// price. Cleared at the start of every retry.
     private(set) var productLoadFailed = false
     var purchaseState: PurchaseState = .idle
 
+    private let client: any BodyPurchasesClient
+    private let entitlementDefaults: UserDefaults?
+    private let requestWidgetReload: @MainActor () -> Void
+
     // Retained for the store's (app) lifetime. The `[weak self]` capture lets the loop
     // no-op once the store is gone, so an explicit deinit cancel isn't needed.
     private var updatesTask: Task<Void, Never>?
 
-    init() {
-        // Skip all RevenueCat work when the SDK isn't configured — e.g. SwiftUI previews,
-        // which don't run `BodyApp.init`. `Purchases.shared` fatal-errors if unconfigured, so
-        // touching it here would crash previews; `isPro` stays seeded from the cached flag.
-        guard Purchases.isConfigured else { return }
+    init(
+        client: any BodyPurchasesClient = RevenueCatPurchasesClient.makeIfConfigured(),
+        entitlementDefaults: UserDefaults? = nil,
+        requestWidgetReload: @escaping @MainActor () -> Void = { BodyWidgetReloadCoalescer.shared.requestReload() }
+    ) {
+        self.client = client
+        self.entitlementDefaults = entitlementDefaults
+        self.requestWidgetReload = requestWidgetReload
+        isPro = BodyProEntitlement.isUnlocked(defaults: entitlementDefaults)
 
-        // Long-lived listener for entitlement changes RevenueCat surfaces after its own
-        // calls (this-device purchases, restores, cache refreshes). RevenueCat does not
-        // push backend changes, so refunds / other-device buys are additionally picked up
-        // by the foreground `refreshEntitlement()` hook in BodyApp.
         updatesTask = Task { [weak self] in
-            for await info in Purchases.shared.customerInfoStream {
-                self?.apply(customerInfo: info)
+            guard let updates = self?.client.entitlementUpdates else { return }
+            for await unlocked in updates {
+                self?.applyEntitlement(unlocked)
             }
         }
 
@@ -81,73 +86,49 @@ final class BodyProStore {
     /// `nil` until the product resolves — the paywall shows a loading placeholder rather
     /// than a guessed price.
     var displayPrice: String? {
-        product?.localizedPriceString
+        product?.displayPrice
     }
 
-    /// Fetch the product directly by id (no Offering dependency); the paywall shows its
-    /// localized price. Non-fatal on failure: `productLoadFailed` lets the paywall offer a
-    /// retry, and `purchase()` retries the load itself.
+    /// Fetch the product by id; the paywall shows its localized price. Non-fatal on failure:
+    /// `productLoadFailed` lets the paywall offer a retry, and a purchase attempt reports
+    /// `.unavailable` on its own.
     func loadProduct() async {
         productLoadFailed = false
-        product = await Purchases.shared.products([Self.lifetimeProductID]).first
+        product = await client.product(id: Self.lifetimeProductID)
         productLoadFailed = product == nil
     }
 
     func purchase() async {
-        if product == nil {
-            await loadProduct()
-        }
-        guard let product else {
-            purchaseState = .failed(String(localized: "Body Pro is temporarily unavailable. Please try again."))
-            return
-        }
-
         purchaseState = .purchasing
         do {
-            let result = try await Purchases.shared.purchase(product: product)
-            if result.userCancelled {
+            switch try await client.purchase(productID: Self.lifetimeProductID) {
+            case .cancelled:
                 purchaseState = .idle
-            } else {
-                // Apply the returned CustomerInfo directly — don't wait on the stream.
-                apply(customerInfo: result.customerInfo)
-                if !isPro {
-                    // The purchase completed but the entitlement isn't active yet. One
-                    // bounded network re-check (no retry loop — the UI stays on `.purchasing`
-                    // for its duration, and the stream / foreground refresh still clears
-                    // `.completedNotUnlocked` later if this attempt is too early).
-                    if let info = try? await Purchases.shared.customerInfo(fetchPolicy: .fetchCurrent) {
-                        apply(customerInfo: info)
-                    }
-                }
+            case .pending:
+                purchaseState = .pending
+            case .unavailable:
+                purchaseState = .failed(String(localized: "Body Pro is temporarily unavailable. Please try again."))
+            case .completed(let isProActive):
+                applyEntitlement(isProActive)
                 purchaseState = isPro ? .idle : .completedNotUnlocked
             }
         } catch {
-            // Ask-to-Buy / SCA deferrals surface as `.paymentPendingError`: do not unlock.
-            // The entitlement arrives later via the customerInfoStream / foreground refresh,
-            // which clears `.pending`. `error as? RevenueCat.ErrorCode` is RevenueCat's
-            // documented way to inspect the failure; adjust if the SDK version differs.
-            if let errorCode = error as? RevenueCat.ErrorCode, errorCode == .paymentPendingError {
-                purchaseState = .pending
-            } else {
-                purchaseState = .failed(String(localized: "Purchase could not be completed."))
-            }
+            purchaseState = .failed(String(localized: "Purchase could not be completed."))
         }
     }
 
     func restore() async {
         purchaseState = .restoring
         do {
-            let info = try await Purchases.shared.restorePurchases()
-            apply(customerInfo: info)
-            if isPro {
+            switch try await client.restorePurchases() {
+            case .unlocked:
+                applyEntitlement(true)
                 purchaseState = .idle
-            } else if info.allPurchasedProductIdentifiers.contains(Self.lifetimeProductID) {
-                // The lifetime purchase exists but its entitlement didn't resolve —
-                // that's the same recovery state as a just-completed purchase, not
-                // "nothing to restore" (which would falsely tell a paying customer
-                // their purchase doesn't exist).
+            case .ownedButInactive:
+                applyEntitlement(false)
                 purchaseState = .completedNotUnlocked
-            } else {
+            case .nothingToRestore:
+                applyEntitlement(false)
                 // A restore that resolves no purchase at all is not a success — say so
                 // rather than dropping silently back to the buy card.
                 purchaseState = .failed(String(localized: "No purchases to restore."))
@@ -157,17 +138,12 @@ final class BodyProStore {
         }
     }
 
-    /// Recompute entitlement from RevenueCat's current `CustomerInfo` and publish any change.
+    /// Recompute entitlement from the provider's current state and publish any change.
     /// Called on launch and from BodyApp's foreground (`.active`) hook so refunds and
     /// other-device purchases — which RevenueCat does not push — stay in sync.
     func refreshEntitlement() async {
         do {
-            // `.fetchCurrent` forces a network fetch. `customerInfo()`'s default policy is
-            // `.cachedOrFetched`, which returns cached CustomerInfo even when stale — so it
-            // would miss exactly what this explicit launch/foreground refresh exists to catch:
-            // refunds, revocations, and other-device purchases that RevenueCat does not push.
-            let info = try await Purchases.shared.customerInfo(fetchPolicy: .fetchCurrent)
-            apply(customerInfo: info)
+            applyEntitlement(try await client.currentEntitlement())
         } catch {
             // Keep the cached value; still mark resolved so the paywall leaves "checking".
         }
@@ -178,17 +154,10 @@ final class BodyProStore {
     /// redeemed transaction, then apply the resulting entitlement.
     func refreshAfterRedemption() async {
         do {
-            let info = try await Purchases.shared.syncPurchases()
-            apply(customerInfo: info)
+            applyEntitlement(try await client.syncPurchases())
         } catch {
             await refreshEntitlement()
         }
-    }
-
-    /// Map RevenueCat's `CustomerInfo` to our single unlock flag. RevenueCat verifies the
-    /// transaction and encodes revocation into `isActive`, so this is the whole check.
-    private func apply(customerInfo: CustomerInfo) {
-        applyEntitlement(customerInfo.entitlements[Self.entitlementID]?.isActive == true)
     }
 
     private func applyEntitlement(_ unlocked: Bool) {
@@ -214,9 +183,9 @@ final class BodyProStore {
         // HealthKitWorkoutStore pick up the change. This store is the single owner of the
         // Pro widget refresh, so it fires regardless of any view's lifecycle, and only
         // when the entitlement actually flips.
-        BodyProEntitlement.setUnlocked(unlocked)
+        BodyProEntitlement.setUnlocked(unlocked, defaults: entitlementDefaults)
         if didChange {
-            BodyWidgetReloadCoalescer.shared.requestReload()
+            requestWidgetReload()
         }
     }
 }

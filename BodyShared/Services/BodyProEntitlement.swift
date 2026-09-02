@@ -24,14 +24,25 @@ enum BodyProEntitlement {
     /// App Group suite can't be reached, mirroring the guarded-container pattern the
     /// other shared stores use.
     static var isUnlocked: Bool {
-        sharedDefaults?.bool(forKey: unlockedKey) ?? false
+        isUnlocked(defaults: nil)
+    }
+
+    /// Suite-explicit read. `defaults` of `nil` means the shared App Group suite, so tests
+    /// can point the cache at a throwaway suite without touching real Pro state.
+    static func isUnlocked(defaults: UserDefaults?) -> Bool {
+        (defaults ?? sharedDefaults)?.bool(forKey: unlockedKey) ?? false
     }
 
     /// Writes the cached flag. The single site that posts `didChangeNotification`, and
     /// only when the value actually changes, so repeated entitlement refreshes don't
     /// fan out redundant notifications.
     static func setUnlocked(_ unlocked: Bool) {
-        guard let defaults = sharedDefaults, defaults.bool(forKey: unlockedKey) != unlocked else {
+        setUnlocked(unlocked, defaults: nil)
+    }
+
+    /// Suite-explicit write. `defaults` of `nil` means the shared App Group suite.
+    static func setUnlocked(_ unlocked: Bool, defaults: UserDefaults?) {
+        guard let defaults = defaults ?? sharedDefaults, defaults.bool(forKey: unlockedKey) != unlocked else {
             return
         }
 
