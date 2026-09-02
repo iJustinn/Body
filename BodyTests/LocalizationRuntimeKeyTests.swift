@@ -762,6 +762,12 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    func testChartDayCountShortKeyResolvesInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        try assertKeysTranslated(["chart.dayCount.short"], in: catalog)
+    }
+
     /// One language's resolved string for `key`, so a test can assert the translation
     /// itself and not merely that the entry exists.
     private func value(of key: String, language: String, in catalog: [String: Any]) throws -> String {

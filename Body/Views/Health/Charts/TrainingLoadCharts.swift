@@ -168,7 +168,7 @@ struct BodyTrainingLoadIntervalBreakdownChart: View {
     }
 
     private func dayCountText(for dayCount: Int) -> String {
-        "\(dayCount)d"
+        String(localized: "chart.dayCount.short", defaultValue: "\(dayCount)d", comment: "Short day-count chip, like 7d")
     }
 
     private func dayText(for dayCount: Int) -> String {

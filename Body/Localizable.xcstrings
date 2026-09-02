@@ -2943,6 +2943,24 @@
         }
       }
     },
+    "chart.dayCount.short" : {
+      "comment" : "Short day-count chip, like 7d",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lldd"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld天"
+          }
+        }
+      }
+    },
     "chart.legendRange" : {
       "extractionState" : "manual",
       "localizations" : {
