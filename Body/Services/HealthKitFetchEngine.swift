@@ -110,6 +110,20 @@ actor HealthKitFetchEngine {
         return code == .errorAuthorizationDenied || code == .errorAuthorizationNotDetermined
     }
 
+    /// Whether a HealthKit error is a confirmed denial (`.errorAuthorizationDenied`
+    /// only), as opposed to `.errorAuthorizationNotDetermined`, which just means
+    /// the user has not been asked yet and is not evidence the permission is off.
+    /// Callers that would otherwise wipe cached history on a denial should use
+    /// this instead of `isAuthorizationDenial` so a transient "not determined"
+    /// read is treated as a plain failure rather than an authoritative absence.
+    nonisolated static func isConfirmedDenial(_ error: Error) -> Bool {
+        guard let code = (error as? HKError)?.code else {
+            return false
+        }
+
+        return code == .errorAuthorizationDenied
+    }
+
     /// Resolves a freshly fetched trend series against the cached one. A `nil`
     /// `fetched` means the HealthKit query itself failed (device locked, store
     /// unavailable, XPC drop) rather than genuinely returning no data, so the
@@ -550,10 +564,12 @@ actor HealthKitFetchEngine {
     // MARK: - Authorization
 
     /// Result of an authorization pass.
-    enum AuthorizationOutcome {
+    enum AuthorizationOutcome: Equatable {
         /// HealthKit has a recorded decision for every requested type; the read
-        /// path may proceed.
-        case authorized
+        /// path may proceed. `didPrompt` is `true` only when this pass actually
+        /// put the permission sheet on screen, so callers can tell a real
+        /// authorization change from a no-op status re-check.
+        case authorized(didPrompt: Bool)
         /// A permission sheet is required but `allowPrompt` was `false`, so none
         /// was shown.
         case promptDeferred
@@ -574,14 +590,14 @@ actor HealthKitFetchEngine {
     func requestAuthorization(allowPrompt: Bool = true) async throws -> AuthorizationOutcome {
         let requestedTypes = HealthKitWorkoutStore.readObjectTypes(for: permissionSelection)
         guard !requestedTypes.isEmpty else {
-            return .authorized
+            return .authorized(didPrompt: false)
         }
 
         return try await authorizationCoordinator.run { [self] in
             let status = try await authorizationRequestStatus(readTypes: requestedTypes)
             switch status {
             case .unnecessary:
-                return .authorized
+                return .authorized(didPrompt: false)
             case .shouldRequest:
                 guard allowPrompt else {
                     return .promptDeferred
@@ -603,7 +619,7 @@ actor HealthKitFetchEngine {
             let updatedStatus = try await authorizationRequestStatus(readTypes: requestedTypes)
             switch updatedStatus {
             case .unnecessary:
-                return .authorized
+                return .authorized(didPrompt: true)
             case .shouldRequest:
                 throw HealthKitWorkoutError.authorizationDenied
             case .unknown:

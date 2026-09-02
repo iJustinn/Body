@@ -4089,4 +4089,59 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         // the new guard leaves it alone.
         XCTAssertTrue(store.applyActivityRingHistoryChunk(chunk, capturedEpoch: 0))
     }
+
+    // MARK: - Detail cache retention (H-02, M-04)
+
+    func testDetailCachesAreClearedOnlyWhenTheAuthorizationSheetWasShown() {
+        XCTAssertTrue(HealthKitWorkoutStore.shouldClearDetailCaches(after: .authorized(didPrompt: true)))
+        // A status re-check changed nothing readable, so cached routes, splits,
+        // series and recovery stay put across every in-session refresh. A grant
+        // changed outside Body is covered by the eager background clear instead.
+        XCTAssertFalse(HealthKitWorkoutStore.shouldClearDetailCaches(after: .authorized(didPrompt: false)))
+        XCTAssertFalse(HealthKitWorkoutStore.shouldClearDetailCaches(after: .promptDeferred))
+    }
+
+    func testEvictableWorkoutDetailIDsDropsTheOldestBeyondTheMaximum() {
+        let ids = (0..<5).map { _ in UUID() }
+
+        XCTAssertEqual(HealthKitWorkoutStore.evictableWorkoutDetailIDs(order: ids, maximum: 5), [])
+        XCTAssertEqual(HealthKitWorkoutStore.evictableWorkoutDetailIDs(order: ids, maximum: 9), [])
+        XCTAssertEqual(HealthKitWorkoutStore.evictableWorkoutDetailIDs(order: [], maximum: 3), [])
+        XCTAssertEqual(
+            HealthKitWorkoutStore.evictableWorkoutDetailIDs(order: ids, maximum: 3),
+            Array(ids.prefix(2))
+        )
+    }
+
+    func testTouchingAWorkoutDetailMovesItPastTheEvictionFront() {
+        var order = (0..<4).map { _ in UUID() }
+        let oldest = order[0]
+
+        // Reopening the oldest workout moves it to the end, so the next
+        // eviction takes the one after it instead.
+        order.removeAll { $0 == oldest }
+        order.append(oldest)
+
+        XCTAssertEqual(order.last, oldest)
+        XCTAssertEqual(
+            HealthKitWorkoutStore.evictableWorkoutDetailIDs(order: order, maximum: 3),
+            [order[0]]
+        )
+        XCTAssertNotEqual(order[0], oldest)
+    }
+
+    func testPermissionSelectionLoadAloneRunsNoMigration() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("workouts,heart", forKey: BodyAppearancePreference.healthPermissionSelectionKey)
+
+        let loaded = BodyHealthPermissionSelection.load(defaults: defaults)
+
+        XCTAssertFalse(loaded.includes(.workoutMetrics))
+        XCTAssertFalse(loaded.includes(.cardioFitness))
+        XCTAssertFalse(defaults.bool(forKey: BodyAppearancePreference.healthPermissionExpandedMigratedKey))
+        XCTAssertFalse(defaults.bool(forKey: BodyAppearancePreference.healthCardioFitnessMigratedKey))
+    }
 }

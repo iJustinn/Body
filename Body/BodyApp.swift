@@ -19,6 +19,14 @@ struct BodyApp: App {
     private var workoutColorOverridesRawValue = ""
 
     init() {
+        // The permission-selection migrations run exactly once here, before
+        // anything reads the selection. `workoutStore` is a `@StateObject`, so its
+        // autoclosure (and the `BodyHealthPermissionSelection.load()` default
+        // argument inside `HealthKitWorkoutStore.init`) runs after this `init`,
+        // which is what puts the migration first. Do not turn that property into a
+        // plain stored value, which would evaluate it before this line.
+        BodyHealthPermissionSelection.migrateIfNeeded()
+
         // Configure RevenueCat before constructing BodyProStore so the store's async
         // entitlement work always runs against a configured SDK.
         RevenueCatConfiguration.configure()
@@ -69,6 +77,9 @@ struct BodyApp: App {
                     // The background evaluator skips a pass while the app is on
                     // screen, where the foreground refresh owns detection.
                     BodyBackgroundRefreshScheduler.setForegroundActive(newPhase == .active)
+                    if newPhase == .background {
+                        workoutStore.noteAppDidEnterBackground()
+                    }
                     guard newPhase == .active else {
                         return
                     }

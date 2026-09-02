@@ -306,6 +306,13 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// evict.
     nonisolated static let maximumCachedMonthSnapshots = 12
 
+    /// Workouts beyond this cap have their per-workout detail caches (route,
+    /// splits, series, recovery, energy equivalent) evicted least recently
+    /// opened first, so a long browsing session doesn't pin every opened
+    /// workout's dense payloads in memory. An evicted workout re-seeds from its
+    /// persisted detail file on the next open rather than re-reading HealthKit.
+    nonisolated static let maximumCachedWorkoutDetails = 24
+
     // Internal (not `private`) so `HealthKitWorkoutStore+Records.swift` can run
     // the baseline scan's queries through the same engine.
     let engine: HealthKitFetchEngine
@@ -315,15 +322,24 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// Session cache of resolved workout routes keyed by workout UUID. A cached
     /// `.some(nil)` means "confirmed no readable route", so non-route workouts
     /// aren't re-queried and the city label isn't re-geocoded when a detail
-    /// sheet is reopened. HealthKit read access is opaque, so authorization gates
-    /// clear the cache before any stale positive or negative route result sticks.
+    /// sheet is reopened. HealthKit read access is opaque, so this cache is
+    /// cleared on the authorization pass that showed the permission sheet, and
+    /// eagerly the moment the app enters the background (where access could have
+    /// been changed in the Health app or Settings, with no signal on return);
+    /// it is kept across in-session refreshes, month page-ins and intraday fills.
+    ///
+    /// The background clear is eager rather than deferred to the next
+    /// authorization pass because the detail loaders serve this cache directly
+    /// and a resume can skip that pass entirely (debounced, refresh already
+    /// running, initial load pending).
     private var routeCache: [UUID: WorkoutRoute?] = [:]
     /// Session cache of the cheap `HKWorkoutRoute` presence probe, keyed by workout
     /// UUID. Separate from `routeCache` because the probe can answer "yes" long before
     /// the coordinates exist, and kept consistent with it: the `< 2 coordinates` branch
     /// of the load writes `false` here too, so a workout whose route samples exist but
     /// yield no drawable line never reserves the detail hero's band a second time.
-    /// Cleared wherever `routeCache` is, for the same opaque-authorization reason.
+    /// Cleared wherever `routeCache` is, on the same terms, including the eager
+    /// background clear.
     private var routePresenceCache: [UUID: Bool] = [:]
     /// Session cache of a workout's raw distance samples keyed by UUID, feeding the
     /// detail Splits section. Empty results are cached only for workouts that ended
@@ -374,7 +390,31 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// which is why the task spans the read AND the seeding rather than
     /// resolving to the loaded snapshot: awaiting a read-only task would resume
     /// the other three before a single cache had been written.
+    ///
+    /// Finished entries are left in place (a completed task is tiny) and leave
+    /// only with an LRU eviction or a bulk clear, so an evicted workout hydrates
+    /// from its file again on the next open. The background clear empties this
+    /// map along with the caches, and while `bypassesPersistedDetailSeeding` is
+    /// set no hydration task is created at all, so detail opens go straight to
+    /// the live HealthKit loaders instead of the on-disk seed.
     private var detailHydrations: [UUID: Task<Void, Never>] = [:]
+    /// Workout UUIDs whose detail caches are live, oldest opened first. Drives the
+    /// `maximumCachedWorkoutDetails` eviction; every bulk clear of the detail
+    /// caches resets it too.
+    private var workoutDetailCacheOrder: [UUID] = []
+    /// Set when Body enters the background. While it is set, detail opens skip
+    /// the disk seed so the loaders read HealthKit live, because the persisted
+    /// files hold positives captured under the previous grant and HealthKit read
+    /// access can only change while Body isn't in the foreground (the Health app
+    /// or Settings toggle), with no signal on return. Never cleared during the
+    /// process: nothing short of a live per-workout read validates a persisted
+    /// payload, and an authorized pass only means HealthKit has a decision on
+    /// record, not that the route or series is still readable. So seeding stays
+    /// off until the next launch, and each opened workout costs one live read
+    /// whose result the in-memory caches hold for the rest of the session. The
+    /// live loaders refresh the files as they go: a positive is re-persisted,
+    /// and a confirmed absence deletes the workout's file.
+    private var bypassesPersistedDetailSeeding = false
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
     private var monthLoadOrder: [BodyWorkoutMonthKey] = []
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
@@ -618,10 +658,11 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// with the main file.
     private func persistPublishedDashboardSnapshot() async {
         let epoch = cacheEpoch
-        // `HealthDashboardSnapshotStore.save` rewrites the day-sample sidecar
-        // from the trends it is handed, so this must run AFTER hydration —
-        // persisting the pre-hydration placeholder would overwrite a good
-        // sidecar file with nothing.
+        // Hydration must still run first so the save carries the current
+        // samples forward: `HealthDashboardSnapshotStore.save` now refuses to
+        // replace a populated sidecar with an all-empty payload, but a
+        // partially populated pre-hydration payload (some series still empty)
+        // still overwrites those series on disk.
         await hydratePersistedDaySamplesIfNeeded()
         // A Clear Cache landed while the sidecar loaded: don't write the state
         // it just wiped back to disk.
@@ -1755,6 +1796,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// Caching matches `loadWorkoutRoute`'s original contract exactly: a confirmed
     /// no-route is cached, a cancelled or failed read is not.
     func loadWorkoutRouteCoordinates(for workout: WorkoutSummary) async -> WorkoutRoute? {
+        // Captured before the first suspension: a confirmed absence read while the
+        // disk seed was bypassed is the signal that the stored file is stale.
+        let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = routeCache[workout.id] {
             return cached
@@ -1783,6 +1827,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             // "yes" was a false positive. Record the negative here as well or the detail
             // page would reserve its hero band again on every reopen.
             routePresenceCache[workout.id] = false
+            if revalidating {
+                discardPersistedWorkoutDetail(for: workout)
+            }
             return nil
         }
 
@@ -1813,6 +1860,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// failed or cancelled probe answers `.unknown` and is never cached, so the page
     /// simply behaves as it did before the probe existed and reopening retries.
     func workoutRoutePresence(for workout: WorkoutSummary) async -> BodyWorkoutRoutePresence {
+        let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
         let cached = cachedWorkoutRoutePresence(for: workout)
         guard cached == .unknown else {
@@ -1842,6 +1890,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             return .unknown
         }
         routePresenceCache[workout.id] = hasRoute
+        if !hasRoute, revalidating {
+            discardPersistedWorkoutDetail(for: workout)
+        }
         return hasRoute ? .present : .absent
     }
 
@@ -1913,6 +1964,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return .empty
         }
 
+        let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = distanceSampleCache[workout.id] {
             return cached
@@ -1952,6 +2004,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
             if Date().timeIntervalSince(endDate) > 24 * 60 * 60 {
                 distanceSampleCache[workout.id] = data
+                if revalidating {
+                    discardPersistedWorkoutDetail(for: workout)
+                }
             }
         }
         return data
@@ -1969,6 +2024,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return .empty
         }
 
+        let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = metricSeriesCache[workout.id] {
             return cached
@@ -2004,6 +2060,8 @@ final class HealthKitWorkoutStore: ObservableObject {
             if carriesData, permissionSelection.includes(.workoutMetrics) {
                 let dto = PersistedWorkoutMetricSeries(model: data)
                 persistWorkoutDetail(for: workout) { $0.metricSeries = dto }
+            } else if !carriesData, revalidating {
+                discardPersistedWorkoutDetail(for: workout)
             }
         }
         return data
@@ -2013,6 +2071,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// when the Heart permission is off, no recovery reading exists, or the read
     /// failed. Not gated on pace style — every activity type can have one.
     func loadWorkoutHeartRateRecovery(for workout: WorkoutSummary) async -> Double? {
+        let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
         if let cached = heartRateRecoveryCache[workout.id] {
             return cached
@@ -2040,6 +2099,8 @@ final class HealthKitWorkoutStore: ObservableObject {
             // permission change that a session cache can't survive.
             if let bpm = recovery, bpm > 0, permissionSelection.includes(.heart) {
                 persistWorkoutDetail(for: workout) { $0.heartRateRecoveryBPM = bpm }
+            } else if recovery == nil, revalidating {
+                discardPersistedWorkoutDetail(for: workout)
             }
         }
         return recovery
@@ -2098,6 +2159,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// (kcal restated by HealthKit, or the user changed which foods are hidden
     /// or the representation style) recomputes and re-persists.
     func energyEquivalentEmojis(for workout: WorkoutSummary, hiddenFoods: Set<String>, prefersMoreItems: Bool, usesTotalEnergy: Bool) async -> [String]? {
+        let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
 
         // The source-kcal choice needs no field of its own in the payload — a
@@ -2118,6 +2180,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             excluding: hiddenFoods,
             preferringMoreItems: prefersMoreItems
         ) else {
+            if revalidating {
+                discardPersistedWorkoutDetail(for: workout)
+            }
             return nil
         }
 
@@ -2145,7 +2210,23 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// HealthKit is always the fresher one. Nothing on disk is a negative (the store
     /// is written positive-only), so a seed can never pin a "no route" / "no
     /// recovery" answer.
+    ///
+    /// Skipped entirely while `bypassesPersistedDetailSeeding` is set, so every
+    /// open after a background transition reads HealthKit live.
     private func hydrateWorkoutDetailIfNeeded(for workout: WorkoutSummary) async {
+        touchWorkoutDetailCache(workout.id)
+        // After a background transition the files hold positives captured under a
+        // grant the user may have just revoked, and `permissionSelection` (the gate
+        // every seed below rides) tracks only Body's own toggles, not a change made
+        // in the Health app or Settings. Nothing short of a live read validates a
+        // persisted payload, so seeding stays off for the rest of the process, not
+        // just until the next refresh: skip the seed entirely so the loaders read
+        // HealthKit live, re-persist whatever is still readable, and delete the
+        // file for a detail Apple Health no longer returns. The files are used
+        // again on the next launch.
+        guard !bypassesPersistedDetailSeeding else {
+            return
+        }
         if let existing = detailHydrations[workout.id] {
             await existing.value
             return
@@ -2212,6 +2293,48 @@ final class HealthKitWorkoutStore: ObservableObject {
         await task.value
     }
 
+    /// Marks a workout's detail caches as most recently used and evicts the
+    /// oldest beyond `maximumCachedWorkoutDetails`. Called from
+    /// `hydrateWorkoutDetailIfNeeded`, which every detail entry point runs
+    /// before it fills any of these caches.
+    private func touchWorkoutDetailCache(_ id: UUID) {
+        workoutDetailCacheOrder.removeAll { $0 == id }
+        workoutDetailCacheOrder.append(id)
+
+        let evicted = Self.evictableWorkoutDetailIDs(
+            order: workoutDetailCacheOrder,
+            maximum: Self.maximumCachedWorkoutDetails
+        )
+        guard !evicted.isEmpty else {
+            return
+        }
+
+        let evictedSet = Set(evicted)
+        workoutDetailCacheOrder.removeAll { evictedSet.contains($0) }
+        for evictedID in evicted {
+            // `removeValue` rather than `= nil`: two of these caches hold optional
+            // values, where a `nil` assignment reads as "cache a negative".
+            routeCache.removeValue(forKey: evictedID)
+            routePresenceCache.removeValue(forKey: evictedID)
+            distanceSampleCache.removeValue(forKey: evictedID)
+            metricSeriesCache.removeValue(forKey: evictedID)
+            heartRateRecoveryCache.removeValue(forKey: evictedID)
+            heartRateSeriesCache.removeValue(forKey: evictedID)
+            energyEquivalentCache.removeValue(forKey: evictedID)
+            detailHydrations.removeValue(forKey: evictedID)
+        }
+    }
+
+    /// The least-recently-touched ids to drop so at most `maximum` workouts keep
+    /// their detail caches. `order` is ordered oldest-touched first.
+    nonisolated static func evictableWorkoutDetailIDs(order: [UUID], maximum: Int) -> [UUID] {
+        let excess = order.count - maximum
+        guard excess > 0 else {
+            return []
+        }
+        return Array(order.prefix(excess))
+    }
+
     /// Whether a workout's details are worth keeping on disk: it has settled (the
     /// same >24 h rule the loaders admit results to the session caches under, so a
     /// still-syncing watch workout is never pinned). Not limited to the current or
@@ -2254,6 +2377,25 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
     }
 
+    /// Removes the workout's on-disk detail snapshot, on the same persist queue
+    /// as `persistWorkoutDetail`. Called when a live read that ran while disk
+    /// seeding was bypassed confirms Apple Health no longer returns one of the
+    /// stored details, so the file's remaining positives can't be trusted either.
+    ///
+    /// Dropping the whole file is intended: each other field is re-persisted by
+    /// its own live loader through `persistWorkoutDetail` (which loads-or-creates
+    /// the file), and everything in it is rebuildable from Apple Health. Ordering
+    /// against a concurrent persist needs no coordination: the queue is serial, so
+    /// either order leaves a correct file, holding either the fresh positive alone
+    /// or nothing at all.
+    private func discardPersistedWorkoutDetail(for workout: WorkoutSummary) {
+        let workoutID = workout.id
+        Self.snapshotPersistQueue.async {
+            WorkoutDetailSnapshotStore.delete(workoutID: workoutID)
+            Task { @MainActor in await self.refreshCacheDiskSize() }
+        }
+    }
+
     /// Estimated max heart rate (220 − age) from Apple Health, anchoring the
     /// workout-detail heart-rate zones. `nil` when no birth date is readable, so the
     /// caller falls back to the session's peak HR.
@@ -2273,9 +2415,24 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// save). Passive foreground resumes, post-write refreshes and automatic
     /// preloads defer instead and keep showing cached data.
     private func requestHealthKitAuthorization(allowPrompt: Bool = true) async throws -> Bool {
-        guard try await engine.requestAuthorization(allowPrompt: allowPrompt) == .authorized else {
+        let outcome = try await engine.requestAuthorization(allowPrompt: allowPrompt)
+        switch outcome {
+        case .promptDeferred:
             return false
+        case .authorized:
+            break
         }
+
+        // A pass that only re-checked a recorded decision changed nothing about
+        // what is readable, so the per-workout caches stay — wiping them on every
+        // load path made reopening a workout refetch its route, splits, series and
+        // recovery after each refresh. The background transition invalidates the
+        // in-memory caches on its own, eagerly, in `noteAppDidEnterBackground()`.
+
+        guard Self.shouldClearDetailCaches(after: outcome) else {
+            return true
+        }
+
         routeCache.removeAll()
         routePresenceCache.removeAll()
         distanceSampleCache.removeAll()
@@ -2286,7 +2443,25 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Safe to re-hydrate from disk right away: the files hold only positives,
         // so nothing they seed can contradict the fresh authorization.
         detailHydrations = [:]
+        workoutDetailCacheOrder.removeAll()
         return true
+    }
+
+    /// Whether an authorization pass changed what HealthKit will hand back and so
+    /// invalidates the per-workout detail caches. Only a pass that actually
+    /// presented the permission sheet can have flipped a read grant; a status
+    /// re-check that found a recorded decision leaves every cached answer valid.
+    /// A grant changed outside Body is handled separately, by the eager clear in
+    /// `noteAppDidEnterBackground()`.
+    nonisolated static func shouldClearDetailCaches(
+        after outcome: HealthKitFetchEngine.AuthorizationOutcome
+    ) -> Bool {
+        switch outcome {
+        case .promptDeferred:
+            return false
+        case .authorized(let didPrompt):
+            return didPrompt
+        }
     }
 
     /// Loads the intraday day-sample sidecar (split out of the launch-critical
@@ -2893,6 +3068,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             heartRateSeriesCache.removeAll()
             energyEquivalentCache.removeAll()
             detailHydrations = [:]
+            workoutDetailCacheOrder.removeAll()
         } else if permission == .heart {
             // Heart-rate recovery and the detail sheet's full-resolution series ride
             // the Heart toggle; drop them rather than serving a toggle change a
@@ -2900,6 +3076,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             heartRateRecoveryCache.removeAll()
             heartRateSeriesCache.removeAll()
             detailHydrations = [:]
+            workoutDetailCacheOrder.removeAll()
         } else if permission == .workoutMetrics {
             // Cached split data carries per-split step cadence, and stride length is
             // gated the same way — both ride on the Workout Metrics permission, so
@@ -2908,6 +3085,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             distanceSampleCache.removeAll()
                 metricSeriesCache.removeAll()
             detailHydrations = [:]
+            workoutDetailCacheOrder.removeAll()
         }
         if !isEnabled {
             // The in-memory drop above leaves the persisted detail files intact, and
@@ -3166,7 +3344,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // cached intraday day samples and persist the invalidation before the
         // corrective refetch (H6a).
         healthTrends = healthTrends.strippingDaySamples()
-        persistDaySampleSidecar()
+        truncatePersistedDaySamples()
 
         await requestAuthorizationAndRefresh()
     }
@@ -3318,7 +3496,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         }
 
         healthTrends = healthTrends.strippingDaySamples()
-        persistDaySampleSidecar()
+        truncatePersistedDaySamples()
 
         await requestAuthorizationAndRefresh()
     }
@@ -3350,7 +3528,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // drop all cached intraday day samples and persist the invalidation
         // before the corrective refetch (H6a).
         healthTrends = healthTrends.strippingDaySamples()
-        persistDaySampleSidecar()
+        truncatePersistedDaySamples()
 
         await requestAuthorizationAndRefresh()
     }
@@ -3469,6 +3647,18 @@ final class HealthKitWorkoutStore: ObservableObject {
             )
             HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
             Task { @MainActor in await self.refreshCacheDiskSize() }
+        }
+    }
+
+    /// Used at the three deliberate full-strip sites in place of
+    /// `persistDaySampleSidecar()`: `healthTrends` is already all-empty there,
+    /// and `HealthDashboardSnapshotStore.save` now merges an all-empty payload
+    /// into a still-populated sidecar instead of overwriting it (H-17), which
+    /// would leave the stale series on disk under fresh signatures that reject
+    /// them on the next hydration anyway. Truncating removes that wasted file.
+    private func truncatePersistedDaySamples() {
+        Self.snapshotPersistQueue.async {
+            HealthDashboardSnapshotStore.truncateDaySamples()
         }
     }
 
@@ -3873,6 +4063,33 @@ final class HealthKitWorkoutStore: ObservableObject {
             return false
         }
         return !loadingActivityRingMonthKeys.isEmpty || activityRingHistoryTask != nil
+    }
+
+    /// Invalidates the per-workout detail caches the moment the app leaves the
+    /// foreground, since HealthKit read access can only change while Body isn't
+    /// in the foreground (the Health app or Settings toggle) and the SDK reports
+    /// no signal for that change on return.
+    ///
+    /// The clear is eager rather than deferred to the next authorization pass
+    /// because the detail loaders serve these caches directly and a resume can
+    /// skip that pass entirely (debounced, refresh already running, initial load
+    /// pending), which would keep showing a cached positive or a cached absence
+    /// captured under the previous grant.
+    @MainActor
+    func noteAppDidEnterBackground() {
+        routeCache.removeAll()
+        routePresenceCache.removeAll()
+        distanceSampleCache.removeAll()
+        metricSeriesCache.removeAll()
+        heartRateRecoveryCache.removeAll()
+        heartRateSeriesCache.removeAll()
+        energyEquivalentCache.removeAll()
+        detailHydrations = [:]
+        workoutDetailCacheOrder.removeAll()
+        // Clearing memory isn't enough: the persisted detail files hold positives
+        // written under the previous grant, so the disk seed stays bypassed until
+        // an authorized pass has re-read HealthKit.
+        bypassesPersistedDetailSeeding = true
     }
 
     func syncWhenAppBecomesActive(date: Date = Date()) async {
@@ -4329,6 +4546,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         heartRateSeriesCache.removeAll()
         energyEquivalentCache.removeAll()
         detailHydrations = [:]
+        workoutDetailCacheOrder.removeAll()
         // The ledger describes workouts this clear is wiping; an emptied ledger
         // also re-arms the baseline scan for the next refresh.
         recordLedger = WorkoutRecordLedger()
@@ -4623,11 +4841,13 @@ final class HealthKitWorkoutStore: ObservableObject {
         let refreshDate = Date()
         // Hydrate on BOTH paths, not just the dashboard one. The warm
         // workout-only resume can still reach a snapshot save via
-        // `reapplyActivityReadinessAfterWorkouts`, and every
-        // `HealthDashboardSnapshotStore.save` rewrites the day-sample sidecar from
-        // the passed trends — an empty payload overwrites an existing file. So a
-        // relaunch inside the 5-minute TTL that picked up a new workout used to
-        // wipe the intraday cache off disk instead of merely not showing it.
+        // `reapplyActivityReadinessAfterWorkouts`, and hydration is still what
+        // carries the current samples into that save: `save` now refuses to
+        // replace a populated sidecar with an all-empty payload, but a
+        // partially populated pre-hydration payload (some series still empty)
+        // still overwrites those series on disk. So a relaunch inside the
+        // 5-minute TTL that picked up a new workout could otherwise still
+        // narrow the intraday cache instead of leaving it untouched.
         await hydratePersistedDaySamplesIfNeeded()
         if updatesHealthSummary {
             await engine.setHealthTrendAnchorDate(refreshDate)
@@ -6792,7 +7012,10 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// cached summary, so already-fetched values stop surfacing in workout detail
     /// without a refetch. Mirrors `clearWorkoutSnapshots` (in-memory rebuild + widget
     /// reload); loaded month keys are kept since the months stay loaded — only the
-    /// stripped fields drop.
+    /// stripped fields drop. `calendar` is threaded through for identity but the
+    /// strip itself maps each day's workouts in place, so a time-zone change
+    /// between fetch and opt-out never reassigns a near-midnight workout to a
+    /// different day (and drops it) the way regrouping by `dateKey` would.
     private func sanitizeWorkoutSnapshots(
         calendar: Calendar = .bodyGregorian,
         _ transform: @escaping @Sendable (WorkoutMonthSnapshot, Calendar) -> WorkoutMonthSnapshot

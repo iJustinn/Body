@@ -885,12 +885,12 @@ final class ProjectConfigurationTests: XCTestCase {
         // The store splits the fixes off from the reverse geocode so the draw doesn't
         // queue behind a network round trip, and keeps a presence cache alongside the
         // route cache — cleared at the same gates (authorization, the Workouts
-        // permission toggle, and Clear Cache).
+        // permission toggle, Clear Cache, and the eager background clear).
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
         XCTAssertTrue(storeSource.contains("func loadWorkoutRouteCoordinates(for workout: WorkoutSummary) async -> WorkoutRoute?"))
         XCTAssertTrue(storeSource.contains("func workoutRoutePresence(for workout: WorkoutSummary) async -> BodyWorkoutRoutePresence"))
         XCTAssertTrue(storeSource.contains("func cachedWorkoutRoute(for workout: WorkoutSummary) -> WorkoutRoute?"))
-        XCTAssertEqual(storeSource.occurrenceCount(of: "routePresenceCache.removeAll()"), 3)
+        XCTAssertEqual(storeSource.occurrenceCount(of: "routePresenceCache.removeAll()"), 4)
 
         let routeModelSource = try text(at: "Body/Models/WorkoutRoute.swift")
         XCTAssertTrue(routeModelSource.contains("enum BodyWorkoutRoutePresence"))
@@ -3973,8 +3973,9 @@ final class ProjectConfigurationTests: XCTestCase {
 
         // Cleared at every gate the sibling detail caches are: the authorization
         // gate, both permission toggles that can change what it holds (Workouts and
-        // Heart), and Clear Cache.
-        XCTAssertEqual(storeSource.occurrenceCount(of: "heartRateSeriesCache.removeAll()"), 4)
+        // Heart), Clear Cache, and the eager clear when the app enters the
+        // background.
+        XCTAssertEqual(storeSource.occurrenceCount(of: "heartRateSeriesCache.removeAll()"), 5)
     }
 
     func testWorkoutStepSamplesPropagateReadFailuresInsteadOfSwallowingErrors() throws {
@@ -4006,7 +4007,11 @@ final class ProjectConfigurationTests: XCTestCase {
         // `persistDaySampleSidecar()` is what makes the day-sample sidecar durable —
         // including the lazily fetched intraday merge that lets the metric detail
         // Day View render cached data instantly on the next launch. Guard the call
-        // count so a future refactor can't silently drop that persistence.
+        // count so a future refactor can't silently drop that persistence. The
+        // three deliberate full-strip sites call `truncatePersistedDaySamples()`
+        // instead (H-17: a save of an all-empty payload now merges into a
+        // populated sidecar rather than truncating it, so truncation there is
+        // explicit), which is why the count is lower than the pre-Phase-3 11.
         let storeSource = try text(at: "Body/Services/HealthKitWorkoutStore.swift")
 
         XCTAssertGreaterThanOrEqual(storeSource.occurrenceCount(of: "persistDaySampleSidecar()"), 6)

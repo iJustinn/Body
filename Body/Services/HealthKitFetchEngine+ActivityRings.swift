@@ -421,7 +421,11 @@ extension HealthKitFetchEngine {
                             Self.logTrendQueryFailure(context, error: error)
                             // Unlike sample queries, a denied ring read reports an
                             // authorization error instead of coming back empty.
-                            resume(error.map { Self.isAuthorizationDenial($0) ? .denied : .failed } ?? .failed)
+                            // Only a confirmed denial clears cached ring history;
+                            // "not determined" (the user has not been asked yet)
+                            // is treated as a plain failure so a transient read
+                            // never wipes ring history it should not touch.
+                            resume(error.map { Self.isConfirmedDenial($0) ? .denied : .failed } ?? .failed)
                             return
                         }
 

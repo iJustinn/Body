@@ -274,11 +274,11 @@ enum HealthDashboardSnapshotStore {
         var didWrite = false
         if (try? Data(contentsOf: fileURL)) != data {
             do {
-                try FileManager.default.createDirectory(
-                    at: fileURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try data.write(to: fileURL, options: [.atomic])
+                try BodySnapshotDirectory.prepare(fileURL.deletingLastPathComponent())
+                // Complete-until-first-unlock protection: background refresh reads
+                // this file while the device may be locked, so
+                // `.completeUnlessOpen` would break those reads.
+                try data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
                 didWrite = true
             } catch {
                 logger.error("Health dashboard snapshot file write failed: \(error.localizedDescription, privacy: .public)")
@@ -305,9 +305,32 @@ enum HealthDashboardSnapshotStore {
             return false
         }
 
+        let payload = daySamples
+        // An all-empty payload over a populated sidecar is only a no-op when
+        // the sidecar's scope already matches the incoming payload exactly
+        // (H-17): schemaVersion and all four selection/permission signatures.
+        // In that case nothing about the selection changed, so keep the file
+        // untouched rather than rewriting it. If any signature differs, the
+        // incoming payload reflects a real scope change (e.g. the user
+        // deselected the only source whose Day View was loaded), and the
+        // empty payload is a legitimate invalidation that must overwrite the
+        // sidecar, matching `strippingDaySamples()`/`truncateDaySamples()`.
+        if daySamples.isEmpty,
+           let existingData = try? Data(contentsOf: sidecarURL),
+           let existing = try? JSONDecoder().decode(HealthTrendDaySampleSnapshot.self, from: existingData),
+           !existing.isEmpty,
+           existing.schemaVersion == daySamples.schemaVersion,
+           existing.primarySelectionSignature == daySamples.primarySelectionSignature,
+           existing.secondarySelectionSignature == daySamples.secondarySelectionSignature,
+           existing.permissionSignature == daySamples.permissionSignature,
+           existing.combinesHealthDataSourcesByName == daySamples.combinesHealthDataSourcesByName {
+            logger.notice("kept the populated day-sample sidecar unchanged; scope signatures already matched")
+            return false
+        }
+
         let data: Data
         do {
-            data = try makeSnapshotEncoder().encode(daySamples)
+            data = try makeSnapshotEncoder().encode(payload)
         } catch {
             logger.error("Health dashboard day-sample encode failed: \(error.localizedDescription, privacy: .public)")
             return false
@@ -318,11 +341,11 @@ enum HealthDashboardSnapshotStore {
         }
 
         do {
-            try FileManager.default.createDirectory(
-                at: sidecarURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try data.write(to: sidecarURL, options: [.atomic])
+            try BodySnapshotDirectory.prepare(sidecarURL.deletingLastPathComponent())
+            // Complete-until-first-unlock protection: background refresh reads
+            // this file while the device may be locked, so
+            // `.completeUnlessOpen` would break those reads.
+            try data.write(to: sidecarURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return true
         } catch {
             logger.error("Health dashboard day-sample file write failed: \(error.localizedDescription, privacy: .public)")
@@ -450,6 +473,31 @@ enum HealthDashboardSnapshotStore {
             + fileSize(at: snapshotFileURL.map(daySamplesFileURL(alongside:)))
     }
 
+    /// Removes only the day-sample sidecar, leaving the main snapshot file in
+    /// place. Used at the deliberate full-strip sites (a source/combine change
+    /// invalidates every cached intraday series) instead of a normal save,
+    /// which would now merge an empty payload into the still-populated file
+    /// rather than truncate it.
+    @discardableResult
+    static func truncateDaySamples(fileURL: URL? = snapshotFileURL) -> Bool {
+        guard let fileURL else {
+            return false
+        }
+
+        let sidecarURL = daySamplesFileURL(alongside: fileURL)
+        guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
+            return false
+        }
+
+        do {
+            try FileManager.default.removeItem(at: sidecarURL)
+            return true
+        } catch {
+            logger.error("Health dashboard day-sample sidecar truncate failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
     static func delete(
         defaults: UserDefaults = .standard,
         fileURL: URL? = snapshotFileURL
@@ -495,6 +543,13 @@ enum HealthDashboardSnapshotStore {
     private static func decode(_ data: Data) -> LoadedSnapshot? {
         do {
             let persisted = try JSONDecoder().decode(PersistedDashboardSnapshot.self, from: data)
+            // Refuse a file stamped by a schema this build does not know. Version 1 is
+            // still accepted (and is also what a legacy file with no key means) because
+            // the 1 to 2 bump changed no bytes on disk.
+            let version = persisted.snapshot.schemaVersion ?? 1
+            guard version == 1 || version == HealthDashboardSnapshot.currentSchemaVersion else {
+                return nil
+            }
             return LoadedSnapshot(
                 snapshot: persisted.snapshot,
                 summaryContextSignature: persisted.summaryContextSignature

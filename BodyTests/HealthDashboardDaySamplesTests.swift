@@ -640,4 +640,235 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
         )
         XCTAssertEqual(switched.heartRateDaySamples, .empty)
     }
+
+    // MARK: - Empty save must not truncate a populated sidecar (H-17)
+
+    func testSaveWithEmptySamplesAndIdenticalSignaturesLeavesSidecarUntouched() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let fileURL = temporarySnapshotFileURL()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
+        let daySamples = sampleSeries(count: 20, baseValue: 66)
+        let populated = try makeSnapshot(heartRateDaySamples: daySamples)
+        let signatures = HealthTrendDaySampleSignatures(
+            primarySelectionSignature: "P1",
+            secondarySelectionSignature: "S1",
+            permissionSignature: BodyHealthPermissionSelection.defaultValue.rawValue,
+            combinesHealthDataSourcesByName: false
+        )
+
+        XCTAssertTrue(HealthDashboardSnapshotStore.save(
+            populated,
+            daySampleSignatures: signatures,
+            defaults: defaults,
+            fileURL: fileURL
+        ))
+
+        let sidecarURL = HealthDashboardSnapshotStore.daySamplesFileURL(alongside: fileURL)
+        let bytesBeforeEmptySave = try Data(contentsOf: sidecarURL)
+
+        // A later save carries no day samples at all (e.g. a no-op authorization
+        // refresh) but the scope signatures are unchanged, so nothing about the
+        // selection actually changed. The sidecar must be left byte-for-byte
+        // untouched: the save's return value reflects only whether the main
+        // file itself was rewritten, not the sidecar.
+        let empty = try makeSnapshot(heartRateDaySamples: .empty)
+        _ = HealthDashboardSnapshotStore.save(
+            empty,
+            daySampleSignatures: signatures,
+            defaults: defaults,
+            fileURL: fileURL
+        )
+
+        let bytesAfterEmptySave = try Data(contentsOf: sidecarURL)
+        XCTAssertEqual(bytesBeforeEmptySave, bytesAfterEmptySave)
+
+        let sidecar = try XCTUnwrap(HealthDashboardSnapshotStore.loadDaySamples(fileURL: fileURL))
+        XCTAssertEqual(sidecar.heartRateDaySamples, daySamples)
+        XCTAssertEqual(sidecar.primarySelectionSignature, "P1")
+        XCTAssertEqual(sidecar.secondarySelectionSignature, "S1")
+    }
+
+    func testSaveWithEmptySamplesAndChangedSignatureOverwritesSidecar() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let fileURL = temporarySnapshotFileURL()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
+        let daySamples = sampleSeries(count: 20, baseValue: 66)
+        let populated = try makeSnapshot(heartRateDaySamples: daySamples)
+
+        XCTAssertTrue(HealthDashboardSnapshotStore.save(
+            populated,
+            daySampleSignatures: HealthTrendDaySampleSignatures(
+                primarySelectionSignature: "P1",
+                secondarySelectionSignature: "S1",
+                permissionSignature: BodyHealthPermissionSelection.defaultValue.rawValue,
+                combinesHealthDataSourcesByName: false
+            ),
+            defaults: defaults,
+            fileURL: fileURL
+        ))
+
+        // A later save carries no day samples at all, and the primary selection
+        // signature changed (e.g. the user deselected the only source whose Day
+        // View was loaded). This is a real scope change, so the empty payload
+        // must overwrite the sidecar: the series are gone and the new
+        // signatures land on disk.
+        let empty = try makeSnapshot(heartRateDaySamples: .empty)
+        XCTAssertTrue(HealthDashboardSnapshotStore.save(
+            empty,
+            daySampleSignatures: HealthTrendDaySampleSignatures(
+                primarySelectionSignature: "P2",
+                secondarySelectionSignature: "S1",
+                permissionSignature: BodyHealthPermissionSelection.defaultValue.rawValue,
+                combinesHealthDataSourcesByName: false
+            ),
+            defaults: defaults,
+            fileURL: fileURL
+        ))
+
+        let sidecar = try XCTUnwrap(HealthDashboardSnapshotStore.loadDaySamples(fileURL: fileURL))
+        XCTAssertEqual(sidecar.heartRateDaySamples, .empty)
+        XCTAssertEqual(sidecar.primarySelectionSignature, "P2")
+        XCTAssertEqual(sidecar.secondarySelectionSignature, "S1")
+    }
+
+    func testSaveWithOnePopulatedSeriesStillOverwritesTheOthers() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let fileURL = temporarySnapshotFileURL()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
+        let heartRateSamples = sampleSeries(count: 10, baseValue: 66)
+        let stepsSamples = sampleSeries(count: 6, baseValue: 800)
+        let populated = try makeSnapshot(heartRateDaySamples: heartRateSamples, stepsDaySamples: stepsSamples)
+        XCTAssertTrue(HealthDashboardSnapshotStore.save(populated, defaults: defaults, fileURL: fileURL))
+
+        // A partial payload (heart rate populated, steps empty) is a real
+        // partial invalidation, not a blanket "nothing changed" no-op, so it
+        // still overwrites: steps clears while heart rate's new value lands.
+        let updatedHeartRate = sampleSeries(count: 11, baseValue: 66)
+        let partial = try makeSnapshot(heartRateDaySamples: updatedHeartRate, stepsDaySamples: .empty)
+        XCTAssertTrue(HealthDashboardSnapshotStore.save(partial, defaults: defaults, fileURL: fileURL))
+
+        let sidecar = try XCTUnwrap(HealthDashboardSnapshotStore.loadDaySamples(fileURL: fileURL))
+        XCTAssertEqual(sidecar.heartRateDaySamples, updatedHeartRate)
+        XCTAssertEqual(sidecar.stepsDaySamples, .empty)
+    }
+
+    func testTruncateDaySamplesRemovesOnlyTheSidecar() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let fileURL = temporarySnapshotFileURL()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
+        let snapshot = try makeSnapshot(heartRateDaySamples: sampleSeries(count: 8, baseValue: 66))
+        XCTAssertTrue(HealthDashboardSnapshotStore.save(snapshot, defaults: defaults, fileURL: fileURL))
+
+        let sidecarURL = HealthDashboardSnapshotStore.daySamplesFileURL(alongside: fileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarURL.path))
+
+        XCTAssertTrue(HealthDashboardSnapshotStore.truncateDaySamples(fileURL: fileURL))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertNil(HealthDashboardSnapshotStore.loadDaySamples(fileURL: fileURL))
+
+        // Idempotent: nothing left to remove.
+        XCTAssertFalse(HealthDashboardSnapshotStore.truncateDaySamples(fileURL: fileURL))
+    }
+
+    // MARK: - M14 / L08 / M18: tolerant decoding and schema gates
+
+    /// Removes one top-level key from an encoded value.
+    private func encodedTrendsWithoutKey(_ key: String, from trends: HealthTrendSnapshot) throws -> Data {
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(trends)) as? [String: Any]
+        )
+        XCTAssertNotNil(object[key], "expected the encoder to write \(key)")
+        object.removeValue(forKey: key)
+        return try JSONSerialization.data(withJSONObject: object)
+    }
+
+    func testTrendSnapshotMissingRestingHeartRateKeyDecodesAsEmptySeries() throws {
+        let snapshot = try makeSnapshot(heartRateDaySamples: .empty)
+        let data = try encodedTrendsWithoutKey("restingHeartRate", from: snapshot.trends)
+
+        let decoded = try JSONDecoder().decode(HealthTrendSnapshot.self, from: data)
+
+        XCTAssertEqual(decoded.restingHeartRate, .empty)
+        // The rest of the file, including the unrecoverable recorded history, survives.
+        XCTAssertEqual(decoded.sleep, snapshot.trends.sleep)
+    }
+
+    func testTrendSnapshotMissingSleepKeyStillDecodes() throws {
+        let snapshot = try makeSnapshot(heartRateDaySamples: .empty)
+        let data = try encodedTrendsWithoutKey("sleep", from: snapshot.trends)
+
+        let decoded = try JSONDecoder().decode(HealthTrendSnapshot.self, from: data)
+
+        XCTAssertEqual(decoded.sleep, .empty)
+        XCTAssertEqual(decoded.restingHeartRate, snapshot.trends.restingHeartRate)
+    }
+
+    func testSummarySnapshotWithMalformedHeartRateStillDecodes() throws {
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(HealthSummarySnapshot.empty)) as? [String: Any]
+        )
+        object["heartRate"] = ["value": "not a number"]
+        let data = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(HealthSummarySnapshot.self, from: data)
+
+        XCTAssertNil(decoded.heartRate.value)
+    }
+
+    /// Rewrites the persisted `schemaVersion` in place, so the gate is exercised
+    /// through the real file path rather than a hand-built envelope.
+    private func rewritingDashboardSchemaVersion(_ version: Int?, in fileURL: URL) throws {
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: fileURL)) as? [String: Any]
+        )
+        if let version {
+            object["schemaVersion"] = version
+        } else {
+            object.removeValue(forKey: "schemaVersion")
+        }
+        try JSONSerialization.data(withJSONObject: object).write(to: fileURL, options: [.atomic])
+    }
+
+    func testDashboardSnapshotLoadAcceptsSchemaVersionsNilOneAndTwoButRejectsThree() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let fileURL = temporarySnapshotFileURL()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
+        let snapshot = try makeSnapshot(heartRateDaySamples: .empty)
+
+        XCTAssertTrue(HealthDashboardSnapshotStore.save(snapshot, defaults: defaults, fileURL: fileURL))
+        XCTAssertNotNil(HealthDashboardSnapshotStore.load(defaults: defaults, fileURL: fileURL))
+
+        try rewritingDashboardSchemaVersion(nil, in: fileURL)
+        XCTAssertNotNil(HealthDashboardSnapshotStore.load(defaults: defaults, fileURL: fileURL))
+
+        try rewritingDashboardSchemaVersion(1, in: fileURL)
+        XCTAssertNotNil(HealthDashboardSnapshotStore.load(defaults: defaults, fileURL: fileURL))
+
+        try rewritingDashboardSchemaVersion(2, in: fileURL)
+        XCTAssertNotNil(HealthDashboardSnapshotStore.load(defaults: defaults, fileURL: fileURL))
+
+        try rewritingDashboardSchemaVersion(3, in: fileURL)
+        XCTAssertNil(HealthDashboardSnapshotStore.load(defaults: defaults, fileURL: fileURL))
+    }
 }

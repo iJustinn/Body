@@ -38,4 +38,21 @@ final class HealthKitAuthorizationDenialTests: XCTestCase {
         let error = NSError(domain: "com.zihengthedeveloper.Body.test", code: HKError.Code.errorAuthorizationDenied.rawValue)
         XCTAssertFalse(HealthKitFetchEngine.isAuthorizationDenial(error))
     }
+
+    func testAuthorizationDeniedIsConfirmedDenial() {
+        XCTAssertTrue(HealthKitFetchEngine.isConfirmedDenial(hkError(.errorAuthorizationDenied)))
+    }
+
+    func testAuthorizationNotDeterminedIsNotConfirmedDenial() {
+        XCTAssertFalse(HealthKitFetchEngine.isConfirmedDenial(hkError(.errorAuthorizationNotDetermined)))
+    }
+
+    func testNoDataIsNotConfirmedDenial() {
+        XCTAssertFalse(HealthKitFetchEngine.isConfirmedDenial(hkError(.errorNoData)))
+    }
+
+    func testGenericErrorIsNotConfirmedDenial() {
+        let error = NSError(domain: "com.zihengthedeveloper.Body.test", code: HKError.Code.errorAuthorizationDenied.rawValue)
+        XCTAssertFalse(HealthKitFetchEngine.isConfirmedDenial(error))
+    }
 }
