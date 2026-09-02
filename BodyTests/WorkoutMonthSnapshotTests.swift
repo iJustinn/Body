@@ -3432,6 +3432,17 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(basics.nearestDate(to: selectedDate), bodyFatDate)
         XCTAssertNil(BasicsTrendSummary.empty.nearestDate(to: selectedDate))
+
+        let bodyMassIndexDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 20)))
+        let bodyMassIndexOnly = BasicsTrendSummary(
+            weight: .empty,
+            bodyFat: .empty,
+            bodyMassIndex: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: bodyMassIndexDate, value: 22.1)
+            ])
+        )
+
+        XCTAssertEqual(bodyMassIndexOnly.nearestDate(to: selectedDate), bodyMassIndexDate)
     }
 
     func testBasicsTrendSummaryRequiresUserSelectionDateForChartSelection() throws {
@@ -4584,6 +4595,81 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(napped.valueDescription, plain.valueDescription)
     }
 
+    // MARK: - Naps excluded from continuity
+
+    /// An 8h main sleep session (23:00–07:00) with a 40-minute interior awake
+    /// segment: merged-asleep is 7h20m, so efficiency is `1 - 40/480 → 92%`.
+    /// `includeNap` appends a 72-minute afternoon nap 7h after wake, outside
+    /// the night; `pinInterval` controls whether `mainSessionInterval` is
+    /// stamped at all (false models a legacy, interval-less cache).
+    private func continuityNight(includeNap: Bool, pinInterval: Bool = true) throws -> SleepDaySummary {
+        let calendar = Calendar.bodyGregorian
+        let dayDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20)))
+        let bed = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 6, day: 19, hour: 23)
+        ))
+        let wake = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 6, day: 20, hour: 7)
+        ))
+        let awakeStart = bed.addingTimeInterval(4 * 60 * 60)
+        let awakeEnd = awakeStart.addingTimeInterval(40 * 60)
+
+        var segments: [SleepStageSegment] = [
+            SleepStageSegment(stage: .core, startDate: bed, endDate: awakeStart),
+            SleepStageSegment(stage: .awake, startDate: awakeStart, endDate: awakeEnd),
+            SleepStageSegment(stage: .core, startDate: awakeEnd, endDate: wake)
+        ]
+
+        if includeNap {
+            let napStart = wake.addingTimeInterval(7 * 60 * 60)
+            segments.append(SleepStageSegment(
+                stage: .core,
+                startDate: napStart,
+                endDate: napStart.addingTimeInterval(72 * 60)
+            ))
+        }
+
+        var snapshot = SleepStageSnapshot(date: dayDate, segments: segments)
+        if pinInterval {
+            snapshot.mainSessionInterval = DateInterval(start: bed, end: wake)
+        }
+
+        return SleepDaySummary(
+            date: dayDate,
+            summary: SleepSummary(
+                duration: wake.timeIntervalSince(bed) - 40 * 60,
+                stageSnapshot: snapshot
+            )
+        )
+    }
+
+    func testContinuityIgnoresAfternoonNap() throws {
+        let plain = try continuityNight(includeNap: false)
+        let napped = try continuityNight(includeNap: true)
+
+        let plainContinuity = try XCTUnwrap(
+            SleepScoreSummary(sleep: plain.summary, on: plain.date)?.category(for: .continuity)
+        )
+        let nappedContinuity = try XCTUnwrap(
+            SleepScoreSummary(sleep: napped.summary, on: napped.date)?.category(for: .continuity)
+        )
+
+        XCTAssertEqual(plainContinuity.valueDescription, "92%")
+        XCTAssertEqual(nappedContinuity.valueDescription, "92%")
+        XCTAssertEqual(nappedContinuity.points, plainContinuity.points)
+    }
+
+    func testContinuityUsesMainSessionEfficiencyWithoutInterval() throws {
+        // No `mainSessionInterval` (legacy cache / nap-free fixture): `mainSession`
+        // returns `self`, so the whole-day snapshot is scored; it still reads 92%
+        // since there is no nap to inflate the denominator.
+        let legacy = try continuityNight(includeNap: false, pinInterval: false)
+        let continuity = try XCTUnwrap(
+            SleepScoreSummary(sleep: legacy.summary, on: legacy.date)?.category(for: .continuity)
+        )
+        XCTAssertEqual(continuity.valueDescription, "92%")
+    }
+
     func testSleepScoreCommentSummarizesScoreBand() {
         XCTAssertEqual(SleepScoreSummary.comment(for: 95), "Excellent sleep readiness for this day.")
         XCTAssertEqual(SleepScoreSummary.comment(for: 84), "Strong sleep with small room to improve.")
@@ -5443,8 +5529,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(ActivityRingMetric(value: nil, goal: 10).headProgress, 0)
         XCTAssertEqual(ActivityRingMetric(value: 0, goal: 10).headProgress, 0)
         XCTAssertEqual(ActivityRingMetric(value: 8, goal: 10).headProgress, 0.8, accuracy: 0.001)
-        XCTAssertEqual(ActivityRingMetric(value: 10, goal: 10).headProgress, 0, accuracy: 0.001)
+        XCTAssertEqual(ActivityRingMetric(value: 10, goal: 10).headProgress, 1, accuracy: 0.001)
         XCTAssertEqual(ActivityRingMetric(value: 13.4, goal: 10).headProgress, 0.34, accuracy: 0.001)
+        XCTAssertEqual(ActivityRingMetric(value: 20, goal: 10).headProgress, 1, accuracy: 0.001)
     }
 
     func testActivityRingMetricShowsFullStartMarkerOnlyAtZeroProgress() {

@@ -151,7 +151,8 @@ struct BodyHealthSourceComparisonLineChart: View {
         }, uniquingKeysWith: { first, _ in first })
         self.latestPrimaryDate = primaryEntries.last { $0.value?.isFinite == true }?.date
         self.latestSecondaryDate = secondaryEntries.last { $0.value?.isFinite == true }?.date
-        let domainDates = primaryEntries.map(\.date) + secondaryEntries.map(\.date)
+        let domainDates = comparison.primary.series.calendarPoints(to: selectedRange).map(\.date)
+            + comparison.secondary.series.calendarPoints(to: selectedRange).map(\.date)
         self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)
         self.chartYDomain = BodyHealthMetricTrendChart.computeYDomain(
             from: allEntries.compactMap(\.value).filter(\.isFinite),

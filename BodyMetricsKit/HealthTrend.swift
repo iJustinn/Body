@@ -1495,7 +1495,7 @@ struct BasicsTrendSummary: Equatable {
     }
 
     func nearestDate(to date: Date) -> Date? {
-        let dates = weight.points.map(\.date) + bodyFat.points.map(\.date)
+        let dates = weight.points.map(\.date) + bodyFat.points.map(\.date) + bodyMassIndex.points.map(\.date)
         return dates.min { first, second in
             abs(first.timeIntervalSince(date)) < abs(second.timeIntervalSince(date))
         }
@@ -2171,7 +2171,7 @@ private extension Array where Element == HealthTrendCalendarPoint {
             point.value?.isFinite == true
         }
         guard finitePoints.count > maximumCount else {
-            return self
+            return finitePoints
         }
 
         var buckets = finitePoints.map { point in

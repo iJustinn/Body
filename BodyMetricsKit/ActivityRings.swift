@@ -49,7 +49,8 @@ struct ActivityRingMetric: Codable, Equatable {
     }
 
     var headProgress: Double {
-        completionProgress.truncatingRemainder(dividingBy: 1)
+        let remainder = completionProgress.truncatingRemainder(dividingBy: 1)
+        return completionProgress >= 1 && remainder == 0 ? 1 : remainder
     }
 
     /// Whether the ring counts as closed. Compares the whole-number values the UI
