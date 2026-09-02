@@ -91,11 +91,11 @@ enum WorkoutSnapshotStore {
         }
 
         do {
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try data.write(to: fileURL, options: [.atomic])
+            try BodySnapshotDirectory.prepare(fileURL.deletingLastPathComponent())
+            // Complete-until-first-unlock protection: the widget timeline and
+            // background refresh both read this file while the device may be
+            // locked, so `.completeUnlessOpen` would break those reads.
+            try data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return true
         } catch {
             logger.error("Snapshot file write failed: \(error.localizedDescription, privacy: .public)")
@@ -177,6 +177,13 @@ enum WorkoutSnapshotStore {
 
         do {
             let snapshot = try JSONDecoder().decode(WorkoutMonthSnapshot.self, from: data)
+            // A file written by a newer schema can decode without error yet mean
+            // something different, so refuse it instead of caching it. A legacy file
+            // with no version key is schema 1.
+            guard (snapshot.schemaVersion ?? 1) == WorkoutMonthSnapshot.currentSchemaVersion else {
+                loadCache.remove(fileURL)
+                return nil
+            }
             if let modificationDate, let fileSize {
                 loadCache.store(snapshot, for: fileURL, modificationDate: modificationDate, fileSize: fileSize)
             }

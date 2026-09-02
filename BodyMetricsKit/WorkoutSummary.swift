@@ -156,7 +156,9 @@ enum WorkoutWeatherCondition: String, Codable, Equatable, Hashable, CaseIterable
 
 struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
     let id: UUID
-    let type: BodyWorkoutType
+    /// `var` only because a property wrapper cannot decorate a `let`; the
+    /// setter stays private so it is still read-only from the outside.
+    @BodyWorkoutTypeStorage private(set) var type: BodyWorkoutType
     let startDate: Date
     let duration: TimeInterval
     let activeEnergyKilocalories: Double?

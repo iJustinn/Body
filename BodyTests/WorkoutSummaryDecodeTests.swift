@@ -78,4 +78,53 @@ final class WorkoutSummaryDecodeTests: XCTestCase {
         XCTAssertEqual(decoded.heartRateSamples, samples)
         XCTAssertEqual(decoded, original)
     }
+
+    // MARK: - M15: unknown workout types keep their raw string
+
+    /// Replaces the encoded `type` string with a raw value this build does not know.
+    private func encodingWithRawType(_ rawType: String, from summary: WorkoutSummary) throws -> Data {
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(summary)) as? [String: Any]
+        )
+        object["type"] = rawType
+        return try JSONSerialization.data(withJSONObject: object)
+    }
+
+    func testUnknownWorkoutTypeDecodesAsOther() throws {
+        let data = try encodingWithRawType("underwaterBasketWeaving", from: summary())
+        let decoded = try JSONDecoder().decode(WorkoutSummary.self, from: data)
+        XCTAssertEqual(decoded.type, .other)
+    }
+
+    func testUnknownWorkoutTypeIsWrittenBackUnchanged() throws {
+        let data = try encodingWithRawType("underwaterBasketWeaving", from: summary())
+        let decoded = try JSONDecoder().decode(WorkoutSummary.self, from: data)
+
+        let reencoded = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(decoded)) as? [String: Any]
+        )
+        XCTAssertEqual(reencoded["type"] as? String, "underwaterBasketWeaving")
+    }
+
+    func testKnownWorkoutTypeEncodesAsThePlainRawString() throws {
+        // The stashed raw value must never reach the file for a known type, or the
+        // save-if-changed byte compare would rewrite every cached month once.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let json = try XCTUnwrap(String(data: try encoder.encode(summary()), encoding: .utf8))
+        XCTAssertTrue(json.contains("\"type\":\"running\""), json)
+    }
+
+    func testUnknownWorkoutTypeSurvivesTwoRoundTrips() throws {
+        let first = try JSONDecoder().decode(
+            WorkoutSummary.self,
+            from: try encodingWithRawType("underwaterBasketWeaving", from: summary())
+        )
+        let second = try JSONDecoder().decode(
+            WorkoutSummary.self,
+            from: try JSONEncoder().encode(first)
+        )
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(second.type, .other)
+    }
 }

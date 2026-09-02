@@ -64,6 +64,20 @@ enum WorkoutDetailSnapshotStore {
         return snapshot
     }
 
+    /// Drops one workout's stored details. Used when a live read confirms Apple
+    /// Health no longer returns a detail the file claims, so the stale positive
+    /// doesn't seed again on the next launch. A missing file is a no-op.
+    static func delete(workoutID: UUID, directoryURL: URL? = defaultDirectoryURL) {
+        guard let directoryURL else {
+            return
+        }
+        let fileURL = fileURL(for: workoutID, in: directoryURL)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+        remove(fileURL)
+    }
+
     /// Drops cached details for workouts that are no longer in the user's
     /// history, plus any file whose name isn't a workout UUID at all. Among the
     /// remaining files (not in `keeping`), only the `retainingRecentLimit` most
@@ -173,6 +187,9 @@ enum WorkoutDetailSnapshotStore {
 
         guard let snapshot = try? JSONDecoder().decode(WorkoutDetailSnapshot.self, from: data),
               snapshot.schemaVersion == WorkoutDetailSnapshot.currentSchemaVersion else {
+            // Corrupt or stale-schema file: remove it so it doesn't linger as
+            // dead weight and get re-attempted (and re-fail) on every load.
+            try? FileManager.default.removeItem(at: fileURL)
             return nil
         }
         return snapshot
@@ -209,7 +226,10 @@ enum WorkoutDetailSnapshotStore {
     private static func write(_ data: Data, to fileURL: URL, in directoryURL: URL) -> Bool {
         do {
             try createDirectoryIfNeeded(directoryURL)
-            try data.write(to: fileURL, options: [.atomic])
+            // Complete-until-first-unlock protection: a background refresh can
+            // read this file while the device is locked, so
+            // `.completeUnlessOpen` would break that read.
+            try data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return true
         } catch {
             logger.error("Workout detail write failed: \(error.localizedDescription, privacy: .public)")
@@ -217,16 +237,11 @@ enum WorkoutDetailSnapshotStore {
         }
     }
 
-    /// Excluded from backup on creation: the contents are rebuildable from
-    /// HealthKit, and GPS traces shouldn't ride along into iCloud backups.
+    /// Excluded from backup, retroactively on older builds' directories too:
+    /// the contents are rebuildable from HealthKit, and GPS traces shouldn't
+    /// ride along into iCloud backups.
     private static func createDirectoryIfNeeded(_ directoryURL: URL) throws {
-        if FileManager.default.fileExists(atPath: directoryURL.path) { return }
-
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        var url = directoryURL
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try? url.setResourceValues(values)
+        try BodySnapshotDirectory.prepare(directoryURL)
     }
 
     private static func remove(_ fileURL: URL) {

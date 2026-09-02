@@ -82,6 +82,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     private var pendingConnectivityTasks: [WKWatchConnectivityRefreshBackgroundTask] = []
 
     private override init() {
+        // Runs before the first `BodyHealthPermissionSelection.load()` on this
+        // process: `load` is a pure read, so the migrations have to happen here.
+        BodyHealthPermissionSelection.migrateIfNeeded()
         snapshot = (WatchMetricsSnapshotStore.load() ?? .empty).sanitized()
         hiddenMetricKinds = Self.loadHiddenMetricKinds()
         if UserDefaults.standard.object(forKey: Self.lastComputeAttemptDateKey) != nil {

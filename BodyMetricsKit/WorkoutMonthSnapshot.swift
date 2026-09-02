@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import os
 
 struct WorkoutDaySummary: Codable, Equatable, Identifiable {
     let dateKey: String
@@ -191,27 +192,46 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
     /// Returns a copy with the Workout Metrics detail fields (VO₂max, power,
     /// cadence, swim strokes) stripped from every workout, for when the user
     /// disables the Workout Metrics permission. Preserves the month identity and
-    /// `generatedAt` so a re-saved snapshot stays change-deduped on disk.
+    /// `generatedAt` so a re-saved snapshot stays change-deduped on disk. Maps
+    /// each day's workouts in place rather than regrouping by `dateKey` through
+    /// `calendar`, so a workout near a month boundary is never reassigned to a
+    /// different day (and dropped outright) just because the calendar's time
+    /// zone changed since the snapshot was built. `calendar` is unused; kept
+    /// only so existing call sites do not need to change.
     func removingWorkoutMetrics(calendar: Calendar = .bodyGregorian) -> WorkoutMonthSnapshot {
-        WorkoutMonthSnapshot.make(
+        WorkoutMonthSnapshot(
             month: month,
             year: year,
-            workouts: days.flatMap(\.workouts).map { $0.removingWorkoutMetrics() },
-            calendar: calendar,
-            generatedAt: generatedAt
+            generatedAt: generatedAt,
+            days: days.map { day in
+                WorkoutDaySummary(
+                    dateKey: day.dateKey,
+                    day: day.day,
+                    workouts: day.workouts.map { $0.removingWorkoutMetrics() }
+                )
+            },
+            schemaVersion: schemaVersion
         )
     }
 
     /// Returns a copy with heart-rate recovery stripped from every workout, for
     /// when the user disables the Heart permission. Same identity/`generatedAt`
-    /// preservation as `removingWorkoutMetrics(calendar:)`.
+    /// preservation and in-place-mapping rationale as
+    /// `removingWorkoutMetrics(calendar:)`. `calendar` is unused; kept only so
+    /// existing call sites do not need to change.
     func removingHeartRateRecovery(calendar: Calendar = .bodyGregorian) -> WorkoutMonthSnapshot {
-        WorkoutMonthSnapshot.make(
+        WorkoutMonthSnapshot(
             month: month,
             year: year,
-            workouts: days.flatMap(\.workouts).map { $0.removingHeartRateRecovery() },
-            calendar: calendar,
-            generatedAt: generatedAt
+            generatedAt: generatedAt,
+            days: days.map { day in
+                WorkoutDaySummary(
+                    dateKey: day.dateKey,
+                    day: day.day,
+                    workouts: day.workouts.map { $0.removingHeartRateRecovery() }
+                )
+            },
+            schemaVersion: schemaVersion
         )
     }
 
@@ -316,9 +336,23 @@ struct WorkoutTypeBreakdown: Equatable, Identifiable {
 }
 
 extension Calendar {
+    /// Caches the built calendar so every call site does not pay to
+    /// reconstruct one, rebuilding only when the device's time zone has
+    /// actually changed. `firstWeekday` is pinned to `1` (Sunday) regardless
+    /// of locale, so the captured `Locale` at build time does not matter and
+    /// does not need to be part of the cache key.
+    private static let bodyGregorianCache = OSAllocatedUnfairLock<(timeZoneID: String, calendar: Calendar)?>(initialState: nil)
+
     static var bodyGregorian: Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.firstWeekday = 1
-        return calendar
+        let currentTimeZoneID = TimeZone.current.identifier
+        return bodyGregorianCache.withLock { cached in
+            if let cached, cached.timeZoneID == currentTimeZoneID {
+                return cached.calendar
+            }
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.firstWeekday = 1
+            cached = (timeZoneID: currentTimeZoneID, calendar: calendar)
+            return calendar
+        }
     }
 }

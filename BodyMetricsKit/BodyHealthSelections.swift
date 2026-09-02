@@ -440,7 +440,20 @@ struct BodyHealthPermissionSelection: Equatable {
         return BodyHealthPermissionSelection(enabledPermissions: permissions)
     }
 
+    /// Reads the saved selection. A pure read: it runs no migration and writes
+    /// nothing, so the many `load()` calls scattered across the app, the watch and
+    /// the widgets can never race each other writing migrated values. Run
+    /// `migrateIfNeeded(defaults:)` once at startup before the first read.
     static func load(defaults: UserDefaults = .standard) -> BodyHealthPermissionSelection {
+        storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.healthPermissionSelectionKey)
+                ?? defaultRawValue
+        )
+    }
+
+    /// Runs the one-time selection migrations and saves the result. Call this once
+    /// per process at startup, before anything calls `load(defaults:)`.
+    static func migrateIfNeeded(defaults: UserDefaults = .standard) {
         let stored = storedValue(
             from: defaults.string(forKey: BodyAppearancePreference.healthPermissionSelectionKey)
                 ?? defaultRawValue
@@ -449,7 +462,7 @@ struct BodyHealthPermissionSelection: Equatable {
         // Chained AFTER the expanded migration on purpose: that one can insert
         // `.workoutMetrics` for a selection that predates the category, and the
         // cardio fitness gate below reads it.
-        return migratingCardioFitnessPermissionIfNeeded(expanded, defaults: defaults)
+        _ = migratingCardioFitnessPermissionIfNeeded(expanded, defaults: defaults)
     }
 
     /// One-time migration for users whose saved selection predates the `.workoutMetrics`

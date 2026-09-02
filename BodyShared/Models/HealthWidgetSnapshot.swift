@@ -382,18 +382,26 @@ struct HealthWidgetSleepStages: Codable, Equatable {
 // MARK: - Snapshot
 
 struct HealthWidgetSnapshot: Codable, Equatable {
+    /// Bumped when the persisted shape changes in a way this build cannot read.
+    /// Optional on decode so a file written before this field existed loads as
+    /// `nil` and is treated as version 1.
+    static let currentSchemaVersion = 1
+
     var generatedDate: Date
     var metricTrends: [HealthWidgetMetricTrend]
     var sleep: HealthWidgetSleepStages
+    var schemaVersion: Int?
 
     init(
         generatedDate: Date = Date(),
         metricTrends: [HealthWidgetMetricTrend] = [],
-        sleep: HealthWidgetSleepStages = .empty
+        sleep: HealthWidgetSleepStages = .empty,
+        schemaVersion: Int? = HealthWidgetSnapshot.currentSchemaVersion
     ) {
         self.generatedDate = generatedDate
         self.metricTrends = metricTrends
         self.sleep = sleep
+        self.schemaVersion = schemaVersion
     }
 
     func trend(for metric: HealthWidgetMetric) -> HealthWidgetMetricTrend? {

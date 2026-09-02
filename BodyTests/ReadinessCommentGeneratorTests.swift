@@ -349,18 +349,26 @@ final class ReadinessCommentGeneratorTests: XCTestCase {
         XCTAssertNil(ReadinessCommentCache.load())
 
         let record = ReadinessCommentCache.Record(
-            signature: signature(for: readiness()),
+            signatureDigest: ReadinessCommentCache.digest(for: signature(for: readiness())),
             text: "You're holding up well today.",
             generatedAt: fixedDay
         )
         ReadinessCommentCache.save(record)
 
         let loaded = try XCTUnwrap(ReadinessCommentCache.load())
-        XCTAssertEqual(loaded.signature, record.signature)
+        XCTAssertEqual(loaded.signatureDigest, record.signatureDigest)
         XCTAssertEqual(loaded.text, record.text)
         XCTAssertEqual(loaded.generatedAt.timeIntervalSince1970, record.generatedAt.timeIntervalSince1970, accuracy: 0.001)
 
         ReadinessCommentCache.clear()
         XCTAssertNil(ReadinessCommentCache.load())
+    }
+
+    func testDigestIsStableAndDistinguishesSignatures() {
+        let signatureA = signature(for: readiness())
+        let signatureB = signature(for: readiness(), locale: Locale(identifier: "zh-Hans"))
+
+        XCTAssertEqual(ReadinessCommentCache.digest(for: signatureA), ReadinessCommentCache.digest(for: signatureA))
+        XCTAssertNotEqual(ReadinessCommentCache.digest(for: signatureA), ReadinessCommentCache.digest(for: signatureB))
     }
 }

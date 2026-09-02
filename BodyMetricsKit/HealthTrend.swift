@@ -420,9 +420,12 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case recordedReadinessContext
     }
 
+    /// Decodes tolerantly: a missing series key is treated as an empty series rather than a
+    /// decoding failure. Rejecting the whole file for one absent key would throw away
+    /// `recordedStressDays` and `recordedReadiness`, which cannot be re-derived from HealthKit.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        sleep = try container.decode(HealthTrendSeries.self, forKey: .sleep)
+        sleep = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .sleep) ?? .empty
         sleepSecondary = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .sleepSecondary) ?? .empty
         readiness = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .readiness) ?? .empty
         heartRate = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .heartRate) ?? .empty
@@ -431,14 +434,14 @@ struct HealthTrendSnapshot: Codable, Equatable {
             HealthTrendRangeSeries.self,
             forKey: .heartRateRangesSecondary
         ) ?? .empty
-        restingHeartRate = try container.decode(HealthTrendSeries.self, forKey: .restingHeartRate)
+        restingHeartRate = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .restingHeartRate) ?? .empty
         restingHeartRateSecondary = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .restingHeartRateSecondary
         ) ?? .empty
-        bodyMass = try container.decode(HealthTrendSeries.self, forKey: .bodyMass)
-        bodyFatPercentage = try container.decode(HealthTrendSeries.self, forKey: .bodyFatPercentage)
-        heartRateVariability = try container.decode(HealthTrendSeries.self, forKey: .heartRateVariability)
+        bodyMass = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyMass) ?? .empty
+        bodyFatPercentage = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyFatPercentage) ?? .empty
+        heartRateVariability = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .heartRateVariability) ?? .empty
         heartRateVariabilityRanges = try container.decodeIfPresent(
             HealthTrendRangeSeries.self,
             forKey: .heartRateVariabilityRanges
@@ -447,12 +450,12 @@ struct HealthTrendSnapshot: Codable, Equatable {
             HealthTrendRangeSeries.self,
             forKey: .heartRateVariabilityRangesSecondary
         ) ?? .empty
-        respiratoryRate = try container.decode(HealthTrendSeries.self, forKey: .respiratoryRate)
+        respiratoryRate = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .respiratoryRate) ?? .empty
         respiratoryRateRanges = try container.decodeIfPresent(
             HealthTrendRangeSeries.self,
             forKey: .respiratoryRateRanges
         ) ?? .empty
-        oxygenSaturation = try container.decode(HealthTrendSeries.self, forKey: .oxygenSaturation)
+        oxygenSaturation = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .oxygenSaturation) ?? .empty
         oxygenSaturationRanges = try container.decodeIfPresent(
             HealthTrendRangeSeries.self,
             forKey: .oxygenSaturationRanges
@@ -461,13 +464,13 @@ struct HealthTrendSnapshot: Codable, Equatable {
             HealthTrendRangeSeries.self,
             forKey: .oxygenSaturationRangesSecondary
         ) ?? .empty
-        bodyMassIndex = try container.decode(HealthTrendSeries.self, forKey: .bodyMassIndex)
-        activeEnergy = try container.decode(HealthTrendSeries.self, forKey: .activeEnergy)
+        bodyMassIndex = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyMassIndex) ?? .empty
+        activeEnergy = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .activeEnergy) ?? .empty
         activeEnergySecondary = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .activeEnergySecondary
         ) ?? .empty
-        restingEnergy = try container.decode(HealthTrendSeries.self, forKey: .restingEnergy)
+        restingEnergy = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .restingEnergy) ?? .empty
         restingEnergySecondary = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .restingEnergySecondary

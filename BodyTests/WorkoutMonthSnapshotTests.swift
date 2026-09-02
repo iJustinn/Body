@@ -2563,6 +2563,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         // A selection saved before the new categories existed: Workouts + Heart on.
         defaults.set("workouts,heart,sleep", forKey: BodyAppearancePreference.healthPermissionSelectionKey)
 
+        BodyHealthPermissionSelection.migrateIfNeeded(defaults: defaults)
         let migrated = BodyHealthPermissionSelection.load(defaults: defaults)
         XCTAssertTrue(migrated.includes(.workoutMetrics))
         XCTAssertTrue(migrated.includes(.dateOfBirth))
@@ -2575,6 +2576,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             .setting(.workoutMetrics, isEnabled: false)
             .setting(.dateOfBirth, isEnabled: false)
             .save(defaults: defaults)
+        BodyHealthPermissionSelection.migrateIfNeeded(defaults: defaults)
         let reloaded = BodyHealthPermissionSelection.load(defaults: defaults)
         XCTAssertFalse(reloaded.includes(.workoutMetrics))
         XCTAssertFalse(reloaded.includes(.dateOfBirth))
@@ -2588,6 +2590,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         // Everything off ("none"): neither new toggle is added, but the flag is set.
         defaults.set("none", forKey: BodyAppearancePreference.healthPermissionSelectionKey)
 
+        BodyHealthPermissionSelection.migrateIfNeeded(defaults: defaults)
         let migrated = BodyHealthPermissionSelection.load(defaults: defaults)
         XCTAssertFalse(migrated.includes(.workoutMetrics))
         XCTAssertFalse(migrated.includes(.dateOfBirth))
@@ -6396,5 +6399,74 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             on: night.date,
             calendar: try fixedCalendar(scoringZone)
         ))
+    }
+
+    // MARK: - M-24: permission strips must not regroup workouts by time zone
+
+    /// `removingWorkoutMetrics(calendar:)` must map each day's workouts in
+    /// place rather than regrouping them by `dateKey` through `calendar`. A
+    /// near-midnight workout built under one time zone and stripped under a
+    /// different, far-behind zone would, under the old `.make(...)`-based
+    /// implementation, get reassigned to a `dateKey` computed from the new
+    /// calendar's rendering of its `startDate`. Asia/Tokyo (UTC+9) is 17 hours
+    /// ahead of America/Los_Angeles (UTC-8 in January), so a workout logged
+    /// just after midnight on January 1st in Tokyo renders as December 31st in
+    /// Los Angeles, which falls outside the snapshot's January day range and
+    /// is silently dropped by the old grouping. Confirms the fix by asserting
+    /// the workout survives under its original `dateKey`.
+    func testRemovingWorkoutMetricsKeepsNearMidnightWorkoutUnderOriginalDateKeyAcrossTimeZoneChange() throws {
+        var tokyoCalendar = Calendar(identifier: .gregorian)
+        tokyoCalendar.firstWeekday = 1
+        tokyoCalendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+
+        let startDate = try XCTUnwrap(
+            tokyoCalendar.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 0, minute: 15))
+        )
+
+        let workout = WorkoutSummary(
+            id: UUID(),
+            type: .running,
+            startDate: startDate,
+            duration: 1_800,
+            activeEnergyKilocalories: 200,
+            distanceMeters: 3_000,
+            sourceName: "Tests"
+        )
+
+        let originalSnapshot = WorkoutMonthSnapshot.make(
+            month: 1,
+            year: 2026,
+            workouts: [workout],
+            calendar: tokyoCalendar
+        )
+
+        let originalDay = try XCTUnwrap(originalSnapshot.days.first { !$0.workouts.isEmpty })
+        XCTAssertEqual(originalDay.dateKey, "2026-01-01")
+
+        var losAngelesCalendar = Calendar(identifier: .gregorian)
+        losAngelesCalendar.firstWeekday = 1
+        losAngelesCalendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+
+        // Sanity check that this fixture actually crosses the month boundary
+        // under the stripping calendar, which is what the old implementation
+        // would have used to (mis)regroup the workout and drop it.
+        let renderedInLosAngeles = losAngelesCalendar.dateComponents([.year, .month, .day], from: startDate)
+        XCTAssertEqual(renderedInLosAngeles.month, 12)
+
+        let strippedSnapshot = originalSnapshot.removingWorkoutMetrics(calendar: losAngelesCalendar)
+
+        let strippedDay = try XCTUnwrap(strippedSnapshot.days.first { $0.dateKey == "2026-01-01" })
+        XCTAssertEqual(strippedDay.workouts.count, 1)
+        XCTAssertEqual(strippedDay.workouts.first?.id, workout.id)
+        XCTAssertEqual(strippedSnapshot.workoutCount, 1)
+    }
+
+    // MARK: - L-23: `bodyGregorian` caching
+
+    func testBodyGregorianUsesSundayFirstWeekdayAndCurrentTimeZone() {
+        let calendar = Calendar.bodyGregorian
+
+        XCTAssertEqual(calendar.firstWeekday, 1)
+        XCTAssertEqual(calendar.timeZone, TimeZone.current)
     }
 }

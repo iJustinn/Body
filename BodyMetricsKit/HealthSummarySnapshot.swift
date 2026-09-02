@@ -461,36 +461,38 @@ struct HealthSummarySnapshot: Codable, Equatable {
         var sampleCount: Int
     }
 
+    /// Decodes field by field: a missing or malformed value falls back to its empty default
+    /// instead of failing the whole snapshot, so one bad key cannot discard the cached summary.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         activityRings = (try? container.decodeIfPresent(ActivityRingSummary.self, forKey: .activityRings)) ?? .empty
         readiness = (try? container.decodeIfPresent(ReadinessSummary.self, forKey: .readiness)) ?? .unavailable
         sleep = (try? container.decodeIfPresent(SleepSummary.self, forKey: .sleep)) ?? SleepSummary(duration: nil)
-        heartRate = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .heartRate) ?? HealthMetricSummary(value: nil)
-        restingHeartRate = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .restingHeartRate) ?? HealthMetricSummary(value: nil)
-        bodyMass = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .bodyMass) ?? HealthMetricSummary(value: nil)
-        bodyFatPercentage = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .bodyFatPercentage) ?? HealthMetricSummary(value: nil)
-        heartRateVariability = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .heartRateVariability) ?? HealthMetricSummary(value: nil)
-        respiratoryRate = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .respiratoryRate) ?? HealthMetricSummary(value: nil)
-        oxygenSaturation = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .oxygenSaturation) ?? HealthMetricSummary(value: nil)
-        bodyMassIndex = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .bodyMassIndex) ?? HealthMetricSummary(value: nil)
-        activeEnergy = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .activeEnergy) ?? HealthMetricSummary(value: nil)
-        restingEnergy = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .restingEnergy) ?? HealthMetricSummary(value: nil)
-        exerciseMinutes = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .exerciseMinutes) ?? HealthMetricSummary(value: nil)
-        trainingLoad = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .trainingLoad) ?? HealthMetricSummary(value: nil)
-        wristTemperature = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .wristTemperature) ?? HealthMetricSummary(value: nil)
-        timeInDaylight = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .timeInDaylight) ?? HealthMetricSummary(value: nil)
-        steps = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .steps) ?? HealthMetricSummary(value: nil)
-        cardioFitness = try container.decodeIfPresent(HealthMetricSummary.self, forKey: .cardioFitness) ?? HealthMetricSummary(value: nil)
-        cardioFitnessProfile = try container.decodeIfPresent(CardioFitnessProfile.self, forKey: .cardioFitnessProfile)
-        stress = try container.decodeIfPresent(StressDaySummary.self, forKey: .stress)
+        heartRate = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .heartRate)) ?? HealthMetricSummary(value: nil)
+        restingHeartRate = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .restingHeartRate)) ?? HealthMetricSummary(value: nil)
+        bodyMass = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .bodyMass)) ?? HealthMetricSummary(value: nil)
+        bodyFatPercentage = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .bodyFatPercentage)) ?? HealthMetricSummary(value: nil)
+        heartRateVariability = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .heartRateVariability)) ?? HealthMetricSummary(value: nil)
+        respiratoryRate = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .respiratoryRate)) ?? HealthMetricSummary(value: nil)
+        oxygenSaturation = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .oxygenSaturation)) ?? HealthMetricSummary(value: nil)
+        bodyMassIndex = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .bodyMassIndex)) ?? HealthMetricSummary(value: nil)
+        activeEnergy = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .activeEnergy)) ?? HealthMetricSummary(value: nil)
+        restingEnergy = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .restingEnergy)) ?? HealthMetricSummary(value: nil)
+        exerciseMinutes = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .exerciseMinutes)) ?? HealthMetricSummary(value: nil)
+        trainingLoad = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .trainingLoad)) ?? HealthMetricSummary(value: nil)
+        wristTemperature = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .wristTemperature)) ?? HealthMetricSummary(value: nil)
+        timeInDaylight = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .timeInDaylight)) ?? HealthMetricSummary(value: nil)
+        steps = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .steps)) ?? HealthMetricSummary(value: nil)
+        cardioFitness = (try? container.decodeIfPresent(HealthMetricSummary.self, forKey: .cardioFitness)) ?? HealthMetricSummary(value: nil)
+        cardioFitnessProfile = (try? container.decodeIfPresent(CardioFitnessProfile.self, forKey: .cardioFitnessProfile))
+        stress = (try? container.decodeIfPresent(StressDaySummary.self, forKey: .stress))
         // `stressCurrentScore` is transient — see its declaration.
         stressCurrentScore = nil
-        if let warnings = try container.decodeIfPresent([MetricWarningEvent].self, forKey: .metricWarnings) {
+        if let warnings = (try? container.decodeIfPresent([MetricWarningEvent].self, forKey: .metricWarnings)) {
             metricWarnings = warnings
         } else {
             let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
-            let legacy = try legacyContainer.decodeIfPresent(LegacyLowHeartRateEvent.self, forKey: .lowHeartRateEvent)
+            let legacy = (try? legacyContainer.decodeIfPresent(LegacyLowHeartRateEvent.self, forKey: .lowHeartRateEvent))
             metricWarnings = legacy.map {
                 [MetricWarningEvent(
                     kind: .lowHeartRate,
