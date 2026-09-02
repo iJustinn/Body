@@ -41,36 +41,39 @@ struct BodyAddBasicsMeasurementSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                HStack(alignment: .top, spacing: 12) {
-                    measurementCard(title: "Weight", isOn: $includeWeight) {
-                        Picker("Weight", selection: $weightTenths) {
-                            ForEach(weightRange, id: \.self) { tenths in
-                                Text(label(forTenths: tenths, unit: weightUnit.unitLabel)).tag(tenths)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 16) {
+                    HStack(alignment: .top, spacing: 12) {
+                        measurementCard(title: "Weight", isOn: $includeWeight) {
+                            Picker("Weight", selection: $weightTenths) {
+                                ForEach(weightRange, id: \.self) { tenths in
+                                    Text(Self.weightLabels[weightUnit]?[tenths] ?? label(forTenths: tenths, unit: weightUnit.unitLabel)).tag(tenths)
+                                }
                             }
+                            .pickerStyle(.wheel)
+                            .frame(height: Self.wheelHeight)
+                            .clipped()
                         }
-                        .pickerStyle(.wheel)
-                        .frame(height: Self.wheelHeight)
-                        .clipped()
+
+                        measurementCard(title: "Body Fat", isOn: $includeBodyFat) {
+                            Picker("Body Fat", selection: $bodyFatTenths) {
+                                ForEach(bodyFatRange, id: \.self) { tenths in
+                                    Text(Self.bodyFatLabels[tenths] ?? label(forTenths: tenths, unit: "%")).tag(tenths)
+                                }
+                            }
+                            .pickerStyle(.wheel)
+                            .frame(height: Self.wheelHeight)
+                            .clipped()
+                        }
                     }
 
-                    measurementCard(title: "Body Fat", isOn: $includeBodyFat) {
-                        Picker("Body Fat", selection: $bodyFatTenths) {
-                            ForEach(bodyFatRange, id: \.self) { tenths in
-                                Text(label(forTenths: tenths, unit: "%")).tag(tenths)
-                            }
-                        }
-                        .pickerStyle(.wheel)
-                        .frame(height: Self.wheelHeight)
-                        .clipped()
-                    }
+                    dateCard
                 }
-
-                dateCard
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .bodySheetBackground()
             .navigationTitle("Add Measurement")
             .navigationBarTitleDisplayMode(.inline)
@@ -95,7 +98,7 @@ struct BodyAddBasicsMeasurementSheet: View {
                 Text(errorMessage ?? "")
             }
         }
-        .presentationDetents([.height(370)])
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .onAppear(perform: seedIfNeeded)
     }
@@ -161,17 +164,34 @@ struct BodyAddBasicsMeasurementSheet: View {
     private var weightRange: [Int] {
         switch weightUnit {
         case .kilograms:
-            return Array(300...2500)   // 30.0–250.0 kg
+            return Self.kilogramsRange
         case .pounds:
-            return Array(660...5500)   // 66.0–550.0 lb
+            return Self.poundsRange
         }
     }
 
-    private let bodyFatRange = Array(10...700)   // 1.0–70.0 %
+    private static let kilogramsRange = Array(300...2500)   // 30.0–250.0 kg
+    private static let poundsRange = Array(660...5500)   // 66.0–550.0 lb
+    private static let bodyFatRangeValues = Array(10...700)   // 1.0–70.0 %
+    private var bodyFatRange: [Int] { Self.bodyFatRangeValues }
 
-    private func label(forTenths tenths: Int, unit: String) -> String {
+    /// Pre-rendered per-tenth strings so the wheel pickers don't format a
+    /// `Double` on every row, every body pass.
+    private static let weightLabels: [BodyValueFormat.WeightUnitPreference: [Int: String]] = [
+        .kilograms: Dictionary(uniqueKeysWithValues: kilogramsRange.map { ($0, staticLabel(forTenths: $0, unit: BodyValueFormat.WeightUnitPreference.kilograms.unitLabel)) }),
+        .pounds: Dictionary(uniqueKeysWithValues: poundsRange.map { ($0, staticLabel(forTenths: $0, unit: BodyValueFormat.WeightUnitPreference.pounds.unitLabel)) })
+    ]
+    private static let bodyFatLabels: [Int: String] = Dictionary(
+        uniqueKeysWithValues: bodyFatRangeValues.map { ($0, staticLabel(forTenths: $0, unit: "%")) }
+    )
+
+    private static func staticLabel(forTenths tenths: Int, unit: String) -> String {
         let value = (Double(tenths) / 10).formatted(.number.precision(.fractionLength(1)))
         return "\(value) \(unit)"
+    }
+
+    private func label(forTenths tenths: Int, unit: String) -> String {
+        Self.staticLabel(forTenths: tenths, unit: unit)
     }
 
     private var errorAlertBinding: Binding<Bool> {

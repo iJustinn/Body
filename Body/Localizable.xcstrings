@@ -3392,6 +3392,40 @@
         }
       }
     },
+    "Could not crop the photo. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not crop the photo. Try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法裁剪照片，请重试。"
+          }
+        }
+      }
+    },
+    "Couldn't Crop Photo" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Crop Photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法裁剪照片"
+          }
+        }
+      }
+    },
     "Couldn't Load Video" : {
       "extractionState" : "manual",
       "localizations" : {

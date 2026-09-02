@@ -16,6 +16,9 @@ struct BodyFirstLaunchLoadOverlay: View {
     @State private var isLoading = false
     @State private var hasAttemptedLoad = false
     @State private var isDismissedForSession = false
+    /// Retains the load so leaving the overlay (or tapping Not Now) can cancel
+    /// it instead of leaving `isLoading` stuck on.
+    @State private var loadTask: Task<Void, Never>?
     var onPresentationChange: (Bool) -> Void = { _ in }
 
     var body: some View {
@@ -37,6 +40,11 @@ struct BodyFirstLaunchLoadOverlay: View {
         }
         .onChange(of: isPresented) { _, newValue in
             onPresentationChange(newValue)
+        }
+        .onDisappear {
+            loadTask?.cancel()
+            loadTask = nil
+            isLoading = false
         }
     }
 
@@ -92,6 +100,9 @@ struct BodyFirstLaunchLoadOverlay: View {
                 .disabled(isLoading)
 
                 Button {
+                    loadTask?.cancel()
+                    loadTask = nil
+                    isLoading = false
                     isDismissedForSession = true
                 } label: {
                     Text("Not Now")
@@ -131,9 +142,12 @@ struct BodyFirstLaunchLoadOverlay: View {
 
         isLoading = true
         hasAttemptedLoad = true
-        Task {
+        loadTask = Task {
             await workoutStore.requestAuthorizationAndRefresh()
             await workoutStore.awaitRefreshCompletion()
+            guard !Task.isCancelled else {
+                return
+            }
             isLoading = false
         }
     }
