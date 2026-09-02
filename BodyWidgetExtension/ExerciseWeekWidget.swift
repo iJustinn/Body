@@ -23,7 +23,7 @@ struct ExerciseWeekEntry: TimelineEntry {
 
 struct ExerciseWeekProvider: TimelineProvider {
     func placeholder(in context: Context) -> ExerciseWeekEntry {
-        ExerciseWeekEntry(date: Date(), points: Self.placeholderPoints, isPro: true)
+        ExerciseWeekEntry(date: Date(), points: ExerciseWeekEntryBuilder.placeholderPoints(now: Date()), isPro: true)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (ExerciseWeekEntry) -> Void) {
@@ -39,26 +39,13 @@ struct ExerciseWeekProvider: TimelineProvider {
 
     private func loadEntry(usePlaceholderWhenEmpty: Bool) -> ExerciseWeekEntry {
         let now = Date()
-        let calendar = Calendar.bodyGregorian
-        let current = WorkoutSnapshotStore.load()
-        let previous = WorkoutSnapshotStore.loadPrevious()
-        let hasData = (current?.workoutCount ?? 0) > 0 || (previous?.workoutCount ?? 0) > 0
-
-        let points: [HealthWidgetPoint]
-        if !hasData && usePlaceholderWhenEmpty {
-            points = Self.placeholderPoints
-        } else {
-            // Dense per-day points for the current + previous month (every
-            // in-month day, including zero-duration ones) so re-windowing
-            // below always finds a real (non-nil) point for a rest day
-            // instead of padding it with nil.
-            let allPoints = Self.points(from: current, calendar: calendar)
-                + Self.points(from: previous, calendar: calendar)
-            // Re-window at load time: the cache is only rewritten when the app
-            // runs, so a cache from an earlier day must be re-aligned so the
-            // rightmost bar is always today.
-            points = HealthWidgetPoint.rewindingWeek(allPoints, to: now, calendar: calendar)
-        }
+        let points = ExerciseWeekEntryBuilder.points(
+            current: WorkoutSnapshotStore.load(),
+            previous: WorkoutSnapshotStore.loadPrevious(),
+            usePlaceholderWhenEmpty: usePlaceholderWhenEmpty,
+            now: now,
+            calendar: .bodyGregorian
+        )
 
         return ExerciseWeekEntry(
             date: now,
@@ -67,30 +54,6 @@ struct ExerciseWeekProvider: TimelineProvider {
             isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked
         )
     }
-
-    /// One point per day in `snapshot`'s month, minutes of total workout
-    /// duration (0 for days with no workouts).
-    private static func points(from snapshot: WorkoutMonthSnapshot?, calendar: Calendar) -> [HealthWidgetPoint] {
-        guard let snapshot else { return [] }
-        return snapshot.days.compactMap { day in
-            guard let date = calendar.date(from: DateComponents(year: snapshot.year, month: snapshot.month, day: day.day)) else {
-                return nil
-            }
-            return HealthWidgetPoint(date: date, value: day.totalDuration / 60)
-        }
-    }
-
-    /// Sample week for the widget gallery preview, built locally (no App
-    /// Group read, no HealthWidgetSnapshot dependency).
-    private static let placeholderPoints: [HealthWidgetPoint] = {
-        let calendar = Calendar.bodyGregorian
-        let today = calendar.startOfDay(for: Date())
-        let sampleMinutes: [Double] = [30, 45, 0, 60, 25, 50, 40]
-        return sampleMinutes.enumerated().map { offset, minutes in
-            let date = calendar.date(byAdding: .day, value: offset - 6, to: today) ?? today
-            return HealthWidgetPoint(date: date, value: minutes)
-        }
-    }()
 }
 
 // MARK: - Widget
@@ -122,7 +85,6 @@ private struct ExerciseWeekWidgetView: View {
     let points: [HealthWidgetPoint]
 
     private static let barSpacing: CGFloat = 3
-    private static let calendar = Calendar.bodyGregorian
 
     private var totalMinutes: Int {
         Int(points.compactMap(\.value).reduce(0, +).rounded())
@@ -176,7 +138,7 @@ private struct ExerciseWeekWidgetView: View {
     private var weekdayRow: some View {
         HStack(spacing: Self.barSpacing) {
             ForEach(points) { point in
-                Text(Self.weekdayLetter(for: point.date))
+                Text(ExerciseWeekEntryBuilder.weekdayLetter(for: point.date, calendar: .bodyGregorian))
                     .font(.system(size: 8, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
@@ -189,22 +151,6 @@ private struct ExerciseWeekWidgetView: View {
         guard weekMax > 0 else { return 3 }
         let normalized = value / weekMax
         return max(height * CGFloat(normalized), 3)
-    }
-
-    /// Weekday letter for `date`, in the user's locale. Deliberately not
-    /// `Calendar.bodyRotatedVeryShortWeekdaySymbols` (that rotates by
-    /// `firstWeekday`, which is wrong for a rolling window that isn't a
-    /// calendar week) and not locale-less `Calendar.bodyGregorian` symbols.
-    /// Mirrors `WorkoutMonthSnapshot.swift`'s weekday-symbol pattern.
-    private static func weekdayLetter(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        let symbols = formatter.veryShortStandaloneWeekdaySymbols ?? []
-        let fallback = ["S", "M", "T", "W", "T", "F", "S"]
-        let source = symbols.isEmpty ? fallback : symbols
-        let index = calendar.component(.weekday, from: date) - 1
-        guard source.indices.contains(index) else { return "" }
-        return source[index]
     }
 }
 

@@ -63,17 +63,22 @@ struct HealthMetricProvider: AppIntentTimelineProvider {
         configuration: BodyMetricWidgetConfigurationIntent,
         usePlaceholderWhenEmpty: Bool
     ) -> HealthMetricEntry {
+        let now = Date()
         let metric = (configuration.metric ?? .readiness).widgetMetric
-        let loaded = HealthWidgetSnapshotStore.load()
-        let snapshot = (loaded ?? (usePlaceholderWhenEmpty ? .placeholder : .empty))
-            .sanitizingStaleSleep(asOf: Date())
-        return entry(
-            snapshot: snapshot,
-            metric: metric,
-            background: configuration.background ?? .system,
+        let resolved = HealthMetricEntryBuilder.resolve(
+            snapshot: HealthWidgetSnapshotStore.load(),
+            usePlaceholderWhenEmpty: usePlaceholderWhenEmpty,
             // Preview/gallery (usePlaceholderWhenEmpty) shows the real widget so users
             // see what Body Pro unlocks; the live home-screen timeline respects the flag.
-            isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked
+            isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked,
+            now: now
+        )
+        return entry(
+            snapshot: resolved.snapshot,
+            metric: metric,
+            background: configuration.background ?? .system,
+            isPro: resolved.isPro,
+            date: now
         )
     }
 
@@ -81,10 +86,11 @@ struct HealthMetricProvider: AppIntentTimelineProvider {
         snapshot: HealthWidgetSnapshot,
         metric: HealthWidgetMetric,
         background: BodyWidgetBackgroundSelection,
-        isPro: Bool
+        isPro: Bool,
+        date: Date = Date()
     ) -> HealthMetricEntry {
         HealthMetricEntry(
-            date: Date(),
+            date: date,
             background: background,
             metric: metric,
             trend: snapshot.trend(for: metric),

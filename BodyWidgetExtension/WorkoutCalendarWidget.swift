@@ -76,25 +76,23 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
         let now = Date()
         let calendar = Calendar.bodyGregorian
         let entry = loadEntry(configuration: configuration, usePlaceholderWhenEmpty: false, isPro: BodyProEntitlement.isUnlocked, now: now)
+        let built = WorkoutCalendarEntryBuilder.timeline(
+            snapshot: entry.snapshot,
+            isPro: entry.isPro,
+            now: now,
+            calendar: calendar
+        )
 
-        // Flip to the new (still-empty) month the moment it starts: `.after` is
-        // only an earliest-reload hint, so without this dated entry the widget
-        // could keep showing last month's calendar past the boundary.
-        var entries = [entry]
-        if let nextMonthStart = calendar.dateInterval(of: .month, for: now)?.end {
-            entries.append(
-                WorkoutCalendarEntry(
-                    date: nextMonthStart,
-                    background: entry.background,
-                    snapshot: .makeEmpty(generatedAt: nextMonthStart, calendar: calendar),
-                    isPro: entry.isPro,
-                    workoutColorsRawValue: entry.workoutColorsRawValue
-                )
+        let entries = built.entries.map { step in
+            WorkoutCalendarEntry(
+                date: step.date,
+                background: entry.background,
+                snapshot: step.snapshot,
+                isPro: step.isPro,
+                workoutColorsRawValue: entry.workoutColorsRawValue
             )
         }
-
-        let nextRefresh = calendar.date(byAdding: .minute, value: 30, to: now) ?? now.addingTimeInterval(1_800)
-        return Timeline(entries: entries, policy: .after(nextRefresh))
+        return Timeline(entries: entries, policy: .after(built.reloadAfter))
     }
 
     private func loadEntry(

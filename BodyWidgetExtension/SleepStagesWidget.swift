@@ -47,15 +47,18 @@ struct SleepStagesProvider: AppIntentTimelineProvider {
         usePlaceholderWhenEmpty: Bool
     ) -> SleepStagesEntry {
         let now = Date()
-        let loaded = HealthWidgetSnapshotStore.load()
-        let snapshot = (loaded ?? (usePlaceholderWhenEmpty ? .placeholder : .empty))
-            .sanitizingStaleSleep(asOf: now)
+        let resolved = SleepStagesEntryBuilder.resolve(
+            snapshot: HealthWidgetSnapshotStore.load(),
+            usePlaceholderWhenEmpty: usePlaceholderWhenEmpty,
+            // Preview/gallery shows the real widget; the live timeline respects the flag.
+            isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked,
+            now: now
+        )
         return SleepStagesEntry(
             date: now,
             background: configuration.background ?? .system,
-            sleep: snapshot.sleep,
-            // Preview/gallery shows the real widget; the live timeline respects the flag.
-            isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked
+            sleep: resolved.snapshot.sleep,
+            isPro: resolved.isPro
         )
     }
 }

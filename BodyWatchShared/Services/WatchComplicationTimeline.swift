@@ -39,4 +39,12 @@ enum WatchComplicationTimeline {
         }
         return (entries, now.addingTimeInterval(refreshInterval))
     }
+
+    /// The metric the exercise week complication charts. Falls back to the
+    /// legacy `exerciseMinutes` metric when a stale/older snapshot doesn't
+    /// carry `workoutMinutes` yet (version skew across a phone/watch pair).
+    static func exerciseWeekMetric(in snapshot: WatchMetricsSnapshot) -> WatchMetric? {
+        snapshot.metric(forKind: WatchMetricKindKey.workoutMinutes)
+            ?? snapshot.metric(forKind: WatchMetricKindKey.exerciseMinutes)
+    }
 }

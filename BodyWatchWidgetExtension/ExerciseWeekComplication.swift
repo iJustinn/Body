@@ -34,11 +34,9 @@ private struct ExerciseWeekComplicationView: View {
         // Re-windowed to the entry's day (see `weeklyRewound`): the cache is
         // only rewritten when the phone pushes (on-watch compute preserves
         // this metric), so a snapshot from an earlier day must not keep
-        // yesterday as the rightmost bar. Falls back to the legacy
-        // `exerciseMinutes` metric when a stale/older snapshot doesn't carry
-        // `workoutMinutes` yet (version skew across a phone/watch pair).
-        let metric = entry.snapshot.metric(forKind: WatchMetricKindKey.workoutMinutes)
-            ?? entry.snapshot.metric(forKind: WatchMetricKindKey.exerciseMinutes)
+        // yesterday as the rightmost bar. The metric selection (and its
+        // legacy fallback) lives in `WatchComplicationTimeline`.
+        let metric = WatchComplicationTimeline.exerciseWeekMetric(in: entry.snapshot)
         return metric?.weeklyRewound(from: entry.snapshot.generatedAt, to: entry.date)
             ?? Array(repeating: nil, count: 7)
     }

@@ -282,6 +282,25 @@ enum BodyHomeTrendCardFactory {
         )
     }
 
+    /// Formats a raw value the same way this card's chart labels do, without
+    /// building a full card. Used to keep the widget's number formatting in
+    /// parity with Home's, since both must agree on how a metric reads.
+    static func formattedValue(
+        _ value: Double,
+        for kind: BodyHomeTrendCardKind,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference
+    ) -> String {
+        configuration(
+            for: kind,
+            trends: .empty,
+            temperatureUnitPreference: temperatureUnitPreference,
+            energyUnitPreference: energyUnitPreference,
+            weightUnitPreference: weightUnitPreference
+        ).valueFormatter(value)
+    }
+
     private static func configuration(
         for trendKind: BodyHomeTrendCardKind,
         trends: HealthTrendSnapshot,

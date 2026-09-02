@@ -344,6 +344,56 @@ enum HealthWidgetSnapshotBuilder {
         }
     }
 
+    /// Formats a raw metric value (the same units `metricTrend` transforms
+    /// from: celsius, kilocalories, kilograms) the way this widget metric's
+    /// trend average text does, split into the numeric text and its unit.
+    /// Used to check parity with `BodyHomeTrendCardFactory.formattedValue`.
+    static func formattedValue(
+        _ value: Double,
+        for metric: HealthWidgetMetric,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference
+    ) -> (value: String, unit: String?) {
+        let transform = valueTransform(
+            for: metric,
+            temperatureUnitPreference: temperatureUnitPreference,
+            energyUnitPreference: energyUnitPreference,
+            weightUnitPreference: weightUnitPreference
+        )
+        let transformed = transform(value)
+
+        switch metric {
+        case .readiness, .oxygenSaturation:
+            return (BodyValueFormat.numberText(transformed, decimals: 0), "%")
+        case .heartRate, .restingHeartRate:
+            return (BodyValueFormat.numberText(transformed, decimals: 0), "BPM")
+        case .heartRateVariability:
+            return (BodyValueFormat.numberText(transformed, decimals: 0), "ms")
+        case .respiratoryRate:
+            return (BodyValueFormat.numberText(transformed, decimals: 0), "br/min")
+        case .sleep:
+            return (BodyValueFormat.sleepDurationText(for: transformed * 60 * 60), nil)
+        case .wristTemperature:
+            let unit = BodyValueFormat.temperatureValue(celsius: 0, temperatureUnitPreference: temperatureUnitPreference).unit
+            return (BodyValueFormat.numberText(transformed, decimals: 1), unit)
+        case .steps:
+            return (BodyValueFormat.numberText(transformed, decimals: 0), "steps")
+        case .activeEnergy, .restingEnergy:
+            let unit = BodyValueFormat.energyValue(kilocalories: 0, energyUnitPreference: energyUnitPreference).unit
+            return (BodyValueFormat.numberText(transformed, decimals: 0), unit)
+        case .exerciseMinutes, .timeInDaylight:
+            return (BodyValueFormat.numberText(transformed, decimals: 0), "min")
+        case .trainingLoad:
+            return (BodyValueFormat.numberText(transformed, decimals: 2), nil)
+        case .bodyMass:
+            let unit = BodyValueFormat.massValue(kilograms: 0, weightUnitPreference: weightUnitPreference).unit
+            return (BodyValueFormat.numberText(transformed, decimals: 1), unit)
+        case .bodyFatPercentage:
+            return (BodyValueFormat.numberText(transformed, decimals: 1), "%")
+        }
+    }
+
     // MARK: - Sleep stages
 
     private static func sleepStages(
