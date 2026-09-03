@@ -6461,6 +6461,171 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(strippedSnapshot.workoutCount, 1)
     }
 
+    // MARK: - M-10 / A5: workout day resolved through the time-zone ledger
+
+    /// Los Angeles calendar, workout recorded just after midnight in Tokyo: the
+    /// resolved zone puts it on the 16th, the grouping calendar's own zone would
+    /// put it on the 15th.
+    func testWorkoutDayResolvesThroughTheSuppliedTimeZone() throws {
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.firstWeekday = 1
+        losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let startDate = try XCTUnwrap(tokyo.date(
+            from: DateComponents(year: 2026, month: 6, day: 16, hour: 0, minute: 30)
+        ))
+        let workout = travelWorkout(startDate: startDate)
+
+        XCTAssertEqual(losAngeles.dateComponents([.day], from: startDate).day, 15)
+
+        let resolved = WorkoutMonthSnapshot.make(
+            month: 6,
+            year: 2026,
+            workouts: [workout],
+            calendar: losAngeles,
+            timeZoneIdentifier: { _ in "Asia/Tokyo" }
+        )
+
+        XCTAssertEqual(resolved.day(16)?.workoutCount, 1)
+        XCTAssertEqual(resolved.day(15)?.workoutCount, 0)
+        XCTAssertEqual(resolved.workoutCount, 1)
+    }
+
+    /// A resolved zone that would push the workout into the neighbouring month
+    /// is refused: `make` only keeps keys inside the month it is building, so
+    /// honouring it would drop the workout from this month without adding it to
+    /// the next one.
+    func testResolvedZoneThatLeavesTheMonthFallsBackToTheCalendarDay() throws {
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.firstWeekday = 1
+        losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let startDate = try XCTUnwrap(tokyo.date(
+            from: DateComponents(year: 2026, month: 7, day: 1, hour: 0, minute: 30)
+        ))
+        let workout = travelWorkout(startDate: startDate)
+
+        XCTAssertEqual(losAngeles.dateComponents([.month, .day], from: startDate).day, 30)
+
+        let resolved = WorkoutMonthSnapshot.make(
+            month: 6,
+            year: 2026,
+            workouts: [workout],
+            calendar: losAngeles,
+            timeZoneIdentifier: { _ in "Asia/Tokyo" }
+        )
+
+        XCTAssertEqual(resolved.day(30)?.workoutCount, 1)
+        XCTAssertEqual(resolved.workoutCount, 1)
+    }
+
+    func testNilTimeZoneResolverKeepsTheCalendarZoneGrouping() throws {
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.firstWeekday = 1
+        losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let startDate = try XCTUnwrap(tokyo.date(
+            from: DateComponents(year: 2026, month: 6, day: 16, hour: 0, minute: 30)
+        ))
+        let workouts = [travelWorkout(startDate: startDate)]
+
+        let unresolved = WorkoutMonthSnapshot.make(month: 6, year: 2026, workouts: workouts, calendar: losAngeles)
+        let nilResolver = WorkoutMonthSnapshot.make(
+            month: 6,
+            year: 2026,
+            workouts: workouts,
+            calendar: losAngeles,
+            timeZoneIdentifier: { _ in nil }
+        )
+
+        XCTAssertEqual(unresolved.day(15)?.workoutCount, 1)
+        XCTAssertEqual(
+            nilResolver.days.map(\.dateKey),
+            unresolved.days.map(\.dateKey)
+        )
+        XCTAssertEqual(
+            nilResolver.days.map { $0.workouts.map(\.id) },
+            unresolved.days.map { $0.workouts.map(\.id) }
+        )
+    }
+
+    /// A resolver naming a zone the system does not know is ignored the same way
+    /// `nil` is, rather than being allowed to move (or drop) the workout.
+    func testUnknownTimeZoneIdentifierFallsBackToTheCalendarDay() throws {
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.firstWeekday = 1
+        losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let startDate = try XCTUnwrap(tokyo.date(
+            from: DateComponents(year: 2026, month: 6, day: 16, hour: 0, minute: 30)
+        ))
+
+        let resolved = WorkoutMonthSnapshot.make(
+            month: 6,
+            year: 2026,
+            workouts: [travelWorkout(startDate: startDate)],
+            calendar: losAngeles,
+            timeZoneIdentifier: { _ in "Not/AZone" }
+        )
+
+        XCTAssertEqual(resolved.day(15)?.workoutCount, 1)
+        XCTAssertNil(resolved.day(15)?.timeZoneIdentifier)
+    }
+
+    /// The day carries the zone that won for it, so the rows under a day title can
+    /// print their date and time in the zone the title means. The "removing"
+    /// mappers rebuild every day in place and must carry it through, or stripping
+    /// a permission would silently re-day the rows.
+    func testResolvedDayCarriesItsZoneAndTheMappersPreserveIt() throws {
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.firstWeekday = 1
+        losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let startDate = try XCTUnwrap(tokyo.date(
+            from: DateComponents(year: 2026, month: 6, day: 16, hour: 0, minute: 30)
+        ))
+
+        let resolved = WorkoutMonthSnapshot.make(
+            month: 6,
+            year: 2026,
+            workouts: [travelWorkout(startDate: startDate)],
+            calendar: losAngeles,
+            timeZoneIdentifier: { _ in "Asia/Tokyo" }
+        )
+
+        XCTAssertEqual(resolved.day(16)?.timeZoneIdentifier, "Asia/Tokyo")
+        // A day the resolver never spoke for stays unzoned.
+        XCTAssertNil(resolved.day(15)?.timeZoneIdentifier)
+        XCTAssertEqual(resolved.removingWorkoutMetrics().day(16)?.timeZoneIdentifier, "Asia/Tokyo")
+        XCTAssertEqual(resolved.removingHeartRateRecovery().day(16)?.timeZoneIdentifier, "Asia/Tokyo")
+
+        // Old snapshots (and every caller that passes no resolver) decode and
+        // build with no zone, which the rows read as "use the current zone".
+        let encoded = try JSONEncoder().encode(resolved)
+        let decoded = try JSONDecoder().decode(WorkoutMonthSnapshot.self, from: encoded)
+        XCTAssertEqual(decoded.day(16)?.timeZoneIdentifier, "Asia/Tokyo")
+        XCTAssertNil(
+            WorkoutMonthSnapshot.make(month: 6, year: 2026, workouts: [], calendar: losAngeles).day(16)?.timeZoneIdentifier
+        )
+    }
+
+    private func travelWorkout(startDate: Date) -> WorkoutSummary {
+        WorkoutSummary(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000777") ?? UUID(),
+            type: .running,
+            startDate: startDate,
+            duration: 1_800,
+            activeEnergyKilocalories: 200,
+            distanceMeters: 4_000,
+            sourceName: "Tests"
+        )
+    }
+
     // MARK: - L-23: `bodyGregorian` caching
 
     func testBodyGregorianUsesSundayFirstWeekdayAndCurrentTimeZone() {

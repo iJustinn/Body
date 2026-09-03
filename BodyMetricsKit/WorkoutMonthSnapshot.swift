@@ -10,6 +10,28 @@ struct WorkoutDaySummary: Codable, Equatable, Identifiable {
     let dateKey: String
     let day: Int
     let workouts: [WorkoutSummary]
+    /// The device zone this day's workouts were resolved in when the snapshot was
+    /// built (the first workout's, in start order, on the rare day that resolved
+    /// to more than one). `nil` when no zone was resolved: no resolver, no ledger
+    /// record covering the workout, a resolved zone that would have left the
+    /// month, or a snapshot written before this field existed. A row that prints
+    /// a workout's date or time next to this day's header formats it in this zone
+    /// so the two agree; `nil` keeps the current zone, as before. Optional on
+    /// decode and omitted from the encoded form when `nil`, so old snapshots load
+    /// here and new ones load in builds that predate the field.
+    let timeZoneIdentifier: String?
+
+    init(
+        dateKey: String,
+        day: Int,
+        workouts: [WorkoutSummary],
+        timeZoneIdentifier: String? = nil
+    ) {
+        self.dateKey = dateKey
+        self.day = day
+        self.workouts = workouts
+        self.timeZoneIdentifier = timeZoneIdentifier
+    }
 
     var id: String { dateKey }
 
@@ -161,28 +183,55 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
             && components.day == day.day
     }
 
+    /// `timeZoneIdentifier` resolves the zone the device was in when a workout
+    /// started, so a workout keeps the calendar day it happened on instead of
+    /// being re-dayed by whatever zone the phone is in now. `nil` (the default,
+    /// and any day the resolver has no record for) groups by `calendar`'s own
+    /// zone exactly as before.
     static func make(
         month: Int,
         year: Int,
         workouts: [WorkoutSummary],
         calendar: Calendar = .bodyGregorian,
-        generatedAt: Date = Date()
+        generatedAt: Date = Date(),
+        timeZoneIdentifier: ((Date) -> String?)? = nil
     ) -> WorkoutMonthSnapshot {
         guard let range = calendar.range(of: .day, in: .month, for: date(month: month, year: year, day: 1, calendar: calendar)) else {
             return WorkoutMonthSnapshot(month: month, year: year, generatedAt: generatedAt, days: [])
         }
 
-        let grouped = Dictionary(grouping: workouts) { workout in
+        // Each workout keeps the zone its day was resolved in alongside its key,
+        // so the day it lands in can carry that zone for presentation.
+        let keyed = workouts.map { workout -> (key: String, zoneIdentifier: String?, workout: WorkoutSummary) in
+            // A resolved zone only wins while it keeps the workout inside the
+            // month being built: `range.map` below drops any key outside it, so
+            // a workout the resolved zone pushes into the neighbouring month
+            // would vanish from both months rather than move.
+            if let identifier = timeZoneIdentifier?(workout.startDate),
+               let zone = TimeZone(identifier: identifier) {
+                var zonedCalendar = calendar
+                zonedCalendar.timeZone = zone
+                let zoned = zonedCalendar.dateComponents([.year, .month, .day], from: workout.startDate)
+                if zoned.year == year, zoned.month == month {
+                    return (dateKey(year: year, month: month, day: zoned.day ?? 1), identifier, workout)
+                }
+            }
             let components = calendar.dateComponents([.year, .month, .day], from: workout.startDate)
-            return dateKey(year: components.year ?? year, month: components.month ?? month, day: components.day ?? 1)
+            let key = dateKey(year: components.year ?? year, month: components.month ?? month, day: components.day ?? 1)
+            return (key, nil, workout)
         }
+        let grouped = Dictionary(grouping: keyed, by: \.key)
 
         let days = range.map { day in
             let key = dateKey(year: year, month: month, day: day)
+            let entries = (grouped[key] ?? []).sorted { $0.workout.startDate < $1.workout.startDate }
             return WorkoutDaySummary(
                 dateKey: key,
                 day: day,
-                workouts: (grouped[key] ?? []).sorted { $0.startDate < $1.startDate }
+                workouts: entries.map(\.workout),
+                // The earliest workout's zone on a day that resolved to more than
+                // one, which only a mid-day zone change can produce.
+                timeZoneIdentifier: entries.first?.zoneIdentifier
             )
         }
 
@@ -207,7 +256,8 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
                 WorkoutDaySummary(
                     dateKey: day.dateKey,
                     day: day.day,
-                    workouts: day.workouts.map { $0.removingWorkoutMetrics() }
+                    workouts: day.workouts.map { $0.removingWorkoutMetrics() },
+                    timeZoneIdentifier: day.timeZoneIdentifier
                 )
             },
             schemaVersion: schemaVersion
@@ -228,7 +278,8 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
                 WorkoutDaySummary(
                     dateKey: day.dateKey,
                     day: day.day,
-                    workouts: day.workouts.map { $0.removingHeartRateRecovery() }
+                    workouts: day.workouts.map { $0.removingHeartRateRecovery() },
+                    timeZoneIdentifier: day.timeZoneIdentifier
                 )
             },
             schemaVersion: schemaVersion

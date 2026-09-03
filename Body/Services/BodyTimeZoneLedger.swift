@@ -50,19 +50,25 @@ struct BodyTimeZoneLedger: @unchecked Sendable {
     /// record, so unknown history stays unknown rather than being back-filled
     /// with today's zone.
     func zoneIdentifier(on date: Date) -> String? {
-        let dayStart = calendar.startOfDay(for: date)
-        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart)
-            ?? dayStart.addingTimeInterval(86_400)
-        return loadRecords().last { $0.effectiveFrom < nextDayStart }?.identifier
+        snapshot().zoneIdentifier(on: date)
     }
 
-    /// The append-only record set (internal for tests to assert append behavior).
+    /// The records read once, so a computation that resolves many days (sleep
+    /// grouping, the watch's 14-day zone map, a month of workouts) pays a single
+    /// `UserDefaults` read and JSON decode instead of one per lookup.
+    func snapshot() -> BodyTimeZoneResolver {
+        BodyTimeZoneResolver(records: loadRecords(), calendar: calendar)
+    }
+
+    /// The append-only record set (internal for tests to assert append behavior),
+    /// sorted by `effectiveFrom` so a clock rollback between two records cannot
+    /// make the newest stored record the wrong answer for a later date.
     func loadRecords() -> [Record] {
         guard let data = defaults.data(forKey: Self.storageKey),
               let records = try? JSONDecoder().decode([Record].self, from: data) else {
             return []
         }
-        return records
+        return records.sorted { $0.effectiveFrom < $1.effectiveFrom }
     }
 
     private func saveRecords(_ records: [Record]) {
@@ -70,5 +76,31 @@ struct BodyTimeZoneLedger: @unchecked Sendable {
             return
         }
         defaults.set(data, forKey: Self.storageKey)
+    }
+}
+
+/// One decoded reading of `BodyTimeZoneLedger`'s records, with the two pure
+/// lookups the ledger's callers need. Held for the length of one computation so
+/// the records are decoded once rather than once per resolved day.
+struct BodyTimeZoneResolver: Sendable {
+    let records: [BodyTimeZoneLedger.Record]
+    let calendar: Calendar
+
+    /// Day-scoped lookup: the latest record in effect anywhere within `date`'s
+    /// day. What a night of sleep needs, since a night is named by its wake day
+    /// rather than by an instant.
+    func zoneIdentifier(on date: Date) -> String? {
+        let dayStart = calendar.startOfDay(for: date)
+        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart)
+            ?? dayStart.addingTimeInterval(86_400)
+        return records.last { $0.effectiveFrom < nextDayStart }?.identifier
+    }
+
+    /// Instant-scoped lookup: the zone the device was in at `instant`. What a
+    /// workout needs, because the day-scoped rule answers with the end-of-day
+    /// zone, which is the wrong one for anything earlier on a travel day and
+    /// flips again on the return leg, moving a stored workout's `dateKey` twice.
+    func zoneIdentifier(at instant: Date) -> String? {
+        records.last { $0.effectiveFrom <= instant }?.identifier
     }
 }

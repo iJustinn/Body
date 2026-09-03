@@ -156,6 +156,15 @@ struct BodyWorkoutsView: View {
         // rather than array, so a pure re-sort leaves this key untouched and the
         // `selectedSortOption` animation below stays in charge of re-order moves.
         let visibleWorkoutIDs = Set(visibleWorkouts.map(\.id))
+        // A row prints its date in the zone its day was resolved in when the month
+        // snapshot was built, so the list and the calendar card above it never name
+        // different days for the same workout after a time-zone change.
+        let timeZoneIdentifiersByWorkoutID = Dictionary(
+            baseSnapshot.days.flatMap { day in
+                day.timeZoneIdentifier.map { identifier in day.workouts.map { ($0.id, identifier) } } ?? []
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         NavigationStack {
             ZStack {
@@ -223,7 +232,8 @@ struct BodyWorkoutsView: View {
                                                     metadataFontSize: 13,
                                                     amountFontSize: 25,
                                                     customName: workoutStore.workoutCustomNames[workout.id],
-                                                    recordStanding: workoutStore.rowRecordStanding(for: workout)
+                                                    recordStanding: workoutStore.rowRecordStanding(for: workout),
+                                                    timeZoneIdentifier: timeZoneIdentifiersByWorkoutID[workout.id]
                                                 )
                                                 .matchedTransitionSource(id: workout.id, in: workoutZoom) {
                                                     $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
@@ -952,7 +962,8 @@ enum BodyWorkoutFilterLogic {
                 WorkoutDaySummary(
                     dateKey: day.dateKey,
                     day: day.day,
-                    workouts: day.workouts.filter { matchingIDs.contains($0.id) }
+                    workouts: day.workouts.filter { matchingIDs.contains($0.id) },
+                    timeZoneIdentifier: day.timeZoneIdentifier
                 )
             }
         )
@@ -1062,6 +1073,9 @@ private struct BodyWorkoutExpenseStyleRow: View {
     /// The workout's strongest record standing, or nil when it holds none. Computed
     /// at the call site — the row is a pure struct with no store access.
     var recordStanding: WorkoutRecordStanding? = nil
+    /// The zone the workout's day was resolved in, so the date printed here is the
+    /// day the calendar card files it under. `nil` reads the current zone.
+    var timeZoneIdentifier: String? = nil
 
     var body: some View {
         HStack(spacing: 16) {
@@ -1141,13 +1155,27 @@ private struct BodyWorkoutExpenseStyleRow: View {
     }
 
     private var formattedCompactDate: String {
-        let day = Calendar.bodyGregorian.component(.day, from: workout.startDate)
-        let month = workout.startDate.formatted(.dateTime.month(.wide))
+        var calendar = Calendar.bodyGregorian
+        var monthStyle = Date.FormatStyle.dateTime.month(.wide)
+        if let rowTimeZone {
+            calendar.timeZone = rowTimeZone
+            monthStyle.timeZone = rowTimeZone
+        }
+        let day = calendar.component(.day, from: workout.startDate)
+        let month = workout.startDate.formatted(monthStyle)
         return "\(month) \(day)"
     }
 
     private var formattedTime: String {
-        workout.startDate.formatted(.dateTime.hour().minute())
+        var style = Date.FormatStyle.dateTime.hour().minute()
+        if let rowTimeZone {
+            style.timeZone = rowTimeZone
+        }
+        return workout.startDate.formatted(style)
+    }
+
+    private var rowTimeZone: TimeZone? {
+        timeZoneIdentifier.flatMap { TimeZone(identifier: $0) }
     }
 
     private var presentation: BodyWorkoutRowPresentation {

@@ -174,12 +174,16 @@ extension HealthKitFetchEngine {
         showsSubMinuteAwakeStages: Bool,
         showsLeadingTrailingAwakeStages: Bool
     ) -> [SleepDayGrouping] {
-        BodySleepFetch.sleepDayGroupings(
+        // One reading of the ledger for the whole grouping: the closure below is
+        // called once per night, and each call used to re-read and re-decode the
+        // stored records.
+        let resolver = timeZoneLedger.snapshot()
+        return BodySleepFetch.sleepDayGroupings(
             from: sleepSamples,
             calendar: calendar,
             showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
             showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages,
-            timeZoneIdentifier: { timeZoneLedger.zoneIdentifier(on: $0) }
+            timeZoneIdentifier: { resolver.zoneIdentifier(on: $0) }
         )
     }
 

@@ -2279,6 +2279,14 @@ actor HealthKitFetchEngine {
         allowsCachedWorkoutReuse: Bool = false,
         reusableSummariesByID: [UUID: WorkoutSummary] = [:]
     ) async throws -> [WorkoutSummary] {
+        // Third seeding point, alongside the two sleep fetches: the Workouts tab
+        // refreshes a month without going through them, so without this a
+        // travelling user's ledger could stay unaware of the current zone. The
+        // record is written before this month's query starts, and the store reads
+        // the ledger once this call has returned, so it is in the reading that
+        // groups the month. Kept on the engine actor, which is what makes the
+        // ledger's load-append-save safe.
+        timeZoneLedger.recordCurrentZone()
         let start = calendar.date(from: DateComponents(year: year, month: month, day: 1)) ?? Date()
         let end = calendar.date(byAdding: DateComponents(month: 1), to: start) ?? start
         return try await fetchWorkoutSummaries(

@@ -58,6 +58,18 @@ enum BodyWorkoutListSelection: Identifiable {
         }
     }
 
+    /// The zone the day's workouts were resolved in when the month snapshot was
+    /// built, so a row's time reads in the same zone as the day title above it.
+    /// `nil` for a type selection, whose rows span many days under no day title.
+    var timeZoneIdentifier: String? {
+        switch self {
+        case .day(let day, _):
+            return day.timeZoneIdentifier
+        case .type:
+            return nil
+        }
+    }
+
     var workouts: [WorkoutSummary] {
         switch self {
         case .day(_, let workouts):
@@ -118,7 +130,8 @@ struct BodyWorkoutListSheet: View {
                                 BodyWorkoutRecordRow(
                                     workout: workout,
                                     customName: workoutStore.workoutCustomNames[workout.id],
-                                    recordStanding: workoutStore.rowRecordStanding(for: workout)
+                                    recordStanding: workoutStore.rowRecordStanding(for: workout),
+                                    timeZoneIdentifier: selection.timeZoneIdentifier
                                 )
                                     .matchedTransitionSource(id: workout.id, in: workoutZoom) {
                                         $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
@@ -216,6 +229,9 @@ private struct BodyWorkoutRecordRow: View {
     /// The workout's strongest record standing, or nil when it holds none. Computed
     /// at the call site — the row is a pure struct with no store access.
     var recordStanding: WorkoutRecordStanding? = nil
+    /// The zone the day this row sits under was resolved in, so the start time
+    /// printed here is the one the day title means. `nil` reads the current zone.
+    var timeZoneIdentifier: String? = nil
 
     var body: some View {
         HStack(spacing: 16) {
@@ -282,7 +298,7 @@ private struct BodyWorkoutRecordRow: View {
     }
 
     private var workoutDetailText: String {
-        var details = [timeText(for: workout.startDate)]
+        var details = [timeText(for: workout.startDate, timeZoneIdentifier: timeZoneIdentifier)]
 
         if let distanceMeters = workout.distanceMeters, distanceMeters > 0 {
             details.append(
@@ -314,6 +330,10 @@ private struct BodyWorkoutRecordRow: View {
     }
 }
 
-private func timeText(for date: Date) -> String {
-    date.formatted(.dateTime.hour().minute())
+private func timeText(for date: Date, timeZoneIdentifier: String?) -> String {
+    var style = Date.FormatStyle.dateTime.hour().minute()
+    if let timeZoneIdentifier, let zone = TimeZone(identifier: timeZoneIdentifier) {
+        style.timeZone = zone
+    }
+    return date.formatted(style)
 }

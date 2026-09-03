@@ -5533,11 +5533,23 @@ final class HealthKitWorkoutStore: ObservableObject {
                 guard mayPublishMonthSnapshot(capturedEpoch: epoch) else {
                     continue
                 }
+                // Read here, per returned month, and not before the task group:
+                // `fetchWorkouts` records the device's current zone as it starts,
+                // so a reading taken before the group would predate the record
+                // this very fetch wrote. Each workout then lands on the day it
+                // happened in the zone the phone was in at that instant rather
+                // than on the day today's zone would name. Instant-scoped, not
+                // day-scoped: the day-scoped rule answers with the end-of-day
+                // zone, which moves a travel-day workout and moves it back on the
+                // return leg, and a changed `dateKey` persists through
+                // `WorkoutSnapshotStore.save`.
+                let timeZoneResolver = engine.timeZoneLedger.snapshot()
                 monthSnapshots[key] = WorkoutMonthSnapshot.make(
                     month: key.month,
                     year: key.year,
                     workouts: workouts,
-                    calendar: calendar
+                    calendar: calendar,
+                    timeZoneIdentifier: { timeZoneResolver.zoneIdentifier(at: $0) }
                 )
                 loadedMonthKeys.insert(key)
                 noteMonthSnapshotStored(key)
@@ -6306,10 +6318,11 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     /// The trailing week's workout minutes (oldest → today, 7 slots) for the
     /// watch's weekly workout complication, summed from the month snapshots'
-    /// per-day totals — a workout counts toward the day it started, matching
-    /// the calendar. Every day in the window carries an explicit value (`0` for
-    /// a rest day) so the watch's merge reads the week as real data instead of
-    /// a blank.
+    /// per-day totals — a workout counts toward the day it started, in the zone
+    /// it started in (the month snapshot resolved that day through the device
+    /// time-zone ledger when it was built). Every day in the window carries an
+    /// explicit value (`0` for a rest day) so the watch's merge reads the week as
+    /// real data instead of a blank.
     ///
     /// `fallback` covers months `monthSnapshots` doesn't hold: on launch only
     /// the current month is restored into memory and passive refreshes fetch
@@ -6491,9 +6504,10 @@ final class HealthKitWorkoutStore: ObservableObject {
             ? BodyCustomHealthSourceGroupStore.rawValue(from: customHealthSourceGroups)
             : nil
         let combinesByName = combinesHealthDataSourcesByName
-        // Only the seed needs the 14-day time-zone map, and building it costs 14
-        // `UserDefaults` reads + `JSONDecoder` allocations on the main actor —
-        // so build it only when a seed will actually be assembled below.
+        // Only the seed needs the 14-day time-zone map, and building it still
+        // costs a `UserDefaults` read, a `JSONDecoder` pass and fourteen day
+        // boundary computations on the main actor, so build it only when a seed
+        // will actually be assembled below.
         let recentTimeZoneIdentifiersByDay = dataThrough == nil
             ? [:]
             : Self.recentTimeZoneIdentifiersByDay(now: now)
@@ -6719,10 +6733,12 @@ final class HealthKitWorkoutStore: ObservableObject {
             timeZone: calendar.timeZone
         )
         let anchorDay = calendar.startOfDay(for: now)
+        // One reading of the ledger for all fourteen days, not one per day.
+        let resolver = ledger.snapshot()
         var map: [String: String] = [:]
         for offset in 0..<14 {
             guard let day = calendar.date(byAdding: .day, value: -offset, to: anchorDay),
-                  let identifier = ledger.zoneIdentifier(on: day) else {
+                  let identifier = resolver.zoneIdentifier(on: day) else {
                 continue
             }
             map[dayFormatter.string(from: day)] = identifier

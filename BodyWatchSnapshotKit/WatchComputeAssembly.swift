@@ -328,8 +328,11 @@ enum WatchComputeAssembly {
 
     /// The trailing week's daily workout minutes, oldest → today, matching the
     /// builder's own `weekly` windowing (7 slots ending on `now`'s day). A
-    /// workout counts toward the day it STARTED, the same rule
-    /// `trainingLoadSeries` and the phone's month snapshots use.
+    /// workout counts toward the day it STARTED, in the watch's CURRENT zone,
+    /// the same rule `trainingLoadSeries` uses. The phone's month snapshots
+    /// resolve each workout's day through the device time-zone ledger instead,
+    /// so on a travel day the two can name different days for the same workout;
+    /// the phone's answer wins wherever a month snapshot is what gets published.
     ///
     /// Dense by construction: a day with no workouts is an explicit `0`, never
     /// `nil`. A nil-padded week would make the metric blank
