@@ -200,30 +200,18 @@ enum BodyHealthSourceResolver {
                 HKObjectType.quantityType(forIdentifier: .bodyFatPercentage),
                 HKObjectType.quantityType(forIdentifier: .bodyMassIndex)
             ].compactMap { $0 }
-        case .heartRate:
-            return [HKObjectType.quantityType(forIdentifier: .heartRate)].compactMap { $0 }
-        case .restingHeartRate:
-            return [HKObjectType.quantityType(forIdentifier: .restingHeartRate)].compactMap { $0 }
-        case .heartRateVariability:
-            return [HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)].compactMap { $0 }
-        case .respiratoryRate:
-            return [HKObjectType.quantityType(forIdentifier: .respiratoryRate)].compactMap { $0 }
-        case .steps:
-            return [HKObjectType.quantityType(forIdentifier: .stepCount)].compactMap { $0 }
-        case .oxygenSaturation:
-            return [HKObjectType.quantityType(forIdentifier: .oxygenSaturation)].compactMap { $0 }
-        case .activeEnergy:
-            return [HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)].compactMap { $0 }
-        case .restingEnergy:
-            return [HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)].compactMap { $0 }
-        case .exerciseMinutes:
-            return [HKObjectType.quantityType(forIdentifier: .appleExerciseTime)].compactMap { $0 }
-        case .wristTemperature:
-            return [HKObjectType.quantityType(forIdentifier: .appleSleepingWristTemperature)].compactMap { $0 }
-        case .timeInDaylight:
-            return [HKObjectType.quantityType(forIdentifier: .timeInDaylight)].compactMap { $0 }
         default:
-            return []
+            // Every other source-selectable kind is one quantity type, read from
+            // the query descriptor so discovery can never fan over a different
+            // type than the reads do. A kind that is not source-selectable (or
+            // is only a member of `.basics`, like the three above) has no source
+            // list of its own.
+            guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+                  descriptor.isSourceSelectable,
+                  descriptor.sourceKind == kind else {
+                return []
+            }
+            return [HKObjectType.quantityType(forIdentifier: descriptor.quantityType)].compactMap { $0 }
         }
     }
 
@@ -236,32 +224,18 @@ enum BodyHealthSourceResolver {
             return .sleep
         case .basics:
             return .basics
-        case .steps:
-            return .steps
-        case .heartRate,
-             .restingHeartRate,
-             .heartRateVariability:
-            return .heart
-        case .respiratoryRate:
-            return .respiratory
-        case .oxygenSaturation:
-            return .bloodOxygen
-        case .activeEnergy,
-             .restingEnergy:
-            return .energy
-        case .exerciseMinutes:
-            return .exerciseMinutes
-        case .wristTemperature:
-            return .wristTemperature
-        case .timeInDaylight:
-            return .timeInDaylight
-        case .cardioFitness:
-            // Not source-selectable (absent from `sourceSelectableKinds`), so
-            // nothing calls this for the kind today — mapped explicitly anyway so
-            // a future caller can't silently inherit the `.heart` fallback below.
-            return .cardioFitness
         default:
-            return .heart
+            // Every other source kind is a query-descriptor kind and carries its
+            // own permission there. `.cardioFitness` resolves through the same
+            // row even though it is not source-selectable, so a future caller
+            // can't silently inherit the `.heart` fallback below. A kind with no
+            // row of its own (the three `.basics` members, readiness, stress,
+            // vitals, trainingLoad) keeps that fallback.
+            guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+                  descriptor.sourceKind == kind else {
+                return .heart
+            }
+            return descriptor.permission
         }
     }
 

@@ -6,7 +6,7 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Readiness, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **1.1.0 (build 3)**
+Current app version: **1.1.0 (build 4)**
 
 ## Screenshots
 
@@ -90,6 +90,8 @@ Body/
 ├── BodyWatchTests/            # Watch compute, merge, and snapshot tests
 └── body.xcodeproj/            # Xcode project and shared schemes
 ```
+
+Each quantity-backed metric's query wiring, the HealthKit identifier, unit, source-selection kind, permission, value transform, and the query shape used for its summary tile, trend chart and day chart, lives in one table, `BodyWatchSnapshotKit/HealthMetricQueryDescriptor.swift`. The phone's summary, trend and per-metric fetches, the comparison-source and intraday dispatchers, and the watch's delta re-query all read that table, so the phone and the watch cannot ask Apple Health for the same metric in different units or from different sources. Readiness, Stress, Sleep, Vitals, Basics and Training Load are not in the table: none of them is a single quantity query.
 
 ## Privacy
 

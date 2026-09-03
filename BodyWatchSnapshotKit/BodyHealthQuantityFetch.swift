@@ -24,7 +24,7 @@ import HealthKit
 /// `HKStatisticsOptions` the collection query runs with and which statistic is
 /// read back out — a pair the watch must match exactly for its spliced points
 /// to be comparable with the phone's.
-enum BodyDailyQuantityAggregation {
+enum BodyDailyQuantityAggregation: Equatable {
     case average
     case latest
 

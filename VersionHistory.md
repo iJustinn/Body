@@ -1,5 +1,10 @@
 # Version History
 
+## 1.1.0 (build 4)
+
+- Added `BodyWatchSnapshotKit/HealthMetricQueryDescriptor.swift`, one table holding each quantity-backed metric's HealthKit identifier, unit, source-selection kind, permission, value transform and query shapes. `fetchHealthSummary`, `fetchHealthTrends`, `fetchHealthDashboardSnapshot`, `HealthKitFetchEngine+Secondary`, `HealthKitFetchEngine+IntradaySamples`, `BodyHealthSourceResolver` and the watch's `WatchDeltaFetcher` now read it instead of respelling the same tuple, closing issues-fable-51 A4 and S-11 on the query side. No behaviour change: every identifier, unit, source kind, transform and query shape is the one that shipped, pinned by the new `BodyTests/HealthMetricDescriptorTests.swift`.
+- Updated the app, widget, watch, and test bundle version to 1.1.0 build 4.
+
 ## 1.1.0 (build 3)
 
 - **Smoother launch on Home.** Opening the app, cold or from the background, no longer stutters the Readiness hero. The metric cards are sized in the first layout pass instead of one frame later, and the trend cards keep their cached results across a refresh that returns the same data instead of recomputing on every write.

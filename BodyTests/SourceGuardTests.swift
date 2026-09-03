@@ -1788,6 +1788,14 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(snapshotSource.contains("static func recentTrendWindowStart(asOf now: Date) -> Date"))
     }
 
+    /// Every source-selectable metric must reach HealthKit through its selected
+    /// source. The per-kind wiring itself now lives in
+    /// `HealthMetricQueryDescriptor` (A4 / S-11) rather than being respelled at
+    /// each engine leaf, so the source kinds are asserted against that table
+    /// instead of grepped for as `sourceKind: .x` literals; the plumbing that
+    /// turns a source kind into a predicate is still pinned in source, because
+    /// no unit test can reach it. `HealthMetricDescriptorTests` covers the rest
+    /// of the table.
     func testHealthKitFetchesApplySourcePreferencesToRequestedMetrics() throws {
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
         let engineSource = try healthKitFetchEngineText()
@@ -1795,27 +1803,38 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(storeSource.contains("fetchHealthDataSourceOptions(calendar: calendar)"))
         XCTAssertTrue(engineSource.contains("sourcePredicate(for: sourceKind)"))
         XCTAssertTrue(engineSource.contains("combinedPredicate(startDate:"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .heartRate"))
+
+        // The descriptor rows' source kinds are exactly the source-selectable
+        // kinds, plus cardio fitness (which is not selectable) and minus sleep
+        // (a category query, with no descriptor row at all). Basics is a source
+        // kind with no row of its own: it is the fan-out the three body
+        // measurements share.
+        let descriptorSourceKinds = Set(HealthMetricQueryDescriptor.all.values.map(\.sourceKind))
+        XCTAssertEqual(
+            descriptorSourceKinds.subtracting([.cardioFitness]),
+            Set(HealthMetricKind.sourceSelectableKinds).subtracting([.sleep])
+        )
+        for kind in HealthMetricKind.sourceSelectableKinds where kind != .sleep && kind != .basics {
+            XCTAssertEqual(HealthMetricQueryDescriptor.descriptor(for: kind)?.sourceKind, kind, kind.rawValue)
+        }
+        for kind in [HealthMetricKind.bodyMass, .bodyFatPercentage, .bodyMassIndex] {
+            XCTAssertEqual(HealthMetricQueryDescriptor.descriptor(for: kind)?.sourceKind, .basics, kind.rawValue)
+        }
+        // Sleep's own reads still name their source kind in source; it has no
+        // descriptor row to read it from.
         XCTAssertTrue(engineSource.contains("sourceKind: .sleep"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .basics"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .heartRateVariability"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .restingHeartRate"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .respiratoryRate"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .steps"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .oxygenSaturation"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .activeEnergy"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .restingEnergy"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .exerciseMinutes"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .wristTemperature"))
-        XCTAssertTrue(engineSource.contains("sourceKind: .timeInDaylight"))
-        XCTAssertTrue(engineSource.contains("case .oxygenSaturation:"))
+
+        // Source discovery fans over the body-measurement trio by hand (the one
+        // source kind backed by three sample types) and over the descriptor's
+        // quantity type for every other kind.
         XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .bodyMass)"))
         XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .bodyFatPercentage)"))
         XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .bodyMassIndex)"))
-        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .oxygenSaturation)"))
-        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)"))
-        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)"))
-        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: .appleExerciseTime)"))
+        XCTAssertTrue(engineSource.contains("HKObjectType.quantityType(forIdentifier: descriptor.quantityType)"))
+        for kind in HealthMetricKind.sourceSelectableKinds where kind != .sleep {
+            XCTAssertFalse(BodyHealthSourceResolver.sourceSampleTypes(for: kind).isEmpty, kind.rawValue)
+        }
+
         XCTAssertTrue(engineSource.contains("store.sources(for: sampleType)"))
         XCTAssertTrue(engineSource.contains("HKQuery.predicateForObjects(from: source)"))
         XCTAssertTrue(engineSource.contains("NSCompoundPredicate(orPredicateWithSubpredicates: sourcePredicates)"))
@@ -2915,7 +2934,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.0 (build 3)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.0 (build 4)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.0.2 (build 2)**"))
@@ -3045,6 +3065,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 4)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.0 build 4."))
         XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.0 build 3."))
         XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 2)"))

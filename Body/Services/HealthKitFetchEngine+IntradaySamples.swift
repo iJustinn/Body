@@ -23,73 +23,32 @@ extension HealthKitFetchEngine {
         startDate: Date? = nil,
         endDate: Date? = nil
     ) async -> HealthTrendSeries? {
-        switch kind {
-        case .heartRate:
-            return await fetchQuantitySampleSeries(
-                for: .heartRate,
-                unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar,
-                sourceKind: .heartRate,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .restingHeartRate:
-            return await fetchQuantitySampleSeries(
-                for: .restingHeartRate,
-                unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar,
-                sourceKind: .restingHeartRate,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .heartRateVariability:
-            return await fetchQuantitySampleSeries(
-                for: .heartRateVariabilitySDNN,
-                unit: .secondUnit(with: .milli),
-                calendar: calendar,
-                sourceKind: .heartRateVariability,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .respiratoryRate:
-            return await fetchQuantitySampleSeries(
-                for: .respiratoryRate,
-                unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar,
-                sourceKind: .respiratoryRate,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .oxygenSaturation:
-            return await fetchQuantitySampleSeries(
-                for: .oxygenSaturation,
-                unit: .percent(),
-                calendar: calendar,
-                sourceKind: .oxygenSaturation,
-                valueTransform: Self.normalizedPercentDisplayValue,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .activeEnergy:
-            return await fetchHourlyCumulativeQuantitySeries(
-                for: .activeEnergyBurned,
-                unit: .kilocalorie(),
-                calendar: calendar,
-                sourceKind: .activeEnergy,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .steps:
-            return await fetchHourlyCumulativeQuantitySeries(
-                for: .stepCount,
-                unit: .count(),
-                calendar: calendar,
-                sourceKind: .steps,
-                startDate: startDate,
-                endDate: endDate
-            )
-        default:
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              let shape = descriptor.intradayDaySamples else {
             return .empty
+        }
+
+        switch shape {
+        case .sampleSeries:
+            return await fetchQuantitySampleSeries(
+                for: descriptor.quantityType,
+                unit: descriptor.unit,
+                calendar: calendar,
+                sourceKind: descriptor.sourceKind,
+                valueTransform: descriptor.valueTransform,
+                startDate: startDate,
+                endDate: endDate
+            )
+        case .hourlyCumulative:
+            return await fetchHourlyCumulativeQuantitySeries(
+                for: descriptor.quantityType,
+                unit: descriptor.unit,
+                calendar: calendar,
+                sourceKind: descriptor.sourceKind,
+                valueTransform: descriptor.valueTransform,
+                startDate: startDate,
+                endDate: endDate
+            )
         }
     }
 

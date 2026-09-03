@@ -22,65 +22,38 @@ extension HealthKitFetchEngine {
             return .empty
         }
 
-        switch kind {
-        case .sleep:
+        // Sleep is the one comparison series that is not a quantity query.
+        if kind == .sleep {
             return await fetchSecondarySleepHistory(calendar: calendar)?.durationSeries
-        case .restingHeartRate:
+        }
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              descriptor.secondaryTrend else {
+            return .empty
+        }
+
+        switch descriptor.trend {
+        case .daily(let aggregation):
             return await fetchDailyQuantitySeries(
-                for: .restingHeartRate,
-                unit: HKUnit.count().unitDivided(by: .minute()),
-                aggregation: .average,
+                for: descriptor.quantityType,
+                unit: descriptor.unit,
+                aggregation: aggregation,
                 calendar: calendar,
-                sourceKind: .restingHeartRate,
-                sourceOption: secondaryOption
+                sourceKind: descriptor.sourceKind,
+                sourceOption: secondaryOption,
+                valueTransform: descriptor.valueTransform
             )
-        case .activeEnergy:
+        case .dailyCumulative:
             return await fetchDailyCumulativeQuantitySeries(
-                for: .activeEnergyBurned,
-                unit: .kilocalorie(),
+                for: descriptor.quantityType,
+                unit: descriptor.unit,
                 calendar: calendar,
-                sourceKind: .activeEnergy,
-                sourceOption: secondaryOption
+                sourceKind: descriptor.sourceKind,
+                sourceOption: secondaryOption,
+                valueTransform: descriptor.valueTransform
             )
-        case .restingEnergy:
-            return await fetchDailyCumulativeQuantitySeries(
-                for: .basalEnergyBurned,
-                unit: .kilocalorie(),
-                calendar: calendar,
-                sourceKind: .restingEnergy,
-                sourceOption: secondaryOption
-            )
-        case .exerciseMinutes:
-            return await fetchDailyCumulativeQuantitySeries(
-                for: .appleExerciseTime,
-                unit: .minute(),
-                calendar: calendar,
-                sourceKind: .exerciseMinutes,
-                sourceOption: secondaryOption
-            )
-        case .steps:
-            return await fetchDailyCumulativeQuantitySeries(
-                for: .stepCount,
-                unit: .count(),
-                calendar: calendar,
-                sourceKind: .steps,
-                sourceOption: secondaryOption
-            )
-        case .basics,
-             .readiness,
-             .heartRate,
-             .bodyMass,
-             .bodyFatPercentage,
-             .heartRateVariability,
-             .respiratoryRate,
-             .oxygenSaturation,
-             .bodyMassIndex,
-             .trainingLoad,
-             .wristTemperature,
-             .timeInDaylight,
-             .vitals,
-             .cardioFitness,
-             .stress:
+        case .averageAndRange:
+            // No kind carries both a comparison average series and a range one;
+            // the range kinds are served by `fetchSecondaryRangeTrend`.
             return .empty
         }
     }
@@ -116,84 +89,34 @@ extension HealthKitFetchEngine {
             return .empty
         }
 
-        switch kind {
-        case .heartRate:
-            return await fetchQuantitySampleSeries(
-                for: .heartRate,
-                unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar,
-                sourceKind: .heartRate,
-                sourceOption: secondaryOption,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .restingHeartRate:
-            return await fetchQuantitySampleSeries(
-                for: .restingHeartRate,
-                unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar,
-                sourceKind: .restingHeartRate,
-                sourceOption: secondaryOption,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .heartRateVariability:
-            return await fetchQuantitySampleSeries(
-                for: .heartRateVariabilitySDNN,
-                unit: .secondUnit(with: .milli),
-                calendar: calendar,
-                sourceKind: .heartRateVariability,
-                sourceOption: secondaryOption,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .oxygenSaturation:
-            return await fetchQuantitySampleSeries(
-                for: .oxygenSaturation,
-                unit: .percent(),
-                calendar: calendar,
-                sourceKind: .oxygenSaturation,
-                sourceOption: secondaryOption,
-                valueTransform: Self.normalizedPercentDisplayValue,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .activeEnergy:
-            return await fetchHourlyCumulativeQuantitySeries(
-                for: .activeEnergyBurned,
-                unit: .kilocalorie(),
-                calendar: calendar,
-                sourceKind: .activeEnergy,
-                sourceOption: secondaryOption,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .steps:
-            return await fetchHourlyCumulativeQuantitySeries(
-                for: .stepCount,
-                unit: .count(),
-                calendar: calendar,
-                sourceKind: .steps,
-                sourceOption: secondaryOption,
-                startDate: startDate,
-                endDate: endDate
-            )
-        case .sleep,
-             .readiness,
-             .basics,
-             .bodyMass,
-             .bodyFatPercentage,
-             .respiratoryRate,
-             .bodyMassIndex,
-             .restingEnergy,
-             .exerciseMinutes,
-             .trainingLoad,
-             .wristTemperature,
-             .timeInDaylight,
-             .vitals,
-             .cardioFitness,
-             .stress:
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              let shape = descriptor.secondaryDaySamples else {
             return .empty
+        }
+
+        switch shape {
+        case .sampleSeries:
+            return await fetchQuantitySampleSeries(
+                for: descriptor.quantityType,
+                unit: descriptor.unit,
+                calendar: calendar,
+                sourceKind: descriptor.sourceKind,
+                sourceOption: secondaryOption,
+                valueTransform: descriptor.valueTransform,
+                startDate: startDate,
+                endDate: endDate
+            )
+        case .hourlyCumulative:
+            return await fetchHourlyCumulativeQuantitySeries(
+                for: descriptor.quantityType,
+                unit: descriptor.unit,
+                calendar: calendar,
+                sourceKind: descriptor.sourceKind,
+                sourceOption: secondaryOption,
+                valueTransform: descriptor.valueTransform,
+                startDate: startDate,
+                endDate: endDate
+            )
         }
     }
 
@@ -207,51 +130,18 @@ extension HealthKitFetchEngine {
             return .empty
         }
 
-        switch kind {
-        case .heartRate:
-            return await fetchDailyQuantityRangeSeries(
-                for: .heartRate,
-                unit: HKUnit.count().unitDivided(by: .minute()),
-                calendar: calendar,
-                sourceKind: .heartRate,
-                sourceOption: secondaryOption
-            )
-        case .heartRateVariability:
-            return await fetchDailyQuantityRangeSeries(
-                for: .heartRateVariabilitySDNN,
-                unit: .secondUnit(with: .milli),
-                calendar: calendar,
-                sourceKind: .heartRateVariability,
-                sourceOption: secondaryOption
-            )
-        case .oxygenSaturation:
-            return await fetchDailyQuantityRangeSeries(
-                for: .oxygenSaturation,
-                unit: .percent(),
-                calendar: calendar,
-                sourceKind: .oxygenSaturation,
-                sourceOption: secondaryOption,
-                valueTransform: Self.normalizedPercentDisplayValue
-            )
-        case .sleep,
-             .readiness,
-             .basics,
-             .restingHeartRate,
-             .bodyMass,
-             .bodyFatPercentage,
-             .respiratoryRate,
-             .bodyMassIndex,
-             .activeEnergy,
-             .restingEnergy,
-             .exerciseMinutes,
-             .trainingLoad,
-             .wristTemperature,
-             .timeInDaylight,
-             .steps,
-             .vitals,
-             .cardioFitness,
-             .stress:
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              descriptor.secondaryRangeTrend else {
             return .empty
         }
+
+        return await fetchDailyQuantityRangeSeries(
+            for: descriptor.quantityType,
+            unit: descriptor.unit,
+            calendar: calendar,
+            sourceKind: descriptor.sourceKind,
+            sourceOption: secondaryOption,
+            valueTransform: descriptor.valueTransform
+        )
     }
 }
