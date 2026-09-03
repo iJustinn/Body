@@ -1564,19 +1564,19 @@
         }
       }
     },
-    "App Default" : {
+    "ohmybody" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "App Default"
+            "value" : "ohmybody"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "App 默认"
+            "value" : "ohmybody"
           }
         }
       }
@@ -6934,6 +6934,23 @@
         }
       }
     },
+    "Month Picker" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Month Picker"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月份选择器"
+          }
+        }
+      }
+    },
     "Month Swipe" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11508,6 +11525,23 @@
         }
       }
     },
+    "settings.workouts.others" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Others"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "其他"
+          }
+        }
+      }
+    },
     "Share" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11618,6 +11652,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在任意背景上以 3D 海拔丝带绘制路线来分享运动卡片。"
+          }
+        }
+      }
+    },
+    "Short Month Names" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Short Month Names"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "简短月份名"
           }
         }
       }
@@ -11781,6 +11832,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示图标"
+          }
+        }
+      }
+    },
+    "Show months as SEP, OCT, NOV" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show months as SEP, OCT, NOV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以 SEP、OCT、NOV 的形式显示月份"
           }
         }
       }
@@ -14280,6 +14348,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "开启后，在运动日历或类型分布图上向左或向右滑动即可切换到下一个月或上一个月，效果与月份选择器相同。关闭后，图表将忽略横向滑动。"
+          }
+        }
+      }
+    },
+    "When on, the month carousel at the top of the Workouts page and the month picker beside the search bar show months in their short uppercase form, such as SEP instead of September. This option is only available when the app runs in English." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When on, the month carousel at the top of the Workouts page and the month picker beside the search bar show months in their short uppercase form, such as SEP instead of September. This option is only available when the app runs in English."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后，健身记录页顶部的月份轮播和搜索栏旁的月份选择器会以大写简短形式显示月份，例如 SEP 而非 September。此选项仅在应用以英文运行时可用。"
           }
         }
       }

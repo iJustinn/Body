@@ -395,14 +395,19 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
     func testWorkoutMonthSwipeKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
-        // Settings › Workouts › Month Swipe: the row title (reused as the
-        // sheet title and its toggle label), the sheet's card-section title, the
-        // toggle subtitle, and the footnote explanation.
+        // Settings › Workouts › Others: the row title (a dotted key, reused as
+        // the sheet title), the two card-section titles, each toggle's title and
+        // subtitle, and both footnote explanations.
         let keys = [
+            "settings.workouts.others",
             "Month Swipe",
             "Workouts Chart",
             "Swipe the chart to change month",
-            "When on, swiping left or right on the workouts calendar or type breakdown switches to the next or previous month, the same as the month picker. When off, the chart ignores horizontal swipes."
+            "When on, swiping left or right on the workouts calendar or type breakdown switches to the next or previous month, the same as the month picker. When off, the chart ignores horizontal swipes.",
+            "Month Picker",
+            "Short Month Names",
+            "Show months as SEP, OCT, NOV",
+            "When on, the month carousel at the top of the Workouts page and the month picker beside the search bar show months in their short uppercase form, such as SEP instead of September. This option is only available when the app runs in English."
         ]
 
         try assertKeysTranslated(keys, in: catalog)

@@ -119,6 +119,7 @@ enum BodyHomeBackground {
 
 struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
     static let appDefaultID = "app-default"
+    static let iJustinID = "ijustin"
 
     let id: String
     let colorsRawValue: String
@@ -133,6 +134,15 @@ struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
         )
     }
 
+    static var iJustin: BodyHomeBackgroundProfile {
+        BodyHomeBackgroundProfile(
+            id: iJustinID,
+            colorsRawValue: "0E2FFE,0E2FFE,0E2FFE",
+            separatorsRawValue: BodyHomeBackground.rawValue(fromSeparators: [0.06, 0.94]),
+            name: "iJustin"
+        )
+    }
+
     static func custom(name: String, colors: [Color], separators: [Double]) -> BodyHomeBackgroundProfile {
         BodyHomeBackgroundProfile(
             id: UUID().uuidString,
@@ -142,6 +152,10 @@ struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
             ),
             name: Self.sanitizedName(name)
         )
+    }
+
+    var isBuiltIn: Bool {
+        id == Self.appDefaultID || id == Self.iJustinID
     }
 
     var colors: [Color] {
@@ -204,11 +218,12 @@ struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
 }
 
 enum BodyHomeBackgroundProfileStore {
-    static let maximumProfileCount = 5
-    static var maximumCustomProfileCount: Int { maximumProfileCount - 1 }
+    static let builtInProfiles: [BodyHomeBackgroundProfile] = [.appDefault, .iJustin]
+    static let maximumProfileCount = 6
+    static var maximumCustomProfileCount: Int { maximumProfileCount - builtInProfiles.count }
 
     static func allProfiles(from rawValue: String) -> [BodyHomeBackgroundProfile] {
-        [BodyHomeBackgroundProfile.appDefault] + customProfiles(from: rawValue)
+        builtInProfiles + customProfiles(from: rawValue)
     }
 
     static func customProfiles(from rawValue: String) -> [BodyHomeBackgroundProfile] {
@@ -221,7 +236,7 @@ enum BodyHomeBackgroundProfileStore {
 
         return Array(
             decoded
-                .filter { $0.id != BodyHomeBackgroundProfile.appDefaultID }
+                .filter { !$0.isBuiltIn }
                 .prefix(maximumCustomProfileCount)
         )
     }
@@ -229,7 +244,7 @@ enum BodyHomeBackgroundProfileStore {
     static func rawValue(from profiles: [BodyHomeBackgroundProfile]) -> String {
         let profiles = Array(
             profiles
-                .filter { $0.id != BodyHomeBackgroundProfile.appDefaultID }
+                .filter { !$0.isBuiltIn }
                 .prefix(maximumCustomProfileCount)
         )
 

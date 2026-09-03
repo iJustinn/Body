@@ -9,11 +9,14 @@ import SwiftUI
 /// "July 2026" rows) shown as an anchored popover from the workouts search bar,
 /// with a confirm button that jumps the month carousel to the chosen month.
 /// A single wheel over the valid list means no clamping is needed — every row
-/// is selectable, and labels localize automatically.
+/// is selectable, and labels localize automatically. In English, the Settings
+/// option for short month names switches the rows to their uppercase form
+/// ("SEP 2026").
 struct BodyWorkoutMonthPicker: View {
     let onSelect: (BodyMonthYear) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(BodyAppearancePreference.workoutsMonthPickerUsesShortMonthKey) private var workoutsMonthPickerUsesShortMonth = false
     @State private var pickedID: String
 
     private let monthYears: [BodyMonthYear]
@@ -36,7 +39,7 @@ struct BodyWorkoutMonthPicker: View {
         VStack(spacing: 8) {
             Picker("Go to Month", selection: $pickedID) {
                 ForEach(monthYears) { monthYear in
-                    Text(monthYear.displayName).tag(monthYear.id)
+                    Text(rowTitle(for: monthYear)).tag(monthYear.id)
                 }
             }
             .pickerStyle(.wheel)
@@ -53,5 +56,10 @@ struct BodyWorkoutMonthPicker: View {
             .padding(.bottom, 14)
         }
         .frame(width: 210)
+    }
+
+    private func rowTitle(for monthYear: BodyMonthYear) -> String {
+        let usesShortNames = workoutsMonthPickerUsesShortMonth && BodyAppearancePreference.isEnglishUILanguage
+        return usesShortNames ? monthYear.shortDisplayName : monthYear.displayName
     }
 }

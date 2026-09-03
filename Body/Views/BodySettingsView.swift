@@ -37,6 +37,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
     @AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = true
+    @AppStorage(BodyAppearancePreference.workoutsMonthPickerUsesShortMonthKey) private var workoutsMonthPickerUsesShortMonth = false
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
@@ -562,10 +563,10 @@ struct BodySettingsView: View {
                 activeSheet = .workoutMonthSwipe
             } label: {
                 BodySettingsRowLabel(
-                    title: "Month Swipe",
-                    value: workoutsChartSwipeSummaryText,
-                    iconName: "arrow.left.arrow.right",
-                    tintColor: .indigo,
+                    title: "settings.workouts.others",
+                    value: nil,
+                    iconName: "ellipsis.circle",
+                    tintColor: .gray,
                     accessory: .chevron
                 )
             }
@@ -610,10 +611,6 @@ struct BodySettingsView: View {
     // not the suggestion sub-settings.
     private var workoutEffortSummaryText: String {
         workoutEffortCardEnabled ? String(localized: "On") : String(localized: "Off")
-    }
-
-    private var workoutsChartSwipeSummaryText: String {
-        workoutsChartSwipeSwitchesMonth ? String(localized: "On") : String(localized: "Off")
     }
 
     // The row's summary reflects the card toggle — the sheet's master switch —
@@ -889,7 +886,10 @@ struct BodySettingsView: View {
         case .workoutRouteStyle:
             BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle, drawsRoute: $drawsWorkoutRouteOnLoad)
         case .workoutMonthSwipe:
-            BodyWorkoutMonthSwipeSettingsSheet(isEnabled: $workoutsChartSwipeSwitchesMonth)
+            BodyWorkoutMonthSwipeSettingsSheet(
+                isEnabled: $workoutsChartSwipeSwitchesMonth,
+                usesShortMonthNames: $workoutsMonthPickerUsesShortMonth
+            )
         case .aiReadiness:
             BodyReadinessAISettingsSheet(
                 isEnabled: $showReadinessAIComment,
@@ -1695,9 +1695,11 @@ private struct BodyHomeBackgroundSheet: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(profiles.enumerated()), id: \.element.id) { index, profile in
-                    let defaultTitle = profile.id == BodyHomeBackgroundProfile.appDefaultID ? String(localized: "App Default") : String(localized: "Saved \(index)")
+                    let defaultTitle = profile.id == BodyHomeBackgroundProfile.appDefaultID
+                        ? String(localized: "ohmybody")
+                        : String(localized: "Saved \(index - BodyHomeBackgroundProfileStore.builtInProfiles.count + 1)")
                     let title = profile.displayName(defaultName: defaultTitle)
-                    let canEditProfile = profile.id != BodyHomeBackgroundProfile.appDefaultID
+                    let canEditProfile = !profile.isBuiltIn
 
                     BodyHomeBackgroundProfileRow(
                         profile: profile,
@@ -1798,7 +1800,7 @@ private struct BodyHomeBackgroundSheet: View {
     }
 
     private func beginDeletingProfile(_ profile: BodyHomeBackgroundProfile, name: String) {
-        guard profile.id != BodyHomeBackgroundProfile.appDefaultID else { return }
+        guard !profile.isBuiltIn else { return }
         profileBeingDeleted = profile
         deleteProfileName = name
     }
@@ -1815,7 +1817,7 @@ private struct BodyHomeBackgroundSheet: View {
     }
 
     private func beginRenamingProfile(_ profile: BodyHomeBackgroundProfile, defaultName: String) {
-        guard profile.id != BodyHomeBackgroundProfile.appDefaultID else { return }
+        guard !profile.isBuiltIn else { return }
         profileBeingRenamed = profile
         renameProfileName = profile.displayName(defaultName: defaultName)
     }
@@ -3423,9 +3425,10 @@ private struct BodyEquivalentFoodToggleRow: View {
 
 private struct BodyWorkoutMonthSwipeSettingsSheet: View {
     @Binding var isEnabled: Bool
+    @Binding var usesShortMonthNames: Bool
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Month Swipe") {
+        BodySettingsAboutSheetScaffold(title: "settings.workouts.others") {
             VStack(alignment: .leading, spacing: 12) {
                 BodySettingsCardSection("Workouts Chart") {
                     BodyWorkoutMonthSwipeToggleRow(isEnabled: $isEnabled)
@@ -3437,6 +3440,21 @@ private struct BodyWorkoutMonthSwipeSettingsSheet: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
+
+                // Short uppercase month names only read correctly in English, so
+                // the card is omitted entirely in every other UI language.
+                if BodyAppearancePreference.isEnglishUILanguage {
+                    BodySettingsCardSection("Month Picker") {
+                        BodyWorkoutMonthPickerShortNamesToggleRow(isEnabled: $usesShortMonthNames)
+                    }
+
+                    Text("When on, the month carousel at the top of the Workouts page and the month picker beside the search bar show months in their short uppercase form, such as SEP instead of September. This option is only available when the app runs in English.")
+                        .font(.system(.footnote, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
+                }
             }
         }
     }
@@ -3471,6 +3489,46 @@ private struct BodyWorkoutMonthSwipeToggleRow: View {
             Spacer(minLength: 12)
 
             Toggle("Month Swipe", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyWorkoutMonthPickerShortNamesToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "calendar",
+                color: .indigo
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Short Month Names")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Show months as SEP, OCT, NOV")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Short Month Names", isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")

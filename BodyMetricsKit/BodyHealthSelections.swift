@@ -29,6 +29,7 @@ enum BodyAppearancePreference {
     static let showWorkoutEffortSuggestionsKey = "showWorkoutEffortSuggestions"
     static let autoApplyWorkoutEffortKey = "autoApplyWorkoutEffort"
     static let workoutsChartSwipeSwitchesMonthKey = "workoutsChartSwipeSwitchesMonth"
+    static let workoutsMonthPickerUsesShortMonthKey = "workoutsMonthPickerUsesShortMonth"
     static let showReadinessAICommentKey = "showReadinessAIComment"
     static let workoutRouteStyleKey = "workoutRouteStyle"
     static let drawsWorkoutRouteOnLoadKey = "drawsWorkoutRouteOnLoad"
@@ -60,6 +61,13 @@ enum BodyAppearancePreference {
     /// Marketing version the user last completed (or skipped) onboarding on;
     /// empty until then. See `BodyOnboardingGate`.
     static let onboardingCompletedVersionKey = "onboardingCompletedVersion"
+
+    /// Whether the app's UI is currently running in English. Short uppercase
+    /// month names only read correctly in English, so the setting that turns
+    /// them on is hidden everywhere else.
+    static var isEnglishUILanguage: Bool {
+        Bundle.main.preferredLocalizations.first?.hasPrefix("en") == true
+    }
 
     static func bodyProIconAssetName(showsBack: Bool) -> String {
         showsBack ? "BodyProIconBack" : "BodyProIcon"

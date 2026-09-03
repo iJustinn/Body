@@ -177,4 +177,21 @@ final class WorkoutChartMonthSwipeTests: XCTestCase {
             XCTAssertEqual(previous, index == 0 ? nil : reachable[index - 1])
         }
     }
+
+    // MARK: - Short month names
+
+    // The month picker's optional short form must be the abbreviated month plus
+    // the year, uppercased. The formatter cache always uses `Locale.current`, so
+    // the exact English string is only asserted when the tests run in English.
+    func testShortDisplayNameIsUppercasedAbbreviatedMonth() {
+        let september2026 = BodyMonthYear(month: 9, year: 2026)
+        let short = september2026.shortDisplayName
+
+        XCTAssertEqual(short, short.uppercased())
+        XCTAssertFalse(short.contains("September"))
+        XCTAssertTrue(short.contains("2026"))
+        if Locale.current.language.languageCode?.identifier == "en" {
+            XCTAssertEqual(short, "SEP 2026")
+        }
+    }
 }

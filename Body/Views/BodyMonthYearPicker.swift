@@ -19,6 +19,16 @@ struct BodyMonthYear: Identifiable, Equatable {
         return BodyDateFormatterCache.formatter(template: "yMMMM").string(from: date)
     }
 
+    /// The same month in its short uppercase form ("SEP 2026"). Only used when
+    /// the app runs in English, where the abbreviations read naturally.
+    var shortDisplayName: String {
+        guard let date = Calendar.bodyGregorian.date(from: DateComponents(year: year, month: month, day: 1)) else {
+            return "\(month) \(year)"
+        }
+
+        return BodyDateFormatterCache.formatter(template: "yMMM").string(from: date).uppercased()
+    }
+
     func isFuture(relativeTo date: Date = Date(), calendar: Calendar = .bodyGregorian) -> Bool {
         let currentMonth = calendar.component(.month, from: date)
         let currentYear = calendar.component(.year, from: date)
@@ -341,11 +351,18 @@ private struct BodyMonthYearCarouselItem: View {
     let monthYear: BodyMonthYear
     let distanceFromCenter: CGFloat
 
+    @AppStorage(BodyAppearancePreference.workoutsMonthPickerUsesShortMonthKey) private var workoutsMonthPickerUsesShortMonth = false
+
+    // Follows the same Settings option as the month picker popover: short
+    // uppercase names ("SEP") only when enabled and the app runs in English.
     private var monthName: String {
         guard let date = Calendar.bodyGregorian.date(from: DateComponents(year: monthYear.year, month: monthYear.month, day: 1)) else {
             return "\(monthYear.month)"
         }
 
+        if workoutsMonthPickerUsesShortMonth && BodyAppearancePreference.isEnglishUILanguage {
+            return BodyDateFormatterCache.formatter(template: "MMM").string(from: date).uppercased()
+        }
         return BodyDateFormatterCache.formatter(template: "MMMM").string(from: date)
     }
 
