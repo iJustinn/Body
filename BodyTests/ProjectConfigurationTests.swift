@@ -45,6 +45,7 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(BodyHomeBackground.defaultSeparators[0], 0.33, accuracy: 0.0001)
         XCTAssertEqual(BodyHomeBackground.defaultSeparators[1], 0.67, accuracy: 0.0001)
         XCTAssertEqual(BodyHomeBackgroundProfile.appDefault.segmentSummary, "33% / 34% / 33%")
+        XCTAssertEqual(BodyHomeBackgroundProfile.iJustin.segmentSummary, "6% / 88% / 6%")
     }
 
     func testHomeBackgroundProfileStoreKeepsFixedDefaultAndCapsCustomProfiles() {
@@ -61,9 +62,11 @@ final class ProjectConfigurationTests: XCTestCase {
         let allProfiles = BodyHomeBackgroundProfileStore.allProfiles(from: rawValue)
 
         XCTAssertEqual(customProfiles.count, 4)
-        XCTAssertEqual(allProfiles.count, 5)
+        XCTAssertEqual(allProfiles.count, 6)
         XCTAssertEqual(allProfiles.first?.id, BodyHomeBackgroundProfile.appDefaultID)
+        XCTAssertEqual(allProfiles[1].id, BodyHomeBackgroundProfile.iJustinID)
         XCTAssertFalse(customProfiles.contains { $0.id == BodyHomeBackgroundProfile.appDefaultID })
+        XCTAssertFalse(customProfiles.contains { $0.id == BodyHomeBackgroundProfile.iJustinID })
     }
 
     func testHomeBackgroundCustomProfileNamesArePersistedAndEditable() throws {
@@ -272,12 +275,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.1.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 4;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 5;"))
         // All six targets (app, widget, tests, watch app, watch complications, watch tests)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.1.0;"), 12)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 4;"), 12)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 5;"), 12)
         // Strict concurrency stays on project-wide (targeted for now; complete and
         // Swift 6 are separate migrations) so actor and Sendable annotations are checked.
         XCTAssertEqual(project.occurrenceCount(of: "SWIFT_STRICT_CONCURRENCY = targeted;"), 2)
@@ -344,7 +347,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.1.0 build 4)"))
+        XCTAssertTrue(testPlan.contains("app version 1.1.0 build 5)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.0 build 4)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.0 build 3)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.0 build 2)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.0 build 1)"))

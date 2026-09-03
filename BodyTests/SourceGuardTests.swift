@@ -134,6 +134,12 @@ final class SourceGuardTests: XCTestCase {
         // dedup, timeout) rather than applying the month directly.
         XCTAssertTrue(workouts.contains("BodyWorkoutChartSwipe.adjacentMonthYear("))
         XCTAssertTrue(workouts.contains("requestMonthYearSelection("))
+
+        // The same sheet carries the month picker's short-name option, which the
+        // picker itself must read from the shared key.
+        let picker = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutMonthPicker.swift")
+        XCTAssertTrue(keys.contains(#"static let workoutsMonthPickerUsesShortMonthKey = "workoutsMonthPickerUsesShortMonth""#))
+        XCTAssertTrue(picker.contains("@AppStorage(BodyAppearancePreference.workoutsMonthPickerUsesShortMonthKey) private var workoutsMonthPickerUsesShortMonth = false"))
     }
 
     func testReadinessAICommentSettingIsWiredAndDefaultsOn() throws {
@@ -3040,7 +3046,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.0 (build 4)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.0 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 4)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 1)**"))
@@ -3171,6 +3178,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 5)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.0 build 5."))
         XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 4)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.0 build 4."))
         XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 3)"))
