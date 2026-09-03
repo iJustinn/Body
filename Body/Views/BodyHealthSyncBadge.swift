@@ -6,6 +6,21 @@
 import Accessibility
 import SwiftUI
 
+/// Badge copy for each refresh phase. The strings live with the view rather
+/// than the store because they are UI copy; `.fetching` keeps the original
+/// "Loading data..." so the common case reads exactly as before.
+extension HealthKitWorkoutStore.RefreshStage {
+    var badgeText: LocalizedStringKey {
+        switch self {
+        case .authorizing: "Checking Health access..."
+        case .fetching: "Loading data..."
+        case .computing: "Calculating scores..."
+        case .writingEffort: "Saving workout effort..."
+        case .finishing: "Finishing up..."
+        }
+    }
+}
+
 /// Floating capsule status badge (Apple Health-style "Syncing…" pill) shown
 /// top-center over all tabs while a HealthKit refresh runs, then briefly
 /// confirming completion before auto-dismissing.
@@ -26,6 +41,14 @@ struct BodyHealthSyncBadge: View {
     /// `lastSuccessfulRefreshDate`, because workout-month, single-metric, and
     /// warm-resume refreshes deliberately leave that date alone.
     @State private var successCountAtSyncStart = 0
+    /// The stage the store last reported, and the one actually on screen. They
+    /// differ only while a new stage waits out the dwell floor below.
+    @State private var pendingStage: HealthKitWorkoutStore.RefreshStage = .fetching
+    @State private var displayedStage: HealthKitWorkoutStore.RefreshStage = .fetching
+    @State private var displayedStageChangedAt = Date()
+    /// Minimum time a stage stays on screen, so a phase that flies past in
+    /// milliseconds is still readable instead of flickering.
+    private static let stageDwell = Duration.seconds(0.5)
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -39,6 +62,8 @@ struct BodyHealthSyncBadge: View {
         // BodySyncStatusBadgeLabel), so the change reads as one capsule
         // transforming rather than two capsules crossfading.
         .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: phase)
+        // Same morph for the stage-to-stage text swap within .syncing.
+        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: displayedStage)
         .allowsHitTesting(false)
         .onAppear {
             if workoutStore.isRefreshing && !isSuppressed { beginSyncing() }
@@ -53,6 +78,23 @@ struct BodyHealthSyncBadge: View {
         .onChange(of: workoutStore.isRefreshing) { _, isRefreshing in
             guard !isSuppressed, isRefreshing else { return }
             beginSyncing()
+        }
+        // A nil stage (the refresh finishing) is ignored, so the label holds the
+        // last real phase through the falling edge instead of snapping back to
+        // "Loading data..." on its way to "Health data updated".
+        .onChange(of: workoutStore.refreshStage) { _, newStage in
+            if let newStage { pendingStage = newStage }
+        }
+        // Dwell floor: sleep out whatever is left of it since the last commit,
+        // then show the newest stage. task(id:) cancels a pending commit when a
+        // newer stage arrives, so the latest always wins with no queue.
+        .task(id: pendingStage) {
+            guard pendingStage != displayedStage else { return }
+            let remaining = Self.stageDwell - .seconds(Date().timeIntervalSince(displayedStageChangedAt))
+            if remaining > .zero { try? await Task.sleep(for: remaining) }
+            guard !Task.isCancelled, workoutStore.isRefreshing, phase == .syncing else { return }
+            displayedStage = pendingStage
+            displayedStageChangedAt = Date()
         }
         // Falling edge, debounced: a chained follow-up refresh cancels this
         // (task id flips back to true) and the badge stays in .syncing; the
@@ -80,13 +122,20 @@ struct BodyHealthSyncBadge: View {
         if phase != .syncing {
             successCountAtSyncStart = workoutStore.syncBadgeSuccessCount
         }
+        // Start from whatever phase the store is already in (the badge can be
+        // inserted mid-refresh), and restart the dwell floor with it.
+        let stage = workoutStore.refreshStage ?? .fetching
+        pendingStage = stage
+        displayedStage = stage
+        displayedStageChangedAt = Date()
         phase = .syncing
     }
 
     private var badgeLabel: some View {
         BodySyncStatusBadgeLabel(
             icon: phase == .syncing ? .spinner : .checkmark,
-            text: phase == .syncing ? "Loading data..." : "Health data updated"
+            text: phase == .syncing ? displayedStage.badgeText : "Health data updated",
+            textID: phase == .syncing ? AnyHashable(displayedStage) : nil
         )
     }
 }
@@ -100,6 +149,10 @@ struct BodySyncStatusBadgeLabel: View {
 
     let icon: Icon
     let text: LocalizedStringKey
+    /// Identity for the label alone, so a text change that keeps the same icon
+    /// (one syncing stage to the next) still blur-replaces. Defaults to the
+    /// icon, which is what every other call site wants.
+    var textID: AnyHashable? = nil
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -134,7 +187,7 @@ struct BodySyncStatusBadgeLabel: View {
                 .font(.system(.footnote, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundStyle(.primary)
-                .id(icon)
+                .id(textID ?? AnyHashable(icon))
                 .transition(.blurReplace)
         }
         .padding(.horizontal, 14)

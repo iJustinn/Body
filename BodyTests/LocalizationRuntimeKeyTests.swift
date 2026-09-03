@@ -771,6 +771,24 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    /// The floating sync badge's per-stage copy (`RefreshStage.badgeText`) plus
+    /// the completion label, all `LocalizedStringKey` literals in
+    /// BodyHealthSyncBadge that no source-scraping test can see.
+    func testSyncBadgeStageKeysAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "Checking Health access...",
+            "Loading data...",
+            "Calculating scores...",
+            "Saving workout effort...",
+            "Finishing up...",
+            "Health data updated"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
     func testChartDayCountShortKeyResolvesInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 

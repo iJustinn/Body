@@ -3950,6 +3950,28 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(xcstrings.contains("\"Loading data...\" : {"))
         XCTAssertFalse(xcstrings.contains("\"Syncing health data…\" : {"))
         XCTAssertTrue(xcstrings.contains("\"Health data updated\" : {"))
+
+        // The badge names the refresh phase that is actually running: the store
+        // publishes a stage, the badge holds each one on screen for at least
+        // 0.5 s so a fast phase stays readable, and a finished refresh (stage
+        // back to nil) never snaps the label back to "Loading data...".
+        XCTAssertTrue(storeSource.contains("enum RefreshStage: Hashable"))
+        XCTAssertTrue(storeSource.contains("private(set) var refreshStage: RefreshStage?"))
+        XCTAssertTrue(storeSource.contains("refreshStage = nil"))
+        XCTAssertTrue(storeSource.contains("setRefreshStage(.writingEffort)"))
+        XCTAssertTrue(badgeSource.contains(".task(id: pendingStage)"))
+        XCTAssertTrue(badgeSource.contains(".seconds(0.5)"))
+        XCTAssertTrue(badgeSource.contains("var textID: AnyHashable? = nil"))
+        XCTAssertTrue(badgeSource.contains(".animation(reduceMotion ? nil : .snappy(duration: 0.28), value: displayedStage)"))
+        for stageKey in [
+            "Checking Health access...",
+            "Calculating scores...",
+            "Saving workout effort...",
+            "Finishing up..."
+        ] {
+            XCTAssertTrue(badgeSource.contains("\"\(stageKey)\""), "badge is missing the \(stageKey) stage text")
+            XCTAssertTrue(xcstrings.contains("\"\(stageKey)\" : {"), "catalog is missing \(stageKey)")
+        }
     }
 
     func testDeadChartsViewAndHealthCardAccessoryBranchAreRemoved() throws {

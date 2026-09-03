@@ -173,6 +173,23 @@ final class HealthKitWorkoutStore {
     private var customSourceIDsWithDataByKind: [HealthMetricKind: Set<String>] = [:]
     private(set) var healthDataNotice: String?
     private(set) var isRefreshing = false
+    /// Phase of the in-flight refresh, for the sync badge. `nil` while idle.
+    enum RefreshStage: Hashable {
+        case authorizing    // HealthKit authorization sheet may be up
+        case fetching       // HealthKit queries (dashboard + workouts + auto-apply month loads)
+        case computing      // readiness / stress recompute, training-load seed
+        case writingEffort  // auto-apply is saving workout effort to HealthKit
+        case finishing      // post-publish tail (watch/widget/persist, all synchronous)
+    }
+    private(set) var refreshStage: RefreshStage?
+
+    /// Guarded by the refresh generation: an abandoned deadline body that lands
+    /// late must not repaint the badge. (Outside `runRefreshWithDeadline` the
+    /// guard is trivially true; that is fine, the slot was just claimed.)
+    private func setRefreshStage(_ stage: RefreshStage) {
+        guard isRefreshing, mayApplyRefreshResults else { return }
+        refreshStage = stage
+    }
     private(set) var lastSuccessfulRefreshDate: Date?
     /// Whether a full refresh has ever completed on this install, even a partial
     /// one. Separate from `lastSuccessfulRefreshDate` (which arms the freshness
@@ -481,6 +498,7 @@ final class HealthKitWorkoutStore {
 
     private func finishRefresh() {
         isRefreshing = false
+        refreshStage = nil
         // Measurement only (RefreshOptimizationPlan-02 §6): logs the per-leaf
         // table, the refresh wall time, the HealthKit concurrency high-water
         // mark, and the effort candidate count. DEBUG-only inside, and it
@@ -594,6 +612,10 @@ final class HealthKitWorkoutStore {
             return true
         }
 
+        // The abandoned body's stage must not linger on the badge while the
+        // recovery below publishes and persists. Set directly, not through
+        // `setRefreshStage`, because this is the recovery's own stage.
+        refreshStage = .finishing
         // Retire the abandoned body's generation before it can run another
         // line, then ask it to stop (leaves that DO check cancellation exit
         // early; the stuck one is why the generation guard exists at all).
@@ -1124,6 +1146,12 @@ final class HealthKitWorkoutStore {
         isRefreshing = true
         defer { finishRefresh() }
 
+        // Only when a prompt can actually appear; otherwise the badge keeps its
+        // default `.fetching`.
+        if intent == .userInitiated && authorizationState != .authorized {
+            setRefreshStage(.authorizing)
+        }
+
         do {
             guard try await requestHealthKitAuthorization(allowPrompt: intent == .userInitiated) else {
                 return
@@ -1153,6 +1181,12 @@ final class HealthKitWorkoutStore {
         await engine.setHealthTrendAnchorDate(date)
 
         let calendar = Calendar.bodyGregorian
+
+        // Same rule as `requestAuthorizationAndRefresh`: only when a prompt can
+        // actually appear.
+        if intent == .userInitiated && authorizationState != .authorized {
+            setRefreshStage(.authorizing)
+        }
 
         do {
             guard try await requestHealthKitAuthorization(allowPrompt: intent == .userInitiated) else {
@@ -1195,6 +1229,7 @@ final class HealthKitWorkoutStore {
             // pull exists to reconcile.
             await engine.clearWorkoutEffortCache()
         }
+        setRefreshStage(.fetching)
         await fetchHealthDataSourceOptions(calendar: calendar)
         let existing = HealthDashboardSnapshot(
             summary: healthSummary,
@@ -1228,6 +1263,7 @@ final class HealthKitWorkoutStore {
             ? metricFetch.snapshot.trends
             : metricFetch.snapshot.trends.strippingDaySamples()
         let nextTrends = healthTrends.replacingMetric(kind, with: fetchedTrends)
+        setRefreshStage(.computing)
         await updateHealthDashboardSnapshot(
             summary: nextSummary,
             trends: nextTrends,
@@ -1658,6 +1694,7 @@ final class HealthKitWorkoutStore {
         // in it (e.g. Jun 30 on Jul 1) is invisible here and ages out of the 48h window.
         let missingWindowKeys = Set(windowKeys).filter { monthSnapshots[$0] == nil }
         if !missingWindowKeys.isEmpty {
+            setRefreshStage(.fetching)
             try? await refresh(monthKeys: missingWindowKeys, calendar: Calendar.bodyGregorian)
         }
         var allWorkouts: [WorkoutSummary] = []
@@ -1699,8 +1736,12 @@ final class HealthKitWorkoutStore {
         )
         let missingComparisonKeys = Set(comparisonKeys).subtracting(loadedMonthKeys)
         if !missingComparisonKeys.isEmpty {
+            setRefreshStage(.fetching)
             try? await refresh(monthKeys: missingComparisonKeys, calendar: Calendar.bodyGregorian)
         }
+        // Past every month load: what follows scores the candidates and writes
+        // them back to HealthKit.
+        setRefreshStage(.writingEffort)
         let maxHeartRate = await userMaxHeartRate()
         // Precompute each candidate's score up front. Estimates read only prior
         // (older) workouts, and candidates are processed newest-first, so an in-batch
@@ -2987,6 +3028,11 @@ final class HealthKitWorkoutStore {
 
         isRefreshing = true
         defer { finishRefresh() }
+        // Same rule as `requestAuthorizationAndRefresh`: only when a prompt can
+        // actually appear.
+        if intent == .userInitiated && authorizationState != .authorized {
+            setRefreshStage(.authorizing)
+        }
 
         let calendar = Calendar.bodyGregorian
 
@@ -4598,6 +4644,7 @@ final class HealthKitWorkoutStore {
         // table `finishRefresh()` dumps in DEBUG builds.
         BodyRefreshProfile.shared.beginRefresh()
 
+        setRefreshStage(.fetching)
         await hydratePersistedDaySamplesIfNeeded()
         await engine.setHealthTrendAnchorDate(date)
 
@@ -4709,6 +4756,7 @@ final class HealthKitWorkoutStore {
             // SAME engine anchor date the dashboard fetch used. Gated on
             // `!hadQueryFailure` exactly like `lastVitalsRefreshDate` below, so
             // the two can't drift out of lockstep.
+            setRefreshStage(.computing)
             await updateCachedComputeTrainingLoadSeedIfNeeded(
                 date: date,
                 calendar: calendar,
@@ -4740,6 +4788,7 @@ final class HealthKitWorkoutStore {
             // Workouts + dashboard have both committed here, so resting-HR / readiness
             // inputs are current for the estimator.
             await autoApplyPredictedEffortIfNeeded(monthKeys: Array(keys))
+            setRefreshStage(.finishing)
         } catch {
             handleRefreshError(error)
         }
@@ -4781,6 +4830,7 @@ final class HealthKitWorkoutStore {
         // still overwrites those series on disk. So a relaunch inside the
         // 5-minute TTL that picked up a new workout could otherwise still
         // narrow the intraday cache instead of leaving it untouched.
+        setRefreshStage(.fetching)
         await hydratePersistedDaySamplesIfNeeded()
         if updatesHealthSummary {
             await engine.setHealthTrendAnchorDate(refreshDate)
@@ -4859,6 +4909,7 @@ final class HealthKitWorkoutStore {
             let ranQueries = (updatesHealthSummary || includesWorkouts) && permissionSelectionCanRunQueries
             markRefreshSucceeded(date: refreshDate, refreshedVitals: updatesHealthSummary, publishesWatch: false, hadQueryFailure: hadQueryFailure, advancesSyncBadge: true, ranQueries: ranQueries)
             updateCurrentMonthSnapshot(date: refreshDate, calendar: calendar)
+            setRefreshStage(.computing)
             await reapplyActivityReadinessAfterWorkouts(date: refreshDate, calendar: calendar)
             await recomputeStress(on: refreshDate, calendar: calendar)
             publishWatchSnapshot()
@@ -4874,6 +4925,7 @@ final class HealthKitWorkoutStore {
             // `updatesHealthSummary == false`). The 1-48h window self-limits candidates to
             // recent workouts, so browsing an older month simply finds none.
             await autoApplyPredictedEffortIfNeeded(monthKeys: [key])
+            setRefreshStage(.finishing)
         } catch {
             handleRefreshError(error)
         }

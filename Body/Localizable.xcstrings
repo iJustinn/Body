@@ -2811,6 +2811,22 @@
         }
       }
     },
+    "Calculating scores..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculating scores..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在计算评分…"
+          }
+        }
+      }
+    },
     "Calculating…" : {
       "localizations" : {
         "en" : {
@@ -2974,6 +2990,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "范围"
+          }
+        }
+      }
+    },
+    "Checking Health access..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking Health access..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查健康权限…"
           }
         }
       }
@@ -5156,6 +5188,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "筛选运动"
+          }
+        }
+      }
+    },
+    "Finishing up..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finishing up..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "即将完成…"
           }
         }
       }
@@ -11177,6 +11225,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已存 %lld"
+          }
+        }
+      }
+    },
+    "Saving workout effort..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saving workout effort..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在保存运动强度…"
           }
         }
       }
