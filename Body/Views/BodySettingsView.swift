@@ -27,6 +27,9 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
     @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
+    @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var homeBackgroundColorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var homeBackgroundSeparatorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundProfilesKey) private var homeBackgroundProfilesRawValue = ""
     @AppStorage(BodyAppearancePreference.workoutColorOverridesKey, store: BodyWorkoutColorStore.sharedDefaults)
     private var workoutColorOverridesRawValue = ""
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
@@ -603,8 +606,25 @@ struct BodySettingsView: View {
         BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.title ?? String(localized: "None")
     }
 
+    // When the background is on, the row names the matching saved profile so the
+    // choice is readable without opening the sheet.
     private var homeBackgroundSummaryText: String {
-        homeBackgroundEnabled ? String(localized: "On") : String(localized: "Off")
+        guard homeBackgroundEnabled else { return String(localized: "Off") }
+        return homeBackgroundProfileName ?? String(localized: "On")
+    }
+
+    private var homeBackgroundProfileName: String? {
+        let profiles = BodyHomeBackgroundProfileStore.allProfiles(from: homeBackgroundProfilesRawValue)
+        let fingerprint = BodyHomeBackgroundProfile.fingerprint(
+            colorsRawValue: homeBackgroundColorsRawValue,
+            separatorsRawValue: homeBackgroundSeparatorsRawValue
+        )
+        guard let index = profiles.firstIndex(where: { $0.fingerprint == fingerprint }) else { return nil }
+        let profile = profiles[index]
+        let defaultName = profile.id == BodyHomeBackgroundProfile.appDefaultID
+            ? String(localized: "ohmybody")
+            : String(localized: "Saved \(index - BodyHomeBackgroundProfileStore.builtInProfiles.count + 1)")
+        return profile.displayName(defaultName: defaultName)
     }
 
     // The row's summary reflects the card toggle — the sheet's master switch —
