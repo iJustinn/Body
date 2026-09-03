@@ -802,10 +802,6 @@ struct BodyHomeView: View {
                 kind: .exerciseMinutes,
                 title: "Exercise Minutes",
                 summary: summary.exerciseMinutes,
-                unit: "",
-                decimals: 0,
-                symbolName: "figure.run",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .bar,
                 chartPreview: trends.series(for: .exerciseMinutes),
                 previewDayCount: previewDayCount
@@ -814,10 +810,6 @@ struct BodyHomeView: View {
                 kind: .trainingLoad,
                 title: "Training Load",
                 summary: summary.trainingLoad,
-                unit: "",
-                decimals: 2,
-                symbolName: "figure.strengthtraining.traditional",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .line,
                 chartPreview: trends.series(for: .trainingLoad),
                 previewDayCount: previewDayCount
@@ -831,10 +823,6 @@ struct BodyHomeView: View {
                 kind: .timeInDaylight,
                 title: "Time In Daylight",
                 summary: summary.timeInDaylight,
-                unit: "min",
-                decimals: 0,
-                symbolName: "sun.max.fill",
-                symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
                 chartStyle: .bar,
                 chartPreview: trends.series(for: .timeInDaylight),
                 previewDayCount: previewDayCount
@@ -843,10 +831,6 @@ struct BodyHomeView: View {
                 kind: .steps,
                 title: "Steps",
                 summary: summary.steps,
-                unit: "",
-                decimals: 0,
-                symbolName: "figure.walk",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .bar,
                 chartPreview: trends.series(for: .steps),
                 previewDayCount: previewDayCount
@@ -864,10 +848,6 @@ struct BodyHomeView: View {
                 kind: .heartRate,
                 title: "Heart Rate",
                 summary: summary.heartRate,
-                unit: "bpm",
-                decimals: 0,
-                symbolName: "heart.fill",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
                 chartPreview: trends.series(for: .heartRate),
                 warningSymbolName: warningSymbolName(for: .heartRate, summary: summary, selection: warningSelection),
                 previewDayCount: previewDayCount
@@ -876,10 +856,6 @@ struct BodyHomeView: View {
                 kind: .restingHeartRate,
                 title: "Resting Heart Rate",
                 summary: summary.restingHeartRate,
-                unit: "bpm",
-                decimals: 0,
-                symbolName: "heart.fill",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
                 chartPreview: trends.series(for: .restingHeartRate),
                 previewDayCount: previewDayCount
             ),
@@ -888,10 +864,6 @@ struct BodyHomeView: View {
                 kind: .heartRateVariability,
                 title: "HRV",
                 summary: summary.heartRateVariability,
-                unit: "ms",
-                decimals: 1,
-                symbolName: "waveform.path.ecg",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
                 chartPreview: trends.series(for: .heartRateVariability),
                 previewDayCount: previewDayCount
             ),
@@ -899,10 +871,6 @@ struct BodyHomeView: View {
                 kind: .oxygenSaturation,
                 title: "Blood Oxygen",
                 summary: summary.oxygenSaturation,
-                unit: "%",
-                decimals: 0,
-                symbolName: "drop.fill",
-                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
                 chartPreviewStyle: .range,
                 chartRangePreview: trends.rangeSeries(for: .oxygenSaturation),
                 warningSymbolName: warningSymbolName(for: .oxygenSaturation, summary: summary, selection: warningSelection),
@@ -912,10 +880,6 @@ struct BodyHomeView: View {
                 kind: .respiratoryRate,
                 title: "Respiratory Rate",
                 summary: summary.respiratoryRate,
-                unit: "br/min",
-                decimals: 0,
-                symbolName: "lungs.fill",
-                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
                 chartPreviewStyle: .range,
                 chartRangePreview: trends.rangeSeries(for: .respiratoryRate),
                 previewDayCount: previewDayCount
@@ -924,8 +888,6 @@ struct BodyHomeView: View {
                 kind: .activeEnergy,
                 title: "Active Energy",
                 summary: summary.activeEnergy,
-                symbolName: "flame.fill",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartPreview: trends.series(for: .activeEnergy),
                 previewDayCount: previewDayCount
             ),
@@ -933,8 +895,6 @@ struct BodyHomeView: View {
                 kind: .restingEnergy,
                 title: "Resting Energy",
                 summary: summary.restingEnergy,
-                symbolName: "leaf.fill",
-                symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
                 chartPreview: trends.series(for: .restingEnergy),
                 previewDayCount: previewDayCount
             )
@@ -1008,14 +968,15 @@ struct BodyHomeView: View {
         return hasActiveWarning ? "exclamationmark.triangle.fill" : nil
     }
 
+    /// A summary card whose value is a plain number with a unit. Symbol, tint,
+    /// unit and decimals come from the shared metric table, so the card, the
+    /// trend card for the same metric and the widget that mirrors it cannot
+    /// drift apart. Every kind routed through here has a `summaryFormat` row,
+    /// so the fallbacks are unreachable (`HealthMetricPresentationTests`).
     private func metric(
         kind: HealthMetricKind,
         title: String,
         summary: HealthMetricSummary,
-        unit: String,
-        decimals: Int,
-        symbolName: String,
-        symbolColor: Color,
         chartStyle: BodyHealthMetricChartStyle = .line,
         chartPreviewStyle: BodyHomeMetricCardPreview.Style? = nil,
         chartPreview: HealthTrendSeries? = nil,
@@ -1023,13 +984,17 @@ struct BodyHomeView: View {
         warningSymbolName: String? = nil,
         previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
-        BodyHealthMetricCard.Model(
+        let presentation = HealthMetricPresentation.presentation(for: kind)
+        let summaryFormat = presentation?.summaryFormat
+        return BodyHealthMetricCard.Model(
             kind: kind,
             title: title,
-            value: summary.value.map { BodyValueFormat.numberText($0, decimals: decimals) } ?? "--",
-            unit: unit,
-            symbolName: symbolName,
-            symbolColor: symbolColor,
+            value: summary.value.map {
+                BodyValueFormat.numberText($0, decimals: summaryFormat?.decimals ?? 0)
+            } ?? "--",
+            unit: summaryFormat?.unitSuffix ?? "",
+            symbolName: presentation?.symbolName ?? "questionmark.circle",
+            symbolColor: presentation?.tint ?? .secondary,
             chartPreviewStyle: chartPreviewStyle ?? BodyHomeMetricCardPreview.Style.matching(chartStyle: chartStyle),
             chartPreview: chartPreview,
             chartRangePreview: chartRangePreview,
@@ -1091,11 +1056,10 @@ struct BodyHomeView: View {
         kind: HealthMetricKind,
         title: String,
         summary: HealthMetricSummary,
-        symbolName: String,
-        symbolColor: Color,
         chartPreview: HealthTrendSeries,
         previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
+        let presentation = HealthMetricPresentation.presentation(for: kind)
         let display = summary.value.map {
             BodyValueFormat.energyValue(kilocalories: $0, energyUnitPreference: selectedEnergyUnitPreference)
         }
@@ -1103,10 +1067,12 @@ struct BodyHomeView: View {
         return BodyHealthMetricCard.Model(
             kind: kind,
             title: title,
-            value: display.map { BodyValueFormat.numberText($0.value, decimals: 0) } ?? "--",
+            value: display.map {
+                BodyValueFormat.numberText($0.value, decimals: presentation?.summaryFormat?.decimals ?? 0)
+            } ?? "--",
             unit: selectedEnergyUnitPreference.unitLabel,
-            symbolName: symbolName,
-            symbolColor: symbolColor,
+            symbolName: presentation?.symbolName ?? "questionmark.circle",
+            symbolColor: presentation?.tint ?? .secondary,
             chartPreviewStyle: .bar,
             chartPreview: chartPreview.mapValues {
                 BodyValueFormat.energyValue(

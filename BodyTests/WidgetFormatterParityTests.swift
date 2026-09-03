@@ -2,10 +2,11 @@
 //  WidgetFormatterParityTests.swift
 //  BodyTests
 //
-//  M-23: the widget builds its own trend-average strings independently of
-//  Home's BodyHomeTrendCardFactory. These two formatters must read the same
-//  way for a viewer moving between the widget and the app; this test pins
-//  that they agree for a fixed value per metric.
+//  M-23: the widget's trend-average strings and Home's BodyHomeTrendCardFactory
+//  must read the same way for a viewer moving between the widget and the app.
+//  Both now format through `HealthMetricPresentation`, and this test pins that
+//  they still agree for a fixed value per metric, so a site that reintroduces
+//  its own formatter fails here.
 //
 
 import XCTest
@@ -30,7 +31,9 @@ final class WidgetFormatterParityTests: XCTestCase {
 
     @MainActor
     func testFormattedValueParityAcrossWidgetMetrics() {
-        let fixedValue = 42.0
+        // A value with three fraction digits, so a decimals mismatch between
+        // the two formatters shows up: 42.0 read the same at 0, 1 and 2 places.
+        let fixedValue = 42.567
 
         for metric in HealthWidgetMetric.allCases {
             guard let cardKind = BodyHomeTrendCardKind(metricKind: metric.healthMetricKind) else {

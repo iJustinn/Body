@@ -1025,6 +1025,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(updateBlock.contains(".recalculatingReadiness("))
     }
 
+    @MainActor
     func testReadinessCardAndDetailAreRouted() throws {
         let source = try bodyHomeViewText()
         let cardStart = try XCTUnwrap(source.range(of: "private func readinessMetric(")?.lowerBound)
@@ -1042,7 +1043,19 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(source.contains("BodyReadinessStatusBreakdownChart"))
         XCTAssertTrue(cardBlock.contains("unit: summary.score == nil ? \"\" : \"%\""))
         XCTAssertFalse(cardBlock.contains("BodyMetricDisplayValue(title: \"Status\""))
-        XCTAssertTrue(source.contains("valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + \"%\" }"))
+        // The trend card's readiness value text comes from the shared metric
+        // table now, so it is pinned on the rendered string rather than on a
+        // verbatim closure literal in the factory.
+        XCTAssertEqual(
+            BodyHomeTrendCardFactory.formattedValue(
+                88.4,
+                for: .readiness,
+                temperatureUnitPreference: .celsius,
+                energyUnitPreference: .kilocalories,
+                weightUnitPreference: .kilograms
+            ),
+            "88%"
+        )
         XCTAssertTrue(whyBlock.contains("ReadinessStatus.displayOrder"))
         XCTAssertTrue(whyBlock.contains("About your score"))
         XCTAssertTrue(whyBlock.contains("status.scoreRangeText"))
@@ -1389,8 +1402,13 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(detailBlock.contains("daySeries: .empty"))
         XCTAssertTrue(detailBlock.contains("chartStyle: .line"))
         XCTAssertTrue(dayViewBlock.contains(".wristTemperature"))
+        // The trend card reads its chart shape from the shared metric table
+        // instead of spelling `chartStyle: .line` out per case, so the line
+        // choice is pinned on the table rather than in the source text.
+        XCTAssertEqual(HealthMetricPresentation.presentation(for: .wristTemperature)?.chartStyle, .line)
     }
 
+    @MainActor
     func testTrainingLoadCardUsesLineChartWithCurrentIntervalWithoutUnitsOrDayView() throws {
         let source = try bodyHomeViewText()
         let cardStart = try XCTUnwrap(source.range(of: "metric(\n                kind: .trainingLoad")?.lowerBound)
@@ -1406,16 +1424,30 @@ final class SourceGuardTests: XCTestCase {
         let dayViewBlock = String(source[dayViewStart...].prefix(800))
 
         XCTAssertTrue(cardBlock.contains(#"title: "Training Load""#))
-        XCTAssertTrue(cardBlock.contains(#"unit: """#))
-        XCTAssertTrue(cardBlock.contains("decimals: 2"))
-        XCTAssertFalse(cardBlock.contains(#"unit: "load""#))
         XCTAssertTrue(cardBlock.contains("chartStyle: .line"))
         XCTAssertTrue(cardBlock.contains("chartPreview: trends.series(for: .trainingLoad)"))
         XCTAssertTrue(trendCardBlock.contains(#"title: "Training Load""#))
-        XCTAssertTrue(trendCardBlock.contains("chartStyle: .line"))
         XCTAssertTrue(trendCardBlock.contains("series: trends.series(for: .trainingLoad)"))
-        XCTAssertTrue(trendCardBlock.contains("valueFormatter: { BodyValueFormat.numberText($0, decimals: 2) }"))
-        XCTAssertFalse(trendCardBlock.contains(#"+ " load""#))
+        // A "load" unit could only come from the table now, so it is pinned there.
+        XCTAssertNil(HealthMetricPresentation.presentation(for: .trainingLoad)?.trendFormat?.unitSuffix)
+        // The summary card's unit and decimals and the trend card's value text
+        // come from the shared metric table now, so they are pinned on the
+        // rendered output instead of on literals in the two view files: two
+        // decimals, no unit, in both contexts.
+        let trainingLoad = HealthMetricPresentation.presentation(for: .trainingLoad)
+        XCTAssertEqual(trainingLoad?.chartStyle, .line)
+        XCTAssertEqual(trainingLoad?.summaryFormat?.decimals, 2)
+        XCTAssertNil(trainingLoad?.summaryFormat?.unitSuffix)
+        XCTAssertEqual(
+            BodyHomeTrendCardFactory.formattedValue(
+                1.234,
+                for: .trainingLoad,
+                temperatureUnitPreference: .celsius,
+                energyUnitPreference: .kilocalories,
+                weightUnitPreference: .kilograms
+            ),
+            "1.23"
+        )
         XCTAssertTrue(detailBlock.contains(#"title: "Training Load""#))
         XCTAssertTrue(detailBlock.contains("summary: summary.trainingLoad"))
         XCTAssertTrue(detailBlock.contains(#"unit: """#))

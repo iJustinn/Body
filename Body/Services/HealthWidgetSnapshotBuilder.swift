@@ -11,28 +11,6 @@
 import Foundation
 
 extension HealthWidgetMetric {
-    /// The app-side metric kind backing this widget metric.
-    var healthMetricKind: HealthMetricKind {
-        switch self {
-        case .readiness: return .readiness
-        case .heartRate: return .heartRate
-        case .restingHeartRate: return .restingHeartRate
-        case .heartRateVariability: return .heartRateVariability
-        case .respiratoryRate: return .respiratoryRate
-        case .oxygenSaturation: return .oxygenSaturation
-        case .sleep: return .sleep
-        case .wristTemperature: return .wristTemperature
-        case .steps: return .steps
-        case .activeEnergy: return .activeEnergy
-        case .restingEnergy: return .restingEnergy
-        case .exerciseMinutes: return .exerciseMinutes
-        case .trainingLoad: return .trainingLoad
-        case .timeInDaylight: return .timeInDaylight
-        case .bodyMass: return .bodyMass
-        case .bodyFatPercentage: return .bodyFatPercentage
-        }
-    }
-
     /// The kind whose source selection applies to this metric. Weight and Body
     /// Fat are fetched and source-selected together under `.basics` (see the
     /// `sourceKind: .basics` fetches in HealthKitFetchEngine), so their source
@@ -153,9 +131,10 @@ enum HealthWidgetSnapshotBuilder {
         )
     }
 
-    /// The value(s) shown on the home preview card, mirroring BodyHomeView's
-    /// per-metric card construction. One value for most metrics; two for the
-    /// prominent Sleep (score + duration) and Skin Temp (deviation + actual).
+    /// The value(s) shown on the home preview card, written with the same
+    /// summary format BodyHomeView's per-metric cards use. One value for most
+    /// metrics; two for the prominent Sleep (score + duration) and Skin Temp
+    /// (deviation + actual).
     private static func displayValues(
         for metric: HealthWidgetMetric,
         summary: HealthSummarySnapshot,
@@ -167,11 +146,17 @@ enum HealthWidgetSnapshotBuilder {
         showSleepScore: Bool,
         calendar: Calendar
     ) -> [HealthWidgetDisplayValue] {
+        // The summary context of the shared metric table: the same decimals and
+        // unit the Home summary card writes. Every metric reached through
+        // `number`/`summaryUnit` below has a row, so the fallbacks are
+        // unreachable (pinned by `HealthMetricPresentationTests`).
+        let summaryFormat = metric.presentation?.summaryFormat
+        let summaryUnit = summaryFormat?.unitSuffix ?? ""
         func single(_ value: String, _ unit: String) -> [HealthWidgetDisplayValue] {
             [HealthWidgetDisplayValue(value: value, unit: unit)]
         }
-        func number(_ value: Double?, _ decimals: Int) -> String {
-            value.map { BodyValueFormat.numberText($0, decimals: decimals) } ?? "--"
+        func number(_ value: Double?) -> String {
+            value.map { BodyValueFormat.numberText($0, decimals: summaryFormat?.decimals ?? 0) } ?? "--"
         }
 
         switch metric {
@@ -179,15 +164,15 @@ enum HealthWidgetSnapshotBuilder {
             let score = summary.readiness.score
             return single(score.map { "\($0)" } ?? "--", score == nil ? "" : "%")
         case .heartRate:
-            return single(number(summary.heartRate.value, 0), "bpm")
+            return single(number(summary.heartRate.value), summaryUnit)
         case .restingHeartRate:
-            return single(number(summary.restingHeartRate.value, 0), "bpm")
+            return single(number(summary.restingHeartRate.value), summaryUnit)
         case .heartRateVariability:
-            return single(number(summary.heartRateVariability.value, 1), "ms")
+            return single(number(summary.heartRateVariability.value), summaryUnit)
         case .respiratoryRate:
-            return single(number(summary.respiratoryRate.value, 0), "br/min")
+            return single(number(summary.respiratoryRate.value), summaryUnit)
         case .oxygenSaturation:
-            return single(number(summary.oxygenSaturation.value, 0), "%")
+            return single(number(summary.oxygenSaturation.value), summaryUnit)
         case .sleep:
             let duration = summary.sleep.duration.map { BodyValueFormat.sleepDurationText(for: $0) } ?? "--"
             guard showSleepScore else {
@@ -222,36 +207,47 @@ enum HealthWidgetSnapshotBuilder {
                 HealthWidgetDisplayValue(value: actual, unit: unit)
             ]
         case .steps:
-            return single(number(summary.steps.value, 0), "")
+            return single(number(summary.steps.value), summaryUnit)
         case .activeEnergy:
-            return single(energyValueText(summary.activeEnergy.value, energyUnitPreference), energyUnitPreference.unitLabel)
+            return single(
+                energyValueText(summary.activeEnergy.value, energyUnitPreference, decimals: summaryFormat?.decimals ?? 0),
+                energyUnitPreference.unitLabel
+            )
         case .restingEnergy:
-            return single(energyValueText(summary.restingEnergy.value, energyUnitPreference), energyUnitPreference.unitLabel)
+            return single(
+                energyValueText(summary.restingEnergy.value, energyUnitPreference, decimals: summaryFormat?.decimals ?? 0),
+                energyUnitPreference.unitLabel
+            )
         case .exerciseMinutes:
-            return single(number(summary.exerciseMinutes.value, 0), "")
+            return single(number(summary.exerciseMinutes.value), summaryUnit)
         case .trainingLoad:
-            return single(number(summary.trainingLoad.value, 2), "")
+            return single(number(summary.trainingLoad.value), summaryUnit)
         case .timeInDaylight:
-            return single(number(summary.timeInDaylight.value, 0), "min")
+            return single(number(summary.timeInDaylight.value), summaryUnit)
         case .bodyMass:
             let unit = BodyValueFormat.massValue(kilograms: 0, weightUnitPreference: weightUnitPreference).unit
             let value = summary.bodyMass.value.map {
-                BodyValueFormat.massDisplay(kilograms: $0, weightUnitPreference: weightUnitPreference, decimals: 2).value
+                BodyValueFormat.massDisplay(
+                    kilograms: $0,
+                    weightUnitPreference: weightUnitPreference,
+                    decimals: summaryFormat?.decimals ?? 0
+                ).value
             } ?? "--"
             return single(value, unit)
         case .bodyFatPercentage:
-            return single(number(summary.bodyFatPercentage.value, 1), "%")
+            return single(number(summary.bodyFatPercentage.value), summaryUnit)
         }
     }
 
     private static func energyValueText(
         _ kilocalories: Double?,
-        _ energyUnitPreference: BodyValueFormat.EnergyUnitPreference
+        _ energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        decimals: Int
     ) -> String {
         kilocalories.map {
             BodyValueFormat.numberText(
                 BodyValueFormat.energyValue(kilocalories: $0, energyUnitPreference: energyUnitPreference).value,
-                decimals: 0
+                decimals: decimals
             )
         } ?? "--"
     }
@@ -277,7 +273,7 @@ enum HealthWidgetSnapshotBuilder {
         return widgetSeries
     }
 
-    // MARK: - Value transforms & formatting (mirrors BodyHomeTrendCardFactory)
+    // MARK: - Value transforms & formatting (shared with BodyHomeTrendCardFactory)
 
     private static func valueTransform(
         for metric: HealthWidgetMetric,
@@ -297,51 +293,56 @@ enum HealthWidgetSnapshotBuilder {
         }
     }
 
+    /// The unit label for the metrics whose unit comes from a unit preference,
+    /// in the trend context. `nil` when the unit is a fixed literal (it comes
+    /// from the shared metric table) or when the metric has none.
+    private static func trendUnitLabel(
+        for unitPreference: HealthMetricPresentation.UnitPreferenceKind?,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference
+    ) -> String? {
+        switch unitPreference {
+        case .temperature:
+            return BodyValueFormat.temperatureValue(
+                celsius: 0,
+                temperatureUnitPreference: temperatureUnitPreference
+            ).unit
+        case .energy:
+            return BodyValueFormat.energyValue(
+                kilocalories: 0,
+                energyUnitPreference: energyUnitPreference
+            ).unit
+        case .mass:
+            return BodyValueFormat.massValue(
+                kilograms: 0,
+                weightUnitPreference: weightUnitPreference
+            ).unit
+        case nil:
+            return nil
+        }
+    }
+
     private static func averageFormatter(
         for metric: HealthWidgetMetric,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
         weightUnitPreference: BodyValueFormat.WeightUnitPreference
     ) -> (Double) -> String {
-        let temperatureUnit = BodyValueFormat.temperatureValue(
-            celsius: 0,
-            temperatureUnitPreference: temperatureUnitPreference
-        ).unit
-        let energyUnit = BodyValueFormat.energyValue(
-            kilocalories: 0,
-            energyUnitPreference: energyUnitPreference
-        ).unit
-        let massUnit = BodyValueFormat.massValue(
-            kilograms: 0,
+        let presentation = metric.presentation
+        let unit = trendUnitLabel(
+            for: presentation.flatMap { $0.unitPreference },
+            temperatureUnitPreference: temperatureUnitPreference,
+            energyUnitPreference: energyUnitPreference,
             weightUnitPreference: weightUnitPreference
-        ).unit
+        )
 
-        switch metric {
-        case .readiness, .oxygenSaturation:
-            return { BodyValueFormat.numberText($0, decimals: 0) + "%" }
-        case .heartRate, .restingHeartRate:
-            return { BodyValueFormat.numberText($0, decimals: 0) + " BPM" }
-        case .heartRateVariability:
-            return { BodyValueFormat.numberText($0, decimals: 0) + " ms" }
-        case .respiratoryRate:
-            return { BodyValueFormat.numberText($0, decimals: 0) + " br/min" }
-        case .sleep:
+        // Sleep is the one metric whose trend text is a duration rather than a
+        // number with a unit, so it has no `trendFormat` row.
+        guard let format = presentation?.trendFormat else {
             return { BodyValueFormat.sleepDurationText(for: $0 * 60 * 60) }
-        case .wristTemperature:
-            return { BodyValueFormat.numberText($0, decimals: 1) + " " + temperatureUnit }
-        case .steps:
-            return { BodyValueFormat.numberText($0, decimals: 0) + " steps" }
-        case .activeEnergy, .restingEnergy:
-            return { BodyValueFormat.numberText($0, decimals: 0) + " " + energyUnit }
-        case .exerciseMinutes, .timeInDaylight:
-            return { BodyValueFormat.numberText($0, decimals: 0) + " min" }
-        case .trainingLoad:
-            return { BodyValueFormat.numberText($0, decimals: 2) }
-        case .bodyMass:
-            return { BodyValueFormat.numberText($0, decimals: 1) + " " + massUnit }
-        case .bodyFatPercentage:
-            return { BodyValueFormat.numberText($0, decimals: 1) + "%" }
         }
+        return { format.text($0, unit: unit) }
     }
 
     /// Formats a raw metric value (the same units `metricTrend` transforms
@@ -362,36 +363,20 @@ enum HealthWidgetSnapshotBuilder {
             weightUnitPreference: weightUnitPreference
         )
         let transformed = transform(value)
+        let presentation = metric.presentation
 
-        switch metric {
-        case .readiness, .oxygenSaturation:
-            return (BodyValueFormat.numberText(transformed, decimals: 0), "%")
-        case .heartRate, .restingHeartRate:
-            return (BodyValueFormat.numberText(transformed, decimals: 0), "BPM")
-        case .heartRateVariability:
-            return (BodyValueFormat.numberText(transformed, decimals: 0), "ms")
-        case .respiratoryRate:
-            return (BodyValueFormat.numberText(transformed, decimals: 0), "br/min")
-        case .sleep:
+        // Sleep is the one metric whose trend text is a duration rather than a
+        // number with a unit, so it has no `trendFormat` row.
+        guard let format = presentation?.trendFormat else {
             return (BodyValueFormat.sleepDurationText(for: transformed * 60 * 60), nil)
-        case .wristTemperature:
-            let unit = BodyValueFormat.temperatureValue(celsius: 0, temperatureUnitPreference: temperatureUnitPreference).unit
-            return (BodyValueFormat.numberText(transformed, decimals: 1), unit)
-        case .steps:
-            return (BodyValueFormat.numberText(transformed, decimals: 0), "steps")
-        case .activeEnergy, .restingEnergy:
-            let unit = BodyValueFormat.energyValue(kilocalories: 0, energyUnitPreference: energyUnitPreference).unit
-            return (BodyValueFormat.numberText(transformed, decimals: 0), unit)
-        case .exerciseMinutes, .timeInDaylight:
-            return (BodyValueFormat.numberText(transformed, decimals: 0), "min")
-        case .trainingLoad:
-            return (BodyValueFormat.numberText(transformed, decimals: 2), nil)
-        case .bodyMass:
-            let unit = BodyValueFormat.massValue(kilograms: 0, weightUnitPreference: weightUnitPreference).unit
-            return (BodyValueFormat.numberText(transformed, decimals: 1), unit)
-        case .bodyFatPercentage:
-            return (BodyValueFormat.numberText(transformed, decimals: 1), "%")
         }
+        let unit = format.unitSuffix ?? trendUnitLabel(
+            for: presentation.flatMap { $0.unitPreference },
+            temperatureUnitPreference: temperatureUnitPreference,
+            energyUnitPreference: energyUnitPreference,
+            weightUnitPreference: weightUnitPreference
+        )
+        return (BodyValueFormat.numberText(transformed, decimals: format.decimals), unit)
     }
 
     // MARK: - Sleep stages

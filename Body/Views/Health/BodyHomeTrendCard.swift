@@ -301,6 +301,38 @@ enum BodyHomeTrendCardFactory {
             temperatureUnitPreference: temperatureUnitPreference
         ).unit
         let energyUnit = energyUnitPreference.unitLabel
+        let massUnit = BodyValueFormat.massValue(
+            kilograms: 0,
+            weightUnitPreference: weightUnitPreference
+        ).unit
+
+        // Symbol, tint, chart shape and value text come from the shared metric
+        // table, so a card cannot drift from the Home summary card above it or
+        // from the widget that mirrors it. Only the title, the series and the
+        // message sentence are per-card. Every kind has a row, so the
+        // formatter's fallback is unreachable (`HealthMetricPresentationTests`).
+        let presentation = trendKind.presentation
+        let symbolName = trendKind.iconName
+        let symbolColor = trendKind.tintColor
+        let chartStyle: BodyHealthMetricChartStyle = presentation?.chartStyle == .bar ? .bar : .line
+        let preferenceUnit: String? = {
+            switch presentation.flatMap({ $0.unitPreference }) {
+            case .temperature:
+                return temperatureUnit
+            case .energy:
+                return energyUnit
+            case .mass:
+                return massUnit
+            case nil:
+                return nil
+            }
+        }()
+        let valueFormatter: (Double) -> String = { value in
+            guard let format = presentation?.trendFormat else {
+                return BodyValueFormat.numberText(value, decimals: 0)
+            }
+            return format.text(value, unit: preferenceUnit)
+        }
 
         switch trendKind {
         case .readiness:
@@ -308,10 +340,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .readiness,
                 title: "Readiness",
                 series: trends.series(for: .readiness),
-                chartStyle: .line,
-                symbolName: "bolt.heart.fill",
-                symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your readiness score")
             )
         case .stress:
@@ -319,10 +351,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .stress,
                 title: "Stress",
                 series: trends.series(for: .stress),
-                chartStyle: .line,
-                symbolName: "brain.head.profile.fill",
-                symbolColor: Color(red: 0.90, green: 0.35, blue: 0.75),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your stress level")
             )
         case .heartRate:
@@ -330,10 +362,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .heartRate,
                 title: "Heart Rate",
                 series: trends.series(for: .heartRate),
-                chartStyle: .line,
-                symbolName: "heart.fill",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " BPM" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your heart rate")
             )
         case .restingHeartRate:
@@ -341,10 +373,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .restingHeartRate,
                 title: "Resting Heart Rate",
                 series: trends.series(for: .restingHeartRate),
-                chartStyle: .line,
-                symbolName: "heart.fill",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " BPM" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your resting heart rate")
             )
         case .heartRateVariability:
@@ -352,10 +384,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .heartRateVariability,
                 title: "HRV",
                 series: trends.series(for: .heartRateVariability),
-                chartStyle: .line,
-                symbolName: "waveform.path.ecg",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " ms" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your HRV")
             )
         case .cardioFitness:
@@ -363,10 +395,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .cardioFitness,
                 title: "Cardio Fitness",
                 series: trends.series(for: .cardioFitness),
-                chartStyle: .line,
-                symbolName: "arrow.up.heart.fill",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " VO₂ max" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your cardio fitness")
             )
         case .respiratoryRate:
@@ -374,10 +406,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .respiratoryRate,
                 title: "Respiratory Rate",
                 series: trends.series(for: .respiratoryRate),
-                chartStyle: .line,
-                symbolName: "lungs.fill",
-                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " br/min" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your respiratory rate")
             )
         case .oxygenSaturation:
@@ -385,10 +417,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .oxygenSaturation,
                 title: "Blood Oxygen",
                 series: trends.series(for: .oxygenSaturation),
-                chartStyle: .line,
-                symbolName: "drop.fill",
-                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your blood oxygen")
             )
         case .sleep:
@@ -396,9 +428,9 @@ enum BodyHomeTrendCardFactory {
                 kind: .sleep,
                 title: "Sleep",
                 series: trends.series(for: .sleep),
-                chartStyle: .line,
-                symbolName: "bed.double.fill",
-                symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
                 valueFormatter: { BodyValueFormat.sleepDurationText(for: $0 * 60 * 60) },
                 messageStyle: .average(subject: "your sleep duration")
             )
@@ -412,10 +444,10 @@ enum BodyHomeTrendCardFactory {
                         temperatureUnitPreference: temperatureUnitPreference
                     ).value
                 },
-                chartStyle: .line,
-                symbolName: "thermometer.medium",
-                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " " + temperatureUnit },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your skin temperature")
             )
         case .steps:
@@ -423,10 +455,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .steps,
                 title: "Steps",
                 series: trends.series(for: .steps),
-                chartStyle: .bar,
-                symbolName: "figure.walk",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " steps" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "The number of steps you took per day")
             )
         case .activeEnergy:
@@ -439,10 +471,10 @@ enum BodyHomeTrendCardFactory {
                         energyUnitPreference: energyUnitPreference
                     ).value
                 },
-                chartStyle: .bar,
-                symbolName: "flame.fill",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " " + energyUnit },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "Your active energy")
             )
         case .restingEnergy:
@@ -455,10 +487,10 @@ enum BodyHomeTrendCardFactory {
                         energyUnitPreference: energyUnitPreference
                     ).value
                 },
-                chartStyle: .bar,
-                symbolName: "leaf.fill",
-                symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " " + energyUnit },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "Your resting energy")
             )
         case .exerciseMinutes:
@@ -466,10 +498,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .exerciseMinutes,
                 title: "Exercise Minutes",
                 series: trends.series(for: .exerciseMinutes),
-                chartStyle: .bar,
-                symbolName: "figure.run",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " min" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "Your exercise minutes")
             )
         case .trainingLoad:
@@ -477,10 +509,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .trainingLoad,
                 title: "Training Load",
                 series: trends.series(for: .trainingLoad),
-                chartStyle: .line,
-                symbolName: "figure.strengthtraining.traditional",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 2) },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "Your training load ratio")
             )
         case .timeInDaylight:
@@ -488,17 +520,13 @@ enum BodyHomeTrendCardFactory {
                 kind: .timeInDaylight,
                 title: "Time In Daylight",
                 series: trends.series(for: .timeInDaylight),
-                chartStyle: .bar,
-                symbolName: "sun.max.fill",
-                symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " min" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "Your time in daylight")
             )
         case .bodyMass:
-            let massUnit = BodyValueFormat.massValue(
-                kilograms: 0,
-                weightUnitPreference: weightUnitPreference
-            ).unit
             return Configuration(
                 kind: .bodyMass,
                 title: "Weight",
@@ -508,10 +536,10 @@ enum BodyHomeTrendCardFactory {
                         weightUnitPreference: weightUnitPreference
                     ).value
                 },
-                chartStyle: .line,
-                symbolName: "scalemass.fill",
-                symbolColor: Color(red: 0.50, green: 0.34, blue: 1.00),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " " + massUnit },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your weight")
             )
         case .bodyFatPercentage:
@@ -519,10 +547,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .bodyFatPercentage,
                 title: "Body Fat",
                 series: trends.series(for: .bodyFatPercentage),
-                chartStyle: .line,
-                symbolName: "percent",
-                symbolColor: Color(red: 1.00, green: 0.68, blue: 0.08),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + "%" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your body fat")
             )
         }
