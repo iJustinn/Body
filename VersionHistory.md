@@ -1,5 +1,11 @@
 # Version History
 
+## 1.1.0 (build 6)
+
+- **Settings > Appearance > Background now names the background you picked.** With the background off the row still reads "Off"; with it on the row shows the matching saved profile's name, like "ohmybody" or "iJustin", instead of a plain "On". Colors that match no saved profile keep showing "On".
+- **Workouts now keeps the last six months cached on the device instead of two.** All six are restored at launch, and switching to a month that is already cached opens it immediately while it refreshes from Apple Health in the background.
+- Updated the app, widget, watch, and test bundle version to 1.1.0 build 6.
+
 ## 1.1.0 (build 5)
 
 - **Settings > Workouts > Month Swipe is now Settings > Workouts > Others.** The row switches to a gray ellipsis.circle icon and drops its On/Off value; tapping it opens an "Others" sheet that still holds the existing Workouts Chart card with the Month Swipe toggle, unchanged. In English only, the sheet gains a second card, Month Picker, with a **Short Month Names** toggle (off by default): turning it on shows the month carousel at the top of the Workouts page and the month picker popover's rows as uppercase short names, e.g. "SEP" instead of "September" and "SEP 2026" instead of "September 2026". Other languages keep their full month names.
