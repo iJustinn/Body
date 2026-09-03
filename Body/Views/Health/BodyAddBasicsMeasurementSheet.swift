@@ -19,7 +19,7 @@ struct BodyAddBasicsMeasurementSheet: View {
     /// Latest known body-fat percentage (0–100), used to seed the body-fat wheel.
     let initialBodyFatPercent: Double?
 
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true

@@ -1077,11 +1077,11 @@ struct BodyWorkoutShareSheet: View {
 
                 // The reader is only here for the tray's width budget; it draws nothing
                 // itself, so the empty area around the rail stays untouchable.
-                // Resolved through a zero-sized child rather than an `@EnvironmentObject`
-                // on the sheet: the store publishes throughout a background refresh, and
-                // observing it here would invalidate the whole composer — gestures and
-                // all — on every one of those. The set is captured into state, so the
-                // card renderers stay static.
+                // Resolved through a zero-sized child rather than a store read on the
+                // sheet: the set is captured into `@State` once, so the card renderers
+                // stay static values and the composer keeps no dependency on the store.
+                // It also keeps the store out of the sheet's own requirements, which is
+                // what lets summary mode present without one (see below).
                 if !isSummaryMode {
                     WorkoutSharePersonalRecordsReader(workout: workout) { records in
                         // The baseline scan can finish with the composer already open,
@@ -3810,15 +3810,16 @@ private struct OptionTileViewportWidthKey: PreferenceKey {
 /// Reads the workout's personal records out of the store and hands them to the sheet
 /// as a plain value.
 ///
-/// Its own zero-sized view rather than an `@EnvironmentObject` on the sheet itself:
-/// the store publishes on every step of a background refresh, and observing it from
-/// the sheet would invalidate the entire composer — preview, rail, and live gesture
-/// state — each time. Here the invalidation stops at a view that draws nothing.
+/// Its own zero-sized view rather than a store read on the sheet itself: the record
+/// set is handed over as a plain value, so the composer's preview, rail and live
+/// gesture state never depend on the store, and the ledger's arrival re-runs only a
+/// view that draws nothing. Summary mode does not mount it at all, because a
+/// month summary has no per-workout records to read.
 private struct WorkoutSharePersonalRecordsReader: View {
     let workout: WorkoutSummary
     let onResolve: (Set<WorkoutRecordMetric>) -> Void
 
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
 
     var body: some View {
         Color.clear

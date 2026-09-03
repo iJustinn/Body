@@ -338,7 +338,7 @@ private struct BodyActivityRingCompletionStar: View {
 }
 
 struct BodyActivityRingsDetailView: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var calendarMonths: [ActivityRingCalendarMonth] = []
     @State private var scrollPosition = ScrollPosition(idType: String.self, edge: .bottom)

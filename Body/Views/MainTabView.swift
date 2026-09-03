@@ -127,7 +127,7 @@ struct MainTabView: View {
 
 #Preview {
     MainTabView()
-        .environmentObject(HealthKitWorkoutStore())
+        .environment(HealthKitWorkoutStore())
 }
 
 private struct SummaryReselectCountKey: EnvironmentKey {

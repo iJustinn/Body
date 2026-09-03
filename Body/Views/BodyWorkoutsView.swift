@@ -73,7 +73,7 @@ enum BodyWorkoutChartSwipe {
 }
 
 struct BodyWorkoutsView: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.workoutColorPalette) private var workoutColorPalette
@@ -315,16 +315,20 @@ struct BodyWorkoutsView: View {
                 .presentationDetents([.medium, .large])
             }
             .fullScreenCover(item: $monthSummaryShareRequest) { request in
+                // No explicit re-injection: the cover inherits this view's
+                // environment, store included. Summary mode also skips
+                // `WorkoutSharePersonalRecordsReader`, the sheet's one store reader,
+                // because a month summary has no per-workout records to read.
                 BodyWorkoutShareSheet(monthSummary: request.summary)
             }
             .navigationDestination(item: $selectedWorkoutForDetails) { workout in
                 BodyWorkoutDetailSheet(workout: workout)
-                    .environmentObject(workoutStore)
+                    .environment(workoutStore)
                     .navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))
             }
             .sheet(item: $selectedWorkoutListSelection) { selection in
                 BodyWorkoutListSheet(selection: selection)
-                    .environmentObject(workoutStore)
+                    .environment(workoutStore)
                     .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)
             }
@@ -1269,7 +1273,7 @@ struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.workoutEquivalentUsesTotalEnergyKey) private var workoutEquivalentUsesTotalEnergy = false
     @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentEmojiScaleKey) private var workoutEquivalentEmojiScale = 1.0
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     /// Where every detail chart's hold-to-scrub callout is published; the overlay
     /// below draws it above the page's Back/Share chrome.
     @State private var chartCallout = BodyChartFloatingCalloutState()
@@ -5091,5 +5095,5 @@ extension View {
 
 #Preview {
     BodyWorkoutsView()
-        .environmentObject(HealthKitWorkoutStore())
+        .environment(HealthKitWorkoutStore())
 }

@@ -201,7 +201,11 @@ final class SourceGuardTests: XCTestCase {
         // report the group's CURRENT name (a rename must never rewrite — and
         // re-sign — the stored selection).
         XCTAssertTrue(storeSource.contains("private func resolvedCustomHealthSourceOption("))
-        XCTAssertTrue(storeSource.contains("guard BodyProEntitlement.isUnlocked,"))
+        // Spelled `isProUnlocked` since the store went `@Observable`: that accessor reads
+        // `proEntitlementGeneration` before the entitlement static, which is what gives a
+        // view `body` a dependency on the flip. See
+        // `testProGatedSourceResolutionReadsTheEntitlementGeneration`.
+        XCTAssertTrue(storeSource.contains("guard isProUnlocked,"))
         XCTAssertTrue(storeSource.contains("let group = customHealthSourceGroups.first(where: { $0.id == option.id })"))
         XCTAssertTrue(storeSource.contains("customIDsWithData.contains(option.id) ? group.option : absentFallback"))
 
@@ -2215,6 +2219,58 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(block.contains("persistedDaySamplesHydration = nil"))
     }
 
+    /// The store is `@Observable`, so a view re-renders only for the properties its
+    /// `body` actually read. `BodyProEntitlement.isUnlocked` is a static read that
+    /// observation cannot see, and the entitlement observer no longer blanket-invalidates
+    /// every reader. So the three source-resolution chokepoints have to go through
+    /// `isProUnlocked`, which reads `proEntitlementGeneration` and hands the dependency
+    /// to every caller: `selectedHealthDataSourceOption`, `defaultHealthDataSourceOption`,
+    /// `defaultSecondaryHealthDataSourceOption`, `selectedSecondaryHealthDataSourceOption`
+    /// and the three `source*ComparisonTrend` accessors all resolve through them. A
+    /// chokepoint that goes back to the raw static silently freezes the comparison charts,
+    /// the source picker sheet and the Settings default-source rows on a Pro flip.
+
+    func testProGatedSourceResolutionReadsTheEntitlementGeneration() throws {
+        let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+
+        // The one place the static is read for view-facing resolution, and the read of
+        // the counter that makes it observable.
+        let unlockedStart = try XCTUnwrap(storeSource.range(of: "var isProUnlocked: Bool {")?.lowerBound)
+        let unlockedBlock = String(storeSource[unlockedStart...].prefix(160))
+        XCTAssertTrue(unlockedBlock.contains("_ = proEntitlementGeneration"))
+        XCTAssertTrue(unlockedBlock.contains("return BodyProEntitlement.isUnlocked"))
+
+        // The observer bumps the counter instead of a blanket invalidation.
+        XCTAssertTrue(storeSource.contains("self.proEntitlementGeneration &+= 1"))
+        XCTAssertFalse(storeSource.contains("objectWillChange.send()"))
+
+        for chokepoint in [
+            "func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind)",
+            "private func resolvedDefaultCustomHealthSourceOption(",
+            "private func resolvedCustomHealthSourceOption("
+        ] {
+            let start = try XCTUnwrap(storeSource.range(of: chokepoint)?.lowerBound)
+            let block = String(storeSource[start...].prefix(900))
+            XCTAssertTrue(
+                block.contains("isProUnlocked"),
+                "\(chokepoint) must gate on `isProUnlocked`, not on `BodyProEntitlement.isUnlocked`."
+            )
+            XCTAssertFalse(
+                block.contains("guard BodyProEntitlement.isUnlocked"),
+                "\(chokepoint) reads the entitlement static, which observation cannot see."
+            )
+        }
+
+        // The two sheets that used to read the static and relied on the store's blanket
+        // invalidation to re-render.
+        let pickerSource = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthDataSourcePickerSheet.swift")
+        let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
+        XCTAssertTrue(pickerSource.contains("!workoutStore.isProUnlocked"))
+        XCTAssertFalse(pickerSource.contains("!BodyProEntitlement.isUnlocked"))
+        XCTAssertTrue(settingsSource.contains("!workoutStore.isProUnlocked"))
+        XCTAssertFalse(settingsSource.contains("!BodyProEntitlement.isUnlocked"))
+    }
+
     /// The Body Pro paywall is a sheet presented from the metric detail view, so
     /// buying or restoring leaves that view mounted. The entitlement handler empties
     /// the comparison day samples on any flip, so the detail's lazy intraday loader
@@ -2392,7 +2448,7 @@ final class SourceGuardTests: XCTestCase {
         let engineSource = try healthKitFetchEngineText()
         let snapshotSource = try healthSummarySnapshotText()
 
-        XCTAssertTrue(storeSource.contains("@Published private(set) var secondaryHealthDataSourceSelection"))
+        XCTAssertTrue(storeSource.contains("private(set) var secondaryHealthDataSourceSelection"))
         XCTAssertTrue(storeSource.contains("func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind)"))
         XCTAssertTrue(storeSource.contains("func updateSecondaryHealthDataSource(for kind: HealthMetricKind"))
         XCTAssertTrue(engineSource.contains("func fetchSecondaryTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendSeries?"))
@@ -3855,7 +3911,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(badgeSource.contains(".fill(.regularMaterial)"))
         XCTAssertTrue(badgeSource.contains(".allowsHitTesting(false)"))
         XCTAssertTrue(badgeSource.contains("syncBadgeSuccessCount != successCountAtSyncStart"))
-        XCTAssertTrue(storeSource.contains("@Published private(set) var syncBadgeSuccessCount = 0"))
+        XCTAssertTrue(storeSource.contains("private(set) var syncBadgeSuccessCount = 0"))
         XCTAssertTrue(badgeSource.contains("struct BodySyncStatusBadgeLabel"))
         XCTAssertTrue(badgeSource.contains("\"Loading data...\""))
         XCTAssertFalse(badgeSource.contains("Syncing health data"))

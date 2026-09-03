@@ -7,7 +7,7 @@ import SwiftUI
 
 struct BodyHealthDataSourcePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
 
     let kind: HealthMetricKind
     let accentColor: Color
@@ -15,11 +15,11 @@ struct BodyHealthDataSourcePickerSheet: View {
     @State private var updatingSelection: PendingSelection?
     @State private var showBodyProPaywall = false
 
-    // Read the cached entitlement directly (not the environment store) since this is a
-    // sheet; it stays reactive because the view observes `workoutStore`, which re-renders
-    // on the entitlement-change notification.
+    // Read through the store rather than the `BodyProEntitlement` static: the static is
+    // invisible to observation, while `isProUnlocked` also reads the store's entitlement
+    // generation, so a flip re-runs this body and nothing else.
     private var isSecondaryLocked: Bool {
-        !BodyProEntitlement.isUnlocked
+        !workoutStore.isProUnlocked
     }
 
     private enum SourceRole: Equatable {

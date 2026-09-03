@@ -393,7 +393,7 @@ enum BodyMetricDetailDatePicker {
 }
 
 struct BodyHealthMetricDetailView: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.workoutColorPalette) private var workoutColorPalette
@@ -602,7 +602,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .sheet(isPresented: $showsDataSourcePicker) {
             BodyHealthDataSourcePickerSheet(kind: model.kind, accentColor: model.symbolColor)
-                .environmentObject(workoutStore)
+                .environment(workoutStore)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -612,7 +612,7 @@ struct BodyHealthMetricDetailView: View {
                 initialWeightKilograms: workoutStore.healthSummary.bodyMass.value,
                 initialBodyFatPercent: workoutStore.healthSummary.bodyFatPercentage.value
             )
-            .environmentObject(workoutStore)
+            .environment(workoutStore)
         }
     }
 

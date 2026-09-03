@@ -8,7 +8,7 @@ import SwiftUI
 @main
 struct BodyApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var workoutStore = HealthKitWorkoutStore()
+    @State private var workoutStore: HealthKitWorkoutStore
     @State private var proStore: BodyProStore
     /// Owns the on-device Apple Intelligence readiness comment. Lives at the root so
     /// Home (which drives generation) and Settings (which reads `isSupported`) share
@@ -20,12 +20,13 @@ struct BodyApp: App {
 
     init() {
         // The permission-selection migrations run exactly once here, before
-        // anything reads the selection. `workoutStore` is a `@StateObject`, so its
-        // autoclosure (and the `BodyHealthPermissionSelection.load()` default
-        // argument inside `HealthKitWorkoutStore.init`) runs after this `init`,
-        // which is what puts the migration first. Do not turn that property into a
-        // plain stored value, which would evaluate it before this line.
+        // anything reads the selection. `workoutStore` is built on the line below
+        // rather than in its declaration, so the `BodyHealthPermissionSelection.load()`
+        // default argument inside `HealthKitWorkoutStore.init` runs after the
+        // migration. Do not move the assignment above this line, and do not give the
+        // property an inline default, which would construct the store first.
         BodyHealthPermissionSelection.migrateIfNeeded()
+        _workoutStore = State(initialValue: HealthKitWorkoutStore())
 
         // Configure RevenueCat before constructing BodyProStore so the store's async
         // entitlement work always runs against a configured SDK.
@@ -45,7 +46,7 @@ struct BodyApp: App {
         WindowGroup {
             MainTabView()
                 .bodyBaseInterfaceLevel()
-                .environmentObject(workoutStore)
+                .environment(workoutStore)
                 .environment(proStore)
                 .environment(readinessComment)
                 .environment(\.workoutColorPalette, workoutColorPalette)

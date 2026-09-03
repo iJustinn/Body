@@ -10,7 +10,7 @@ import UIKit
 import UserNotifications
 
 struct BodySettingsView: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @Environment(ReadinessCommentGenerator.self) private var readinessComment
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
@@ -2893,7 +2893,7 @@ private struct BodyWorkoutEffortSettingsSheet: View {
     @Binding var cardEnabled: Bool
     @Binding var isEnabled: Bool
     @Binding var autoApply: Bool
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
     @State private var showsWorkoutEffortWriteDenied = false
     /// Retains the immediate opt-in auto-apply pass so switching Auto-Apply off
     /// (or leaving the sheet) cancels the in-flight batch instead of letting it
@@ -3792,7 +3792,7 @@ private struct BodyMetricDayViewToggleRow: View {
 private struct BodyMetricWarningsSettingsSheet: View {
     @Binding var selection: BodyMetricWarningSelection
     @Binding var thresholds: BodyMetricWarningThresholds
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
 
     @AppStorage(BodyAppearancePreference.metricWarningNotificationsKey) private var metricWarningNotificationsEnabled = false
 
@@ -4128,14 +4128,16 @@ private struct BodyCustomSourceEditorTarget: Identifiable {
 }
 
 private struct BodySourceSettingsSheet: View {
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
     @State private var updatingSelection: PendingSelection?
     @State private var showBodyProPaywall = false
     @State private var customSourceEditorTarget: BodyCustomSourceEditorTarget?
 
-    // Cached entitlement read (this is a sheet); reactive via the observed `workoutStore`.
+    // Read through the store, not the `BodyProEntitlement` static: `isProUnlocked` also
+    // reads the store's entitlement generation, which is what makes a flip re-run this
+    // body under observation.
     private var isSecondaryLocked: Bool {
-        !BodyProEntitlement.isUnlocked
+        !workoutStore.isProUnlocked
     }
 
     fileprivate enum Role: String, Equatable {
@@ -4458,7 +4460,7 @@ private struct BodySourceSettingsSheet: View {
 }
 
 private struct BodyHealthPermissionsSettingsSheet: View {
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
     /// Sampled when the sheet appears (and again after a toggle settles) rather
     /// than observed, so the footers stay put instead of flickering through
     /// intermediate values while a refresh publishes.
@@ -4554,7 +4556,7 @@ private struct BodyHealthPermissionToggleRow: View {
 }
 
 private struct BodyHealthSyncStatusSettingsSheet: View {
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Data Refresh") {
@@ -4602,7 +4604,7 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
 }
 
 private struct BodyCacheSettingsSheet: View {
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Cache") {
@@ -5251,6 +5253,6 @@ private struct BodySettingsInfoCard: View {
 
 #Preview {
     BodySettingsView()
-        .environmentObject(HealthKitWorkoutStore())
+        .environment(HealthKitWorkoutStore())
         .environment(ReadinessCommentGenerator())
 }

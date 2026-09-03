@@ -12,7 +12,7 @@ import SwiftUI
 /// backfill. Dismisses itself once a refresh succeeds; "Not Now" hides it
 /// for the session (a pull-to-refresh later runs the same first load).
 struct BodyFirstLaunchLoadOverlay: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @State private var isLoading = false
     @State private var hasAttemptedLoad = false
     @State private var isDismissedForSession = false
@@ -155,5 +155,5 @@ struct BodyFirstLaunchLoadOverlay: View {
 
 #Preview {
     BodyFirstLaunchLoadOverlay()
-        .environmentObject(HealthKitWorkoutStore())
+        .environment(HealthKitWorkoutStore())
 }

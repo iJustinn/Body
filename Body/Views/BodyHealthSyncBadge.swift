@@ -10,7 +10,7 @@ import SwiftUI
 /// top-center over all tabs while a HealthKit refresh runs, then briefly
 /// confirming completion before auto-dismissing.
 struct BodyHealthSyncBadge: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// True while the first-launch load overlay is presented; that modal
@@ -409,5 +409,5 @@ private struct BodyPixelGridLoader: View {
 
 #Preview {
     BodyHealthSyncBadge(isSuppressed: false)
-        .environmentObject(HealthKitWorkoutStore())
+        .environment(HealthKitWorkoutStore())
 }

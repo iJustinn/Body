@@ -101,7 +101,7 @@ enum BodyWorkoutListSelection: Identifiable {
 }
 
 struct BodyWorkoutListSheet: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.workoutColorPalette) private var workoutColorPalette
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
@@ -150,7 +150,7 @@ struct BodyWorkoutListSheet: View {
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(item: $selectedWorkout) { workout in
                 BodyWorkoutDetailSheet(workout: workout)
-                    .environmentObject(workoutStore)
+                    .environment(workoutStore)
                     .navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))
             }
         }

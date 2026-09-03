@@ -5,6 +5,7 @@
 
 import Foundation
 import HealthKit
+import Observation
 import WidgetKit
 
 /// How a refresh was triggered, which decides how much workout data is
@@ -87,8 +88,9 @@ struct BodyHealthCacheStatus: Equatable {
     }
 }
 
+@Observable
 @MainActor
-final class HealthKitWorkoutStore: ObservableObject {
+final class HealthKitWorkoutStore {
     nonisolated static let recentChartMonthCount = 3
 
     enum AuthorizationState: Equatable {
@@ -99,71 +101,86 @@ final class HealthKitWorkoutStore: ObservableObject {
         case failed(String)
     }
 
-    @Published private(set) var authorizationState: AuthorizationState = .unknown
-    @Published private(set) var snapshot: WorkoutMonthSnapshot
-    @Published private(set) var monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot] {
-        didSet { monthSnapshotsGeneration &+= 1 }
-    }
+    private(set) var authorizationState: AuthorizationState = .unknown
+    private(set) var snapshot: WorkoutMonthSnapshot
+    private(set) var monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot]
     /// Bumped on every `monthSnapshots` write, including subscript writes and
     /// `removeValue`. Views key their derived caches on it instead of
-    /// re-deriving from the dictionary. Deliberately not `@Published`: the
-    /// dictionary's own publish already re-runs any `body` that reads this, and
-    /// a second publish from `didSet` would double every store invalidation.
+    /// re-deriving from the dictionary. Bumped explicitly by
+    /// `setMonthSnapshots` / `mutateMonthSnapshots` rather than by a `didSet`,
+    /// which the `@Observable` macro rewrites the property through: every write
+    /// has to go through one of those two, or the memo keys freeze while the
+    /// dictionary moves on.
     private(set) var monthSnapshotsGeneration = 0
+
+    /// The only whole-dictionary writer of `monthSnapshots`.
+    private func setMonthSnapshots(_ snapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot]) {
+        monthSnapshots = snapshots
+        monthSnapshotsGeneration &+= 1
+    }
+
+    /// The only in-place writer of `monthSnapshots` (subscript, `removeValue`).
+    /// Mutates through the stored property rather than copying it out and back,
+    /// so a month insert doesn't deep-copy every cached month.
+    private func mutateMonthSnapshots(_ mutate: (inout [BodyWorkoutMonthKey: WorkoutMonthSnapshot]) -> Void) {
+        mutate(&monthSnapshots)
+        monthSnapshotsGeneration &+= 1
+    }
     /// Session-scoped manual effort ratings the user just saved from the workout
     /// detail screen, keyed by workout UUID. The detail card prefers these over
     /// the cached snapshot value so an edit shows immediately; the snapshot's
     /// baked-in effort catches up on the next workout refresh.
-    @Published private(set) var workoutEffortOverrides: [UUID: Double] = [:]
+    private(set) var workoutEffortOverrides: [UUID: Double] = [:]
     /// Workouts whose saved effort was an accepted suggestion (saved unchanged from
     /// the pre-filled estimate). `WorkoutEffortEstimator` excludes these from its
     /// calibration so it never learns from its own output; a manual re-rate removes
     /// the ID again. Device-local: persisted in `UserDefaults` as an ordered
     /// `[String]` capped at `suggestionAcceptedEffortIDsCap` (oldest dropped first).
-    @Published private(set) var suggestionAcceptedEffortWorkoutIDs: Set<UUID> =
+    private(set) var suggestionAcceptedEffortWorkoutIDs: Set<UUID> =
         HealthKitWorkoutStore.loadSuggestionAcceptedEffortIDs()
     /// Device-local user renames keyed by HealthKit workout UUID. Persisted in
     /// `UserDefaults` as a `[String: String]` (UUID string → name); nothing is
     /// written back to HealthKit.
-    @Published private(set) var workoutCustomNames: [UUID: String]
-    @Published private(set) var healthSummary: HealthSummarySnapshot = .empty
+    private(set) var workoutCustomNames: [UUID: String]
+    private(set) var healthSummary: HealthSummarySnapshot = .empty
     /// Primary-source + permission signature captured when `healthSummary` was
     /// last published by a full dashboard refresh. A failed summary leaf reuses
     /// the cached value only while this still matches the current selection, so
     /// switching source/permission never resurrects stale other-source data.
     /// In-memory only (nil on cold start → conservative empty-on-failure).
+    @ObservationIgnored
     private var healthSummaryPrimarySignature: String?
-    @Published private(set) var healthTrends: HealthTrendSnapshot = .empty
-    @Published private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty
-    @Published private(set) var permissionSelection: BodyHealthPermissionSelection
-    @Published private(set) var healthDataSourceSelection: BodyHealthDataSourceSelection
-    @Published private(set) var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
-    @Published private(set) var combinesHealthDataSourcesByName: Bool
+    private(set) var healthTrends: HealthTrendSnapshot = .empty
+    private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty
+    private(set) var permissionSelection: BodyHealthPermissionSelection
+    private(set) var healthDataSourceSelection: BodyHealthDataSourceSelection
+    private(set) var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
+    private(set) var combinesHealthDataSourcesByName: Bool
     /// User-created merged sources (Body Pro). Kept verbatim when the
     /// entitlement lapses — every read path neutralizes a `custom:` selection
     /// to All Sources instead, so re-subscribing restores the user's setup.
-    @Published private(set) var customHealthSourceGroups: [BodyCustomHealthSourceGroup]
+    private(set) var customHealthSourceGroups: [BodyCustomHealthSourceGroup]
     /// Every individual source discovered for ANY kind — the membership pool
     /// the custom-source editor picks from. Refreshed by
     /// `fetchHealthDataSourceOptions`, empty until discovery first runs.
-    @Published private(set) var discoveredIndividualHealthSources: [BodyDiscoveredHealthSource] = []
-    @Published private(set) var healthDataSourceOptionsByKind: [HealthMetricKind: [BodyHealthDataSourceOption]] = [:]
+    private(set) var discoveredIndividualHealthSources: [BodyDiscoveredHealthSource] = []
+    private(set) var healthDataSourceOptionsByKind: [HealthMetricKind: [BodyHealthDataSourceOption]] = [:]
     /// Per kind, the custom group ids that registered a non-empty source bucket
     /// in the engine — mirrored here because the store's resolved-option
     /// accessors are synchronous while the engine is an actor. A kind is ABSENT
     /// (not empty) until its discovery succeeds, which the resolution below
     /// reads as "keep the selection" exactly like the engine does (H4).
     private var customSourceIDsWithDataByKind: [HealthMetricKind: Set<String>] = [:]
-    @Published private(set) var healthDataNotice: String?
-    @Published private(set) var isRefreshing = false
-    @Published private(set) var lastSuccessfulRefreshDate: Date?
+    private(set) var healthDataNotice: String?
+    private(set) var isRefreshing = false
+    private(set) var lastSuccessfulRefreshDate: Date?
     /// Whether a full refresh has ever completed on this install, even a partial
     /// one. Separate from `lastSuccessfulRefreshDate` (which arms the freshness
     /// TTL and so requires a clean fetch): a user who denied some Health read
     /// permissions can hit a query failure on every refresh, and gating the
     /// first-launch overlay on the TTL stamp alone left them on "Try Again"
     /// forever.
-    @Published private(set) var hasCompletedInitialHealthDataLoad = false
+    private(set) var hasCompletedInitialHealthDataLoad = false
     /// Count of user-visible refreshes — the three paths that set `isRefreshing`
     /// (foreground/vitals, workout month, single metric) — that completed with a
     /// genuine fetch (no query failure, and at least one HealthKit query actually
@@ -175,7 +192,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// captures this when syncing starts and, on the falling edge, confirms
     /// "Health data updated" only if it advanced — so a failed refresh, or a
     /// background page-in that lands during one, can't make it falsely confirm.
-    @Published private(set) var syncBadgeSuccessCount = 0
+    private(set) var syncBadgeSuccessCount = 0
     /// Date of the last refresh that re-fetched the dashboard vitals (not just
     /// workouts or ring history). Carried in the watch snapshot so the watch's
     /// staleness logic isn't reset by workout-only refreshes. Doubles as the
@@ -183,6 +200,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// on-watch realtime compute plan) — it already advances ONLY when a full
     /// dashboard refresh lands cleanly, which is exactly the data-coverage
     /// guarantee `dataThrough` needs.
+    @ObservationIgnored
     private var lastVitalsRefreshDate: Date?
     /// When readiness was last RE-DERIVED from freshly-fetched inputs. Distinct
     /// from `lastVitalsRefreshDate`, which advances only on a clean full
@@ -194,6 +212,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// workout-only push's fresher readiness isn't presented under a stale
     /// timestamp and beaten by an older watch-computed value in
     /// `WatchComputeMerge.merging`'s per-metric compare.
+    @ObservationIgnored
     private var lastReadinessComputeDate: Date?
     /// When the Training Load summary/series were last RE-DERIVED from a fresh
     /// workout fetch. Deliberately SEPARATE from `lastReadinessComputeDate`:
@@ -202,6 +221,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// fetch selection's `.trainingLoad` bit) — advancing a joint watermark
     /// there would label a stale Training Load as freshly computed and let it
     /// overwrite a newer watch-computed value in the per-metric merge.
+    @ObservationIgnored
     private var lastTrainingLoadComputeDate: Date?
     /// When the CURRENT month's workout snapshot was last rebuilt from a fresh
     /// fetch — the honest watermark for the weekly workout-minutes bars, which
@@ -219,6 +239,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// derived from `lastSuccessfulRefreshDate`, which an early-month passive
     /// refresh advances without covering the week), and NEVER unioned with the
     /// live vitals date when stamping.
+    @ObservationIgnored
     private var lastWorkoutsRefreshDate: Date?
     /// Per-kind watermark for the OTHER watch metrics a single-metric detail
     /// pull can refresh (HR, HRV, resting HR, sleep, skin temp), keyed by
@@ -228,11 +249,13 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// (`lastVitalsRefreshDate` deliberately doesn't advance on a
     /// `refreshedVitals: false` refresh), and a watch that computed that kind
     /// locally in between keeps its older value in the freshest-wins merge.
+    @ObservationIgnored
     private var lastMetricPullDates: [String: Date] = [:]
     /// The phone's discovered source universe per compute kind (see
     /// `HealthKitFetchEngine.watchComputeExpectedSourceIDs`), cached at each
     /// source-options fetch and carried in the compute seed so the watch can
     /// validate an All-Sources read against it.
+    @ObservationIgnored
     private var cachedExpectedSourceIDsByKind: [String: [String]] = [:]
     /// Dense day-indexed Training Load loads for the phone→watch compute seed,
     /// refreshed alongside a clean full dashboard refresh whose fetch selection
@@ -250,6 +273,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// load rebuild (cost gate). The watch refuses to replay loads whose
     /// coverage no longer reaches its delta window — otherwise the uncovered
     /// days would be silently zero-filled as fabricated rest days.
+    @ObservationIgnored
     private var cachedComputeTrainingLoadSeed: (startDay: Date, loads: [Double], through: Date)?
 
     /// Sole writer of a POPULATED `cachedComputeTrainingLoadSeed`: persists the
@@ -261,28 +285,30 @@ final class HealthKitWorkoutStore: ObservableObject {
         cachedComputeTrainingLoadSeed = (startDay: startDay, loads: loads, through: through)
         HealthDashboardSnapshotStore.saveWatchTrainingLoadSeed(startDay: startDay, loads: loads, through: through)
     }
-    @Published private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
-    @Published private(set) var loadingActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
-    @Published private(set) var hasMoreActivityRingHistory = true
+    private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
+    private(set) var loadingActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
+    private(set) var hasMoreActivityRingHistory = true
 
     /// Disk size of the three snapshot caches, refreshed off the main thread
     /// (`refreshCacheDiskSize`). `cacheStatus` reads this instead of running
     /// per-render `FileManager` stat calls on the main thread.
-    @Published private(set) var cacheDiskSizeBytes: Int64 = 0
+    private(set) var cacheDiskSizeBytes: Int64 = 0
 
     /// All-time personal-record contributions, hydrated from disk at init and
     /// folded forward as months load. Reads go through `personalRecords(for:)`,
     /// which stays empty until the baseline scan has covered the whole history.
     /// The lifecycle lives in `HealthKitWorkoutStore+Records.swift`; stored state
     /// has to sit here because a Swift extension can't declare it.
-    @Published private(set) var recordLedger = WorkoutRecordLedger()
+    private(set) var recordLedger = WorkoutRecordLedger()
     /// The one-time baseline scan. Retained so a Clear Cache can cancel it and
     /// await its exit before wiping the ledger it would otherwise re-persist.
+    @ObservationIgnored
     var recordBackfillTask: Task<Void, Never>?
 
     /// The one-time Stress history walk. Same rationale as `recordBackfillTask`
     /// — its lifecycle lives in `HealthKitWorkoutStore+StressBackfill.swift`,
     /// but an extension can't declare stored state.
+    @ObservationIgnored
     var stressBackfillTask: Task<Void, Never>?
 
     /// The in-flight post-refresh Stress input load, for the backfill's
@@ -322,15 +348,18 @@ final class HealthKitWorkoutStore: ObservableObject {
 
     // Internal (not `private`) so `HealthKitWorkoutStore+Records.swift` can run
     // the baseline scan's queries through the same engine.
+    @ObservationIgnored
     let engine: HealthKitFetchEngine
     /// Backing store for `workoutCustomNames` — injectable so tests can use an
     /// isolated suite.
+    @ObservationIgnored
     private let customNameDefaults: UserDefaults
     /// The per-workout detail session caches (route, presence probe, splits,
     /// metric series, heart-rate recovery, heart-rate series, energy equivalent),
     /// their disk-hydration tasks and their LRU order. Owned here and read only
     /// by the loaders below; see `BodyWorkoutDetailCacheStore` for why it is not
     /// observed state.
+    @ObservationIgnored
     private let detailCaches = BodyWorkoutDetailCacheStore()
     /// Set when Body enters the background. While it is set, detail opens skip
     /// the disk seed so the loaders read HealthKit live, because the persisted
@@ -344,34 +373,63 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// whose result the in-memory caches hold for the rest of the session. The
     /// live loaders refresh the files as they go: a positive is re-persisted,
     /// and a confirmed absence deletes the workout's file.
+    @ObservationIgnored
     private var bypassesPersistedDetailSeeding = false
+    /// Tracked, not ignored: `comparisonContext(for:)` reads it from a detail
+    /// sheet's body to decide whether a month is complete.
     private var loadedMonthKeys: Set<BodyWorkoutMonthKey> = []
+    @ObservationIgnored
     private var monthLoadOrder: [BodyWorkoutMonthKey] = []
     private var loadedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     /// Months probed for older ring history that came back with no data.
     /// Session-only: never refetched this session, never persisted; cleared
     /// whenever a refresh applies fresh dashboard ring history.
+    @ObservationIgnored
     private var exhaustedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
+    @ObservationIgnored
     private var lastAppEntrySyncDate: Date?
+    @ObservationIgnored
     private let refreshCompletionWaiters = RefreshCompletionWaiters()
+    @ObservationIgnored
     private var monthLoadContinuations: [BodyWorkoutMonthKey: [CheckedContinuation<Void, Never>]] = [:]
+    @ObservationIgnored
     private var persistedDaySamplesHydration: Task<HealthTrendDaySampleSnapshot?, Never>?
     /// The in-flight post-refresh Stress input load, so overlapping refreshes
     /// don't stack heartbeat-series scans.
+    @ObservationIgnored
     private var stressInputLoadTask: Task<Void, Never>?
     /// The in-flight phase-2 full-window trend load, so overlapping refreshes
     /// don't stack year-long trend refetches.
+    @ObservationIgnored
     private var fullTrendWindowLoadTask: Task<Void, Never>?
     /// The pending refetch a warning-threshold edit queued, so dragging the
     /// picker wheel across a dozen values leaves one refresh rather than twelve.
+    @ObservationIgnored
     private var metricWarningThresholdRefreshTask: Task<Void, Never>?
     /// Builds and ships the widget and watch snapshots off the main actor, and
     /// owns the debounced republish task (see `republishCompanionSnapshots`).
+    @ObservationIgnored
     private let companionPublisher = BodyCompanionPublisher()
     /// Retains the Body Pro entitlement observer so secondary-source gating (which this
     /// store resolves from `BodyProEntitlement`, not the SwiftUI environment) recomputes
     /// when the entitlement flips.
+    @ObservationIgnored
     private var proEntitlementObserver: NSObjectProtocol?
+
+    /// Bumped by the entitlement observer. `BodyProEntitlement.isUnlocked` is a
+    /// static read that observation cannot see, so the three gating chokepoints
+    /// (`selectedSecondaryHealthDataSourceOption`,
+    /// `resolvedDefaultCustomHealthSourceOption`, `resolvedCustomHealthSourceOption`)
+    /// and `isProUnlocked` read this counter first. That registers the dependency
+    /// for every caller in a view `body`, so a flip re-renders exactly the views
+    /// that resolve a source and nothing else.
+    private(set) var proEntitlementGeneration = 0
+
+    /// The entitlement, read so that a SwiftUI `body` re-runs when it flips.
+    var isProUnlocked: Bool {
+        _ = proEntitlementGeneration
+        return BodyProEntitlement.isUnlocked
+    }
 
     /// Tasks parked on "the in-flight refresh finished", keyed by a per-call ID
     /// rather than pushed onto a bare array: `finishRefresh` used to be the only
@@ -483,6 +541,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// the body keeps running and would otherwise publish, persist, stamp
     /// success, or clear a newer refresh's spinner long after the user was told
     /// the load timed out.
+    @ObservationIgnored
     private var refreshGeneration = 0
 
     /// The generation the running refresh body was started under, carried down
@@ -784,6 +843,10 @@ final class HealthKitWorkoutStore: ObservableObject {
             }
         }
         snapshot = startingSnapshot
+        // The one direct write: `setMonthSnapshots` is a method call, which `init`
+        // can't make before every stored property is initialized. It is the initial
+        // value rather than a write anyway, so there is no memo to invalidate and
+        // `monthSnapshotsGeneration` stays at its own initial 0.
         monthSnapshots = [
             BodyWorkoutMonthKey(month: startingSnapshot.month, year: startingSnapshot.year): startingSnapshot
         ]
@@ -873,7 +936,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            self.objectWillChange.send()
+            // The observer runs on `.main`, but the closure itself is not
+            // main-actor isolated, so the tracked write is done under an explicit
+            // assumption rather than deferred into the task below, which first
+            // waits for the refresh slot and would lag the re-render.
+            MainActor.assumeIsolated {
+                self.proEntitlementGeneration &+= 1
+            }
             Task { @MainActor in
                 // An entitlement flip has to invalidate, not just refetch: the full
                 // refresh re-ships the cached day samples verbatim rather than
@@ -1339,16 +1408,19 @@ final class HealthKitWorkoutStore: ObservableObject {
         )
     }
 
+    @ObservationIgnored
     private var isAutoApplyingEffort = false
     /// True while `clearLocalCache` is wiping in-memory state and awaiting the
     /// engine cache clears + the on-disk deletion barrier. Guards re-entry so a
     /// second Clear tap can't interleave with an in-flight wipe.
+    @ObservationIgnored
     private var isClearingCache = false
     /// Bumped by `clearLocalCache`. Every async path that can publish or persist
     /// after a suspension captures this before its first `await` and re-checks it
     /// before mutating published state or enqueuing a save; a mismatch means a
     /// cache clear landed mid-flight, so the path bails instead of resurrecting
     /// the wiped data (H7).
+    @ObservationIgnored
     private var cacheEpoch = 0
 
     /// Whether an in-flight async load may still apply its result: true only
@@ -1361,11 +1433,13 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
     /// Workouts auto-applied this session — excluded so a session that keeps the
     /// engine's score-less cache warm can't re-write them.
+    @ObservationIgnored
     private var autoAppliedWorkoutIDs: Set<UUID> = []
     /// Workouts found already rated by a fresh read at write time — cached so a rating
     /// that won't disappear isn't re-queried every refresh. Low-confidence (no-HR)
     /// workouts are deliberately *not* cached here: their HR can arrive late, so they
     /// stay eligible for re-estimation on later refreshes within the window.
+    @ObservationIgnored
     private var autoApplySkippedWorkoutIDs: Set<UUID> = []
     /// Cap on effort *writes* per refresh (not candidates examined), so a burst of
     /// no-HR skips can't starve older heart-rate-eligible workouts.
@@ -3145,7 +3219,9 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Secondary-source comparison is a Body Pro feature. Collapsing to .noComparison
         // here neutralizes every comparison renderer (bars, range bars, line, title) that
         // reads this single chokepoint, even if a selection was persisted while Pro.
-        guard BodyProEntitlement.isUnlocked else {
+        // Read through `isProUnlocked` so every caller in a view `body` picks up the
+        // observation dependency on the entitlement (see `proEntitlementGeneration`).
+        guard isProUnlocked else {
             return .noComparison
         }
 
@@ -3188,7 +3264,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return option
         }
 
-        guard BodyProEntitlement.isUnlocked,
+        guard isProUnlocked,
               let group = customHealthSourceGroups.first(where: { $0.id == option.id }) else {
             return absentFallback
         }
@@ -3608,7 +3684,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         for kind: HealthMetricKind,
         absentFallback: BodyHealthDataSourceOption
     ) -> BodyHealthDataSourceOption {
-        guard BodyProEntitlement.isUnlocked,
+        guard isProUnlocked,
               let group = customHealthSourceGroups.first(where: { $0.id == option.id }) else {
             return absentFallback
         }
@@ -4399,7 +4475,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // deletions run, and so `needsInitialHealthDataLoad` flips immediately
         // (idling the passive load paths).
         snapshot = emptySnapshot
-        monthSnapshots = [key: emptySnapshot]
+        setMonthSnapshots([key: emptySnapshot])
         // Per-workout detail caches keyed by workout UUID — the workouts they
         // describe are being wiped, so leaving them would serve routes, splits,
         // series and recovery for workouts the app no longer has (M73).
@@ -4808,7 +4884,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     }
 
     /// Fetch the dashboard summary and trend snapshot concurrently and publish
-    /// each bucket to `@Published` state as soon as it completes. Users see
+    /// each bucket to observed state as soon as it completes. Users see
     /// metric values, then trend charts fill in progressively instead of one
     /// large update at the very end of the refresh.
     /// Readiness is preserved at its cached value during the stream — the final
@@ -4934,6 +5010,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     // `internal`, not `private`: BodyTests sets this directly (via @testable
     // import) to simulate an in-flight background ring backfill deterministically,
     // without racing the real HealthKit-backed chunk walk.
+    @ObservationIgnored
     var activityRingHistoryTask: Task<Void, Never>?
 
     private func startActivityRingHistoryLoadIfNeeded(
@@ -5389,13 +5466,15 @@ final class HealthKitWorkoutStore: ObservableObject {
                 // return leg, and a changed `dateKey` persists through
                 // `WorkoutSnapshotStore.save`.
                 let timeZoneResolver = engine.timeZoneLedger.snapshot()
-                monthSnapshots[key] = WorkoutMonthSnapshot.make(
-                    month: key.month,
-                    year: key.year,
-                    workouts: workouts,
-                    calendar: calendar,
-                    timeZoneIdentifier: { timeZoneResolver.zoneIdentifier(at: $0) }
-                )
+                mutateMonthSnapshots { snapshots in
+                    snapshots[key] = WorkoutMonthSnapshot.make(
+                        month: key.month,
+                        year: key.year,
+                        workouts: workouts,
+                        calendar: calendar,
+                        timeZoneIdentifier: { timeZoneResolver.zoneIdentifier(at: $0) }
+                    )
+                }
                 loadedMonthKeys.insert(key)
                 noteMonthSnapshotStored(key)
                 // Keeps the color editor's known-workout-types census current as months
@@ -5465,7 +5544,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             protectedKeys: protectedKeys
         ) {
             monthLoadOrder.removeAll { $0 == evictedKey }
-            monthSnapshots.removeValue(forKey: evictedKey)
+            mutateMonthSnapshots { $0.removeValue(forKey: evictedKey) }
             loadedMonthKeys.remove(evictedKey)
         }
     }
@@ -6738,15 +6817,17 @@ final class HealthKitWorkoutStore: ObservableObject {
             calendar: calendar
         )
         snapshot = emptySnapshot
-        monthSnapshots = monthSnapshots.mapValues { monthSnapshot in
-            WorkoutMonthSnapshot.make(
-                month: monthSnapshot.month,
-                year: monthSnapshot.year,
-                workouts: [],
-                calendar: calendar
-            )
+        mutateMonthSnapshots { snapshots in
+            snapshots = snapshots.mapValues { monthSnapshot in
+                WorkoutMonthSnapshot.make(
+                    month: monthSnapshot.month,
+                    year: monthSnapshot.year,
+                    workouts: [],
+                    calendar: calendar
+                )
+            }
+            snapshots[BodyWorkoutMonthKey(month: emptySnapshot.month, year: emptySnapshot.year)] = emptySnapshot
         }
-        monthSnapshots[BodyWorkoutMonthKey(month: emptySnapshot.month, year: emptySnapshot.year)] = emptySnapshot
         loadedMonthKeys.removeAll()
         monthLoadOrder.removeAll()
 
@@ -6801,7 +6882,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         _ transform: @escaping @Sendable (WorkoutMonthSnapshot, Calendar) -> WorkoutMonthSnapshot
     ) {
         snapshot = transform(snapshot, calendar)
-        monthSnapshots = monthSnapshots.mapValues { transform($0, calendar) }
+        setMonthSnapshots(monthSnapshots.mapValues { transform($0, calendar) })
 
         // The in-memory strip above leaves the App Group JSON untouched, but the
         // widget reads it via `loadCurrentOrPreviousIfEmpty()` and the app

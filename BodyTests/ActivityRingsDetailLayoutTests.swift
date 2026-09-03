@@ -207,7 +207,7 @@ final class ActivityRingsDetailLayoutTests: XCTestCase {
 
         let root = NavigationStack {
             BodyActivityRingsDetailView()
-                .environmentObject(store)
+                .environment(store)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: Self.tabBarInset)
