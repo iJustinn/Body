@@ -334,6 +334,13 @@ struct BodyHealthMetricCardTrendPreview: View {
     let phase: BodyHealthMetricCard.PreviewPhase
     /// See `BodyHealthMetricCard.containerWidth`.
     let containerWidth: CGFloat
+    /// Whether the preview has already drawn real data. Days without a value sit
+    /// on the baseline and skeleton entries rest mid-band, so the first refresh
+    /// that fills a cached or empty preview would otherwise animate every bar,
+    /// point, ring and level up from where the placeholder was. The first data
+    /// frame lands without motion; later refreshes, where values genuinely move,
+    /// keep the refresh animation.
+    @State private var hasShownData = false
 
     init(
         calendarPoints: [HealthTrendCalendarPoint],
@@ -356,7 +363,21 @@ struct BodyHealthMetricCardTrendPreview: View {
     }
 
     private var refreshAnimation: Animation? {
-        reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)
+        reduceMotion || !hasShownData ? nil : .smooth(duration: 0.45, extraBounce: 0)
+    }
+
+    /// True once any preview style has something real to draw.
+    private var hasData: Bool {
+        switch style {
+        case .line, .bar:
+            return !values.isEmpty
+        case .range:
+            return lastRangeValueIndex != nil
+        case .dots:
+            return phase == .data && !dotEntries.isEmpty
+        case .levels:
+            return phase == .data && levelPreviewEntry != nil
+        }
     }
 
     private struct LinePlotEntry: Identifiable {
@@ -423,6 +444,11 @@ struct BodyHealthMetricCardTrendPreview: View {
         }
         .frame(width: previewWidth, height: previewHeight, alignment: .bottomTrailing)
         .accessibilityHidden(true)
+        .onChange(of: hasData, initial: true) { _, hasData in
+            if hasData {
+                hasShownData = true
+            }
+        }
     }
 
     private var previewWidth: CGFloat {
