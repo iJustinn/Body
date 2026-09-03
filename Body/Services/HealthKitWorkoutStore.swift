@@ -6,7 +6,6 @@
 import Foundation
 import HealthKit
 import WidgetKit
-import os
 
 /// How a refresh was triggered, which decides how much workout data is
 /// re-fetched eagerly and whether the engine's per-workout caches (effort
@@ -327,89 +326,12 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// Backing store for `workoutCustomNames` — injectable so tests can use an
     /// isolated suite.
     private let customNameDefaults: UserDefaults
-    /// Session cache of resolved workout routes keyed by workout UUID. A cached
-    /// `.some(nil)` means "confirmed no readable route", so non-route workouts
-    /// aren't re-queried and the city label isn't re-geocoded when a detail
-    /// sheet is reopened. HealthKit read access is opaque, so this cache is
-    /// cleared on the authorization pass that showed the permission sheet, and
-    /// eagerly the moment the app enters the background (where access could have
-    /// been changed in the Health app or Settings, with no signal on return);
-    /// it is kept across in-session refreshes, month page-ins and intraday fills.
-    ///
-    /// The background clear is eager rather than deferred to the next
-    /// authorization pass because the detail loaders serve this cache directly
-    /// and a resume can skip that pass entirely (debounced, refresh already
-    /// running, initial load pending).
-    private var routeCache: [UUID: WorkoutRoute?] = [:]
-    /// Session cache of the cheap `HKWorkoutRoute` presence probe, keyed by workout
-    /// UUID. Separate from `routeCache` because the probe can answer "yes" long before
-    /// the coordinates exist, and kept consistent with it: the `< 2 coordinates` branch
-    /// of the load writes `false` here too, so a workout whose route samples exist but
-    /// yield no drawable line never reserves the detail hero's band a second time.
-    /// Cleared wherever `routeCache` is, on the same terms, including the eager
-    /// background clear.
-    private var routePresenceCache: [UUID: Bool] = [:]
-    /// Session cache of a workout's raw distance samples keyed by UUID, feeding the
-    /// detail Splits section. Empty results are cached only for workouts that ended
-    /// more than 24 h ago; recent workouts may still be syncing from the watch, so
-    /// their empty reads are retried on the next sheet open.
-    private var distanceSampleCache: [UUID: WorkoutSplitData] = [:]
-    /// Session cache of a workout's per-bucket series inputs (pace/speed, cadence,
-    /// stride length, running form) keyed by UUID, feeding the detail chart cards.
-    /// Cached only for workouts that ended more than 24 h ago (a recent workout may
-    /// still be syncing its samples from the watch, and caching now would pin the
-    /// cards to a partial result for the rest of the session), plus: a bundle with a
-    /// failed metric
-    /// read is never cached, so a transient error can't hide a card all session.
-    ///
-    /// The 24 h settle rule is stricter than the splits cache's "cache anything
-    /// non-empty" because this is a MULTI-FAMILY bundle: cadence can be synced while
-    /// stride length isn't, so a successful read can still be partial without any
-    /// query failing. A single-result read like splits has no such half-state — it's
-    /// either there or empty — so it only needs the settle rule for the empty case.
-    private var metricSeriesCache: [UUID: WorkoutMetricSeriesData] = [:]
-    /// Session cache of a workout's 1-minute heart-rate recovery keyed by UUID,
-    /// feeding the detail tile. A confirmed absence (`nil`) is cached too, but —
-    /// same settle rule as above — only for workouts that ended more than 24 h ago:
-    /// the watch writes the recovery sample a minute after the workout ends, so a
-    /// just-finished workout must be re-read on the next sheet open.
-    private var heartRateRecoveryCache: [UUID: Double?] = [:]
-    /// Session cache of a workout's full-resolution heart-rate series keyed by UUID,
-    /// feeding the detail sheet's chart and zones (the summary carries a ≤96-point
-    /// downsample, enough for the list row but not the chart). Session-only and
-    /// never persisted: the dense payload is large and re-readable on demand. Empty
-    /// results follow the same settle rule as the splits cache — cached only for
-    /// workouts that ended more than 24 h ago, since a recent one may still be
-    /// syncing its samples from the watch.
-    private var heartRateSeriesCache: [UUID: [WorkoutHeartRateSample]] = [:]
-    /// Session cache of a workout's persisted energy-equivalent breakdown,
-    /// keyed by UUID. The full payload (not just the emojis) is kept so
-    /// `energyEquivalentEmojis(for:hiddenFoods:)` can compare its kcal and
-    /// hidden-food inputs against the current ones to decide whether the
-    /// cached emojis are still valid.
-    private var energyEquivalentCache: [UUID: PersistedEnergyEquivalent] = [:]
-    /// In-flight (or finished) disk hydrations of the persisted per-workout detail
-    /// snapshot, keyed by workout UUID. A task map rather than a "done" flag Set
-    /// because the detail sheet fires the route probe, the route load, the series
-    /// load and the recovery load concurrently: a flag written only on completion
-    /// would let three of them hydrate in parallel, and a flag written up front
-    /// would let them skip past a hydration that hasn't read the file yet. Awaiting
-    /// the shared task gives every entry point the seeded caches exactly once —
-    /// which is why the task spans the read AND the seeding rather than
-    /// resolving to the loaded snapshot: awaiting a read-only task would resume
-    /// the other three before a single cache had been written.
-    ///
-    /// Finished entries are left in place (a completed task is tiny) and leave
-    /// only with an LRU eviction or a bulk clear, so an evicted workout hydrates
-    /// from its file again on the next open. The background clear empties this
-    /// map along with the caches, and while `bypassesPersistedDetailSeeding` is
-    /// set no hydration task is created at all, so detail opens go straight to
-    /// the live HealthKit loaders instead of the on-disk seed.
-    private var detailHydrations: [UUID: Task<Void, Never>] = [:]
-    /// Workout UUIDs whose detail caches are live, oldest opened first. Drives the
-    /// `maximumCachedWorkoutDetails` eviction; every bulk clear of the detail
-    /// caches resets it too.
-    private var workoutDetailCacheOrder: [UUID] = []
+    /// The per-workout detail session caches (route, presence probe, splits,
+    /// metric series, heart-rate recovery, heart-rate series, energy equivalent),
+    /// their disk-hydration tasks and their LRU order. Owned here and read only
+    /// by the loaders below; see `BodyWorkoutDetailCacheStore` for why it is not
+    /// observed state.
+    private let detailCaches = BodyWorkoutDetailCacheStore()
     /// Set when Body enters the background. While it is set, detail opens skip
     /// the disk seed so the loaders read HealthKit live, because the persisted
     /// files hold positives captured under the previous grant and HealthKit read
@@ -443,9 +365,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// The pending refetch a warning-threshold edit queued, so dragging the
     /// picker wheel across a dozen values leaves one refresh rather than twelve.
     private var metricWarningThresholdRefreshTask: Task<Void, Never>?
-    /// The pending debounced companion republish (see
-    /// `republishCompanionSnapshots`).
-    private var republishCompanionSnapshotsTask: Task<Void, Never>?
+    /// Builds and ships the widget and watch snapshots off the main actor, and
+    /// owns the debounced republish task (see `republishCompanionSnapshots`).
+    private let companionPublisher = BodyCompanionPublisher()
     /// Retains the Body Pro entitlement observer so secondary-source gating (which this
     /// store resolves from `BodyProEntitlement`, not the SwiftUI environment) recomputes
     /// when the entitlement flips.
@@ -1812,7 +1734,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // disk seed was bypassed is the signal that the stored file is stale.
         let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
-        if let cached = routeCache[workout.id] {
+        if let cached = detailCaches.routeCache[workout.id] {
             return cached
         }
 
@@ -1834,11 +1756,11 @@ final class HealthKitWorkoutStore: ObservableObject {
             return nil
         }
         guard routeData.coordinates.count >= 2 else {
-            routeCache[workout.id] = .some(nil)
+            detailCaches.routeCache[workout.id] = .some(nil)
             // Route samples existed but carry no drawable line, so the presence probe's
             // "yes" was a false positive. Record the negative here as well or the detail
             // page would reserve its hero band again on every reopen.
-            routePresenceCache[workout.id] = false
+            detailCaches.routePresenceCache[workout.id] = false
             if revalidating {
                 discardPersistedWorkoutDetail(for: workout)
             }
@@ -1854,13 +1776,13 @@ final class HealthKitWorkoutStore: ObservableObject {
             locality: nil,
             elevationProfile: routeData.elevationProfile
         )
-        routeCache[workout.id] = .some(route)
-        routePresenceCache[workout.id] = true
+        detailCaches.routeCache[workout.id] = .some(route)
+        detailCaches.routePresenceCache[workout.id] = true
         if permissionSelection.includes(.workouts) {
             let dto = PersistedWorkoutRoute(model: route)
             persistWorkoutDetail(for: workout) { $0.route = dto }
         }
-        return routeCache[workout.id] ?? nil
+        return detailCaches.routeCache[workout.id] ?? nil
     }
 
     /// Whether the workout has a GPS route, answered from the cheap series-metadata
@@ -1901,7 +1823,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
             return .unknown
         }
-        routePresenceCache[workout.id] = hasRoute
+        detailCaches.routePresenceCache[workout.id] = hasRoute
         if !hasRoute, revalidating {
             discardPersistedWorkoutDetail(for: workout)
         }
@@ -1911,32 +1833,32 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// The session-cached route, without starting a read, so a reopened detail page
     /// paints its hero on the first frame instead of after a `.task` round trip.
     func cachedWorkoutRoute(for workout: WorkoutSummary) -> WorkoutRoute? {
-        routeCache[workout.id] ?? nil
+        detailCaches.routeCache[workout.id] ?? nil
     }
 
     /// The presence a cached load or probe already settled, or `.unknown` when this
     /// workout hasn't been read this session. A settled route always wins over the
     /// probe cache, since only the load knows whether the fixes were drawable.
     func cachedWorkoutRoutePresence(for workout: WorkoutSummary) -> BodyWorkoutRoutePresence {
-        if let cachedRoute = routeCache[workout.id] {
+        if let cachedRoute = detailCaches.routeCache[workout.id] {
             return cachedRoute == nil ? .absent : .present
         }
-        guard let probed = routePresenceCache[workout.id] else {
+        guard let probed = detailCaches.routePresenceCache[workout.id] else {
             return .unknown
         }
         return probed ? .present : .absent
     }
 
     /// Reverse-geocodes the cached route's "City, Region" label and folds it back
-    /// into `routeCache`, returning the route with `locality` resolved (or the
+    /// into `BodyWorkoutDetailCacheStore.routeCache`, returning the route with `locality` resolved (or the
     /// coordinates-only route when the geocode yields nothing). No-op when the
     /// workout has no cached route or the label is already resolved. Safe to call
     /// as a follow-up after `loadWorkoutRoute` so the map renders on coordinates
     /// without blocking on the reverse geocode.
     func resolveWorkoutRouteLocality(for workout: WorkoutSummary) async -> WorkoutRoute? {
-        guard case .some(.some(let route)) = routeCache[workout.id] else {
+        guard case .some(.some(let route)) = detailCaches.routeCache[workout.id] else {
             // No cached entry, or a cached "no route" negative — nothing to geocode.
-            return routeCache[workout.id] ?? nil
+            return detailCaches.routeCache[workout.id] ?? nil
         }
         guard route.locality == nil else {
             return route
@@ -1955,7 +1877,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             locality: locality,
             elevationProfile: route.elevationProfile
         )
-        routeCache[workout.id] = .some(resolved)
+        detailCaches.routeCache[workout.id] = .some(resolved)
         // Persist the localized route over the coordinates-only one written by the
         // load: the label costs a CLGeocoder round trip that a later cold open
         // would otherwise repeat.
@@ -1978,7 +1900,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
-        if let cached = distanceSampleCache[workout.id] {
+        if let cached = detailCaches.distanceSampleCache[workout.id] {
             return cached
         }
 
@@ -1998,7 +1920,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return data
         }
         if !data.distanceSamples.isEmpty {
-            distanceSampleCache[workout.id] = data
+            detailCaches.distanceSampleCache[workout.id] = data
             // Splits carry per-split step cadence, so they're only persisted while
             // Workout Metrics is on: a cadence-less payload written with the toggle
             // off would satisfy the cache after a re-enable and never be re-read.
@@ -2015,7 +1937,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             // a recent one may still be syncing from the watch.
             let endDate = workout.startDate.addingTimeInterval(max(0, workout.duration))
             if Date().timeIntervalSince(endDate) > 24 * 60 * 60 {
-                distanceSampleCache[workout.id] = data
+                detailCaches.distanceSampleCache[workout.id] = data
                 if revalidating {
                     discardPersistedWorkoutDetail(for: workout)
                 }
@@ -2038,7 +1960,7 @@ final class HealthKitWorkoutStore: ObservableObject {
 
         let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
-        if let cached = metricSeriesCache[workout.id] {
+        if let cached = detailCaches.metricSeriesCache[workout.id] {
             return cached
         }
 
@@ -2058,7 +1980,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return data
         }
         if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60, !data.hadReadFailure {
-            metricSeriesCache[workout.id] = data
+            detailCaches.metricSeriesCache[workout.id] = data
             // Persist only a bundle that actually carries a series. A denied
             // Workout Metrics read surfaces as an empty (non-throwing) bundle, and
             // writing that would freeze the negative on disk past the session wipes.
@@ -2085,7 +2007,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     func loadWorkoutHeartRateRecovery(for workout: WorkoutSummary) async -> Double? {
         let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
-        if let cached = heartRateRecoveryCache[workout.id] {
+        if let cached = detailCaches.heartRateRecoveryCache[workout.id] {
             return cached
         }
 
@@ -2105,7 +2027,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return recovery
         }
         if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 {
-            heartRateRecoveryCache[workout.id] = recovery
+            detailCaches.heartRateRecoveryCache[workout.id] = recovery
             // The confirmed-absent `nil` above stays session-only: a Heart read the
             // user has denied also answers nil, so persisting it would outlive the
             // permission change that a session cache can't survive.
@@ -2129,7 +2051,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             return nil
         }
 
-        if let cached = heartRateSeriesCache[workout.id] {
+        if let cached = detailCaches.heartRateSeriesCache[workout.id] {
             return cached
         }
 
@@ -2149,11 +2071,11 @@ final class HealthKitWorkoutStore: ObservableObject {
             return samples
         }
         if !samples.isEmpty {
-            heartRateSeriesCache[workout.id] = samples
+            detailCaches.heartRateSeriesCache[workout.id] = samples
         } else if Date().timeIntervalSince(workout.effectiveEndDate) > 24 * 60 * 60 {
             // Cache a confirmed-empty read only for settled (>24h-old) workouts;
             // a recent one may still be syncing from the watch.
-            heartRateSeriesCache[workout.id] = samples
+            detailCaches.heartRateSeriesCache[workout.id] = samples
         }
         return samples
     }
@@ -2180,7 +2102,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             ? (workout.totalEnergyKilocalories ?? workout.activeEnergyKilocalories)
             : workout.activeEnergyKilocalories
 
-        if let cached = energyEquivalentCache[workout.id],
+        if let cached = detailCaches.energyEquivalentCache[workout.id],
            cached.kilocalories == sourceKilocalories,
            Set(cached.hiddenFoods) == hiddenFoods,
            (cached.prefersMoreItems ?? false) == prefersMoreItems {
@@ -2206,7 +2128,7 @@ final class HealthKitWorkoutStore: ObservableObject {
             prefersMoreItems: prefersMoreItems,
             emojis: emojis
         )
-        energyEquivalentCache[workout.id] = payload
+        detailCaches.energyEquivalentCache[workout.id] = payload
         if permissionSelection.includes(.workouts) {
             persistWorkoutDetail(for: workout) { $0.energyEquivalent = payload }
         }
@@ -2226,7 +2148,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// Skipped entirely while `bypassesPersistedDetailSeeding` is set, so every
     /// open after a background transition reads HealthKit live.
     private func hydrateWorkoutDetailIfNeeded(for workout: WorkoutSummary) async {
-        touchWorkoutDetailCache(workout.id)
+        detailCaches.touch(workout.id)
         // After a background transition the files hold positives captured under a
         // grant the user may have just revoked, and `permissionSelection` (the gate
         // every seed below rides) tracks only Body's own toggles, not a change made
@@ -2239,7 +2161,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         guard !bypassesPersistedDetailSeeding else {
             return
         }
-        if let existing = detailHydrations[workout.id] {
+        if let existing = detailCaches.detailHydrations[workout.id] {
             await existing.value
             return
         }
@@ -2269,72 +2191,40 @@ final class HealthKitWorkoutStore: ObservableObject {
             // toggle). This gate is what guarantees stripped-permission data never
             // surfaces, whatever state the file is in.
             if let route = snapshot?.route,
-               self.routeCache[workout.id] == nil,
+               self.detailCaches.routeCache[workout.id] == nil,
                self.permissionSelection.includes(.workouts) {
-                self.routeCache[workout.id] = .some(route.toModel())
-                self.routePresenceCache[workout.id] = true
+                self.detailCaches.routeCache[workout.id] = .some(route.toModel())
+                self.detailCaches.routePresenceCache[workout.id] = true
             }
             // A payload from before a series joined the bundle is ignored once: the
             // loader re-reads live and re-persists it at the current version.
             if let series = snapshot?.metricSeries,
                series.seriesVersion == PersistedWorkoutMetricSeries.currentSeriesVersion,
-               self.metricSeriesCache[workout.id] == nil,
+               self.detailCaches.metricSeriesCache[workout.id] == nil,
                self.permissionSelection.includes(.workoutMetrics) {
-                self.metricSeriesCache[workout.id] = series.toModel()
+                self.detailCaches.metricSeriesCache[workout.id] = series.toModel()
             }
             if let splitDTO = snapshot?.splitData,
-               self.distanceSampleCache[workout.id] == nil,
+               self.detailCaches.distanceSampleCache[workout.id] == nil,
                self.permissionSelection.includes(.workouts),
                self.permissionSelection.includes(.workoutMetrics) {
-                self.distanceSampleCache[workout.id] = splitDTO.toModel()
+                self.detailCaches.distanceSampleCache[workout.id] = splitDTO.toModel()
             }
             if let bpm = snapshot?.heartRateRecoveryBPM,
-               self.heartRateRecoveryCache[workout.id] == nil,
+               self.detailCaches.heartRateRecoveryCache[workout.id] == nil,
                self.permissionSelection.includes(.heart) {
-                self.heartRateRecoveryCache[workout.id] = .some(bpm)
+                self.detailCaches.heartRateRecoveryCache[workout.id] = .some(bpm)
             }
             // Energy equivalent derives from active-energy kilocalories, which rides
             // the Workouts permission like the route and split caches above.
             if let energyEquivalent = snapshot?.energyEquivalent,
-               self.energyEquivalentCache[workout.id] == nil,
+               self.detailCaches.energyEquivalentCache[workout.id] == nil,
                self.permissionSelection.includes(.workouts) {
-                self.energyEquivalentCache[workout.id] = energyEquivalent
+                self.detailCaches.energyEquivalentCache[workout.id] = energyEquivalent
             }
         }
-        detailHydrations[workout.id] = task
+        detailCaches.detailHydrations[workout.id] = task
         await task.value
-    }
-
-    /// Marks a workout's detail caches as most recently used and evicts the
-    /// oldest beyond `maximumCachedWorkoutDetails`. Called from
-    /// `hydrateWorkoutDetailIfNeeded`, which every detail entry point runs
-    /// before it fills any of these caches.
-    private func touchWorkoutDetailCache(_ id: UUID) {
-        workoutDetailCacheOrder.removeAll { $0 == id }
-        workoutDetailCacheOrder.append(id)
-
-        let evicted = Self.evictableWorkoutDetailIDs(
-            order: workoutDetailCacheOrder,
-            maximum: Self.maximumCachedWorkoutDetails
-        )
-        guard !evicted.isEmpty else {
-            return
-        }
-
-        let evictedSet = Set(evicted)
-        workoutDetailCacheOrder.removeAll { evictedSet.contains($0) }
-        for evictedID in evicted {
-            // `removeValue` rather than `= nil`: two of these caches hold optional
-            // values, where a `nil` assignment reads as "cache a negative".
-            routeCache.removeValue(forKey: evictedID)
-            routePresenceCache.removeValue(forKey: evictedID)
-            distanceSampleCache.removeValue(forKey: evictedID)
-            metricSeriesCache.removeValue(forKey: evictedID)
-            heartRateRecoveryCache.removeValue(forKey: evictedID)
-            heartRateSeriesCache.removeValue(forKey: evictedID)
-            energyEquivalentCache.removeValue(forKey: evictedID)
-            detailHydrations.removeValue(forKey: evictedID)
-        }
     }
 
     /// The least-recently-touched ids to drop so at most `maximum` workouts keep
@@ -2445,17 +2335,9 @@ final class HealthKitWorkoutStore: ObservableObject {
             return true
         }
 
-        routeCache.removeAll()
-        routePresenceCache.removeAll()
-        distanceSampleCache.removeAll()
-        metricSeriesCache.removeAll()
-        heartRateRecoveryCache.removeAll()
-        heartRateSeriesCache.removeAll()
-        energyEquivalentCache.removeAll()
         // Safe to re-hydrate from disk right away: the files hold only positives,
         // so nothing they seed can contradict the fresh authorization.
-        detailHydrations = [:]
-        workoutDetailCacheOrder.removeAll()
+        detailCaches.clearAll()
         return true
     }
 
@@ -3072,32 +2954,11 @@ final class HealthKitWorkoutStore: ObservableObject {
         nextSelection.save()
         await engine.setPermissionSelection(nextSelection)
         if permission == .workouts {
-            routeCache.removeAll()
-            routePresenceCache.removeAll()
-            distanceSampleCache.removeAll()
-                metricSeriesCache.removeAll()
-            heartRateRecoveryCache.removeAll()
-            heartRateSeriesCache.removeAll()
-            energyEquivalentCache.removeAll()
-            detailHydrations = [:]
-            workoutDetailCacheOrder.removeAll()
+            detailCaches.clearAll()
         } else if permission == .heart {
-            // Heart-rate recovery and the detail sheet's full-resolution series ride
-            // the Heart toggle; drop them rather than serving a toggle change a
-            // result read under the old selection.
-            heartRateRecoveryCache.removeAll()
-            heartRateSeriesCache.removeAll()
-            detailHydrations = [:]
-            workoutDetailCacheOrder.removeAll()
+            detailCaches.clearHeartScopedCaches()
         } else if permission == .workoutMetrics {
-            // Cached split data carries per-split step cadence, and stride length is
-            // gated the same way — both ride on the Workout Metrics permission, so
-            // drop them rather than serving a toggle change stale results from a
-            // read taken under the previous selection.
-            distanceSampleCache.removeAll()
-                metricSeriesCache.removeAll()
-            detailHydrations = [:]
-            workoutDetailCacheOrder.removeAll()
+            detailCaches.clearWorkoutMetricsScopedCaches()
         }
         if !isEnabled {
             // The in-memory drop above leaves the persisted detail files intact, and
@@ -4089,15 +3950,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// captured under the previous grant.
     @MainActor
     func noteAppDidEnterBackground() {
-        routeCache.removeAll()
-        routePresenceCache.removeAll()
-        distanceSampleCache.removeAll()
-        metricSeriesCache.removeAll()
-        heartRateRecoveryCache.removeAll()
-        heartRateSeriesCache.removeAll()
-        energyEquivalentCache.removeAll()
-        detailHydrations = [:]
-        workoutDetailCacheOrder.removeAll()
+        detailCaches.clearAll()
         // Clearing memory isn't enough: the persisted detail files hold positives
         // written under the previous grant, so the disk seed stays bypassed until
         // an authorized pass has re-read HealthKit.
@@ -4550,15 +4403,7 @@ final class HealthKitWorkoutStore: ObservableObject {
         // Per-workout detail caches keyed by workout UUID — the workouts they
         // describe are being wiped, so leaving them would serve routes, splits,
         // series and recovery for workouts the app no longer has (M73).
-        routeCache.removeAll()
-        routePresenceCache.removeAll()
-        distanceSampleCache.removeAll()
-        metricSeriesCache.removeAll()
-        heartRateRecoveryCache.removeAll()
-        heartRateSeriesCache.removeAll()
-        energyEquivalentCache.removeAll()
-        detailHydrations = [:]
-        workoutDetailCacheOrder.removeAll()
+        detailCaches.clearAll()
         // The ledger describes workouts this clear is wiping; an emptied ledger
         // also re-arms the baseline scan for the next refresh.
         recordLedger = WorkoutRecordLedger()
@@ -6305,14 +6150,18 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// `onChange` per tick and each rebuild encodes both snapshots and reloads
     /// the widget timelines. Known trade: a preference change followed within
     /// 300 ms by app suspension publishes on the next refresh instead. The task
-    /// lives on the store, so dismissing the settings view does not drop it.
+    /// lives on the publisher, which this store owns, so dismissing the settings
+    /// view does not drop it.
     func republishCompanionSnapshots() {
-        republishCompanionSnapshotsTask?.cancel()
-        republishCompanionSnapshotsTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled, let self, !self.isClearingCache else { return }
-            self.saveHealthWidgetSnapshot()
-            self.publishWatchSnapshot()
+        companionPublisher.scheduleRepublish { [weak self] in
+            guard let self, !self.isClearingCache else { return }
+            // One shared capture for both publishes: the summary, trends and
+            // display preferences they render from are the same reads, and this
+            // rebuild is exactly where they are guaranteed not to change in
+            // between (no `await` separates the two calls).
+            let shared = self.makeSharedPublishInput()
+            self.saveHealthWidgetSnapshot(shared: shared)
+            self.publishWatchSnapshot(shared: shared)
         }
     }
 
@@ -6330,7 +6179,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// reaches into a month the in-memory map can't answer for. Returns `nil`
     /// only when a month the window spans is in NEITHER source, so a
     /// genuinely-unknown month can't publish a falsely empty week.
-    static func weeklyWorkoutMinutes(
+    nonisolated static func weeklyWorkoutMinutes(
         from monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot],
         fallback: [BodyWorkoutMonthKey: WorkoutMonthSnapshot] = [:],
         now: Date = Date(),
@@ -6374,7 +6223,9 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// Keyed by the snapshot's own month/year, which is self-validating: a
     /// stale file (holding a month older than the window needs) simply fails to
     /// match the missing key and changes nothing.
-    private static func persistedWeeklyWorkoutFallback(
+    // Internal (not `private`) so `BodyCompanionPublisher` can run it off the
+    // main actor, inside the persist queue block, where its file decode belongs.
+    nonisolated static func persistedWeeklyWorkoutFallback(
         for monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot],
         now: Date,
         calendar: Calendar
@@ -6401,95 +6252,54 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// workout-only refresh must not look fresh to the watch, or it would
     /// suppress the watch's own stale-triggered live HR/HRV refresh.
     func publishWatchSnapshot() {
-        // Capture on the main actor exactly what the builder + send read today,
-        // then build off-actor on the serial persist queue and hop back to `send`
-        // — mirroring `saveHealthWidgetSnapshot`. Send ordering rides on the
-        // monotonic capture sequence allocated here (clock-immune, M5) rather than
-        // `now`, and the permission value is paired at capture time so a queued
-        // build can't ship a newer selection.
-        let epoch = cacheEpoch
-        let summary = healthSummary
-        let trends = healthTrends
-        let lastRefreshDate = lastVitalsRefreshDate
-        let permissionSelection = permissionSelection
-        let temperatureUnitPreference = HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
-        let idealSleepDuration = Self.storedIdealSleepDuration()
-        let showSleepScore = HealthWidgetSnapshotBuilder.storedShowSleepScore()
-        let now = Date()
-        // The weekly workout complication's bars, read off the month snapshots
-        // every regular refresh already rebuilds — no extra HealthKit query.
-        // Early in a month the trailing week reaches into a month only the
-        // persisted App Group file holds, so it fills those days rather than
-        // the metric being dropped (see `persistedWeeklyWorkoutFallback`).
-        let workoutCalendar = Calendar.bodyGregorian
-        let workoutWeeklyMinutes = Self.weeklyWorkoutMinutes(
-            from: monthSnapshots,
-            fallback: Self.persistedWeeklyWorkoutFallback(
-                for: monthSnapshots,
-                now: now,
-                calendar: workoutCalendar
-            ),
-            now: now,
-            calendar: workoutCalendar
-        )
-        // Allocate the capture sequence at this main-actor capture point so its
-        // order equals capture order (see `WatchConnectivityPublisher`).
-        let captureSequence = WatchConnectivityPublisher.shared.nextCaptureSequence()
-        let permissionRawValue = BodyHealthPermissionSelection.load().rawValue
+        publishWatchSnapshot(shared: makeSharedPublishInput())
+    }
 
+    /// The publish, from a `Shared` capture the caller already took. Exists for
+    /// `republishCompanionSnapshots`, which saves the widget snapshot from the
+    /// same capture: taking it twice would read the store twice for one rebuild.
+    private func publishWatchSnapshot(shared: BodyCompanionPublishInput.Shared) {
+        companionPublisher.publishWatchSnapshot(
+            makeCompanionPublishInput(shared: shared),
+            isEpochCurrent: { [weak self] capturedEpoch in
+                guard let self else {
+                    return false
+                }
+                return Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: self.cacheEpoch)
+            }
+        )
+    }
+
+    /// Captures, synchronously on the main actor, exactly what the watch
+    /// snapshot build and send read off this store beyond `shared` (which the
+    /// caller captured, also synchronously, immediately before). There is no
+    /// `await` anywhere in that span, so the capture sequence allocated below
+    /// equals capture order (see `WatchConnectivityPublisher`) and a queued
+    /// build can't ship a newer permission selection than the summary it was
+    /// paired with.
+    ///
+    /// Everything derived FROM these captures (the weekly workout minutes and
+    /// their persisted fallback, the 14-day time-zone map, the seed encode) runs
+    /// on the persist queue inside `BodyCompanionPublisher` (M-08).
+    private func makeCompanionPublishInput(
+        shared: BodyCompanionPublishInput.Shared
+    ) -> BodyCompanionPublishInput {
         // Phase 3 compute-seed capture, alongside the display-snapshot inputs
-        // above so both ship from the same consistent state. `summary`/
-        // `trends` are read LIVE (same as the display snapshot) — they're
-        // already the store's best current data whether this publish came
-        // from a full refresh or a settings-only republish (permission /
-        // preference changes refilter them in place without a new fetch), so
-        // no separate "carried" copy is needed. Only `dataThrough` and the
-        // Training Load piece are genuinely frozen between full refreshes:
-        // `lastVitalsRefreshDate` already advances ONLY on a clean full
-        // refresh (never on a republish), and `cachedComputeTrainingLoadSeed`
-        // is kept in lockstep with it (`updateCachedComputeTrainingLoadSeedIfNeeded`)
-        // — so a settings-only republish reaching this same code path
-        // automatically carries both forward unchanged, satisfying "never
-        // advance `dataThrough` on publication" without extra bookkeeping.
-        // `nil` `dataThrough` (no full refresh yet this session) sends no seed.
+        // so both ship from the same consistent state. `summary`/`trends` are
+        // read LIVE (same as the display snapshot) — they're already the
+        // store's best current data whether this publish came from a full
+        // refresh or a settings-only republish (permission / preference changes
+        // refilter them in place without a new fetch), so no separate "carried"
+        // copy is needed. Only `dataThrough` and the Training Load piece are
+        // genuinely frozen between full refreshes: `lastVitalsRefreshDate`
+        // already advances ONLY on a clean full refresh (never on a republish),
+        // and `cachedComputeTrainingLoadSeed` is kept in lockstep with it
+        // (`updateCachedComputeTrainingLoadSeedIfNeeded`) — so a settings-only
+        // republish reaching this same code path automatically carries both
+        // forward unchanged, satisfying "never advance `dataThrough` on
+        // publication" without extra bookkeeping. `nil` `dataThrough` (no full
+        // refresh yet this session) sends no seed.
         let dataThrough = lastVitalsRefreshDate
-        // Honest per-kind watermarks, SPLIT because they genuinely differ: a
-        // workout-only refresh re-drains readiness but never recomputes
-        // Training Load. Readiness `max`es with the vitals date so a full
-        // refresh whose Workouts permission is off (no
-        // `reapplyActivityReadinessAfterWorkouts`) still stamps it at least as
-        // fresh as the vitals it was computed from. Training Load stays nil
-        // until it is actually recomputed — the builder then falls back to the
-        // uniform vitals stamp (the pre-split legacy behavior for a value that
-        // has no fresher provenance).
-        let readinessComputeDate = [lastVitalsRefreshDate, lastReadinessComputeDate]
-            .compactMap { $0 }
-            .max()
-        let trainingLoadComputeDate = lastTrainingLoadComputeDate
-        // Coverage only, never the vitals date: a full passive refresh early in
-        // a month advances `lastVitalsRefreshDate` while fetching just the
-        // current month, and stamping the mixed current/persisted-previous week
-        // with that fresh date would let it overwrite a newer watch-computed
-        // week carrying month-end workouts the phone hasn't refetched.
-        //
-        // UNKNOWN coverage is stamped `.distantPast` rather than left nil: nil
-        // means "no per-kind stamp" to the builder, which then falls back to
-        // that same vitals date. An install upgrading into this build has no
-        // persisted coverage yet, so until its first full-coverage refresh the
-        // week must lose every freshness compare — the watch's own computed
-        // bars win, and a watch with none still displays the pushed week.
-        let workoutMinutesDataAsOf = lastWorkoutsRefreshDate ?? .distantPast
-        let metricPullDates = lastMetricPullDates
-        let trainingLoadSeed = cachedComputeTrainingLoadSeed
-        let expectedSourceIDsByKind = cachedExpectedSourceIDsByKind
-        let followsSystemUnits = UserDefaults.standard.object(
-            forKey: BodyAppearancePreference.followsSystemUnitsKey
-        ) as? Bool ?? true
-        let selectedTemperatureUnitRaw = UserDefaults.standard.string(
-            forKey: BodyAppearancePreference.selectedTemperatureUnitKey
-        ) ?? BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
-        let showsSubMinuteAwakeStages = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
-        let showsLeadingTrailingAwakeStages = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
         // Body Pro gate for the seed: the watch has no entitlement concept, so
         // a lapsed subscription has to ship the All-Sources view the phone now
         // renders — otherwise the watch keeps filtering by a group the phone
@@ -6497,132 +6307,69 @@ final class HealthKitWorkoutStore: ObservableObject {
         // are withheld, never erased; the entitlement observer republishes on a
         // flip and the changed `src[…]`/`groups[…]` signature re-seeds.
         let isProUnlocked = BodyProEntitlement.isUnlocked
-        let healthDataSourceSelectionRaw = isProUnlocked
-            ? healthDataSourceSelection.rawValue
-            : Self.selectionNeutralizingCustomSources(healthDataSourceSelection).rawValue
-        let customHealthSourceGroupsRaw = isProUnlocked && !customHealthSourceGroups.isEmpty
-            ? BodyCustomHealthSourceGroupStore.rawValue(from: customHealthSourceGroups)
-            : nil
-        let combinesByName = combinesHealthDataSourcesByName
-        // Only the seed needs the 14-day time-zone map, and building it still
-        // costs a `UserDefaults` read, a `JSONDecoder` pass and fourteen day
-        // boundary computations on the main actor, so build it only when a seed
-        // will actually be assembled below.
-        let recentTimeZoneIdentifiersByDay = dataThrough == nil
-            ? [:]
-            : Self.recentTimeZoneIdentifiersByDay(now: now)
-
-        Self.snapshotPersistQueue.async {
-            var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
-                summary: summary,
-                trends: trends,
-                lastRefreshDate: lastRefreshDate,
-                permissionSelection: permissionSelection,
-                temperatureUnitPreference: temperatureUnitPreference,
-                idealSleepDuration: idealSleepDuration,
-                showSleepScore: showSleepScore,
-                now: now,
-                workoutWeeklyMinutes: workoutWeeklyMinutes,
-                // Readiness and Training Load carry their own watermarks: a
-                // workout-only refresh re-drains readiness (only) while
-                // `lastRefreshDate` (the VITALS watermark) deliberately stands
-                // still. Stamping uniformly would present genuinely fresh
-                // readiness as stale — or, joint-stamping both, present a NOT
-                // recomputed Training Load as fresh. Either way the watch's
-                // per-metric compare then picks the wrong side. Every other
-                // kind (and a never-recomputed Training Load) falls through to
-                // the uniform vitals date.
-                perKindDataAsOf: { kind in
-                    switch kind {
-                    case WatchMetricKindKey.readiness:
-                        return readinessComputeDate
-                    case WatchMetricKindKey.trainingLoad:
-                        return trainingLoadComputeDate
-                    case WatchMetricKindKey.workoutMinutes,
-                         // The legacy compatibility copy carries the same week,
-                         // so it ships under the same watermark.
-                         WatchMetricKindKey.exerciseMinutes:
-                        return workoutMinutesDataAsOf
-                    default:
-                        // A single-metric detail pull refreshes one vitals kind
-                        // without advancing the full-refresh date — take the
-                        // newer of the two so the pulled value doesn't ship
-                        // under a stale stamp.
-                        return [lastRefreshDate, metricPullDates[kind]]
-                            .compactMap { $0 }
-                            .max()
-                    }
-                }
-            )
-            snapshot.source = "phone"
-
-            // Build the compute seed off-actor too (trend trimming + zlib
-            // compression are the expensive parts). `nil` when no full
-            // refresh has landed yet this session, or when the encoded
-            // payload alone blows its size budget (the watch just keeps
-            // whatever seed it already has).
-            var computeSeedData: Data?
-            var computeSeedSettingsSignature: String?
-            if let dataThrough {
-                let settings = WatchComputeSettings(
-                    idealSleepDurationMinutes: Int((idealSleepDuration / 60).rounded()),
-                    followsSystemUnits: followsSystemUnits,
-                    selectedTemperatureUnitRaw: selectedTemperatureUnitRaw,
-                    showSleepScore: showSleepScore,
-                    showsSubMinuteAwakeSleepStages: showsSubMinuteAwakeStages,
-                    showsLeadingTrailingAwakeSleepStages: showsLeadingTrailingAwakeStages,
-                    healthDataSourceSelectionRaw: healthDataSourceSelectionRaw,
-                    combinesHealthDataSourcesByName: combinesByName,
-                    customHealthSourceGroupsRaw: customHealthSourceGroupsRaw,
-                    recentTimeZoneIdentifiersByDay: recentTimeZoneIdentifiersByDay
-                )
-                let seed = Self.makeComputeSeed(
-                    summary: summary,
-                    trends: trends,
-                    dataThrough: dataThrough,
-                    lastVitalsRefreshDate: lastRefreshDate,
-                    trainingLoadStartDay: trainingLoadSeed?.startDay,
-                    trainingLoadDailyLoads: trainingLoadSeed?.loads,
-                    trainingLoadDataThrough: trainingLoadSeed?.through,
-                    expectedSourceIDsByKind: expectedSourceIDsByKind.isEmpty ? nil : expectedSourceIDsByKind,
-                    settings: settings,
-                    publishedAt: now
-                )
-                // The signature ships even when the blob below is dropped for
-                // size or fails to encode — it's what lets the watch notice
-                // its STORED seed was built under settings the phone has since
-                // changed, and invalidate it instead of computing with a stale
-                // configuration.
-                computeSeedSettingsSignature = seed.settingsSignature
-                if let encoded = seed.encodedCompressed() {
-                    if encoded.count <= Self.computeSeedSizeBudgetBytes {
-                        computeSeedData = encoded
-                    } else {
-                        Self.computeSeedLogger.error(
-                            "Compute seed dropped: encoded size \(encoded.count, privacy: .public) bytes exceeded the \(Self.computeSeedSizeBudgetBytes, privacy: .public)-byte budget."
-                        )
-                    }
-                } else {
-                    Self.computeSeedLogger.error("Compute seed encode failed.")
-                }
-            }
-
-            Task { @MainActor in
-                // A Clear Cache that bumped the epoch after this snapshot was
-                // captured must win — don't ship pre-clear metrics onto the wiped
-                // state (H7). The reset send in `clearLocalCache` blanks the watch.
-                guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: self.cacheEpoch) else {
-                    return
-                }
-                WatchConnectivityPublisher.shared.send(
-                    snapshot,
-                    permissionRawValue: permissionRawValue,
-                    captureSequence: captureSequence,
-                    computeSeedData: computeSeedData,
-                    computeSeedSettingsSignature: computeSeedSettingsSignature
-                )
-            }
-        }
+        let trainingLoadSeed = cachedComputeTrainingLoadSeed
+        return BodyCompanionPublishInput(
+            shared: shared,
+            epoch: cacheEpoch,
+            lastRefreshDate: lastVitalsRefreshDate,
+            permissionSelection: permissionSelection,
+            permissionRawValue: BodyHealthPermissionSelection.load().rawValue,
+            now: Date(),
+            workoutCalendar: .bodyGregorian,
+            monthSnapshots: monthSnapshots,
+            // Allocate the capture sequence at this main-actor capture point so
+            // its order equals capture order (see `WatchConnectivityPublisher`).
+            captureSequence: WatchConnectivityPublisher.shared.nextCaptureSequence(),
+            dataThrough: dataThrough,
+            // Honest per-kind watermarks, SPLIT because they genuinely differ: a
+            // workout-only refresh re-drains readiness but never recomputes
+            // Training Load. Readiness `max`es with the vitals date so a full
+            // refresh whose Workouts permission is off (no
+            // `reapplyActivityReadinessAfterWorkouts`) still stamps it at least
+            // as fresh as the vitals it was computed from. Training Load stays
+            // nil until it is actually recomputed — the builder then falls back
+            // to the uniform vitals stamp (the pre-split legacy behavior for a
+            // value that has no fresher provenance).
+            readinessComputeDate: [lastVitalsRefreshDate, lastReadinessComputeDate]
+                .compactMap { $0 }
+                .max(),
+            trainingLoadComputeDate: lastTrainingLoadComputeDate,
+            // Coverage only, never the vitals date: a full passive refresh early
+            // in a month advances `lastVitalsRefreshDate` while fetching just
+            // the current month, and stamping the mixed current/persisted-
+            // previous week with that fresh date would let it overwrite a newer
+            // watch-computed week carrying month-end workouts the phone hasn't
+            // refetched.
+            //
+            // UNKNOWN coverage is stamped `.distantPast` rather than left nil:
+            // nil means "no per-kind stamp" to the builder, which then falls
+            // back to that same vitals date. An install upgrading into this
+            // build has no persisted coverage yet, so until its first
+            // full-coverage refresh the week must lose every freshness compare —
+            // the watch's own computed bars win, and a watch with none still
+            // displays the pushed week.
+            workoutMinutesDataAsOf: lastWorkoutsRefreshDate ?? .distantPast,
+            metricPullDates: lastMetricPullDates,
+            trainingLoadStartDay: trainingLoadSeed?.startDay,
+            trainingLoadDailyLoads: trainingLoadSeed?.loads,
+            trainingLoadDataThrough: trainingLoadSeed?.through,
+            expectedSourceIDsByKind: cachedExpectedSourceIDsByKind,
+            followsSystemUnits: UserDefaults.standard.object(
+                forKey: BodyAppearancePreference.followsSystemUnitsKey
+            ) as? Bool ?? true,
+            selectedTemperatureUnitRaw: UserDefaults.standard.string(
+                forKey: BodyAppearancePreference.selectedTemperatureUnitKey
+            ) ?? BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue,
+            showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
+            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(),
+            healthDataSourceSelectionRaw: isProUnlocked
+                ? healthDataSourceSelection.rawValue
+                : Self.selectionNeutralizingCustomSources(healthDataSourceSelection).rawValue,
+            customHealthSourceGroupsRaw: isProUnlocked && !customHealthSourceGroups.isEmpty
+                ? BodyCustomHealthSourceGroupStore.rawValue(from: customHealthSourceGroups)
+                : nil,
+            combinesByName: combinesHealthDataSourcesByName
+        )
     }
 
     /// Pure assembly of the phone→watch compute seed (Phase 3) from
@@ -6746,50 +6493,54 @@ final class HealthKitWorkoutStore: ObservableObject {
         return map
     }
 
-    /// Size budget for the compute seed alone (before the display snapshot and
-    /// permission key are added on top) — the `WatchComputeSeedTests` size test
-    /// pins a realistic 70-day fixture comfortably under this. Separate from
-    /// `WatchConnectivityPublisher`'s whole-context budget, which accounts for
-    /// the other context keys too.
-    nonisolated private static let computeSeedSizeBudgetBytes = 50_000
-
-    nonisolated private static let computeSeedLogger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "WatchComputeSeed")
-
     /// Builds the slim widget snapshot from the current trends, sleep stages,
     /// source selection, and unit preferences, then writes it to the App Group
     /// so the trend + sleep-stage widgets can render. Reads run on the main
     /// actor; the build + disk write happen off-actor.
     private func saveHealthWidgetSnapshot() {
-        let trends = healthTrends
-        let summary = healthSummary
-        let temperatureUnitPreference = HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
-        let energyUnitPreference = HealthWidgetSnapshotBuilder.storedEnergyUnitPreference()
-        let weightUnitPreference = HealthWidgetSnapshotBuilder.storedWeightUnitPreference()
-        let idealSleepDuration = Self.storedIdealSleepDuration()
-        let showSleepScore = HealthWidgetSnapshotBuilder.storedShowSleepScore()
+        saveHealthWidgetSnapshot(shared: makeSharedPublishInput())
+    }
 
+    /// The save, from a `Shared` capture the caller already took (see
+    /// `publishWatchSnapshot(shared:)`).
+    private func saveHealthWidgetSnapshot(shared: BodyCompanionPublishInput.Shared) {
+        companionPublisher.saveWidgetSnapshot(makeWidgetPublishInput(shared: shared))
+    }
+
+    /// Captures, synchronously on the main actor, what BOTH companion snapshots
+    /// render from: the widget snapshot and the watch snapshot read the same
+    /// summary, trends and display preferences.
+    private func makeSharedPublishInput() -> BodyCompanionPublishInput.Shared {
+        BodyCompanionPublishInput.Shared(
+            trends: healthTrends,
+            summary: healthSummary,
+            temperatureUnitPreference: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference(),
+            idealSleepDuration: Self.storedIdealSleepDuration(),
+            showSleepScore: HealthWidgetSnapshotBuilder.storedShowSleepScore()
+        )
+    }
+
+    /// Adds the widget-only captures to a `Shared` one: the energy and weight
+    /// unit preferences, and the per-metric primary source names.
+    /// `selectedHealthDataSourceOption(for:)` is `@MainActor`, so the names are
+    /// resolved here and the builder off-actor only reads the resulting map.
+    /// Kept off `Shared` so the watch publish, which renders none of the three,
+    /// does not run those sixteen lookups on the main actor.
+    private func makeWidgetPublishInput(
+        shared: BodyCompanionPublishInput.Shared
+    ) -> BodyCompanionPublishInput.Widget {
         var primarySourceNames: [HealthMetricKind: String] = [:]
         for metric in HealthWidgetMetric.allCases {
             let kind = metric.healthMetricKind
             primarySourceNames[kind] = selectedHealthDataSourceOption(for: metric.sourceSelectionKind).name
         }
 
-        let resolvedPrimarySourceNames = primarySourceNames
-        Self.snapshotPersistQueue.async {
-            let snapshot = HealthWidgetSnapshotBuilder.make(
-                trends: trends,
-                summary: summary,
-                temperatureUnitPreference: temperatureUnitPreference,
-                energyUnitPreference: energyUnitPreference,
-                weightUnitPreference: weightUnitPreference,
-                idealSleepDuration: idealSleepDuration,
-                showSleepScore: showSleepScore,
-                primarySourceName: { resolvedPrimarySourceNames[$0] }
-            )
-            if HealthWidgetSnapshotStore.save(snapshot) {
-                Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
-            }
-        }
+        return BodyCompanionPublishInput.Widget(
+            shared: shared,
+            energyUnitPreference: HealthWidgetSnapshotBuilder.storedEnergyUnitPreference(),
+            weightUnitPreference: HealthWidgetSnapshotBuilder.storedWeightUnitPreference(),
+            primarySourceNames: primarySourceNames
+        )
     }
 
     /// Serializes dashboard and widget disk writes so an earlier (pre-drain) save

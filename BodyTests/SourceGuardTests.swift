@@ -209,7 +209,9 @@ final class SourceGuardTests: XCTestCase {
         // withholds the definitions, so the watch stops filtering too.
         XCTAssertTrue(storeSource.contains("let isProUnlocked = BodyProEntitlement.isUnlocked"))
         XCTAssertTrue(storeSource.contains("Self.selectionNeutralizingCustomSources(healthDataSourceSelection).rawValue"))
-        XCTAssertTrue(storeSource.contains("let customHealthSourceGroupsRaw = isProUnlocked && !customHealthSourceGroups.isEmpty"))
+        // Spelled as an argument to `BodyCompanionPublishInput` since the publish
+        // captures moved into `makeCompanionPublishInput()`.
+        XCTAssertTrue(storeSource.contains("customHealthSourceGroupsRaw: isProUnlocked && !customHealthSourceGroups.isEmpty"))
 
         // Signature plumbing: the membership suffix is composed in ONE place and
         // read through the two selection-signature helpers, so a cache written
@@ -833,7 +835,23 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(storeSource.contains("func loadWorkoutRouteCoordinates(for workout: WorkoutSummary) async -> WorkoutRoute?"))
         XCTAssertTrue(storeSource.contains("func workoutRoutePresence(for workout: WorkoutSummary) async -> BodyWorkoutRoutePresence"))
         XCTAssertTrue(storeSource.contains("func cachedWorkoutRoute(for workout: WorkoutSummary) -> WorkoutRoute?"))
-        XCTAssertEqual(storeSource.occurrenceCount(of: "routePresenceCache.removeAll()"), 4)
+        // The clear gates live in `BodyWorkoutDetailCacheStore` now: the store calls
+        // `clearAll()` at the four wholesale gates (authorization, the Workouts
+        // permission toggle, the eager background clear, Clear Cache), and only
+        // `clearAll()` drops the presence cache — the two permission-scoped clears
+        // must leave it alone, since neither toggle changes whether a route exists.
+        XCTAssertEqual(storeSource.occurrenceCount(of: "detailCaches.clearAll()"), 4)
+        let cacheStoreSource = try BodyTestSupport.sourceText(at: "Body/Services/BodyWorkoutDetailCacheStore.swift")
+        XCTAssertEqual(cacheStoreSource.occurrenceCount(of: "routePresenceCache.removeAll()"), 1)
+        let clearAllStart = try XCTUnwrap(cacheStoreSource.range(of: "func clearAll() {")?.lowerBound)
+        // Bounded at the function's closing brace, so a `removeAll()` a later
+        // method makes can never stand in for one this method dropped.
+        let clearAllEnd = try XCTUnwrap(
+            cacheStoreSource.range(of: "\n    }", range: clearAllStart..<cacheStoreSource.endIndex)?.upperBound
+        )
+        let clearAllBlock = String(cacheStoreSource[clearAllStart..<clearAllEnd])
+        XCTAssertTrue(clearAllBlock.contains("routeCache.removeAll()"))
+        XCTAssertTrue(clearAllBlock.contains("routePresenceCache.removeAll()"))
 
         let routeModelSource = try BodyTestSupport.sourceText(at: "Body/Models/WorkoutRoute.swift")
         XCTAssertTrue(routeModelSource.contains("enum BodyWorkoutRoutePresence"))
@@ -3422,7 +3440,7 @@ final class SourceGuardTests: XCTestCase {
 
         XCTAssertTrue(storeSource.contains("private func requestHealthKitAuthorization(allowPrompt: Bool = true) async throws"))
         XCTAssertTrue(storeSource.contains("try await engine.requestAuthorization("))
-        XCTAssertTrue(storeSource.contains("routeCache.removeAll()"))
+        XCTAssertTrue(storeSource.contains("detailCaches.clearAll()"))
         XCTAssertEqual(storeSource.occurrenceCount(of: "try await engine.requestAuthorization("), 1)
         XCTAssertTrue(storeSource.contains("try await requestHealthKitAuthorization(allowPrompt:"))
         XCTAssertTrue(storeSource.contains("if permission == .workouts"))
@@ -3700,11 +3718,12 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(seriesSource.contains("beatsPerMinute.isFinite, beatsPerMinute > 0"))
 
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
-        XCTAssertTrue(storeSource.contains("private var heartRateSeriesCache: [UUID: [WorkoutHeartRateSample]] = [:]"))
+        let cacheStoreSource = try BodyTestSupport.sourceText(at: "Body/Services/BodyWorkoutDetailCacheStore.swift")
+        XCTAssertTrue(cacheStoreSource.contains("var heartRateSeriesCache: [UUID: [WorkoutHeartRateSample]] = [:]"))
         XCTAssertTrue(storeSource.contains("func loadWorkoutHeartRateSeries(for workout: WorkoutSummary) async -> [WorkoutHeartRateSample]?"))
 
         let loadStart = try XCTUnwrap(storeSource.range(of: "func loadWorkoutHeartRateSeries(for workout: WorkoutSummary) async -> [WorkoutHeartRateSample]?")?.lowerBound)
-        let loadBlock = String(storeSource[loadStart...].prefix(1_400))
+        let loadBlock = String(storeSource[loadStart...].prefix(1_600))
         // Heart data rides the Heart toggle, and the load must not pin a result taken
         // under a stale cache generation.
         XCTAssertTrue(loadBlock.contains("guard permissionSelection.includes(.heart) else {"))
@@ -3718,13 +3737,19 @@ final class SourceGuardTests: XCTestCase {
         let catchStart = try XCTUnwrap(loadBlock.range(of: "} catch {")?.lowerBound)
         let catchBlock = String(loadBlock[catchStart...].prefix(210))
         XCTAssertTrue(catchBlock.contains("return nil"))
-        XCTAssertFalse(catchBlock.contains("heartRateSeriesCache["))
+        // Non-vacuous: the same spelling is what the success paths below write.
+        XCTAssertTrue(loadBlock.contains("detailCaches.heartRateSeriesCache[workout.id] = samples"))
+        XCTAssertFalse(catchBlock.contains("detailCaches.heartRateSeriesCache["))
 
         // Cleared at every gate the sibling detail caches are: the authorization
         // gate, both permission toggles that can change what it holds (Workouts and
         // Heart), Clear Cache, and the eager clear when the app enters the
-        // background.
-        XCTAssertEqual(storeSource.occurrenceCount(of: "heartRateSeriesCache.removeAll()"), 5)
+        // background. Four of those five go through `clearAll()`, the Heart toggle
+        // through the scoped clear; `BodyWorkoutDetailCacheStoreTests` pins the
+        // subsets each one drops.
+        XCTAssertEqual(cacheStoreSource.occurrenceCount(of: "heartRateSeriesCache.removeAll()"), 2)
+        XCTAssertEqual(storeSource.occurrenceCount(of: "detailCaches.clearAll()"), 4)
+        XCTAssertEqual(storeSource.occurrenceCount(of: "detailCaches.clearHeartScopedCaches()"), 1)
     }
 
     func testWorkoutStepSamplesPropagateReadFailuresInsteadOfSwallowingErrors() throws {
@@ -3744,12 +3769,14 @@ final class SourceGuardTests: XCTestCase {
         // `distanceSampleCache`, which would make it permanent for the session.
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
         let loadStart = try XCTUnwrap(storeSource.range(of: "func loadWorkoutSplitData(for workout: WorkoutSummary) async -> WorkoutSplitData")?.lowerBound)
-        let loadBlock = String(storeSource[loadStart...].prefix(900))
+        let loadBlock = String(storeSource[loadStart...].prefix(1_500))
         let catchStart = try XCTUnwrap(loadBlock.range(of: "} catch {")?.lowerBound)
         let catchBlock = String(loadBlock[catchStart...].prefix(195))
 
         XCTAssertTrue(catchBlock.contains("return .empty"))
-        XCTAssertFalse(catchBlock.contains("distanceSampleCache["))
+        // Non-vacuous: the same spelling is what the success path below writes.
+        XCTAssertTrue(loadBlock.contains("detailCaches.distanceSampleCache[workout.id] = data"))
+        XCTAssertFalse(catchBlock.contains("detailCaches.distanceSampleCache["))
     }
 
     func testDaySampleSidecarIsPersistedFromEnoughCallSites() throws {
