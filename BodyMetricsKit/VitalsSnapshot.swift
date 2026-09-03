@@ -185,7 +185,11 @@ enum VitalsCalculator {
     private struct VitalSeries {
         var floor: Double
         var valuesByDay: [Date: Double]
-        var dailyValues: [ReadinessScoreCalculator.DailyValue]
+        /// Ascending by day, one entry per day, so a night's baseline window is
+        /// a contiguous slice found by binary search instead of a rescan of the
+        /// whole series.
+        var days: [Date]
+        var values: [Double]
     }
 
     /// One value per night per vital from the hydrated sleep history, plus the
@@ -227,12 +231,12 @@ enum VitalsCalculator {
         }
 
         return valuesByDayByKind.reduce(into: [:]) { result, entry in
+            let sorted = entry.value.sorted { $0.key < $1.key }
             result[entry.key] = VitalSeries(
                 floor: floor(for: entry.key),
                 valuesByDay: entry.value,
-                dailyValues: entry.value.map { day, value in
-                    ReadinessScoreCalculator.DailyValue(date: day, value: value)
-                }
+                days: sorted.map(\.key),
+                values: sorted.map(\.value)
             )
         }
     }
@@ -246,14 +250,28 @@ enum VitalsCalculator {
         series: [VitalKind: VitalSeries],
         calendar: Calendar
     ) -> VitalsNightAssessment? {
+        let scoringDay = calendar.startOfDay(for: date)
+        // The two window edges only depend on the night, so they are computed
+        // once here rather than once per vital.
+        let oldestDay = calendar.date(
+            byAdding: .day,
+            value: -ReadinessScoreCalculator.baselineDayCount,
+            to: scoringDay
+        ) ?? scoringDay.addingTimeInterval(-Double(ReadinessScoreCalculator.baselineDayCount) * 86_400)
+        let recentCutoff = calendar.date(
+            byAdding: .day,
+            value: -ReadinessScoreCalculator.recentExclusionDayCount,
+            to: scoringDay
+        ) ?? scoringDay
+
         let measurements = VitalKind.allCases.compactMap { kind -> VitalMeasurement? in
             guard let series = series[kind],
                   let value = series.valuesByDay[date],
-                  let baseline = ReadinessScoreCalculator.robustBaseline(
-                      for: date,
-                      values: series.dailyValues,
-                      floor: series.floor,
-                      calendar: calendar
+                  let baseline = windowedBaseline(
+                      series: series,
+                      scoringDay: scoringDay,
+                      oldestDay: oldestDay,
+                      recentCutoff: recentCutoff
                   ) else {
                 return nil
             }
@@ -266,6 +284,54 @@ enum VitalsCalculator {
         }
 
         return VitalsNightAssessment(date: date, measurements: measurements)
+    }
+
+    /// `ReadinessScoreCalculator.robustBaseline` for a series that is already
+    /// one value per day sorted by day: the same window, the same
+    /// recent-exclusion rule, the same median and spread, but read as a slice
+    /// instead of rescanning every day of history for every night.
+    private static func windowedBaseline(
+        series: VitalSeries,
+        scoringDay: Date,
+        oldestDay: Date,
+        recentCutoff: Date
+    ) -> ReadinessScoreCalculator.Baseline? {
+        let start = lowerBound(of: series.days, for: oldestDay)
+        let end = lowerBound(of: series.days, for: scoringDay)
+        let cutoff = min(max(lowerBound(of: series.days, for: recentCutoff), start), end)
+
+        let range = (cutoff - start) >= 28 ? start..<cutoff : start..<end
+        guard range.count >= ReadinessScoreCalculator.minimumBaselineDayCount else {
+            return nil
+        }
+
+        let numericValues = series.values[range].sorted()
+        let medianValue = ReadinessScoreCalculator.median(numericValues)
+        let deviations = numericValues.map { abs($0 - medianValue) }.sorted()
+        let spread = max(1.4826 * ReadinessScoreCalculator.median(deviations), series.floor)
+
+        return ReadinessScoreCalculator.Baseline(
+            median: medianValue,
+            spread: spread,
+            validDayCount: numericValues.count
+        )
+    }
+
+    /// Index of the first day that is not older than `day`.
+    private static func lowerBound(of days: [Date], for day: Date) -> Int {
+        var lower = 0
+        var upper = days.count
+
+        while lower < upper {
+            let middle = (lower + upper) / 2
+            if days[middle] < day {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
+        }
+
+        return lower
     }
 
     /// Distance from the baseline median in typical-band half-widths, clamped

@@ -1002,7 +1002,7 @@ enum ReadinessScoreCalculator {
         static let wristTemperature = 0.2
     }
 
-    private static func median(_ values: [Double]) -> Double {
+    static func median(_ values: [Double]) -> Double {
         guard !values.isEmpty else {
             return 0
         }
