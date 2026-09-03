@@ -290,7 +290,7 @@ final class WorkoutMetricComparisonTests: XCTestCase {
             workout(type: type, start: date(2026, 5, 15), distance: 5000)
         ]
         let snapshot = WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: priors, calendar: .bodyGregorian)
-        let store = HealthKitWorkoutStore(initialSnapshot: snapshot, initialPermissionSelection: .defaultValue)
+        let store = HealthKitWorkoutStore(initialMonthSnapshots: [snapshot], initialPermissionSelection: .defaultValue)
 
         let current = workout(type: type, start: date(2026, 5, 31), distance: 5000)
         let context = store.comparisonContext(for: current)

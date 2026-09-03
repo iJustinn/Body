@@ -78,7 +78,7 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 - Fix:
   - Added `HealthDashboardSnapshot.filteredWithoutReadinessRecompute(by:)` and used it in `HealthKitWorkoutStore.init` so the cached `summary.readiness` value from disk is preserved through filtering. The next refresh recomputes it on a background thread.
   - Made `updateHealthDashboardSnapshot` `async`. Wrapped the filter+`recalculatingReadiness` chain in `Task.detached(priority: .userInitiated)` and awaited the result before publishing. Wrapped `HealthDashboardSnapshotStore.save(...)` + `saveSecondarySelectionSignature(...)` in `Task.detached(priority: .utility)` (fire-and-forget; in-memory state is already updated when the disk write starts).
-  - Made `updateCurrentMonthSnapshot` capture the snapshots and run `WorkoutSnapshotStore.save` / `savePrevious` + `WidgetCenter.shared.reloadAllTimelines()` inside `Task.detached(.utility)`.
+  - Made `persistRecentMonthSnapshots` (then `updateCurrentMonthSnapshot`) capture the snapshots and run `WorkoutSnapshotStore.save` for each persisted month + `WidgetCenter.shared.reloadAllTimelines()` inside `Task.detached(.utility)`.
   - Made `applyPermissionSelectionToCachedData` `async` with the same pattern.
   - Single-metric Readiness refresh in `fetchHealthDashboardSnapshot` wraps its `.recalculatingReadiness(...)` in `Task.detached(.userInitiated)`.
 - Tradeoff: Brief few-ms window during refresh where in-memory state is updated but the disk JSON hasn't been written yet. If the app is force-quit in that window, the next launch reads the slightly older cached snapshot — re-derived on the next refresh, no user-visible impact.

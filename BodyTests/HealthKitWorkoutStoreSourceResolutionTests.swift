@@ -698,7 +698,7 @@ final class HealthKitWorkoutStoreSourceResolutionTests: XCTestCase {
     @MainActor
     func testSyncBadgeSignalAdvancesOnlyForUserVisibleGenuineSuccess() {
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)]
         )
         XCTAssertEqual(store.syncBadgeSuccessCount, 0)
 
@@ -732,7 +732,7 @@ final class HealthKitWorkoutStoreSourceResolutionTests: XCTestCase {
     @MainActor
     func testSyncBadgeSignalDoesNotAdvanceWhenNoQueryRan() {
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)]
         )
         XCTAssertEqual(store.syncBadgeSuccessCount, 0)
 
@@ -770,12 +770,12 @@ final class HealthKitWorkoutStoreSourceResolutionTests: XCTestCase {
         permissionSelection: BodyHealthPermissionSelection = .defaultValue
     ) -> HealthKitWorkoutStore {
         HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(
                 month: 1,
                 year: 2026,
                 workouts: [],
                 calendar: .bodyGregorian
-            ),
+            )],
             initialHealthDashboardSnapshot: HealthDashboardSnapshot(
                 summary: .empty,
                 trends: .empty,
@@ -916,12 +916,12 @@ final class HealthKitWorkoutStoreSourceResolutionTests: XCTestCase {
         ]
 
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(
                 month: 1,
                 year: 2026,
                 workouts: [],
                 calendar: .bodyGregorian
-            ),
+            )],
             initialHealthDashboardSnapshot: HealthDashboardSnapshot(
                 summary: summary,
                 trends: trends,

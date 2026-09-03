@@ -20,7 +20,7 @@ final class HealthKitWorkoutStorePersistenceTests: XCTestCase {
         let cachedSnapshot = try cachedHealthDashboardSnapshot()
 
         let store = HealthKitWorkoutStore(
-            initialSnapshot: initialSnapshot,
+            initialMonthSnapshots: [initialSnapshot],
             initialHealthDashboardSnapshot: cachedSnapshot
         )
 
@@ -164,7 +164,7 @@ final class HealthKitWorkoutStorePersistenceTests: XCTestCase {
             calendar: calendar
         )
         let store = HealthKitWorkoutStore(
-            initialSnapshot: initialSnapshot,
+            initialMonthSnapshots: [initialSnapshot],
             initialHealthDashboardSnapshot: try cachedHealthDashboardSnapshot()
         )
 
@@ -322,7 +322,7 @@ final class HealthKitWorkoutStorePersistenceTests: XCTestCase {
     private func temporaryWorkoutSnapshotFileURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("BodyTests-\(UUID().uuidString)", isDirectory: true)
-            .appendingPathComponent("currentMonthWorkoutSnapshot.json")
+            .appendingPathComponent("2026-05.json")
     }
 
     private func workout(day: Int, type: BodyWorkoutType, duration: TimeInterval) -> WorkoutSummary {
@@ -342,7 +342,7 @@ final class HealthKitWorkoutStorePersistenceTests: XCTestCase {
     @MainActor
     private func customNameStore(defaults: UserDefaults) -> HealthKitWorkoutStore {
         HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian),
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)],
             customNameDefaults: defaults
         )
     }

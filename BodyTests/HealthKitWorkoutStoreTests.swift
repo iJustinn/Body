@@ -32,12 +32,12 @@ func preserveInitialHealthLoadDefaults() -> () -> Void {
 @MainActor
 func emptyHealthDataStore() -> HealthKitWorkoutStore {
     HealthKitWorkoutStore(
-        initialSnapshot: WorkoutMonthSnapshot.make(
+        initialMonthSnapshots: [WorkoutMonthSnapshot.make(
             month: 5,
             year: 2026,
             workouts: [],
             calendar: .bodyGregorian
-        ),
+        )],
         initialHealthDashboardSnapshot: .empty
     )
 }
@@ -48,12 +48,12 @@ func emptyHealthDataStore() -> HealthKitWorkoutStore {
 @MainActor
 func activityRingsEnabledStore() -> HealthKitWorkoutStore {
     HealthKitWorkoutStore(
-        initialSnapshot: WorkoutMonthSnapshot.make(
+        initialMonthSnapshots: [WorkoutMonthSnapshot.make(
             month: 5,
             year: 2026,
             workouts: [],
             calendar: .bodyGregorian
-        ),
+        )],
         initialHealthDashboardSnapshot: .empty,
         initialPermissionSelection: BodyHealthPermissionSelection(enabledPermissions: [.activityRings])
     )
@@ -290,13 +290,13 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         )
 
         let emptyStore = HealthKitWorkoutStore(
-            initialSnapshot: initialSnapshot,
+            initialMonthSnapshots: [initialSnapshot],
             initialHealthDashboardSnapshot: .empty
         )
         XCTAssertTrue(emptyStore.needsInitialHealthDataLoad)
 
         let cachedStore = HealthKitWorkoutStore(
-            initialSnapshot: initialSnapshot,
+            initialMonthSnapshots: [initialSnapshot],
             initialHealthDashboardSnapshot: try cachedHealthDashboardSnapshot()
         )
         XCTAssertFalse(cachedStore.needsInitialHealthDataLoad)
@@ -336,12 +336,12 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         defer { restoreDefaults() }
 
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(
                 month: 5,
                 year: 2026,
                 workouts: [],
                 calendar: .bodyGregorian
-            ),
+            )],
             initialHealthDashboardSnapshot: .empty
         )
         XCTAssertTrue(store.needsInitialHealthDataLoad)
@@ -375,12 +375,12 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         }
 
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(
                 month: 5,
                 year: 2026,
                 workouts: [],
                 calendar: .bodyGregorian
-            ),
+            )],
             initialHealthDashboardSnapshot: .empty
         )
         XCTAssertNil(store.lastSuccessfulRefreshDate)
@@ -574,7 +574,7 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
     @MainActor
     func testFreshnessTTLGateUnchangedByBadgeSignalChange() {
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)]
         )
         XCTAssertNil(store.lastSuccessfulRefreshDate)
 

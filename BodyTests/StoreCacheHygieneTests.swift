@@ -119,9 +119,9 @@ final class StoreCacheHygieneTests: XCTestCase {
         )
         let selection = BodyHealthDataSourceSelection.defaultValue.setting(.heartRate, option: individual)
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(
                 month: 6, year: 2026, workouts: [], calendar: .bodyGregorian
-            ),
+            )],
             initialHealthDashboardSnapshot: .empty,
             initialSummaryContextSignature: nil,
             initialHealthDataSourceSelection: selection

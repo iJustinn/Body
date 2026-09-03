@@ -26,13 +26,13 @@ final class HealthKitWorkoutStoreObservationTests: XCTestCase {
     /// replaces the whole dictionary with the current month's empty snapshot.
     @MainActor
     func testMonthSnapshotsGenerationAdvancesWhenTheDictionaryIsReplaced() async throws {
-        // The clear's save path writes to the App Group container, which is unavailable
-        // in this unsigned target; point it at a scratch file.
-        let workoutFileURL = temporaryWorkoutSnapshotFileURL()
-        HealthKitWorkoutStore.testCurrentMonthSnapshotFileURLOverride = workoutFileURL
+        // The clear's file path writes to the App Group container, which is unavailable
+        // in this unsigned target; point it at a scratch directory.
+        let snapshotDirectoryURL = temporaryMonthSnapshotDirectoryURL()
+        HealthKitWorkoutStore.testSnapshotDirectoryURLOverride = snapshotDirectoryURL
         addTeardownBlock {
-            HealthKitWorkoutStore.testCurrentMonthSnapshotFileURLOverride = nil
-            try? FileManager.default.removeItem(at: workoutFileURL.deletingLastPathComponent())
+            HealthKitWorkoutStore.testSnapshotDirectoryURLOverride = nil
+            try? FileManager.default.removeItem(at: snapshotDirectoryURL.deletingLastPathComponent())
         }
 
         let calendar = Calendar.bodyGregorian
@@ -51,12 +51,12 @@ final class HealthKitWorkoutStoreObservationTests: XCTestCase {
             sourceName: "Tests"
         )
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(
                 month: month,
                 year: year,
                 workouts: [workout],
                 calendar: calendar
-            ),
+            )],
             initialHealthDashboardSnapshot: .empty,
             initialPermissionSelection: .defaultValue,
             engineHealthStore: FakeHealthStore()
@@ -122,12 +122,12 @@ final class HealthKitWorkoutStoreObservationTests: XCTestCase {
             1,
             "Only `init` may write monthSnapshots directly; route new writes through setMonthSnapshots / mutateMonthSnapshots. Found: \(directWrites)"
         )
-        XCTAssertEqual(directWrites.first, "monthSnapshots = [")
+        XCTAssertEqual(directWrites.first, "monthSnapshots = [BodyWorkoutMonthKey: WorkoutMonthSnapshot](")
     }
 
-    private func temporaryWorkoutSnapshotFileURL() -> URL {
+    private func temporaryMonthSnapshotDirectoryURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("BodyTests-\(UUID().uuidString)", isDirectory: true)
-            .appendingPathComponent("currentMonthWorkoutSnapshot.json")
+            .appendingPathComponent(WorkoutSnapshotStore.monthSnapshotsDirectoryName, isDirectory: true)
     }
 }

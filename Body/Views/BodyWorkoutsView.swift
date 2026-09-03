@@ -86,6 +86,12 @@ struct BodyWorkoutsView: View {
     /// selection supersedes it and on disappear, so a stale timeout can't fire
     /// after the view is gone or after the user has already moved on.
     @State private var monthSelectionTimeoutTask: Task<Void, Never>?
+    /// A cached month shows instantly, then settles for a moment before
+    /// refreshing from HealthKit in the background, so swiping across several
+    /// cached months in a row queues one refresh instead of one per month
+    /// touched along the way. Cancelled when a new selection supersedes it and
+    /// on disappear, matching `monthSelectionTimeoutTask` above.
+    @State private var cachedMonthRefreshTask: Task<Void, Never>?
     @State private var searchText = ""
     @State private var showingFilterSheet = false
     @State private var showingMonthPicker = false
@@ -351,6 +357,8 @@ struct BodyWorkoutsView: View {
             .onDisappear {
                 monthSelectionTimeoutTask?.cancel()
                 monthSelectionTimeoutTask = nil
+                cachedMonthRefreshTask?.cancel()
+                cachedMonthRefreshTask = nil
                 // Leave `monthLoadTasks` running: each one wraps the store's
                 // `loadMonthIfNeeded(month:year:)` directly, and that call is
                 // cancellation-aware (it checks `Task.isCancelled` at its await
@@ -744,6 +752,8 @@ struct BodyWorkoutsView: View {
         pendingMonthSelection = nil
         monthSelectionTimeoutTask?.cancel()
         monthSelectionTimeoutTask = nil
+        cachedMonthRefreshTask?.cancel()
+        cachedMonthRefreshTask = nil
 
         guard selectedMonth != monthYear.month || selectedYear != monthYear.year else {
             return true
@@ -751,6 +761,21 @@ struct BodyWorkoutsView: View {
 
         if workoutStore.hasLoadedSnapshot(month: monthYear.month, year: monthYear.year) {
             applyMonthSelection(monthYear)
+            return true
+        }
+
+        if workoutStore.hasCachedWorkouts(month: monthYear.month, year: monthYear.year) {
+            // Cached months (seeded at launch, or fetched earlier this session)
+            // show instantly. HealthKit may still have newer data, so refresh
+            // it in the background after a short settle instead of queuing a
+            // fetch for every month the user swipes past on the way here.
+            applyMonthSelection(monthYear)
+            cachedMonthRefreshTask = Task {
+                try? await Task.sleep(nanoseconds: 400 * 1_000_000)
+                guard !Task.isCancelled else { return }
+                guard selectedMonth == monthYear.month, selectedYear == monthYear.year else { return }
+                _ = await monthLoadTask(for: monthYear).value
+            }
             return true
         }
 

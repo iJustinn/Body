@@ -632,12 +632,12 @@ final class HealthKitWorkoutStore {
         await persistPublishedDashboardSnapshot()
         // A workout month that already landed in `monthSnapshots` before the
         // deadline fired lives only in memory otherwise: the normal
-        // `updateCurrentMonthSnapshot` call further down the abandoned body
+        // `persistRecentMonthSnapshots` call further down the abandoned body
         // never runs once its generation is retired above. Persist it through
-        // the same save path a completed refresh uses (current + previous
-        // month, widget reload, detail-file prune) — no new HealthKit fetch,
+        // the same save path a completed refresh uses (every in-window month,
+        // widget reload, detail-file prune) — no new HealthKit fetch,
         // just durability for what's already in memory.
-        updateCurrentMonthSnapshot(date: Date(), calendar: .bodyGregorian)
+        persistRecentMonthSnapshots(date: Date(), calendar: .bodyGregorian)
         publishWatchSnapshot()
         return false
     }
@@ -740,7 +740,7 @@ final class HealthKitWorkoutStore {
     }
 
     init(
-        initialSnapshot: WorkoutMonthSnapshot = WorkoutSnapshotStore.loadOrEmpty(),
+        initialMonthSnapshots: [WorkoutMonthSnapshot] = WorkoutSnapshotStore.loadPersistedMonths(),
         initialHealthDashboardSnapshot: HealthDashboardSnapshot? = nil,
         initialSummaryContextSignature: String? = nil,
         initialPermissionSelection: BodyHealthPermissionSelection = BodyHealthPermissionSelection.load(),
@@ -816,28 +816,37 @@ final class HealthKitWorkoutStore {
             && initialTrends.recordedReadinessContext != initialReadinessContext
         let filteredHealthDashboardSnapshot = loadedDashboard.snapshot
             .filteredWithoutReadinessRecompute(by: initialPermissionSelection)
-        let startingSnapshot: WorkoutMonthSnapshot
-        if !initialPermissionSelection.includes(.workouts) {
-            startingSnapshot = WorkoutMonthSnapshot.make(
-                month: initialSnapshot.month,
-                year: initialSnapshot.year,
-                workouts: [],
-                calendar: .bodyGregorian
-            )
-        } else {
+        // Every persisted month is restored, so the permission sanitizing runs
+        // per month rather than on one snapshot.
+        let sanitizedMonthSnapshots: [WorkoutMonthSnapshot] = initialMonthSnapshots.map { persisted in
+            guard initialPermissionSelection.includes(.workouts) else {
+                return WorkoutMonthSnapshot.make(
+                    month: persisted.month,
+                    year: persisted.year,
+                    workouts: [],
+                    calendar: .bodyGregorian
+                )
+            }
             // The persisted snapshot can still carry permission-gated fields
             // (VO₂max/power/cadence/strokes under Workout Metrics, heart-rate
             // recovery under Heart), so strip them here too — otherwise they
             // reappear on launch before the next refresh rebuilds the summary.
-            var sanitized = initialSnapshot
+            var sanitized = persisted
             if !initialPermissionSelection.includes(.workoutMetrics) {
                 sanitized = sanitized.removingWorkoutMetrics()
             }
             if !initialPermissionSelection.includes(.heart) {
                 sanitized = sanitized.removingHeartRateRecovery()
             }
-            startingSnapshot = sanitized
+            return sanitized
         }
+        let startingMonthKey = BodyWorkoutMonthKey(date: date, calendar: .bodyGregorian)
+        // An honest empty month when nothing was persisted for the current
+        // month (fresh install, or a launch in a month no refresh has covered
+        // yet), never a fabricated placeholder.
+        let startingSnapshot = sanitizedMonthSnapshots.first {
+            $0.month == startingMonthKey.month && $0.year == startingMonthKey.year
+        } ?? .makeEmpty(generatedAt: date)
         // Same rationale one level down, for the per-workout detail files: a strip
         // enqueued on opt-out may never have run (app killed right after the
         // toggle), so reconcile what's at rest with the stored selection at launch.
@@ -869,13 +878,22 @@ final class HealthKitWorkoutStore {
         // can't make before every stored property is initialized. It is the initial
         // value rather than a write anyway, so there is no memo to invalidate and
         // `monthSnapshotsGeneration` stays at its own initial 0.
-        monthSnapshots = [
-            BodyWorkoutMonthKey(month: startingSnapshot.month, year: startingSnapshot.year): startingSnapshot
-        ]
+        monthSnapshots = [BodyWorkoutMonthKey: WorkoutMonthSnapshot](
+            uniqueKeysWithValues: sanitizedMonthSnapshots.map {
+                (BodyWorkoutMonthKey(month: $0.month, year: $0.year), $0)
+            }
+        )
+        // Oldest first, matching `noteMonthSnapshotStored`'s append order, so
+        // eviction drops the least recently touched seeded month first.
+        // `loadedMonthKeys` is deliberately NOT seeded: it means "fetched from
+        // HealthKit this session", which a disk restore is not.
+        monthLoadOrder = Set(monthSnapshots.keys).sortedByDate
         // Seeds the color editor's known-workout-types census from the persisted
-        // snapshot at launch; `refresh(monthKeys:calendar:)` keeps it current as
+        // snapshots at launch; `refresh(monthKeys:calendar:)` keeps it current as
         // further months load.
-        BodyWorkoutColorStore.mergeKnownWorkoutTypes(Set(startingSnapshot.days.flatMap(\.workouts).map(\.type)))
+        BodyWorkoutColorStore.mergeKnownWorkoutTypes(
+            Set(sanitizedMonthSnapshots.flatMap { $0.days.flatMap(\.workouts) }.map(\.type))
+        )
         healthSummary = filteredHealthDashboardSnapshot.summary
         // Restore the summary-reuse gate from the persisted envelope (H2a) so a
         // cold-start failed summary leaf can reuse the hydrated value only while
@@ -1692,7 +1710,10 @@ final class HealthKitWorkoutStore {
         // (current month only) or the immediate opt-in pass may not have the prior month
         // loaded, so fetch any absent window month before scanning — otherwise a workout
         // in it (e.g. Jun 30 on Jul 1) is invisible here and ages out of the 48h window.
-        let missingWindowKeys = Set(windowKeys).filter { monthSnapshots[$0] == nil }
+        // Subtract `loadedMonthKeys` (fetched this session), not `monthSnapshots`
+        // membership: launch seeds the persisted months into memory, so a stale
+        // seeded month would otherwise be scanned instead of refetched.
+        let missingWindowKeys = Set(windowKeys).subtracting(loadedMonthKeys)
         if !missingWindowKeys.isEmpty {
             setRefreshStage(.fetching)
             try? await refresh(monthKeys: missingWindowKeys, calendar: Calendar.bodyGregorian)
@@ -1727,7 +1748,7 @@ final class HealthKitWorkoutStore {
         // `ensureComparisonMonthsLoaded`: those await refresh completion, which would
         // deadlock because this pass runs while the caller owns `isRefreshing`. Subtract
         // `loadedMonthKeys` (the completeness signal), not `monthSnapshots` membership,
-        // which is seeded with a placeholder at launch.
+        // which is seeded from the persisted month files at launch.
         let comparisonKeys = Self.autoApplyComparisonMonthKeys(
             now: now,
             maxAge: Self.autoApplyMaxWorkoutAge,
@@ -4136,13 +4157,22 @@ final class HealthKitWorkoutStore {
         loadedMonthKeys.contains(BodyWorkoutMonthKey(month: month, year: year))
     }
 
+    /// Whether a month can be shown straight from cache while it refreshes in
+    /// the background. Non-empty on purpose: `clearWorkoutSnapshots` leaves
+    /// empty snapshots in memory and the opt-out path writes emptied files, so
+    /// mere membership would navigate instantly to "No workouts" and then pop
+    /// the workouts in once the fetch lands.
+    func hasCachedWorkouts(month: Int, year: Int) -> Bool {
+        (monthSnapshots[BodyWorkoutMonthKey(month: month, year: year)]?.workoutCount ?? 0) > 0
+    }
+
     /// Workouts in the half-open 30 days before `workout` (excluding it) — same-type
     /// only by default, all types when `matchingTypeOnly` is false (the effort
     /// estimator prefers same-type but falls back across types) — read only from
     /// already-loaded snapshots. Pure — no fetch, no `Task` — so it is safe to call
     /// from a SwiftUI computed property. `isComplete` uses `loadedMonthKeys` (the true
-    /// load signal), not `monthSnapshots` membership, which is seeded with a
-    /// placeholder at launch and left populated after `clearWorkoutSnapshots`.
+    /// load signal), not `monthSnapshots` membership, which is seeded from the
+    /// persisted month files at launch and left populated after `clearWorkoutSnapshots`.
     func comparisonContext(for workout: WorkoutSummary, matchingTypeOnly: Bool = true) -> WorkoutComparisonContext {
         let calendar = Calendar.bodyGregorian
         guard let windowStart = calendar.date(byAdding: .day, value: -30, to: workout.startDate) else {
@@ -4596,10 +4626,10 @@ final class HealthKitWorkoutStore {
         // `isClearingCache` stays true — and the disk size / widget reload are
         // only recomputed — once the on-disk caches are actually gone, so an
         // earlier in-flight save can't resurrect a file after the wipe.
+        let snapshotDirectoryURL = Self.testSnapshotDirectoryURLOverride ?? WorkoutSnapshotStore.monthSnapshotsDirectoryURL
         await withCheckedContinuation { continuation in
             Self.snapshotPersistQueue.async {
-                WorkoutSnapshotStore.delete()
-                WorkoutSnapshotStore.deletePrevious()
+                WorkoutSnapshotStore.deleteAll(directoryURL: snapshotDirectoryURL)
                 HealthDashboardSnapshotStore.delete()
                 HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
                 HealthDashboardSnapshotStore.clearWatchExpectedSourceIDs()
@@ -4772,7 +4802,7 @@ final class HealthKitWorkoutStore {
             // updated" for this no-op.
             markRefreshSucceeded(date: date, refreshedVitals: true, publishesWatch: false, hadQueryFailure: hadQueryFailure, advancesSyncBadge: true, ranQueries: permissionSelectionCanRunQueries)
             seedMetricWarningNotificationLedger(hadQueryFailure: hadQueryFailure, calendar: calendar)
-            updateCurrentMonthSnapshot(date: date, calendar: calendar)
+            persistRecentMonthSnapshots(date: date, calendar: calendar)
             await reapplyActivityReadinessAfterWorkouts(date: date, calendar: calendar, persists: false)
             // Same ordering fix, for Stress's activity mask.
             await recomputeStress(on: date, calendar: calendar, persists: false)
@@ -4908,7 +4938,7 @@ final class HealthKitWorkoutStore {
             // dispatches no queries either.
             let ranQueries = (updatesHealthSummary || includesWorkouts) && permissionSelectionCanRunQueries
             markRefreshSucceeded(date: refreshDate, refreshedVitals: updatesHealthSummary, publishesWatch: false, hadQueryFailure: hadQueryFailure, advancesSyncBadge: true, ranQueries: ranQueries)
-            updateCurrentMonthSnapshot(date: refreshDate, calendar: calendar)
+            persistRecentMonthSnapshots(date: refreshDate, calendar: calendar)
             setRefreshStage(.computing)
             await reapplyActivityReadinessAfterWorkouts(date: refreshDate, calendar: calendar)
             await recomputeStress(on: refreshDate, calendar: calendar)
@@ -5443,6 +5473,10 @@ final class HealthKitWorkoutStore {
                 return
             }
             authorizationState = .authorized
+            // A month browsed into (months 4 to 6 of the window) is fetched only
+            // here, so without this it would live in memory alone and the next
+            // launch would be back to "Loading data..." for it.
+            persistRecentMonthSnapshots(date: Date(), calendar: .bodyGregorian)
             markRefreshSucceeded(date: Date(), refreshedVitals: false)
             updateHealthDataNotice()
         } catch {
@@ -5474,7 +5508,9 @@ final class HealthKitWorkoutStore {
         ) { group in
             for key in orderedKeys {
                 // Always hand the engine the month's cached summaries so the
-                // effort / HR failure fallback can reuse them; REUSE proper
+                // effort / HR failure fallback can reuse them — since launch
+                // seeds every persisted month, months 4 to 6 of the window now
+                // offer that fallback on their first fetch too; REUSE proper
                 // (skipping the batched HR query, and the cadence/distance
                 // query pools, for aged workouts) stays gated on
                 // `allowsCachedWorkoutReuse` — passive resumes only, so every
@@ -6338,9 +6374,11 @@ final class HealthKitWorkoutStore {
 
     /// The persisted previous-month snapshot in `weeklyWorkoutMinutes`'s input
     /// shape, read ONLY when the trailing week reaches into a month
-    /// `monthSnapshots` doesn't carry — every refresh from the seventh of the
+    /// `monthSnapshots` doesn't carry. Launch now seeds the persisted months
+    /// into memory, so that gap is narrow: an evicted month, or a month whose
+    /// file exists while memory lost it. Every refresh from the seventh of the
     /// month onward, and every refresh that already loaded the previous month,
-    /// skips the disk entirely. It's the same App Group file the iOS widget
+    /// skips the disk entirely. It's the same App Group data the iOS widget
     /// reads, and `WorkoutSnapshotStore.load` memoizes the decode by file
     /// identity, so a repeated publish pays a `stat` rather than a decode.
     ///
@@ -6885,7 +6923,7 @@ final class HealthKitWorkoutStore {
 
         // The in-memory clear above leaves the App Group JSON untouched, but the
         // widget re-reads it via `loadCurrentOrPreviousIfEmpty()` and the app
-        // re-reads it on cold start — so rewrite both persisted month files
+        // re-reads it on cold start — so rewrite every persisted month file
         // emptied too. This clears the workout data at rest on opt-out instead
         // of leaving it for the widget to re-render, mirroring
         // `sanitizeWorkoutSnapshots`. Preserving each file's month
@@ -6905,15 +6943,7 @@ final class HealthKitWorkoutStore {
                     generatedAt: snapshot.generatedAt
                 )
             }
-            var widgetReloadNeeded = false
-            if let current = WorkoutSnapshotStore.load(),
-               WorkoutSnapshotStore.save(emptied(current)) {
-                widgetReloadNeeded = true
-            }
-            if let previous = WorkoutSnapshotStore.loadPrevious(),
-               WorkoutSnapshotStore.savePrevious(emptied(previous)) {
-                widgetReloadNeeded = true
-            }
+            let widgetReloadNeeded = WorkoutSnapshotStore.mapPersistedMonths { emptied($0) }
             if widgetReloadNeeded {
                 Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
             }
@@ -6938,82 +6968,97 @@ final class HealthKitWorkoutStore {
 
         // The in-memory strip above leaves the App Group JSON untouched, but the
         // widget reads it via `loadCurrentOrPreviousIfEmpty()` and the app
-        // re-reads it on cold start — so rewrite both persisted month files
+        // re-reads it on cold start — so rewrite every persisted month file
         // stripped too. This clears the data at rest on opt-out instead of
-        // waiting for the next refresh to overwrite the current-month file.
+        // waiting for the next refresh to overwrite the month files.
         // Route through the persist queue so this load-modify-write can't
         // interleave with a concurrent refresh save and resurrect the stripped
         // metrics, and request the widget reload only after the rewrite lands
         // (otherwise the widget can rebuild from the un-stripped file first).
         Self.snapshotPersistQueue.async {
-            var widgetReloadNeeded = false
-            if let current = WorkoutSnapshotStore.load(),
-               WorkoutSnapshotStore.save(transform(current, calendar)) {
-                widgetReloadNeeded = true
-            }
-            if let previous = WorkoutSnapshotStore.loadPrevious(),
-               WorkoutSnapshotStore.savePrevious(transform(previous, calendar)) {
-                widgetReloadNeeded = true
-            }
+            let widgetReloadNeeded = WorkoutSnapshotStore.mapPersistedMonths { transform($0, calendar) }
             if widgetReloadNeeded {
                 Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
             }
         }
     }
 
-    // Test-only override for where `updateCurrentMonthSnapshot` saves the
-    // current/previous month files. nil (the default, and the only value any
-    // production call site ever sees) means "use the real App Group location"
-    // via the no-argument `WorkoutSnapshotStore.save`/`savePrevious` overloads.
-    // BodyTests sets this because the unsigned test target has no App Group
-    // container (`WorkoutSnapshotStore.sharedContainerURL` is nil there), so
-    // asserting persistence needs a real, test-owned file.
-    static var testCurrentMonthSnapshotFileURLOverride: URL?
+    // Test-only override for the directory `persistRecentMonthSnapshots` saves
+    // its month files into (and, one level up from it, the legacy pair it
+    // deletes and the files the prune keep-set reads back). nil (the default,
+    // and the only value any production call site ever sees) means "use the real
+    // App Group location". BodyTests sets this because the unsigned test target
+    // has no App Group container (`WorkoutSnapshotStore.sharedContainerURL` is
+    // nil there), so asserting persistence needs a real, test-owned directory.
+    static var testSnapshotDirectoryURLOverride: URL?
 
-    private func updateCurrentMonthSnapshot(date: Date, calendar: Calendar) {
+    /// Writes every in-window month currently in memory to disk, then reconciles
+    /// what's at rest: the legacy two-file cache goes, out-of-window month files
+    /// are pruned, and the per-workout detail files are trimmed to what the
+    /// persisted months still reference.
+    private func persistRecentMonthSnapshots(date: Date, calendar: Calendar) {
         let currentKey = BodyWorkoutMonthKey(date: date, calendar: calendar)
         guard let currentSnapshot = monthSnapshots[currentKey] else {
             return
         }
 
         snapshot = currentSnapshot
-        let snapshotToSave = currentSnapshot
-        let previousSnapshotToSave: WorkoutMonthSnapshot? = {
-            guard let previousMonthStart = calendar.date(byAdding: .month, value: -1, to: date) else {
-                return nil
-            }
-            let previousKey = BodyWorkoutMonthKey(date: previousMonthStart, calendar: calendar)
-            return monthSnapshots[previousKey]
-        }()
-        let currentFileURLOverride = Self.testCurrentMonthSnapshotFileURLOverride
+        // Captured on the main actor: the queue block below must not touch
+        // `monthSnapshots`.
+        let windowKeys = Self.recentMonthKeys(
+            count: WorkoutSnapshotStore.persistedMonthCount,
+            from: date,
+            calendar: calendar
+        )
+        let snapshotsToSave = windowKeys.compactMap { monthSnapshots[$0] }
+        let directoryURL = Self.testSnapshotDirectoryURLOverride ?? WorkoutSnapshotStore.monthSnapshotsDirectoryURL
+        let previousMonthKey = calendar.date(byAdding: .month, value: -1, to: date)
+            .map { BodyWorkoutMonthKey(date: $0, calendar: calendar) }
 
         // Route through the shared persist queue (not a bare `Task.detached`) so
         // two successive refreshes' month saves keep FIFO enqueue order — an
         // earlier save must never land after a later one and stale the widget.
         Self.snapshotPersistQueue.async {
-            var widgetReloadNeeded = currentFileURLOverride.map {
-                WorkoutSnapshotStore.save(snapshotToSave, fileURL: $0)
-            } ?? WorkoutSnapshotStore.save(snapshotToSave)
-            if let previousSnapshotToSave,
-               currentFileURLOverride == nil,
-               WorkoutSnapshotStore.savePrevious(previousSnapshotToSave) {
-                widgetReloadNeeded = true
+            var widgetReloadNeeded = false
+            for monthSnapshot in snapshotsToSave {
+                let fileURL = WorkoutSnapshotStore.fileURL(
+                    month: monthSnapshot.month,
+                    year: monthSnapshot.year,
+                    directoryURL: directoryURL
+                )
+                if WorkoutSnapshotStore.save(monthSnapshot, fileURL: fileURL) {
+                    widgetReloadNeeded = true
+                }
             }
-            if widgetReloadNeeded {
-                Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
-            }
+            // Only once the month-keyed writes have landed: until then the
+            // legacy pair is the only copy a widget or the watch fallback can
+            // read after an update from an older build.
+            WorkoutSnapshotStore.deleteLegacyFiles(directoryURL: directoryURL)
 
-            // Drop detail files for workouts the persisted list no longer carries.
-            // The keep-set is read back from the two ON-DISK month files, not from
-            // `monthSnapshots`: the previous month isn't seeded into memory at
-            // launch, so an in-memory keep-set would delete every previous-month
-            // detail on the first refresh. For the same reason, a missing file means
+            // Drop detail files for workouts the persisted months no longer
+            // carry. The keep-set is read back from the ON-DISK month files, not
+            // from `monthSnapshots`: months seeded at launch can be evicted from
+            // memory while their files stay, so an in-memory keep-set would
+            // delete their details. For the same reason, a missing file means
             // "unknown", not "empty" — skip the prune entirely rather than guess.
-            if let current = WorkoutSnapshotStore.load(),
+            if let previousMonthKey,
+               let current = WorkoutSnapshotStore.load(
+                   month: currentKey.month,
+                   year: currentKey.year,
+                   directoryURL: directoryURL
+               ),
                current.workoutCount > 0,
-               let previous = WorkoutSnapshotStore.loadPrevious() {
+               WorkoutSnapshotStore.load(
+                   month: previousMonthKey.month,
+                   year: previousMonthKey.year,
+                   directoryURL: directoryURL
+               ) != nil {
                 var keeping: Set<UUID> = []
-                for month in [current, previous] {
+                for month in WorkoutSnapshotStore.loadPersistedMonths(
+                    now: date,
+                    calendar: calendar,
+                    directoryURL: directoryURL
+                ) {
                     for day in month.days {
                         for workout in day.workouts {
                             keeping.insert(workout.id)
@@ -7021,6 +7066,16 @@ final class HealthKitWorkoutStore {
                     }
                 }
                 WorkoutDetailSnapshotStore.prune(keeping: keeping)
+            }
+
+            WorkoutSnapshotStore.pruneOutsideWindow(
+                now: date,
+                calendar: calendar,
+                directoryURL: directoryURL
+            )
+
+            if widgetReloadNeeded {
+                Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
             }
 
             Task { @MainActor in await self.refreshCacheDiskSize() }

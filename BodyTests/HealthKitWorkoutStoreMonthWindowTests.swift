@@ -17,7 +17,7 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
             workouts: [],
             calendar: .bodyGregorian
         )
-        let store = HealthKitWorkoutStore(initialSnapshot: initialSnapshot)
+        let store = HealthKitWorkoutStore(initialMonthSnapshots: [initialSnapshot])
 
         XCTAssertEqual(HealthKitWorkoutStore.recentChartMonthCount, 3)
         XCTAssertEqual(store.snapshot(month: 5, year: 2026), initialSnapshot)
@@ -67,7 +67,7 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
         )
 
         let store = HealthKitWorkoutStore(
-            initialSnapshot: initialSnapshot,
+            initialMonthSnapshots: [initialSnapshot],
             initialHealthDashboardSnapshot: dashboardSnapshot,
             date: currentDate
         )
@@ -994,12 +994,12 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
 
         let calendar = Calendar.bodyGregorian
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(
                 month: 5,
                 year: 2026,
                 workouts: [],
                 calendar: .bodyGregorian
-            ),
+            )],
             initialHealthDashboardSnapshot: .empty,
             initialPermissionSelection: BodyHealthPermissionSelection(enabledPermissions: [.steps])
         )
@@ -1063,7 +1063,7 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
         )
 
         let store = HealthKitWorkoutStore(
-            initialSnapshot: initialSnapshot,
+            initialMonthSnapshots: [initialSnapshot],
             initialHealthDashboardSnapshot: dashboardSnapshot,
             date: currentDate
         )

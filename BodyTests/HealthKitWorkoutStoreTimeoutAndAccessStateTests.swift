@@ -20,16 +20,16 @@ final class HealthKitWorkoutStoreTimeoutAndAccessStateTests: XCTestCase {
 
     @MainActor
     func testRefreshDeadlineTimeoutPersistsAlreadyLandedCurrentMonthSnapshot() async throws {
-        // `updateCurrentMonthSnapshot`'s normal save path writes to the real
-        // App Group file location, which is unavailable in this unsigned test
+        // `persistRecentMonthSnapshots`'s normal save path writes to the real
+        // App Group directory, which is unavailable in this unsigned test
         // target (`WorkoutSnapshotStore.sharedContainerURL` is nil here). Point
-        // it at a scratch file via the test-only override instead of asserting
-        // against the (always-nil-here) real container.
-        let workoutFileURL = temporaryWorkoutSnapshotFileURL()
-        HealthKitWorkoutStore.testCurrentMonthSnapshotFileURLOverride = workoutFileURL
+        // it at a scratch directory via the test-only override instead of
+        // asserting against the (always-nil-here) real container.
+        let snapshotDirectoryURL = temporaryMonthSnapshotDirectoryURL()
+        HealthKitWorkoutStore.testSnapshotDirectoryURLOverride = snapshotDirectoryURL
         addTeardownBlock {
-            HealthKitWorkoutStore.testCurrentMonthSnapshotFileURLOverride = nil
-            try? FileManager.default.removeItem(at: workoutFileURL.deletingLastPathComponent())
+            HealthKitWorkoutStore.testSnapshotDirectoryURLOverride = nil
+            try? FileManager.default.removeItem(at: snapshotDirectoryURL.deletingLastPathComponent())
         }
 
         let calendar = Calendar.bodyGregorian
@@ -55,7 +55,7 @@ final class HealthKitWorkoutStoreTimeoutAndAccessStateTests: XCTestCase {
         )
 
         let store = HealthKitWorkoutStore(
-            initialSnapshot: initialSnapshot,
+            initialMonthSnapshots: [initialSnapshot],
             initialHealthDashboardSnapshot: .empty,
             initialPermissionSelection: .defaultValue
         )
@@ -73,7 +73,7 @@ final class HealthKitWorkoutStoreTimeoutAndAccessStateTests: XCTestCase {
         // asynchronously to `runRefreshWithDeadline`'s return — poll briefly
         // rather than assuming it has already landed.
         let persisted = try await waitForCondition(timeout: .seconds(5)) {
-            WorkoutSnapshotStore.load(fileURL: workoutFileURL)
+            WorkoutSnapshotStore.load(month: month, year: year, directoryURL: snapshotDirectoryURL)
         }
         XCTAssertEqual(persisted?.month, month)
         XCTAssertEqual(persisted?.year, year)
@@ -81,10 +81,10 @@ final class HealthKitWorkoutStoreTimeoutAndAccessStateTests: XCTestCase {
         XCTAssertEqual(persisted?.days.flatMap(\.workouts).first?.id, landedWorkout.id)
     }
 
-    private func temporaryWorkoutSnapshotFileURL() -> URL {
+    private func temporaryMonthSnapshotDirectoryURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("BodyTests-\(UUID().uuidString)", isDirectory: true)
-            .appendingPathComponent("currentMonthWorkoutSnapshot.json")
+            .appendingPathComponent(WorkoutSnapshotStore.monthSnapshotsDirectoryName, isDirectory: true)
     }
 
     /// Polls `probe` until it returns a non-nil value or `timeout` elapses,
@@ -134,12 +134,12 @@ final class HealthKitWorkoutStoreTimeoutAndAccessStateTests: XCTestCase {
         HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
 
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(
                 month: 1,
                 year: 2026,
                 workouts: [],
                 calendar: .bodyGregorian
-            ),
+            )],
             initialHealthDashboardSnapshot: .empty
         )
 
@@ -162,12 +162,12 @@ final class HealthKitWorkoutStoreTimeoutAndAccessStateTests: XCTestCase {
         HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
 
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(
                 month: 1,
                 year: 2026,
                 workouts: [],
                 calendar: .bodyGregorian
-            ),
+            )],
             initialHealthDashboardSnapshot: .empty
         )
 

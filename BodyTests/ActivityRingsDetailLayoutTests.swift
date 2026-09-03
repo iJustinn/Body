@@ -194,12 +194,12 @@ final class ActivityRingsDetailLayoutTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let today = Date()
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(
                 month: calendar.component(.month, from: today),
                 year: calendar.component(.year, from: today),
                 workouts: [],
                 calendar: calendar
-            ),
+            )],
             initialHealthDashboardSnapshot: snapshot,
             initialSummaryContextSignature: nil,
             initialPermissionSelection: BodyHealthPermissionSelection.defaultValue
