@@ -71,6 +71,10 @@ struct BodyReadinessHeroLabel: View {
     /// new value, kept roughly in sync with the backdrop fill's rise.
     @State private var displayedScore = 0
 
+    /// True once a generated comment has been shown; until then the explanation slot
+    /// updates instantly instead of animating.
+    @State private var hasShownGeneratedComment = false
+
     private var status: ReadinessStatus { readiness.status }
 
     private var numberText: String {
@@ -98,11 +102,20 @@ struct BodyReadinessHeroLabel: View {
         .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.28))
     }
 
-    /// Crossfades every change of the explanation slot — authored → placeholder →
-    /// generated, or a regenerated comment replacing the last — skipped under Reduce
-    /// Motion like the score roll.
+    /// Crossfades changes of the explanation slot, but only once the first generated
+    /// comment has landed: the cold-launch population (authored → generating → comment,
+    /// or authored → cached comment) appears in place with no animation, so the hero's
+    /// growth from one line to several doesn't slide the text upward. Every later change
+    /// (a press-and-hold regenerate, a workout drain rewriting the comment) crossfades.
+    /// Skipped under Reduce Motion like the score roll.
     private var aiCommentAnimation: Animation? {
-        reduceMotion ? nil : .easeInOut(duration: 0.28)
+        guard hasShownGeneratedComment, !reduceMotion else { return nil }
+        return .easeInOut(duration: 0.28)
+    }
+
+    /// Matches `aiCommentAnimation`: no fade on the first comment, the usual crossfade after.
+    private var aiCommentTransition: AnyTransition {
+        hasShownGeneratedComment ? statusTextTransition : .identity
     }
 
     /// The text of the explanation slot, whichever state it's in. Drives the crossfade
@@ -169,6 +182,14 @@ struct BodyReadinessHeroLabel: View {
         .onChange(of: readiness.score) { _, newScore in
             displayedScore = newScore ?? 0
         }
+        .onChange(of: aiComment) { _, newValue in
+            // Flipped here, not in onAppear: the change delivering the first comment is
+            // evaluated while the animation is still nil, so it lands in place and only
+            // later changes crossfade.
+            if case .comment = newValue, !hasShownGeneratedComment {
+                hasShownGeneratedComment = true
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
     }
@@ -183,7 +204,7 @@ struct BodyReadinessHeroLabel: View {
             ZStack(alignment: .topLeading) {
                 explanationText
                     .id(explanationString)
-                    .transition(statusTextTransition)
+                    .transition(aiCommentTransition)
             }
             .animation(aiCommentAnimation, value: explanationString)
             .contentShape(Rectangle())
