@@ -383,6 +383,14 @@ struct BodyHomeView: View {
         let trendCards = homeTrendCards
 
         return NavigationStack {
+            // The page width comes from a GeometryReader, which always fills what the
+            // navigation host proposes. On iPad (windowed apps, Stage Manager) the
+            // vertical ScrollView reports its content's width as its own, so any width
+            // derived from the scroll view or its ancestors (`containerRelativeFrame`,
+            // `ScrollGeometry.containerSize`, measuring the ZStack) fed back into the
+            // content pin and the page stuck at a stale width: a narrow centered column
+            // in a wide window, overflow in a narrow one.
+            GeometryReader { page in
             ZStack {
                 homeBackground
                     .ignoresSafeArea()
@@ -426,11 +434,11 @@ struct BodyHomeView: View {
                     } action: { width in
                         homeContentWidth = width
                     }
-                    // Pin the content to the viewport width: a vertical ScrollView becomes
+                    // Pin the content to the page width: a vertical ScrollView becomes
                     // horizontally pannable as soon as its content reports even a fraction
                     // of a point wider than the viewport, which let the whole page drift
                     // sideways under a diagonal drag.
-                    .containerRelativeFrame(.horizontal)
+                    .frame(width: page.size.width)
                 }
                 .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
                     Task { await workoutStore.requestAuthorizationAndRefresh() }
@@ -440,6 +448,8 @@ struct BodyHomeView: View {
                 } action: { _, offset in
                     scrollState.offset = max(0, offset)
                 }
+            }
+            .frame(width: page.size.width, height: page.size.height)
             }
             .accessibilityHidden(readinessDetailPresented)
             .navigationDestination(for: HomeMetricRoute.self) { route in
