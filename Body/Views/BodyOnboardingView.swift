@@ -503,7 +503,7 @@ struct BodyOnboardingView: View {
 
                 OnboardingFeatureRow(
                     iconName: "checkmark.circle.fill",
-                    tintColor: .white,
+                    tintColor: .green,
                     title: "onboarding.trainingLoad.range",
                     subtitle: "onboarding.trainingLoad.range.subtitle"
                 )
