@@ -134,12 +134,7 @@ final class HealthKitWorkoutStore: ObservableObject {
     /// switching source/permission never resurrects stale other-source data.
     /// In-memory only (nil on cold start → conservative empty-on-failure).
     private var healthSummaryPrimarySignature: String?
-    @Published private(set) var healthTrends: HealthTrendSnapshot = .empty {
-        didSet { trendsGeneration &+= 1 }
-    }
-    /// Bumped on every `healthTrends` write. Same contract as
-    /// `monthSnapshotsGeneration`: a cache discriminator, not `@Published`.
-    private(set) var trendsGeneration = 0
+    @Published private(set) var healthTrends: HealthTrendSnapshot = .empty
     @Published private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty
     @Published private(set) var permissionSelection: BodyHealthPermissionSelection
     @Published private(set) var healthDataSourceSelection: BodyHealthDataSourceSelection

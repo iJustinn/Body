@@ -2,6 +2,7 @@
 
 ## 1.1.0 (build 2)
 
+- **Smoother launch on Home.** Opening the app, cold or from the background, no longer stutters the Readiness hero. The metric cards are sized in the first layout pass instead of one frame later, and the trend cards keep their cached results across a refresh that returns the same data instead of recomputing on every write.
 - **Complications keep up after midnight.** Watch complications now carry an extra entry for the next midnight, so a finished sleep night clears and the weekly workout bars advance without opening the watch app, and the fallback reload runs less often in the background to save battery.
 - **Fewer redundant complication reloads.** The watch no longer republishes its snapshot or asks the system to reload complications when a pushed update did not actually change anything.
 - **Fewer wasted recomputes when there is nothing to show.** A watch that cannot fill its dashboard, because Apple Health access is off or there is no data, now recomputes at most once every 30 minutes instead of every time the app is opened.

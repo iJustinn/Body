@@ -354,10 +354,26 @@ struct BodyHomeView: View {
     /// read off `UIScreen`: under Split View and Stage Manager the screen is wider
     /// than the page, and the metric cards sized their previews for a screen they
     /// did not have. Quantized to 8 pt so a resize drag does not rebuild every card
-    /// model per point. Zero until the first layout pass, and the grid renders a
-    /// placeholder until then so the cards are never built at the wrong width and
-    /// then rebuilt.
-    @State private var homeContentWidth: CGFloat = 0
+    /// model per point. Seeded from the foreground scene's width so the cards are
+    /// built in the first body pass, before the readiness hero's appear animations
+    /// start; a cold launch that waited for the measured width rebuilt every card
+    /// model one frame later, on top of the hero's score roll, and stuttered it.
+    /// The measured width still wins (Split View, Stage Manager, rotation). Zero
+    /// only when no scene is connected yet, and the grid renders a placeholder then.
+    @State private var homeContentWidth: CGFloat = BodyHomeView.initialContentWidthEstimate()
+
+    /// Same quantization as the `onGeometryChange` below, applied to the scene width
+    /// capped at the home column's maximum, which is what the layout measures on
+    /// every phone and on a full-width iPad.
+    private static func initialContentWidthEstimate() -> CGFloat {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first
+        guard let width = scene?.coordinateSpace.bounds.width, width > 0 else { return 0 }
+        return (min(width, AppLayout.homeContentWidth) / 8).rounded(.up) * 8
+    }
 
     var body: some View {
         let metricCardLookup = homeContentWidth > 0 ? metricCardsByKind : [:]
@@ -950,7 +966,6 @@ struct BodyHomeView: View {
             energyUnitPreference: selectedEnergyUnitPreference,
             weightUnitPreference: selectedWeightUnitPreference,
             includesStable: includesStable,
-            generation: workoutStore.trendsGeneration,
             cache: trendComputationCache
         )
     }
@@ -1125,10 +1140,7 @@ struct BodyHomeView: View {
         )
         let deviationDisplay = wristTemperatureBaselineDeviationDisplay(
             currentCelsius: summary.wristTemperature.value,
-            baseline: trendComputationCache.wristTemperatureBaseline(
-                from: chartPreview,
-                generation: workoutStore.trendsGeneration
-            ),
+            baseline: trendComputationCache.wristTemperatureBaseline(from: chartPreview),
             temperatureUnitPreference: selectedTemperatureUnitPreference
         )
 
@@ -2621,18 +2633,16 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         let lastTimestamp: TimeInterval?
         let firstValue: Double?
         let lastValue: Double?
-        // The store's trend generation, bumped whenever `healthTrends` is written.
-        // A discriminator only: it cannot stand in for the series compare below,
-        // because sub-series that never came from `healthTrends` (the Skin
-        // Temperature baseline, the detail page's own instance) share this cache.
-        let generation: Int
     }
 
     /// The cached series is compared alongside the fingerprint instead of hashing
     /// every point into it: `==` on an unchanged array is an identity check, so a
     /// hit costs a pointer compare rather than an O(n) walk on every render, while
     /// a backdated edit to a non-edge day (manually editable Basics metrics:
-    /// weight/body fat) still misses.
+    /// weight/body fat) still misses. The store's write counter is deliberately
+    /// not part of the key: a refresh writes `healthTrends` several times per
+    /// launch, and keying on the counter recomputed every card on each write even
+    /// when the series came back equal, which stalled the hero animations.
     private struct Entry {
         let fingerprint: Fingerprint
         let series: HealthTrendSeries
@@ -2679,15 +2689,10 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         for kind: HealthMetricKind,
         series: HealthTrendSeries,
         includesStable: Bool,
-        generation: Int = 0,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> BodyHomeTrendCardPresentation.WindowResult? {
-        let fingerprint = Self.fingerprint(
-            for: series,
-            dayStart: calendar.startOfDay(for: date),
-            generation: generation
-        )
+        let fingerprint = Self.fingerprint(for: series, dayStart: calendar.startOfDay(for: date))
         let key = CacheKey(kind: kind, includesStable: includesStable)
         if let entry = entries[key], entry.fingerprint == fingerprint, entry.series == series {
             return entry.result
@@ -2724,15 +2729,10 @@ final class BodyHomeTrendComputationCache: ObservableObject {
     /// metric-card build, and the series only changes when a refresh lands.
     func wristTemperatureBaseline(
         from series: HealthTrendSeries,
-        generation: Int = 0,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> Double? {
-        let fingerprint = Self.fingerprint(
-            for: series,
-            dayStart: calendar.startOfDay(for: date),
-            generation: generation
-        )
+        let fingerprint = Self.fingerprint(for: series, dayStart: calendar.startOfDay(for: date))
         if let entry = wristTemperatureBaselineEntry,
            entry.fingerprint == fingerprint,
            entry.series == series {
@@ -2805,15 +2805,14 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         hasher.combine(summary.vitals.wristTemperatureCelsius)
     }
 
-    private static func fingerprint(for series: HealthTrendSeries, dayStart: Date, generation: Int) -> Fingerprint {
+    private static func fingerprint(for series: HealthTrendSeries, dayStart: Date) -> Fingerprint {
         Fingerprint(
             dayStart: dayStart,
             pointCount: series.points.count,
             firstTimestamp: series.points.first?.date.timeIntervalSinceReferenceDate,
             lastTimestamp: series.points.last?.date.timeIntervalSinceReferenceDate,
             firstValue: series.points.first?.value,
-            lastValue: series.points.last?.value,
-            generation: generation
+            lastValue: series.points.last?.value
         )
     }
 }

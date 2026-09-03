@@ -2021,7 +2021,6 @@ struct BodyHealthMetricDetailView: View {
 
         guard let baselineCelsius = trendComputationCache.wristTemperatureBaseline(
             from: workoutStore.healthTrends.wristTemperature,
-            generation: workoutStore.trendsGeneration,
             date: chartAnchorDate
         ) else {
             return nil

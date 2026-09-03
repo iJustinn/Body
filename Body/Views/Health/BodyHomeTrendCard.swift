@@ -187,9 +187,6 @@ enum BodyHomeTrendCardFactory {
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
         weightUnitPreference: BodyValueFormat.WeightUnitPreference,
         includesStable: Bool,
-        /// The store's `healthTrends` generation, forwarded to the cache as a
-        /// discriminator. Defaults to 0 for callers outside the Home page.
-        generation: Int = 0,
         cache: BodyHomeTrendComputationCache
     ) -> [BodyHomeTrendCard.Model] {
         BodyHomeTrendCardKind.defaultOrder.compactMap { trendKind in
@@ -204,7 +201,6 @@ enum BodyHomeTrendCardFactory {
                 energyUnitPreference: energyUnitPreference,
                 weightUnitPreference: weightUnitPreference,
                 includesStable: includesStable,
-                generation: generation,
                 cache: cache
             )
         }
@@ -217,9 +213,6 @@ enum BodyHomeTrendCardFactory {
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
         weightUnitPreference: BodyValueFormat.WeightUnitPreference,
         includesStable: Bool,
-        /// The store's `healthTrends` generation, forwarded to the cache as a
-        /// discriminator. Defaults to 0 for callers outside the Home page.
-        generation: Int = 0,
         cache: BodyHomeTrendComputationCache
     ) -> BodyHomeTrendCard.Model? {
         guard let trendKind = BodyHomeTrendCardKind(metricKind: metricKind) else {
@@ -233,7 +226,6 @@ enum BodyHomeTrendCardFactory {
             energyUnitPreference: energyUnitPreference,
             weightUnitPreference: weightUnitPreference,
             includesStable: includesStable,
-            generation: generation,
             cache: cache
         )
     }
@@ -245,9 +237,6 @@ enum BodyHomeTrendCardFactory {
         energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
         weightUnitPreference: BodyValueFormat.WeightUnitPreference,
         includesStable: Bool,
-        /// The store's `healthTrends` generation, forwarded to the cache as a
-        /// discriminator. Defaults to 0 for callers outside the Home page.
-        generation: Int = 0,
         cache: BodyHomeTrendComputationCache
     ) -> BodyHomeTrendCard.Model? {
         let configuration = configuration(
@@ -260,8 +249,7 @@ enum BodyHomeTrendCardFactory {
         guard let result = cache.result(
             for: configuration.kind,
             series: configuration.series,
-            includesStable: includesStable,
-            generation: generation
+            includesStable: includesStable
         ) else {
             return nil
         }
