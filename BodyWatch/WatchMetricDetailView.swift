@@ -9,10 +9,13 @@
 //  week chart sits below it, and the current value reads large at the
 //  bottom-left — followed, for Readiness and Training Load, by the status level
 //  beside it ("85 · HIGH"), and on Sleep by the night's duration under the same
-//  dot ("85 pts · 7h 32m"). The tint fill is the page's own background so it
-//  slides with the vertical pager, giving a smooth color transition between
-//  metrics. Display-only: it reads the `weekly` series, `statusBand`, and sleep
-//  score the iPhone baked into the pushed snapshot (no watch compute).
+//  dot ("85 pts · 7h 32m"). On the Sleep page, the night's stages hypnogram
+//  (`WatchSleepStagesChartView`) takes the chart slot whenever the snapshot
+//  carries the night's stages, falling back to the week chart otherwise. The
+//  tint fill is the page's own background so it slides with the vertical
+//  pager, giving a smooth color transition between metrics. Display-only: it
+//  reads the `weekly` series, `statusBand`, sleep score, and sleep stages the
+//  iPhone baked into the pushed snapshot (no watch compute).
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -29,6 +32,9 @@ struct WatchMetricDetailView: View {
     /// (a cached snapshot shown after midnight still labels "today", not the
     /// day it was generated).
     var referenceDate: Date = Date()
+    /// The snapshot's `sleepStages` (the Sleep metric's night, main session
+    /// only), drawn as the Sleep page's chart. Ignored on every other page.
+    var sleepStages: [WatchSleepStageSegment]? = nil
 
     /// The page theme (title, background wash, chart line): the metric's static
     /// kind color, matching the iOS detail page — never the status-band color.
@@ -78,6 +84,15 @@ struct WatchMetricDetailView: View {
         sleepScore == nil ? metric.unit : String(localized: "pts")
     }
 
+    /// The Sleep page's hypnogram segments, or nil (the week chart shows
+    /// instead) when the night's stages aren't in the snapshot: an un-synced
+    /// or sanitized (no longer today) night, or a stage-less night.
+    private var sleepStageSegments: [SleepStageSegment]? {
+        guard metric.kind == WatchMetricKindKey.sleep, let sleepStages else { return nil }
+        let segments = WatchSleepStagesChartView.segments(from: sleepStages)
+        return segments.isEmpty ? nil : segments
+    }
+
     private var trailingLabel: String? {
         guard sleepScore == nil else { return metric.displayValue }
         guard let label = metric.statusBand?.label else { return nil }
@@ -92,7 +107,11 @@ struct WatchMetricDetailView: View {
             VStack(alignment: .leading, spacing: 0) {
                 titleRow
 
-                if let weekly {
+                if let sleepStageSegments {
+                    WatchSleepStagesChartView(segments: sleepStageSegments)
+                        .frame(height: 86)
+                        .padding(.top, 4)
+                } else if let weekly {
                     WatchSparklineView(
                         values: weekly,
                         tint: pageTint,
@@ -206,18 +225,21 @@ struct WatchMetricDetailView: View {
 
 #Preview("Sleep (scored)") {
     NavigationStack {
-        WatchMetricDetailView(metric: WatchMetric(
-            kind: WatchMetricKindKey.sleep,
-            title: "Sleep",
-            displayValue: "7h 32m",
-            unit: "",
-            score: 85,
-            fillFraction: 0.85,
-            rawValue: 85,
-            rangeMin: 0,
-            rangeMax: 100,
-            weekly: [6.5, 7.2, nil, 8.1, 7.0, 6.8, 7.53]
-        ))
+        WatchMetricDetailView(
+            metric: WatchMetric(
+                kind: WatchMetricKindKey.sleep,
+                title: "Sleep",
+                displayValue: "7h 32m",
+                unit: "",
+                score: 85,
+                fillFraction: 0.85,
+                rawValue: 85,
+                rangeMin: 0,
+                rangeMax: 100,
+                weekly: [6.5, 7.2, nil, 8.1, 7.0, 6.8, 7.53]
+            ),
+            sleepStages: WatchMetricsSnapshot.placeholder.sleepStages
+        )
     }
 }
 

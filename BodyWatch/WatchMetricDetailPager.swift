@@ -40,7 +40,11 @@ struct WatchMetricDetailPager: View {
         if metrics.contains(where: { $0.kind == initialKind }) {
             TabView(selection: $selection) {
                 ForEach(metrics) { metric in
-                    WatchMetricDetailView(metric: metric, generatedAt: model.snapshot.generatedAt)
+                    WatchMetricDetailView(
+                        metric: metric,
+                        generatedAt: model.snapshot.generatedAt,
+                        sleepStages: model.snapshot.sleepStages
+                    )
                         .tag(metric.kind as String?)
                 }
             }
