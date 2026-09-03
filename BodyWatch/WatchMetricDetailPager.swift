@@ -43,7 +43,8 @@ struct WatchMetricDetailPager: View {
                     WatchMetricDetailView(
                         metric: metric,
                         generatedAt: model.snapshot.generatedAt,
-                        sleepStages: model.snapshot.sleepStages
+                        sleepStages: model.snapshot.sleepStages,
+                        exerciseWeekMetric: WatchComplicationTimeline.exerciseWeekMetric(in: model.snapshot)
                     )
                         .tag(metric.kind as String?)
                 }

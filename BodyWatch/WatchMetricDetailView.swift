@@ -13,11 +13,14 @@
 //  the night's stages, that first screen scrolls: the week chart stays exactly
 //  where it is and the night's stages hypnogram
 //  (`WatchSleepStagesChartView`) is added below the value row, reached by
-//  scrolling down. The
+//  scrolling down. The Training Load page scrolls the same way whenever the
+//  snapshot carries the weekly workout minutes, adding the Weekly Workout Time
+//  complication's bar chart (`WatchExerciseWeekChartView`) below its value row.
+//  The
 //  tint fill is the page's own background so it slides with the vertical
 //  pager, giving a smooth color transition between metrics. Display-only: it
-//  reads the `weekly` series, `statusBand`, sleep score, and sleep stages the
-//  iPhone baked into the pushed snapshot (no watch compute).
+//  reads the `weekly` series, `statusBand`, sleep score, sleep stages, and
+//  workout minutes the iPhone baked into the pushed snapshot (no watch compute).
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -38,6 +41,10 @@ struct WatchMetricDetailView: View {
     /// only), drawn as a hypnogram below the Sleep page's info (the week chart
     /// stays). Ignored on every other page.
     var sleepStages: [WatchSleepStageSegment]? = nil
+    /// The snapshot's weekly workout minutes metric (the Weekly Workout Time
+    /// complication's), drawn as bars below the Training Load page's info (the
+    /// week chart stays). Ignored on every other page.
+    var exerciseWeekMetric: WatchMetric? = nil
 
     /// The page theme (title, background wash, chart line): the metric's static
     /// kind color, matching the iOS detail page — never the status-band color.
@@ -97,6 +104,16 @@ struct WatchMetricDetailView: View {
         return segments.isEmpty ? nil : segments
     }
 
+    /// The Training Load page's daily workout minutes, re-windowed onto
+    /// `referenceDate` like the complication does, or nil (the page reads
+    /// exactly like every other metric's) when the snapshot carries no workout
+    /// minutes or a week with no data at all.
+    private var exerciseWeekly: [Double?]? {
+        guard metric.kind == WatchMetricKindKey.trainingLoad, let exerciseWeekMetric else { return nil }
+        let weekly = exerciseWeekMetric.weeklyRewound(from: generatedAt, to: referenceDate)
+        return weekly.contains(where: { $0 != nil }) ? weekly : nil
+    }
+
     private var trailingLabel: String? {
         guard sleepScore == nil else { return metric.displayValue }
         guard let label = metric.statusBand?.label else { return nil }
@@ -108,16 +125,25 @@ struct WatchMetricDetailView: View {
             backgroundGradient
                 .ignoresSafeArea()
 
-            if let sleepStageSegments {
+            if sleepStageSegments != nil || exerciseWeekly != nil {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
                         pageContent
                             .containerRelativeFrame(.vertical, alignment: .topLeading)
 
-                        WatchSleepStagesChartView(segments: sleepStageSegments)
-                            .frame(height: 86)
-                            .padding(.top, 10)
-                            .padding(.bottom, 12)
+                        if let sleepStageSegments {
+                            WatchSleepStagesChartView(segments: sleepStageSegments)
+                                .frame(height: 86)
+                                .padding(.top, 10)
+                                .padding(.bottom, 12)
+                        }
+
+                        if let exerciseWeekly {
+                            WatchExerciseWeekChartView(weekly: exerciseWeekly, today: referenceDate, tint: pageTint)
+                                .frame(height: 86)
+                                .padding(.top, 10)
+                                .padding(.bottom, 12)
+                        }
                     }
                     .padding(.horizontal, 8)
                 }
@@ -242,7 +268,7 @@ struct WatchMetricDetailView: View {
             tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20),
             weekly: [0.95, 1.30, 1.05, 0.78, 1.32, 1.10, 1.23],
             statusBand: WatchStatusBand(min: 0.8, max: 1.3, label: "Optimal")
-        ))
+        ), exerciseWeekMetric: WatchMetricsSnapshot.placeholder.metric(forKind: WatchMetricKindKey.workoutMinutes))
     }
 }
 
