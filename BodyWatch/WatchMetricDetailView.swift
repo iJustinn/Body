@@ -9,9 +9,11 @@
 //  week chart sits below it, and the current value reads large at the
 //  bottom-left — followed, for Readiness and Training Load, by the status level
 //  beside it ("85 · HIGH"), and on Sleep by the night's duration under the same
-//  dot ("85 pts · 7h 32m"). On the Sleep page, the night's stages hypnogram
-//  (`WatchSleepStagesChartView`) takes the chart slot whenever the snapshot
-//  carries the night's stages, falling back to the week chart otherwise. The
+//  dot ("85 pts · 7h 32m"). On the Sleep page, whenever the snapshot carries
+//  the night's stages, that first screen scrolls: the week chart stays exactly
+//  where it is and the night's stages hypnogram
+//  (`WatchSleepStagesChartView`) is added below the value row, reached by
+//  scrolling down. The
 //  tint fill is the page's own background so it slides with the vertical
 //  pager, giving a smooth color transition between metrics. Display-only: it
 //  reads the `weekly` series, `statusBand`, sleep score, and sleep stages the
@@ -33,7 +35,8 @@ struct WatchMetricDetailView: View {
     /// day it was generated).
     var referenceDate: Date = Date()
     /// The snapshot's `sleepStages` (the Sleep metric's night, main session
-    /// only), drawn as the Sleep page's chart. Ignored on every other page.
+    /// only), drawn as a hypnogram below the Sleep page's info (the week chart
+    /// stays). Ignored on every other page.
     var sleepStages: [WatchSleepStageSegment]? = nil
 
     /// The page theme (title, background wash, chart line): the metric's static
@@ -84,8 +87,9 @@ struct WatchMetricDetailView: View {
         sleepScore == nil ? metric.unit : String(localized: "pts")
     }
 
-    /// The Sleep page's hypnogram segments, or nil (the week chart shows
-    /// instead) when the night's stages aren't in the snapshot: an un-synced
+    /// The Sleep page's hypnogram segments, added below the page's info and
+    /// making the page scroll, or nil (the page reads exactly like every other
+    /// metric's) when the night's stages aren't in the snapshot: an un-synced
     /// or sanitized (no longer today) night, or a stage-less night.
     private var sleepStageSegments: [SleepStageSegment]? {
         guard metric.kind == WatchMetricKindKey.sleep, let sleepStages else { return nil }
@@ -104,43 +108,62 @@ struct WatchMetricDetailView: View {
             backgroundGradient
                 .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 0) {
-                titleRow
+            if let sleepStageSegments {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        pageContent
+                            .containerRelativeFrame(.vertical, alignment: .topLeading)
 
-                if let sleepStageSegments {
-                    WatchSleepStagesChartView(segments: sleepStageSegments)
-                        .frame(height: 86)
-                        .padding(.top, 4)
-                } else if let weekly {
-                    WatchSparklineView(
-                        values: weekly,
-                        tint: pageTint,
-                        band: metric.statusBand,
-                        bandTint: statusTint,
-                        currentValue: metric.weeklyCurrentValue,
-                        dayLabels: weekdayLabels(count: weekly.count)
-                    )
-                    .frame(height: 86)
-                    .padding(.top, 4)
-                } else {
-                    Text("No recent data yet")
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 16)
+                        WatchSleepStagesChartView(segments: sleepStageSegments)
+                            .frame(height: 86)
+                            .padding(.top, 10)
+                            .padding(.bottom, 12)
+                    }
+                    .padding(.horizontal, 8)
                 }
-
-                Spacer(minLength: 6)
-
-                valueRow
+            } else {
+                pageContent
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 4)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
     // MARK: - Pieces
+
+    /// The page proper: title, week chart and big value row, sized to fill one
+    /// full screen so the Sleep page's scrolling version opens on exactly the
+    /// same first screen as every other metric.
+    private var pageContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            titleRow
+
+            if let weekly {
+                WatchSparklineView(
+                    values: weekly,
+                    tint: pageTint,
+                    band: metric.statusBand,
+                    bandTint: statusTint,
+                    currentValue: metric.weeklyCurrentValue,
+                    dayLabels: weekdayLabels(count: weekly.count)
+                )
+                .frame(height: 86)
+                .padding(.top, 4)
+            } else {
+                Text("No recent data yet")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 16)
+            }
+
+            Spacer(minLength: 6)
+
+            valueRow
+        }
+        .padding(.bottom, 4)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
 
     private var titleRow: some View {
         HStack(spacing: 0) {
