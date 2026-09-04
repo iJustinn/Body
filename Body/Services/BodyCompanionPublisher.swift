@@ -130,8 +130,12 @@ final class BodyCompanionPublisher {
     /// source names and unit preferences, then writes it to the App Group so the
     /// trend + sleep-stage widgets can render. The build + disk write happen
     /// off-actor.
-    func saveWidgetSnapshot(_ input: BodyCompanionPublishInput.Widget) {
+    func saveWidgetSnapshot(
+        _ input: BodyCompanionPublishInput.Widget,
+        isCurrent: @escaping @Sendable () -> Bool = { true }
+    ) {
         HealthKitWorkoutStore.snapshotPersistQueue.async {
+            guard isCurrent() else { return }
             let snapshot = HealthWidgetSnapshotBuilder.make(
                 trends: input.shared.trends,
                 summary: input.shared.summary,
@@ -142,7 +146,7 @@ final class BodyCompanionPublisher {
                 showSleepScore: input.shared.showSleepScore,
                 primarySourceName: { input.primarySourceNames[$0] }
             )
-            if HealthWidgetSnapshotStore.save(snapshot) {
+            if isCurrent(), HealthWidgetSnapshotStore.save(snapshot) {
                 Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
             }
         }

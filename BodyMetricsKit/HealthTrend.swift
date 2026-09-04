@@ -1209,6 +1209,8 @@ struct HealthTrendDaySampleSignatures: Equatable {
     /// sidecar stamped under the other setting even when the source signatures
     /// still match (H6b).
     var combinesHealthDataSourcesByName: Bool
+    var primaryMetricScopes: [String: String]? = nil
+    var secondaryMetricScopes: [String: String]? = nil
 }
 
 /// Sidecar payload holding the lazily loaded intraday sample series, persisted
@@ -1216,10 +1218,10 @@ struct HealthTrendDaySampleSignatures: Equatable {
 /// small summary + daily-trend payload on the main thread.
 struct HealthTrendDaySampleSnapshot: Codable, Equatable {
     /// Current sidecar schema. A `nil` `schemaVersion` marks a legacy sidecar
-    /// written before the source/permission stamps existed. Bumped 1→2 when the
-    /// combine-sources flag joined the stamps (H6b); a v1 sidecar predates it and
-    /// is dropped one-time on hydration (`scopedForHydration` accepts v2 only).
-    static let currentSchemaVersion = 2
+    /// written before the source/permission stamps existed. Version 3 adds
+    /// per-metric effective-source provenance; older sidecars fail closed once
+    /// and are rebuilt by the existing lazy-load and refresh paths.
+    static let currentSchemaVersion = 3
 
     var heartRateDaySamples: HealthTrendSeries
     var heartRateDaySamplesSecondary: HealthTrendSeries
@@ -1249,6 +1251,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
     /// The combine-sources-by-name flag the samples were captured under. `nil` on
     /// a legacy/v1 sidecar (which fails closed on hydration anyway).
     var combinesHealthDataSourcesByName: Bool?
+    var primaryMetricScopes: [String: String]?
+    var secondaryMetricScopes: [String: String]?
 
     init(trends: HealthTrendSnapshot, signatures: HealthTrendDaySampleSignatures? = nil) {
         heartRateDaySamples = trends.heartRateDaySamples
@@ -1270,6 +1274,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         secondarySelectionSignature = signatures?.secondarySelectionSignature
         permissionSignature = signatures?.permissionSignature
         combinesHealthDataSourcesByName = signatures?.combinesHealthDataSourcesByName
+        primaryMetricScopes = signatures?.primaryMetricScopes
+        secondaryMetricScopes = signatures?.secondaryMetricScopes
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1292,6 +1298,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         case secondarySelectionSignature
         case permissionSignature
         case combinesHealthDataSourcesByName
+        case primaryMetricScopes
+        case secondaryMetricScopes
     }
 
     // Every field decodes with `decodeIfPresent` + a default so a legacy sidecar
@@ -1352,6 +1360,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         combinesHealthDataSourcesByName = try container.decodeIfPresent(
             Bool.self, forKey: .combinesHealthDataSourcesByName
         )
+        primaryMetricScopes = try container.decodeIfPresent([String: String].self, forKey: .primaryMetricScopes)
+        secondaryMetricScopes = try container.decodeIfPresent([String: String].self, forKey: .secondaryMetricScopes)
     }
 
     var isEmpty: Bool {
@@ -1386,16 +1396,47 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         return stripped
     }
 
+    /// Fail closed per metric, preserving unrelated compatible raw series.
+    /// Shared by live cache invalidation and cold sidecar hydration.
+    func scopedByMetricSignatures(
+        capturedPrimary: [String: String]?, capturedSecondary: [String: String]?,
+        currentPrimary: [String: String], currentSecondary: [String: String]
+    ) -> HealthTrendDaySampleSnapshot {
+        var next = self
+        func matches(_ kind: HealthMetricKind, secondary: Bool = false) -> Bool {
+            let captured = secondary ? capturedSecondary : capturedPrimary
+            let current = secondary ? currentSecondary : currentPrimary
+            return captured?[kind.rawValue] != nil && captured?[kind.rawValue] == current[kind.rawValue]
+        }
+        if !matches(.heartRate) { next.heartRateDaySamples = .empty }
+        if !matches(.heartRate, secondary: true) { next.heartRateDaySamplesSecondary = .empty }
+        if !matches(.restingHeartRate) { next.restingHeartRateDaySamples = .empty }
+        if !matches(.restingHeartRate, secondary: true) { next.restingHeartRateDaySamplesSecondary = .empty }
+        if !matches(.heartRateVariability) {
+            next.heartRateVariabilityDaySamples = .empty
+            next.heartbeatRMSSDDaySamples = .empty
+        }
+        if !matches(.heartRateVariability, secondary: true) { next.heartRateVariabilityDaySamplesSecondary = .empty }
+        if !matches(.respiratoryRate) { next.respiratoryRateDaySamples = .empty }
+        if !matches(.oxygenSaturation) { next.oxygenSaturationDaySamples = .empty }
+        if !matches(.oxygenSaturation, secondary: true) { next.oxygenSaturationDaySamplesSecondary = .empty }
+        if !matches(.activeEnergy) { next.activeEnergyDaySamples = .empty }
+        if !matches(.activeEnergy, secondary: true) { next.activeEnergyDaySamplesSecondary = .empty }
+        if !matches(.steps) { next.stepsDaySamples = .empty }
+        if !matches(.steps, secondary: true) { next.stepsDaySamplesSecondary = .empty }
+        return next
+    }
+
     /// Returns a copy safe to merge into the live trends during sidecar
     /// hydration: intraday series whose source scope no longer matches the
     /// current selection are dropped per-scope, and series whose permission is
     /// currently off are stripped (mirrors `HealthTrendSnapshot.filtered(by:)`).
     ///
-    /// Only a current-schema (v2) sidecar carries the full source + combine
+    /// Only a current-schema (v3) sidecar carries the full source + combine
     /// stamps, so acceptance gates on `schemaVersion == currentSchemaVersion`
-    /// EXACTLY: a legacy (`nil`), v1, or unknown-future sidecar fails closed for
+    /// EXACTLY: a legacy (`nil`), older, or unknown-future sidecar fails closed for
     /// BOTH scopes and is dropped one-time (the next stamped save re-writes it as
-    /// v2, self-healing). A scope matches only when its selection signature AND
+    /// v3, self-healing). Without per-metric scopes, a scope matches only when its selection signature AND
     /// the combine-sources flag both match (H6b).
     ///
     /// `comparisonDisabledKinds` is a LIVE gate, like `permission` and unlike the
@@ -1410,7 +1451,9 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         currentSecondarySignature: String,
         currentCombinesByName: Bool,
         permission: BodyHealthPermissionSelection,
-        comparisonDisabledKinds: Set<HealthMetricKind>
+        comparisonDisabledKinds: Set<HealthMetricKind>,
+        currentPrimaryMetricScopes: [String: String]? = nil,
+        currentSecondaryMetricScopes: [String: String]? = nil
     ) -> HealthTrendDaySampleSnapshot {
         var scoped = self
 
@@ -1423,7 +1466,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             && combineMatches
             && secondarySelectionSignature == currentSecondarySignature
 
-        if !primaryScopeMatches {
+        let usesMetricScopes = currentPrimaryMetricScopes != nil && currentSecondaryMetricScopes != nil
+        if !usesMetricScopes, !primaryScopeMatches {
             scoped.heartRateDaySamples = .empty
             scoped.restingHeartRateDaySamples = .empty
             scoped.heartRateVariabilityDaySamples = .empty
@@ -1433,13 +1477,22 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             scoped.activeEnergyDaySamples = .empty
             scoped.stepsDaySamples = .empty
         }
-        if !secondaryScopeMatches {
+        if !usesMetricScopes, !secondaryScopeMatches {
             scoped.heartRateDaySamplesSecondary = .empty
             scoped.restingHeartRateDaySamplesSecondary = .empty
             scoped.heartRateVariabilityDaySamplesSecondary = .empty
             scoped.oxygenSaturationDaySamplesSecondary = .empty
             scoped.activeEnergyDaySamplesSecondary = .empty
             scoped.stepsDaySamplesSecondary = .empty
+        }
+
+        if let currentPrimaryMetricScopes, let currentSecondaryMetricScopes {
+            scoped = scoped.scopedByMetricSignatures(
+                capturedPrimary: isCurrentSchema ? primaryMetricScopes : nil,
+                capturedSecondary: isCurrentSchema ? secondaryMetricScopes : nil,
+                currentPrimary: currentPrimaryMetricScopes,
+                currentSecondary: currentSecondaryMetricScopes
+            )
         }
 
         if !permission.includes(.heart) {

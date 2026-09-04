@@ -254,7 +254,7 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
         let decoded = try JSONDecoder().decode(HealthTrendDaySampleSnapshot.self, from: data)
 
         XCTAssertEqual(decoded.schemaVersion, HealthTrendDaySampleSnapshot.currentSchemaVersion)
-        XCTAssertEqual(decoded.schemaVersion, 2)
+        XCTAssertEqual(decoded.schemaVersion, 3)
         XCTAssertEqual(decoded.primarySelectionSignature, "P1")
         XCTAssertEqual(decoded.secondarySelectionSignature, "S1")
         XCTAssertEqual(decoded.permissionSignature, "sleep,heart,steps")

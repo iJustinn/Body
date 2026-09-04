@@ -322,6 +322,8 @@ enum HealthDashboardSnapshotStore {
            existing.schemaVersion == daySamples.schemaVersion,
            existing.primarySelectionSignature == daySamples.primarySelectionSignature,
            existing.secondarySelectionSignature == daySamples.secondarySelectionSignature,
+           existing.primaryMetricScopes == daySamples.primaryMetricScopes,
+           existing.secondaryMetricScopes == daySamples.secondaryMetricScopes,
            existing.permissionSignature == daySamples.permissionSignature,
            existing.combinesHealthDataSourcesByName == daySamples.combinesHealthDataSourcesByName {
             logger.notice("kept the populated day-sample sidecar unchanged; scope signatures already matched")

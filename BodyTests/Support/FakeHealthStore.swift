@@ -101,6 +101,15 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
 
     func execute(_ query: HKQuery) {
         lock.lock(); executedQueriesValue.append(query); lock.unlock()
+        // The phone's hourly cumulative path still uses a callback collection
+        // query. Honor the same failure script as the async seam so store-level
+        // fallback tests reach their commit boundary instead of timing out.
+        if let collection = query as? HKStatisticsCollectionQuery,
+           let type = collection.objectType as? HKQuantityType,
+           case .failure(let error) = script(statisticsCollectionScripts, type.identifier) {
+            record(.statisticsCollection(type.identifier))
+            collection.initialResultsHandler?(collection, nil, error)
+        }
     }
 
     func stop(_ query: HKQuery) {

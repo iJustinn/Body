@@ -39,7 +39,12 @@ actor HealthKitFetchEngine {
     var combinesHealthDataSourcesByName: Bool
     var customHealthSourceGroups: [BodyCustomHealthSourceGroup]
 
-    var healthSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:]
+    var healthSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:] {
+        didSet {
+            if oldValue != healthSourcesByKind { queryContextRevision &+= 1 }
+        }
+    }
+    private(set) var queryContextRevision = 0
     var fetchedHealthDataSourcePermissionRawValue: String?
 
     var anchorDate: Date?
@@ -270,14 +275,17 @@ actor HealthKitFetchEngine {
     // MARK: - Selection setters
 
     func setPermissionSelection(_ selection: BodyHealthPermissionSelection) {
+        if permissionSelection != selection { queryContextRevision &+= 1 }
         permissionSelection = selection
     }
 
     func setHealthDataSourceSelection(_ selection: BodyHealthDataSourceSelection) {
+        if healthDataSourceSelection.signature != selection.signature { queryContextRevision &+= 1 }
         healthDataSourceSelection = selection
     }
 
     func setSecondaryHealthDataSourceSelection(_ selection: BodyHealthSecondaryDataSourceSelection) {
+        if secondaryHealthDataSourceSelection.signature != selection.signature { queryContextRevision &+= 1 }
         secondaryHealthDataSourceSelection = selection
     }
 
@@ -287,6 +295,7 @@ actor HealthKitFetchEngine {
         }
 
         combinesHealthDataSourcesByName = combines
+        queryContextRevision &+= 1
         clearSourceCache()
     }
 
@@ -302,6 +311,7 @@ actor HealthKitFetchEngine {
             return
         }
 
+        queryContextRevision &+= 1
         clearSourceCache()
     }
 

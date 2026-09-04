@@ -150,6 +150,20 @@ final class HealthKitWorkoutStore {
     /// In-memory only (nil on cold start → conservative empty-on-failure).
     @ObservationIgnored
     private var healthSummaryPrimarySignature: String?
+    @ObservationIgnored private var dashboardCacheScope: HealthDashboardCacheScope?
+    @ObservationIgnored private var dashboardPublicationToken = HealthDashboardPublicationToken()
+    @ObservationIgnored private var cacheSourceIdentities: [HealthMetricKind: [String: [String]]] = [:]
+    @ObservationIgnored private var contextRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var contextRefreshGeneration = 0
+    @ObservationIgnored private var needsContextRefresh = false
+    @ObservationIgnored private var contextRefreshRequiresFetch = false
+    @ObservationIgnored private var contextRefreshIsUserInitiated = false
+    @ObservationIgnored private var pendingPermissionChangeCount = 0
+    /// Controlled suspension/dispatch seams for real store integration tests.
+    @ObservationIgnored var contextRefreshOverride: (@MainActor (BodyWorkoutRefreshIntent) async -> Void)?
+    @ObservationIgnored var beforeDashboardComputeCommit: (@MainActor () async -> Void)?
+    @ObservationIgnored var beforePermissionDiskStrip: (@MainActor () async -> Void)?
+    @ObservationIgnored var beforePermissionSnapshotCommit: (@MainActor () async -> Void)?
     private(set) var healthTrends: HealthTrendSnapshot = .empty
     private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty
     private(set) var permissionSelection: BodyHealthPermissionSelection
@@ -590,7 +604,7 @@ final class HealthKitWorkoutStore {
         let boundaryAwake: Bool
         let calendarIdentifier: String
         let timeZoneIdentifier: String
-        let idealSleepDuration: TimeInterval
+        var idealSleepDuration: TimeInterval
         let fetchSelection: BodyDashboardFetchSelection
     }
 
@@ -602,7 +616,7 @@ final class HealthKitWorkoutStore {
     /// Canonical source IDs, not display names or JSON dictionary ordering.
     /// Also reads preferences changed outside this store, so a late result is
     /// rejected even before the corresponding settings callback gets its turn.
-    func captureRefreshInputs() -> CapturedRefreshInputs {
+    func captureRefreshInputs(intent: BodyWorkoutRefreshIntent = .passiveResume) -> CapturedRefreshInputs {
         let calendar = Calendar.bodyGregorian
         let inputs = RefreshInputs(
             primary: healthDataSourceSelection.signature,
@@ -618,22 +632,88 @@ final class HealthKitWorkoutStore {
             idealSleepDuration: Self.storedIdealSleepDuration(),
             fetchSelection: BodyDashboardFetchSelection.load()
         )
+        // Preserve the explicit settings action across coalesced edits. Passive
+        // context detection must not downgrade a user-requested repair.
+        if intent == .userInitiated, lastObservedRefreshInputs != inputs || needsContextRefresh {
+            contextRefreshIsUserInitiated = true
+        }
         if let previous = lastObservedRefreshInputs, previous != inputs {
+            var previousFetchInputs = previous
+            previousFetchInputs.idealSleepDuration = inputs.idealSleepDuration
+            contextRefreshRequiresFetch = contextRefreshRequiresFetch || previousFetchInputs != inputs
             refreshInputRevision &+= 1
+            dashboardPublicationToken.invalidate()
+            dashboardPublicationToken = HealthDashboardPublicationToken()
+            reconcileDashboardCacheScope()
+            needsContextRefresh = true
+            if contextRefreshRequiresFetch {
+                lastSuccessfulRefreshDate = nil
+                HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
+            }
+            scheduleContextRefreshIfNeeded()
         }
         lastObservedRefreshInputs = inputs
         return CapturedRefreshInputs(revision: refreshInputRevision, inputs: inputs)
+    }
+
+    private func scheduleContextRefreshIfNeeded() {
+        guard needsContextRefresh, contextRefreshTask == nil, pendingPermissionChangeCount == 0,
+              !Task.isCancelled, !isClearingCache else { return }
+        contextRefreshGeneration &+= 1
+        let generation = contextRefreshGeneration
+        contextRefreshTask = Task { @MainActor [weak self] in
+            // One owner for a burst of settings edits, including edits arriving
+            // while the old refresh is still releasing its slot.
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self else { return }
+            defer {
+                if self.contextRefreshGeneration == generation { self.contextRefreshTask = nil }
+            }
+            while self.needsContextRefresh, !Task.isCancelled {
+                guard await self.awaitRefreshSlotFree() else { return }
+                // A permission transaction can begin while this owner is
+                // debouncing or waiting for an older refresh to finish.
+                guard self.pendingPermissionChangeCount == 0 else { return }
+                self.needsContextRefresh = false
+                let intent: BodyWorkoutRefreshIntent = self.contextRefreshIsUserInitiated ? .userInitiated : .passiveResume
+                self.contextRefreshIsUserInitiated = false
+                let requiresFetch = self.contextRefreshRequiresFetch
+                self.contextRefreshRequiresFetch = false
+                if let operation = self.contextRefreshOverride {
+                    await operation(intent)
+                } else if !requiresFetch {
+                    self.isRefreshing = true
+                    await self.runRefreshWithDeadline {
+                        if await self.updateHealthDashboardSnapshot(
+                            summary: self.healthSummary, trends: self.healthTrends,
+                            activityRingHistory: self.activityRingHistory,
+                            recomputesStress: false, recomputesBodyRadar: false
+                        ) {
+                            self.publishWatchSnapshot()
+                        }
+                    }
+                    self.finishRefresh()
+                } else {
+                    await self.requestAuthorizationAndRefresh(intent: intent)
+                }
+            }
+        }
     }
 
     func mayApplyRefreshInputs(_ captured: CapturedRefreshInputs) -> Bool {
         captured == captureRefreshInputs()
     }
 
+    /// Resource cleanup survives a settings change, but not deadline abandonment:
+    /// the deadline owner releases the old anchor before a new refresh can start.
+    private var ownsRefreshGeneration: Bool {
+        Self.runningRefreshGeneration.map { $0 == refreshGeneration } ?? true
+    }
+
     /// Whether the code running right now still speaks for the current refresh.
     private var mayApplyRefreshResults: Bool {
-        let ownsGeneration = Self.runningRefreshGeneration.map { $0 == refreshGeneration } ?? true
         let ownsInputs = Self.runningRefreshInputs.map { mayApplyRefreshInputs($0) } ?? true
-        return ownsGeneration && ownsInputs
+        return ownsRefreshGeneration && ownsInputs
     }
 
     /// Runs one user-facing refresh `body` under `deadline` and ABANDONS it if
@@ -745,7 +825,9 @@ final class HealthKitWorkoutStore {
         guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
             return
         }
-
+        reconcileDashboardCacheScope()
+        let inputs = captureRefreshInputs()
+        let token = dashboardPublicationToken
         let snapshotToSave = HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
@@ -762,20 +844,21 @@ final class HealthKitWorkoutStore {
         // Nothing landed at all, or the trends are still the empty placeholder
         // while a real sidecar sits on disk — either way the write can only
         // lose data.
-        guard !snapshotToSave.isEmpty,
+        guard mayApplyRefreshInputs(inputs), token.isValid, !snapshotToSave.isEmpty,
               !healthTrends.isEmpty || (hydratedDaySamples?.isEmpty ?? true) else {
             return
         }
 
-        await withCheckedContinuation { continuation in
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             Self.snapshotPersistQueue.async {
+                defer { continuation.resume() }
+                guard token.isValid else { return }
                 HealthDashboardSnapshotStore.save(
                     snapshotToSave,
                     daySampleSignatures: daySampleSignatures,
                     summaryContextSignature: summaryContextSignature
                 )
                 HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
-                continuation.resume()
             }
         }
         await refreshCacheDiskSize()
@@ -964,6 +1047,7 @@ final class HealthKitWorkoutStore {
         // cold-start failed summary leaf can reuse the hydrated value only while
         // the current selection/prefs still match the ones it was saved under.
         healthSummaryPrimarySignature = loadedDashboard.summaryContextSignature
+        dashboardCacheScope = HealthDashboardCacheScope(signature: loadedDashboard.summaryContextSignature)
         let storedSecondarySignature = HealthDashboardSnapshotStore.loadSecondarySelectionSignature()
         if storedSecondarySignature != initialSecondaryHealthDataSourceSelection.signature + initialCustomSourceGroupsSuffix {
             healthTrends = filteredHealthDashboardSnapshot.trends.clearingSecondarySeries()
@@ -1050,33 +1134,20 @@ final class HealthKitWorkoutStore {
                 _ = self.captureRefreshInputs()
             }
             Task { @MainActor in
-                // An entitlement flip has to invalidate, not just refetch: the full
-                // refresh re-ships the cached day samples verbatim rather than
-                // re-querying them, so the previous comparison series would survive
-                // on the trend and day charts.
-                //
-                // Wait out any in-flight refresh first — clearing ahead of it would
-                // be undone, and the refetch below would bounce off
-                // `requestAuthorizationAndRefresh`'s `isRefreshing` guard. Then
-                // hydrate BEFORE clearing so the sidecar's primary scope is restored
-                // and its payload is memoized, because the clear has to reach that
-                // memo too (see `invalidateMemoizedComparisonDaySamples`).
-                guard await self.awaitRefreshSlotFree() else { return }
                 await self.hydratePersistedDaySamplesIfNeeded()
-                self.healthTrends = self.healthTrends.clearingSecondarySeries()
                 await self.invalidateMemoizedComparisonDaySamples()
-                self.persistDaySampleSidecar()
-                // Comparison day samples are deliberately NOT refetched here — they
-                // stay lazy (a single kind is ~50k raw samples). Leaving the cache
-                // genuinely empty is what makes
-                // `loadIntradayMetricSamplesIfNeeded` pull the full window instead
-                // of incrementally topping up pre-flip points. A metric detail that
-                // is already on screen when the flip lands re-runs that loader
-                // itself: its `.task` is keyed on entitlement, because the paywall
-                // is a sheet over that view and never unmounts it.
-                await self.requestAuthorizationAndRefresh()
+                await self.persistContextChange()
             }
         }
+        // Injected snapshots are authored under the injected selections. Disk
+        // snapshots must prove their own provenance; legacy scalar signatures
+        // cannot prove effective source membership or aggregation identity.
+        if initialHealthDashboardSnapshot != nil, initialSummaryContextSignature == nil {
+            dashboardCacheScope = currentDashboardCacheScope()
+            healthSummaryPrimarySignature = dashboardCacheScope?.signature
+        }
+        reconcileDashboardCacheScope()
+        _ = captureRefreshInputs()
     }
 
     /// Rebuilds the persisted readiness overlay when the frozen morning records
@@ -1302,7 +1373,7 @@ final class HealthKitWorkoutStore {
     /// `isRefreshing` (and to call `finishRefresh()` when done), to have
     /// hydrated the day samples, set the trend anchor, and been granted
     /// authorization; the caller resets the anchor on every exit.
-    private func performHealthMetricRefresh(
+    func performHealthMetricRefresh(
         _ kind: HealthMetricKind,
         date: Date,
         calendar: Calendar
@@ -1318,6 +1389,10 @@ final class HealthKitWorkoutStore {
         }
         setRefreshStage(.fetching)
         await fetchHealthDataSourceOptions(calendar: calendar)
+        let inputs = captureRefreshInputs()
+        let queryRevision = await engine.queryContextRevision
+        guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { return }
+        let queryScope = currentDashboardCacheScope()
         let existing = HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
@@ -1333,7 +1408,12 @@ final class HealthKitWorkoutStore {
         // A pull abandoned at `healthRefreshDeadline` keeps running; nothing
         // below may publish, persist, or stamp watermarks for a load the user
         // was already told had timed out.
-        guard mayApplyRefreshResults else {
+        guard !Task.isCancelled, mayApplyRefreshResults else { return }
+        guard await engine.queryContextRevision == queryRevision,
+              mayApplyRefreshInputs(inputs), queryScope == currentDashboardCacheScope(), mayApplyRefreshResults else {
+            needsContextRefresh = true
+            contextRefreshRequiresFetch = true
+            scheduleContextRefreshIfNeeded()
             return
         }
         let nextSummary = healthSummary.replacingMetric(kind, with: metricFetch.snapshot.summary)
@@ -1351,14 +1431,14 @@ final class HealthKitWorkoutStore {
             : metricFetch.snapshot.trends.strippingDaySamples()
         let nextTrends = healthTrends.replacingMetric(kind, with: fetchedTrends)
         setRefreshStage(.computing)
-        await updateHealthDashboardSnapshot(
+        guard await updateHealthDashboardSnapshot(
             summary: nextSummary,
             trends: nextTrends,
             activityRingHistory: activityRingHistory,
             recomputesReadiness: Self.readinessInputMetricKinds.contains(kind),
             recomputesStress: Self.stressInputMetricKinds.contains(kind),
             recomputesBodyRadar: Self.bodyRadarInputMetricKinds.contains(kind)
-        )
+        ) else { return }
         guard mayApplyRefreshResults else { return }
         authorizationState = .authorized
         if !metricFetch.hadQueryFailure, metricFetch.ranQueries {
@@ -2573,6 +2653,7 @@ final class HealthKitWorkoutStore {
     /// series before it has been read, and so the incremental intraday fetch
     /// sees the cached points. Idempotent; concurrent callers share one load.
     func hydratePersistedDaySamplesIfNeeded() async {
+        reconcileDashboardCacheScope()
         let epoch = cacheEpoch
         if persistedDaySamplesHydration == nil {
             persistedDaySamplesHydration = Task.detached(priority: .userInitiated) {
@@ -2589,6 +2670,7 @@ final class HealthKitWorkoutStore {
             return
         }
 
+        reconcileDashboardCacheScope()
         // Scope the sidecar to the current selection before merging so a source
         // switch, combine-flag flip, now-off permission, or a comparison the
         // current selection resolves away can't resurrect stale intraday points
@@ -2599,7 +2681,9 @@ final class HealthKitWorkoutStore {
             currentSecondarySignature: currentSecondarySelectionSignature(),
             currentCombinesByName: combinesHealthDataSourcesByName,
             permission: permissionSelection,
-            comparisonDisabledKinds: currentComparisonDisabledKinds()
+            comparisonDisabledKinds: currentComparisonDisabledKinds(),
+            currentPrimaryMetricScopes: currentDashboardCacheScope().rawSignatures(),
+            currentSecondaryMetricScopes: currentDashboardCacheScope().rawSignatures(secondary: true)
         )
         guard !scoped.isEmpty else {
             return
@@ -3127,7 +3211,10 @@ final class HealthKitWorkoutStore {
         }
 
         let calendar = Calendar.bodyGregorian
+        reconcileDashboardCacheScope()
         let capturedSignature = currentPrimarySummarySignature()
+        let capturedInputs = captureRefreshInputs()
+        let queryRevision = await engine.queryContextRevision
         let capturedRefreshDate = lastSuccessfulRefreshDate
         let cachedTrends = healthTrends
         // `trendWindowDays: nil` — the whole year, no merge. Off the refresh
@@ -3153,6 +3240,8 @@ final class HealthKitWorkoutStore {
         // merged) value, which is exactly what is already published — nothing
         // to gain, and a partial year is worse than the merge it replaces.
         guard !result.hadQueryFailure,
+              await engine.queryContextRevision == queryRevision,
+              mayApplyRefreshInputs(capturedInputs),
               Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
               lastSuccessfulRefreshDate == capturedRefreshDate,
               currentPrimarySummarySignature() == capturedSignature else {
@@ -3260,10 +3349,28 @@ final class HealthKitWorkoutStore {
             return
         }
 
+        pendingPermissionChangeCount += 1
         permissionSelection = nextSelection
         nextSelection.save()
+        contextRefreshIsUserInitiated = contextRefreshIsUserInitiated || isEnabled
         _ = captureRefreshInputs()
-        await engine.setPermissionSelection(nextSelection)
+        // Once the selection changes, its privacy cleanup must finish even if
+        // the Settings task is cancelled while waiting for the refresh slot.
+        await Task { @MainActor in
+            await self.finishHealthPermissionChange(permission, isEnabled: isEnabled)
+        }.value
+    }
+
+    private func finishHealthPermissionChange(_ permission: BodyHealthPermission, isEnabled: Bool) async {
+        defer {
+            pendingPermissionChangeCount -= 1
+            scheduleContextRefreshIfNeeded()
+        }
+        guard await awaitRefreshSlotFree() else { return }
+        isRefreshing = true
+        defer { finishRefresh() }
+        // A later toggle may have changed the selection while this one waited.
+        await engine.setPermissionSelection(permissionSelection)
         if permission == .workouts {
             detailCaches.clearAll()
         } else if permission == .heart {
@@ -3287,6 +3394,7 @@ final class HealthKitWorkoutStore {
                 // both its memory copy and its file, and awaits the delete.
                 await engine.clearWorkoutEffortCache()
             }
+            await beforePermissionDiskStrip?()
             await withCheckedContinuation { continuation in
                 Self.snapshotPersistQueue.async {
                     switch permission {
@@ -3306,16 +3414,7 @@ final class HealthKitWorkoutStore {
         }
         await applyPermissionSelectionToCachedData()
 
-        if isEnabled {
-            // A refresh may be in flight (resume/pull-to-refresh); its
-            // `isRefreshing` guard would otherwise silently drop this refetch,
-            // leaving old-permission data on screen. Mirror the secondary-source
-            // variants: wait it out, then refetch under the new selection.
-            guard await awaitRefreshSlotFree() else {
-                return
-            }
-            await requestAuthorizationAndRefresh()
-        } else {
+        if !isEnabled {
             updateHealthDataNotice()
             // The enable branch republishes via the refresh funnel; the disable
             // branch otherwise wouldn't, so the watch would keep showing the
@@ -3516,24 +3615,11 @@ final class HealthKitWorkoutStore {
 
         combinesHealthDataSourcesByName = combines
         UserDefaults.standard.set(combines, forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey)
-        _ = captureRefreshInputs()
+        cacheSourceIdentities.removeAll()
+        _ = captureRefreshInputs(intent: .userInitiated)
         await engine.setCombinesHealthDataSourcesByName(combines)
-        await fetchHealthDataSourceOptions(calendar: .bodyGregorian)
 
-        // Wait out any in-flight refresh so the `isRefreshing` guard in
-        // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
-        // (matches the secondary-source variants).
-        guard await awaitRefreshSlotFree() else {
-            return
-        }
-
-        // Combining changes how every per-source series is merged, so drop all
-        // cached intraday day samples and persist the invalidation before the
-        // corrective refetch (H6a).
-        healthTrends = healthTrends.strippingDaySamples()
-        truncatePersistedDaySamples()
-
-        await requestAuthorizationAndRefresh()
+        await persistContextChange()
     }
 
     nonisolated static func loadCustomHealthSourceGroups(
@@ -3659,7 +3745,7 @@ final class HealthKitWorkoutStore {
         secondaryHealthDataSourceSelection = nextSecondarySelection
         nextSelection.save()
         nextSecondarySelection.save()
-        _ = captureRefreshInputs()
+        _ = captureRefreshInputs(intent: .userInitiated)
         await engine.setHealthDataSourceSelection(nextSelection)
         await engine.setSecondaryHealthDataSourceSelection(nextSecondarySelection)
 
@@ -3673,21 +3759,11 @@ final class HealthKitWorkoutStore {
     private func applyCustomHealthSourceGroups(_ groups: [BodyCustomHealthSourceGroup]) async {
         customHealthSourceGroups = groups
         Self.saveCustomHealthSourceGroups(groups)
-        _ = captureRefreshInputs()
+        cacheSourceIdentities.removeAll()
+        _ = captureRefreshInputs(intent: .userInitiated)
         await engine.setCustomHealthSourceGroups(groups)
-        await fetchHealthDataSourceOptions(calendar: .bodyGregorian)
 
-        // Wait out any in-flight refresh so the `isRefreshing` guard in
-        // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
-        // (matches the secondary-source variants).
-        guard await awaitRefreshSlotFree() else {
-            return
-        }
-
-        healthTrends = healthTrends.strippingDaySamples()
-        truncatePersistedDaySamples()
-
-        await requestAuthorizationAndRefresh()
+        await persistContextChange()
     }
 
     func updateDefaultHealthDataSource(option: BodyHealthDataSourceOption) async {
@@ -3703,24 +3779,11 @@ final class HealthKitWorkoutStore {
         secondaryHealthDataSourceSelection = nextSecondarySelection
         nextSelection.save()
         nextSecondarySelection.save()
-        _ = captureRefreshInputs()
+        _ = captureRefreshInputs(intent: .userInitiated)
         await engine.setHealthDataSourceSelection(nextSelection)
         await engine.setSecondaryHealthDataSourceSelection(nextSecondarySelection)
 
-        // Wait out any in-flight refresh so the `isRefreshing` guard in
-        // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
-        // (matches the secondary-source variants).
-        guard await awaitRefreshSlotFree() else {
-            return
-        }
-
-        // The default source (and possibly the secondary, reset above) changed —
-        // drop all cached intraday day samples and persist the invalidation
-        // before the corrective refetch (H6a).
-        healthTrends = healthTrends.strippingDaySamples()
-        truncatePersistedDaySamples()
-
-        await requestAuthorizationAndRefresh()
+        await persistContextChange()
     }
 
     /// Refetches the dashboard after a sleep-stage *display* preference changes
@@ -3731,12 +3794,8 @@ final class HealthKitWorkoutStore {
     /// bare `Task { requestAuthorizationAndRefresh() }` the Settings onChange used
     /// to fire was lost whenever it landed during a launch/resume refresh).
     func refetchAfterSleepDisplayPreferenceChange() async {
-        _ = captureRefreshInputs()
-        guard await awaitRefreshSlotFree() else {
-            return
-        }
-
-        await requestAuthorizationAndRefresh()
+        _ = captureRefreshInputs(intent: .userInitiated)
+        await persistContextChange()
     }
 
     func updateDefaultSecondaryHealthDataSource(option: BodyHealthDataSourceOption) async {
@@ -3748,20 +3807,10 @@ final class HealthKitWorkoutStore {
 
         secondaryHealthDataSourceSelection = nextSelection
         nextSelection.save()
-        _ = captureRefreshInputs()
+        _ = captureRefreshInputs(intent: .userInitiated)
         await engine.setSecondaryHealthDataSourceSelection(nextSelection)
 
-        guard await awaitRefreshSlotFree() else {
-            return
-        }
-
-        // The secondary source changed — clear the cached comparison series
-        // (incl. secondary day samples) and persist the invalidation before the
-        // corrective refetch (H6a).
-        healthTrends = healthTrends.clearingSecondarySeries()
-        persistDaySampleSidecar()
-
-        await requestAuthorizationAndRefresh()
+        await persistContextChange()
     }
 
     func updateHealthDataSource(for kind: HealthMetricKind, option: BodyHealthDataSourceOption) async {
@@ -3772,23 +3821,10 @@ final class HealthKitWorkoutStore {
 
         healthDataSourceSelection = nextSelection
         nextSelection.save()
-        _ = captureRefreshInputs()
+        _ = captureRefreshInputs(intent: .userInitiated)
         await engine.setHealthDataSourceSelection(nextSelection)
 
-        // Wait out any in-flight refresh so the `isRefreshing` guard in
-        // `requestAuthorizationAndRefresh` doesn't silently drop this refetch
-        // (matches the secondary-source variants).
-        guard await awaitRefreshSlotFree() else {
-            return
-        }
-
-        // Only this metric's source changed — drop just its primary intraday
-        // series (leave the other charts intact) and persist the invalidation
-        // before the corrective refetch (H6a).
-        healthTrends = healthTrends.strippingPrimaryDaySamples(for: kind)
-        persistDaySampleSidecar()
-
-        await requestAuthorizationAndRefresh()
+        await persistContextChange()
     }
 
     func updateSecondaryHealthDataSource(for kind: HealthMetricKind, option: BodyHealthDataSourceOption) async {
@@ -3799,20 +3835,19 @@ final class HealthKitWorkoutStore {
 
         secondaryHealthDataSourceSelection = nextSelection
         nextSelection.save()
-        _ = captureRefreshInputs()
+        _ = captureRefreshInputs(intent: .userInitiated)
         await engine.setSecondaryHealthDataSourceSelection(nextSelection)
 
-        guard await awaitRefreshSlotFree() else {
-            return
-        }
+        await persistContextChange()
+    }
 
-        // The secondary source changed — clear the cached comparison series
-        // (incl. secondary day samples) and persist the invalidation before the
-        // corrective refetch (H6a).
-        healthTrends = healthTrends.clearingSecondarySeries()
+    private func persistContextChange() async {
+        guard !Task.isCancelled else { return }
+        await hydratePersistedDaySamplesIfNeeded()
+        reconcileDashboardCacheScope()
         persistDaySampleSidecar()
-
-        await refreshHealthMetric(kind)
+        republishCompanionSnapshots()
+        scheduleContextRefreshIfNeeded()
     }
 
     /// Persists the current in-memory dashboard snapshot + day-sample sidecar
@@ -3825,6 +3860,7 @@ final class HealthKitWorkoutStore {
     /// Day View instantly from cache instead of waiting on HealthKit. Mirrors the
     /// save block in `updateHealthDashboardSnapshot`.
     private func persistDaySampleSidecar() {
+        reconcileDashboardCacheScope()
         let snapshotToSave = HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
@@ -3833,7 +3869,9 @@ final class HealthKitWorkoutStore {
         let daySampleSignatures = currentDaySampleSignatures()
         let secondarySignature = currentSecondarySelectionSignature()
         let summaryContextSignature = healthSummaryPrimarySignature
+        let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
+            guard token.isValid else { return }
             HealthDashboardSnapshotStore.save(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
@@ -3841,18 +3879,6 @@ final class HealthKitWorkoutStore {
             )
             HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
             Task { @MainActor in await self.refreshCacheDiskSize() }
-        }
-    }
-
-    /// Used at the three deliberate full-strip sites in place of
-    /// `persistDaySampleSidecar()`: `healthTrends` is already all-empty there,
-    /// and `HealthDashboardSnapshotStore.save` now merges an all-empty payload
-    /// into a still-populated sidecar instead of overwriting it (H-17), which
-    /// would leave the stale series on disk under fresh signatures that reject
-    /// them on the next hydration anyway. Truncating removes that wasted file.
-    private func truncatePersistedDaySamples() {
-        Self.snapshotPersistQueue.async {
-            HealthDashboardSnapshotStore.truncateDaySamples()
         }
     }
 
@@ -4279,6 +4305,11 @@ final class HealthKitWorkoutStore {
     }
 
     func syncWhenAppBecomesActive(date: Date = Date()) async {
+        _ = captureRefreshInputs()
+        if needsContextRefresh {
+            scheduleContextRefreshIfNeeded()
+            return
+        }
         guard !isRefreshing, !needsInitialHealthDataLoad else {
             return
         }
@@ -4625,7 +4656,9 @@ final class HealthKitWorkoutStore {
             // Carry the current summary-context signature so this ring-pagination
             // save doesn't clobber the persisted one back to nil (H2a).
             let summaryContextSignature = healthSummaryPrimarySignature
+            let token = dashboardPublicationToken
             Self.snapshotPersistQueue.async {
+                guard token.isValid else { return }
                 HealthDashboardSnapshotStore.save(
                     snapshotToSave,
                     daySampleSignatures: daySampleSignatures,
@@ -4708,6 +4741,14 @@ final class HealthKitWorkoutStore {
         }
         isClearingCache = true
         defer { isClearingCache = false }
+        contextRefreshGeneration &+= 1
+        contextRefreshTask?.cancel()
+        contextRefreshTask = nil
+        needsContextRefresh = false
+        contextRefreshRequiresFetch = false
+        contextRefreshIsUserInitiated = false
+        dashboardPublicationToken.invalidate()
+        dashboardPublicationToken = HealthDashboardPublicationToken()
         // Invalidate every in-flight load: a resurrection-capable path that
         // resumes after this sees the bumped epoch and bails before re-publishing
         // or re-persisting the data we're about to wipe.
@@ -4845,7 +4886,7 @@ final class HealthKitWorkoutStore {
 
     /// Expects the caller to have set `isRefreshing` (and to call
     /// `finishRefresh()` when done) before the first suspension.
-    private func refreshRecentMonths(date: Date = Date(), intent: BodyWorkoutRefreshIntent = .userInitiated) async {
+    func refreshRecentMonths(date: Date = Date(), intent: BodyWorkoutRefreshIntent = .userInitiated) async {
         let signpostState = BodyPerformanceSignposts.signposter.beginInterval("RefreshRecentMonths")
         defer { BodyPerformanceSignposts.signposter.endInterval("RefreshRecentMonths", signpostState) }
         // Measurement only (RefreshOptimizationPlan-02 §6): starts the per-leaf
@@ -4925,7 +4966,7 @@ final class HealthKitWorkoutStore {
             await fetchHealthDataSourceOptions(calendar: calendar)
 
             let (fetchedHealthSummary, fetchedHealthTrends, hadQueryFailure, fetchedPartialTrendWindow) =
-                await fetchDashboardSnapshotProgressively(
+                try await fetchDashboardSnapshotProgressively(
                     calendar: calendar,
                     selection: dashboardFetchSelection
                 )
@@ -4936,14 +4977,14 @@ final class HealthKitWorkoutStore {
             // The stress recompute is skipped here and run once in the tail
             // below: its activity mask needs the workouts this fetch is still
             // racing, so the pass done here would be thrown away.
-            await updateHealthDashboardSnapshot(
+            guard await updateHealthDashboardSnapshot(
                 summary: fetchedHealthSummary,
                 trends: fetchedHealthTrends,
                 activityRingHistory: activityRingHistory,
                 recomputesStress: false,
                 recomputesBodyRadar: false,
                 persists: false
-            )
+            ) else { throw CancellationError() }
             publishedDashboard = true
 
             // Join the workout fetch. Its success gates the freshness timestamp:
@@ -4956,7 +4997,7 @@ final class HealthKitWorkoutStore {
             // refresh's workout fetch can land here minutes late, so it stops
             // at the generation check instead.
             guard mayApplyRefreshResults else {
-                return
+                throw CancellationError()
             }
             authorizationState = .authorized
             // Dashboard vitals + workouts have both just landed together (this
@@ -5017,14 +5058,14 @@ final class HealthKitWorkoutStore {
         }
         // A body abandoned at the refresh deadline must not clear the anchor a
         // NEWER refresh has since set; that path resets it itself.
-        if mayApplyRefreshResults {
+        if ownsRefreshGeneration {
             await engine.setHealthTrendAnchorDate(nil)
         }
     }
 
     /// Expects the caller to have set `isRefreshing` (and to call
     /// `finishRefresh()` when done) before the first suspension.
-    private func refresh(
+    func refresh(
         month: Int,
         year: Int,
         calendar: Calendar,
@@ -5073,7 +5114,7 @@ final class HealthKitWorkoutStore {
                 await fetchHealthDataSourceOptions(calendar: calendar)
 
                 let (fetchedHealthSummary, fetchedHealthTrends, leafFailure, partialTrendWindow) =
-                    await fetchDashboardSnapshotProgressively(
+                    try await fetchDashboardSnapshotProgressively(
                         calendar: calendar,
                         selection: dashboardFetchSelection
                     )
@@ -5081,17 +5122,17 @@ final class HealthKitWorkoutStore {
                 fetchedPartialTrendWindow = partialTrendWindow
 
                 // Live ring history, for the reason in `refreshRecentMonths`.
-                await updateHealthDashboardSnapshot(
+                guard await updateHealthDashboardSnapshot(
                     summary: fetchedHealthSummary,
                     trends: fetchedHealthTrends,
                     activityRingHistory: activityRingHistory
-                )
+                ) else { throw CancellationError() }
             }
             try await workoutRefresh
             // Same deadline rule as `refreshRecentMonths`: nothing past the
             // join may publish, persist, or write back for an abandoned pass.
             guard mayApplyRefreshResults else {
-                return
+                throw CancellationError()
             }
             authorizationState = .authorized
             // Only when this call actually refreshed the dashboard (mirrors
@@ -5143,7 +5184,7 @@ final class HealthKitWorkoutStore {
             handleRefreshError(error)
         }
         // Same deadline rule as `refreshRecentMonths`.
-        if updatesHealthSummary, mayApplyRefreshResults {
+        if updatesHealthSummary, ownsRefreshGeneration {
             await engine.setHealthTrendAnchorDate(nil)
         }
     }
@@ -5161,12 +5202,17 @@ final class HealthKitWorkoutStore {
     private func fetchDashboardSnapshotProgressively(
         calendar: Calendar,
         selection: BodyDashboardFetchSelection
-    ) async -> (
+    ) async throws -> (
         summary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
         hadQueryFailure: Bool,
         fetchedPartialTrendWindow: Bool
     ) {
+        reconcileDashboardCacheScope()
+        let inputs = captureRefreshInputs()
+        let queryRevision = await engine.queryContextRevision
+        guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { throw CancellationError() }
+        let queryScope = currentDashboardCacheScope()
         let cachedTrendsAtStart = healthTrends
         var fetchedSummary = healthSummary
         var fetchedTrends = healthTrends
@@ -5227,7 +5273,8 @@ final class HealthKitWorkoutStore {
             for await unit in group {
                 // A body abandoned at the refresh deadline keeps running; its
                 // late units must not publish over a newer refresh's.
-                guard mayApplyRefreshResults else {
+                guard await engine.queryContextRevision == queryRevision,
+                      mayApplyRefreshInputs(inputs), queryScope == currentDashboardCacheScope(), mayApplyRefreshResults else {
                     continue
                 }
                 switch unit {
@@ -5259,6 +5306,14 @@ final class HealthKitWorkoutStore {
             }
         }
 
+        guard !Task.isCancelled, mayApplyRefreshResults else { throw CancellationError() }
+        guard await engine.queryContextRevision == queryRevision,
+              mayApplyRefreshInputs(inputs), queryScope == currentDashboardCacheScope(), mayApplyRefreshResults else {
+            needsContextRefresh = true
+            contextRefreshRequiresFetch = true
+            scheduleContextRefreshIfNeeded()
+            throw CancellationError()
+        }
         return (fetchedSummary, fetchedTrends, hadQueryFailure, trendWindowDays != nil)
     }
 
@@ -5481,7 +5536,9 @@ final class HealthKitWorkoutStore {
         )
         let daySampleSignatures = currentDaySampleSignatures()
         let summaryContextSignature = healthSummaryPrimarySignature
+        let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
+            guard token.isValid else { return }
             HealthDashboardSnapshotStore.save(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
@@ -5539,9 +5596,104 @@ final class HealthKitWorkoutStore {
     /// is closed conservatively invalidates the reuse instead of resurrecting a
     /// value parsed under different grouping.
     private func currentPrimarySummarySignature() -> String {
-        let showsSubMinuteAwake = BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()
-        let showsLeadingTrailingAwake = BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
-        return "\(healthDataSourceSelection.rawValue)|\(permissionSelection.rawValue)|\(combinesHealthDataSourcesByName)|\(showsSubMinuteAwake)|\(showsLeadingTrailingAwake)" + customSourceGroupsSignatureSuffix
+        currentDashboardCacheScope().signature
+    }
+
+    func currentDashboardCacheScope() -> HealthDashboardCacheScope {
+        let calendar = Calendar.bodyGregorian
+        let aggregation = HealthDashboardCacheScope.key([
+            String(describing: calendar.identifier), calendar.timeZone.identifier, "aggregation-v1"
+        ])
+        func source(_ kind: HealthMetricKind, comparison: Bool) -> HealthDashboardCacheScope.Source {
+            let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind)
+            let sourceKind = descriptor?.querySourceKind ?? kind
+            var option = comparison
+                ? secondaryHealthDataSourceSelection.option(for: sourceKind)
+                : healthDataSourceSelection.option(for: sourceKind)
+            if comparison && !isProUnlocked { option = .noComparison }
+            if option.isCustomSource && !isProUnlocked { option = comparison ? .noComparison : .allSources }
+            if descriptor != nil && descriptor?.querySourceKind == nil { option = comparison ? .noComparison : .allSources }
+            let groupMembers = customHealthSourceGroups.first { $0.id == option.id }?.memberIdentityKeys ?? []
+            var parts = [
+                option.id, String(combinesHealthDataSourcesByName),
+                String(permissionSelection.includes(HealthKitFetchEngine.healthPermission(forMetric: kind))),
+                HealthDashboardCacheScope.key(groupMembers.sorted())
+            ]
+            if kind == .sleep {
+                parts += [String(BodySleepStageDisplayPreference.showsSubMinuteAwakeStages()),
+                          String(BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages())]
+            }
+            if kind == .trainingLoad {
+                let resting = source(.restingHeartRate, comparison: false)
+                parts += [String(permissionSelection.includes(.heart)), String(permissionSelection.includes(.dateOfBirth)),
+                          resting.request, resting.members.map { HealthDashboardCacheScope.key($0) } ?? "unresolved"]
+            }
+            if kind == .cardioFitness {
+                parts += [String(permissionSelection.includes(.dateOfBirth))]
+            }
+            // De-duplication of comparisons also depends on the primary option.
+            if comparison { parts.append(healthDataSourceSelection.option(for: sourceKind).id) }
+            let request = HealthDashboardCacheScope.key(parts)
+            let previous = comparison ? dashboardCacheScope?.secondary[kind.rawValue] : dashboardCacheScope?.primary[kind.rawValue]
+            let members: [String]?
+            if option.isNoComparison {
+                members = []
+            } else if let bucket = cacheSourceIdentities[sourceKind] {
+                var primaryOption = healthDataSourceSelection.option(for: sourceKind)
+                if primaryOption.isCustomSource && !isProUnlocked { primaryOption = .allSources }
+                let resolvedPrimaryID = bucket[primaryOption.id]?.isEmpty == false
+                    ? primaryOption.id : BodyHealthDataSourceOption.allSources.id
+                if comparison && option.id == resolvedPrimaryID {
+                    members = []
+                } else {
+                    members = bucket[option.id] ?? (comparison ? [] : bucket[BodyHealthDataSourceOption.allSources.id])
+                }
+            } else if previous?.request == request {
+                // Before discovery, retain the last proven identity for first
+                // paint. Discovery must settle before dependent queries launch.
+                members = previous?.members
+            } else {
+                members = nil
+            }
+            return .init(request: request, members: members)
+        }
+        let primary = Dictionary(uniqueKeysWithValues: HealthDashboardCacheScope.leafKinds.map { ($0.rawValue, source($0, comparison: false)) })
+        let secondary = Dictionary(uniqueKeysWithValues: HealthDashboardCacheScope.leafKinds.map { ($0.rawValue, source($0, comparison: true)) })
+        return HealthDashboardCacheScope(primary: primary, secondary: secondary, aggregation: aggregation, sleepGoal: Self.storedIdealSleepDuration())
+    }
+
+    /// Synchronous normalization happens before a settings mutator's first
+    /// await, and again after discovery. All subsequent captures therefore
+    /// contain either compatible data or absence, never old-source fallback
+    /// relabeled with a new context.
+    private func reconcileDashboardCacheScope() {
+        let scope = currentDashboardCacheScope()
+        guard scope != dashboardCacheScope else { return }
+        let fetchChanged = scope.primary != dashboardCacheScope?.primary
+            || scope.secondary != dashboardCacheScope?.secondary
+            || scope.aggregation != dashboardCacheScope?.aggregation
+        dashboardPublicationToken.invalidate()
+        dashboardPublicationToken = HealthDashboardPublicationToken()
+        let next = scope.scoping(HealthDashboardSnapshot(
+            summary: healthSummary, trends: healthTrends, activityRingHistory: activityRingHistory
+        ), from: dashboardCacheScope).filteredWithoutReadinessRecompute(by: permissionSelection)
+        healthSummary = next.summary
+        healthTrends = next.trends
+        activityRingHistory = next.activityRingHistory
+        dashboardCacheScope = scope
+        healthSummaryPrimarySignature = scope.signature
+        lastReadinessComputeDate = nil
+        guard fetchChanged else { return }
+        // Old computed-input watermarks must not qualify a new-source watch
+        // seed. A successful refresh will establish these again.
+        lastVitalsRefreshDate = nil
+        lastReadinessComputeDate = nil
+        lastTrainingLoadComputeDate = nil
+        lastMetricPullDates.removeAll()
+        cachedComputeTrainingLoadSeed = nil
+        HealthDashboardSnapshotStore.clearWatchTrainingLoadSeed()
+        lastSuccessfulRefreshDate = nil
+        HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
     }
 
     /// What a custom group's MEMBERSHIP adds to every cache signature. Empty
@@ -5600,7 +5752,9 @@ final class HealthKitWorkoutStore {
             primarySelectionSignature: currentPrimarySelectionSignature(),
             secondarySelectionSignature: currentSecondarySelectionSignature(),
             permissionSignature: permissionSelection.rawValue,
-            combinesHealthDataSourcesByName: combinesHealthDataSourcesByName
+            combinesHealthDataSourcesByName: combinesHealthDataSourcesByName,
+            primaryMetricScopes: dashboardCacheScope?.rawSignatures(),
+            secondaryMetricScopes: dashboardCacheScope?.rawSignatures(secondary: true)
         )
     }
 
@@ -5961,7 +6115,8 @@ final class HealthKitWorkoutStore {
         .activeEnergy
     ]
 
-    private func updateHealthDashboardSnapshot(
+    @discardableResult
+    func updateHealthDashboardSnapshot(
         summary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
         activityRingHistory: ActivityRingHistorySnapshot,
@@ -5969,12 +6124,13 @@ final class HealthKitWorkoutStore {
         recomputesStress: Bool = true,
         recomputesBodyRadar: Bool = true,
         persists: Bool = true
-    ) async {
+    ) async -> Bool {
         let epoch = cacheEpoch
         let inputs = captureRefreshInputs()
+        let scope = currentDashboardCacheScope()
         let calendar = Calendar.bodyGregorian
         let anchorDate = await engine.healthTrendAnchorDate ?? Date()
-        guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { return }
+        guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { return false }
         let permissionSelection = self.permissionSelection
         let idealSleepDuration = Self.storedIdealSleepDuration()
         // Stress is derived, never fetched, so a freshly fetched summary always
@@ -6054,13 +6210,14 @@ final class HealthKitWorkoutStore {
             return filtered
         }.value
 
+        if let beforeDashboardComputeCommit { await beforeDashboardComputeCommit() }
         // A Clear Cache that landed while the off-actor recompute ran must win:
         // don't publish or persist the recomputed snapshot onto the wiped state.
         // A refresh abandoned at `healthRefreshDeadline` loses the same way: its
         // late snapshot must not overwrite a newer refresh's.
         guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
-              mayApplyRefreshInputs(inputs), mayApplyRefreshResults else {
-            return
+              mayApplyRefreshInputs(inputs), scope == currentDashboardCacheScope(), mayApplyRefreshResults else {
+            return false
         }
 
         let nextActivityRingHistory = self.activityRingHistory.replacingLoadedMonths(
@@ -6069,7 +6226,7 @@ final class HealthKitWorkoutStore {
         )
         healthSummary = filteredSnapshot.summary
         // Scope the summary reuse to the selection this snapshot reflects.
-        healthSummaryPrimarySignature = currentPrimarySummarySignature()
+        healthSummaryPrimarySignature = scope.signature
         healthTrends = filteredSnapshot.trends
         self.activityRingHistory = nextActivityRingHistory
         loadedActivityRingMonthKeys = Set(nextActivityRingHistory.loadedMonthKeySet(calendar: calendar))
@@ -6083,10 +6240,11 @@ final class HealthKitWorkoutStore {
         // write (see `refreshRecentMonths`); the state published above is what
         // that write encodes.
         guard persists else {
-            return
+            return true
         }
         persistDashboardSnapshot()
         saveHealthWidgetSnapshot()
+        return true
     }
 
     /// Encodes and writes the live dashboard snapshot (summary + trends + ring
@@ -6096,6 +6254,7 @@ final class HealthKitWorkoutStore {
     /// after the tail settles instead of three full encodes per pass.
     private func persistDashboardSnapshot() {
         guard mayApplyRefreshResults else { return }
+        reconcileDashboardCacheScope()
         let snapshotToSave = HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
@@ -6107,7 +6266,9 @@ final class HealthKitWorkoutStore {
         // cold start can gate the summary reuse (H2a). Rides inside the
         // snapshot, so it saves atomically with the data on every path.
         let summaryContextSignature = healthSummaryPrimarySignature
+        let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
+            guard token.isValid else { return }
             HealthDashboardSnapshotStore.save(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
@@ -6212,6 +6373,7 @@ final class HealthKitWorkoutStore {
 
         let epoch = cacheEpoch
         let inputs = captureRefreshInputs()
+        let scope = currentDashboardCacheScope()
         let now = Date()
         let captured = HealthDashboardSnapshot(
             summary: healthSummary,
@@ -6234,7 +6396,7 @@ final class HealthKitWorkoutStore {
         // while the off-actor scoring ran must win, and a refresh abandoned at
         // `healthRefreshDeadline` must not publish over a newer one's state.
         guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
-              mayApplyRefreshInputs(inputs), mayApplyRefreshResults else {
+              mayApplyRefreshInputs(inputs), scope == currentDashboardCacheScope(), mayApplyRefreshResults else {
             return
         }
 
@@ -6288,7 +6450,9 @@ final class HealthKitWorkoutStore {
         // clobber the persisted one back to nil (H2a), as in the readiness
         // reapply below.
         let summaryContextSignature = healthSummaryPrimarySignature
+        let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
+            guard token.isValid else { return }
             HealthDashboardSnapshotStore.save(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
@@ -6311,6 +6475,7 @@ final class HealthKitWorkoutStore {
 
         let epoch = cacheEpoch
         let inputs = captureRefreshInputs()
+        let scope = currentDashboardCacheScope()
         let now = Date()
         let captured = HealthDashboardSnapshot(
             summary: healthSummary,
@@ -6339,7 +6504,7 @@ final class HealthKitWorkoutStore {
         // Same rule as `recomputeStress`: a Clear Cache or an abandoned refresh
         // that landed while the off-actor scoring ran must win.
         guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
-              mayApplyRefreshInputs(inputs), mayApplyRefreshResults else {
+              mayApplyRefreshInputs(inputs), scope == currentDashboardCacheScope(), mayApplyRefreshResults else {
             return
         }
 
@@ -6366,7 +6531,9 @@ final class HealthKitWorkoutStore {
         )
         let daySampleSignatures = currentDaySampleSignatures()
         let summaryContextSignature = healthSummaryPrimarySignature
+        let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
+            guard token.isValid else { return }
             HealthDashboardSnapshotStore.save(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
@@ -6404,7 +6571,9 @@ final class HealthKitWorkoutStore {
         // Same reason as `recomputeStress`: carry the current summary-context
         // signature so this save doesn't clobber the persisted one back to nil.
         let summaryContextSignature = healthSummaryPrimarySignature
+        let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
+            guard token.isValid else { return }
             HealthDashboardSnapshotStore.save(
                 updated,
                 daySampleSignatures: daySampleSignatures,
@@ -6478,7 +6647,9 @@ final class HealthKitWorkoutStore {
         // save doesn't clobber the persisted one back to nil (H2a). Readiness
         // isn't part of the signature, so it still describes `updated.summary`.
         let summaryContextSignature = healthSummaryPrimarySignature
+        let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
+            guard token.isValid else { return }
             HealthDashboardSnapshotStore.save(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
@@ -6759,6 +6930,7 @@ final class HealthKitWorkoutStore {
     private func publishWatchSnapshot(shared: BodyCompanionPublishInput.Shared) {
         guard mayApplyRefreshResults else { return }
         let inputs = captureRefreshInputs()
+        let token = dashboardPublicationToken
         companionPublisher.publishWatchSnapshot(
             makeCompanionPublishInput(shared: shared),
             isEpochCurrent: { [weak self] capturedEpoch in
@@ -6766,7 +6938,7 @@ final class HealthKitWorkoutStore {
                     return false
                 }
                 return Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: self.cacheEpoch)
-                    && self.mayApplyRefreshInputs(inputs)
+                    && self.mayApplyRefreshInputs(inputs) && token.isValid
             }
         )
     }
@@ -6782,7 +6954,7 @@ final class HealthKitWorkoutStore {
     /// Everything derived FROM these captures (the weekly workout minutes and
     /// their persisted fallback, the 14-day time-zone map, the seed encode) runs
     /// on the persist queue inside `BodyCompanionPublisher` (M-08).
-    private func makeCompanionPublishInput(
+    func makeCompanionPublishInput(
         shared: BodyCompanionPublishInput.Shared
     ) -> BodyCompanionPublishInput {
         // Phase 3 compute-seed capture, alongside the display-snapshot inputs
@@ -7005,14 +7177,17 @@ final class HealthKitWorkoutStore {
     /// The save, from a `Shared` capture the caller already took (see
     /// `publishWatchSnapshot(shared:)`).
     private func saveHealthWidgetSnapshot(shared: BodyCompanionPublishInput.Shared) {
-        companionPublisher.saveWidgetSnapshot(makeWidgetPublishInput(shared: shared))
+        let token = dashboardPublicationToken
+        companionPublisher.saveWidgetSnapshot(makeWidgetPublishInput(shared: shared), isCurrent: { token.isValid })
     }
 
     /// Captures, synchronously on the main actor, what BOTH companion snapshots
     /// render from: the widget snapshot and the watch snapshot read the same
     /// summary, trends and display preferences.
-    private func makeSharedPublishInput() -> BodyCompanionPublishInput.Shared {
-        BodyCompanionPublishInput.Shared(
+    func makeSharedPublishInput() -> BodyCompanionPublishInput.Shared {
+        _ = captureRefreshInputs()
+        reconcileDashboardCacheScope()
+        return BodyCompanionPublishInput.Shared(
             trends: healthTrends,
             summary: healthSummary,
             temperatureUnitPreference: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference(),
@@ -7193,11 +7368,12 @@ final class HealthKitWorkoutStore {
         // history walk first, so a chunk scored under the OLD inputs can't land
         // on top of the freshly dropped records.
         await cancelStressBackfill()
-        // Runs without `isRefreshing` (from a permission toggle), so a Clear
-        // Cache can land during the sidecar load / off-actor filter below.
+        // The permission transaction owns the refresh slot through filtering
+        // and persistence. Keep the epoch fence as well as input admission.
         let epoch = cacheEpoch
         await hydratePersistedDaySamplesIfNeeded()
         guard mayApplyRefreshInputs(inputs) else { return }
+        let scope = currentDashboardCacheScope()
         let rawSnapshot = HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
@@ -7215,10 +7391,11 @@ final class HealthKitWorkoutStore {
             )
         }.value
 
+        await beforePermissionSnapshotCommit?()
         // A cache clear landed mid-filter — don't republish/persist the filtered
         // snapshot onto the wiped state.
         guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
-              mayApplyRefreshInputs(inputs) else {
+              mayApplyRefreshInputs(inputs), scope == currentDashboardCacheScope() else {
             return
         }
 
@@ -7233,7 +7410,7 @@ final class HealthKitWorkoutStore {
         // days it invalidates must drop now rather than at the next refresh.
         await recomputeStress(on: Date(), calendar: .bodyGregorian)
         await recomputeBodyRadar(on: Date(), calendar: .bodyGregorian)
-        guard mayApplyRefreshInputs(inputs) else { return }
+        guard mayApplyRefreshInputs(inputs), scope == currentDashboardCacheScope() else { return }
 
         if !permissionSelection.includes(.workouts) {
             clearWorkoutSnapshots()
@@ -7268,11 +7445,16 @@ final class HealthKitWorkoutStore {
             HealthDashboardSnapshotStore.saveActivityRingBackfillState(.pending(resumeFrom: nil))
         }
 
+        let snapshotToSave = HealthDashboardSnapshot(
+            summary: healthSummary, trends: healthTrends, activityRingHistory: activityRingHistory
+        )
         let daySampleSignatures = currentDaySampleSignatures()
         let summaryContextSignature = healthSummaryPrimarySignature
+        let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
+            guard token.isValid else { return }
             HealthDashboardSnapshotStore.save(
-                filteredSnapshot,
+                snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
                 summaryContextSignature: summaryContextSignature
             )
@@ -7549,8 +7731,17 @@ final class HealthKitWorkoutStore {
     private func fetchHealthDataSourceOptions(calendar: Calendar) async {
         let signpostState = BodyPerformanceSignposts.signposter.beginInterval("SourceOptions")
         defer { BodyPerformanceSignposts.signposter.endInterval("SourceOptions", signpostState) }
-
-        if let nextOptionsByKind = await engine.fetchHealthDataSourceOptions(calendar: calendar) {
+        let inputs = captureRefreshInputs()
+        let nextOptionsByKind = await engine.fetchHealthDataSourceOptions(calendar: calendar)
+        let revision = await engine.queryContextRevision
+        let identities = await engine.cacheSourceIdentities()
+        let expected = await engine.watchComputeExpectedSourceIDs()
+        let individual = await engine.discoveredIndividualHealthSources()
+        let custom = await engine.customHealthSourceIDsWithData()
+        guard await engine.queryContextRevision == revision, mayApplyRefreshInputs(inputs) else { return }
+        cacheSourceIdentities = identities
+        reconcileDashboardCacheScope()
+        if let nextOptionsByKind {
             // Per-kind merge: the engine returns only successfully discovered
             // kinds, so a kind whose source query failed keeps its previously
             // published options instead of being cleared.
@@ -7561,7 +7752,7 @@ final class HealthKitWorkoutStore {
             // seed this coverage guards can be published before discovery has
             // run in the new session.
             cachedExpectedSourceIDsByKind.merge(
-                await engine.watchComputeExpectedSourceIDs()
+                expected
             ) { _, next in next }
             HealthDashboardSnapshotStore.saveWatchExpectedSourceIDs(cachedExpectedSourceIDsByKind)
         }
@@ -7570,8 +7761,8 @@ final class HealthKitWorkoutStore {
         // signature is latched, and both of these must still populate on that
         // path — the membership pool for the editor, and the per-kind custom
         // bucket map the synchronous resolved-option accessors read.
-        discoveredIndividualHealthSources = await engine.discoveredIndividualHealthSources()
-        customSourceIDsWithDataByKind = await engine.customHealthSourceIDsWithData()
+        discoveredIndividualHealthSources = individual
+        customSourceIDsWithDataByKind = custom
     }
 
 

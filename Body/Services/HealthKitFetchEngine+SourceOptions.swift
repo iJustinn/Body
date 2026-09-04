@@ -77,6 +77,7 @@ extension HealthKitFetchEngine {
     }
 
     func fetchHealthDataSourceOptions(calendar: Calendar) async -> [HealthMetricKind: [BodyHealthDataSourceOption]]? {
+        let contextRevision = queryContextRevision
         let permissionRawValue = permissionSelection.rawValue
         if fetchedHealthDataSourcePermissionRawValue == permissionRawValue,
            !healthSourcesByKind.isEmpty {
@@ -105,6 +106,10 @@ extension HealthKitFetchEngine {
             }
             return collected
         }
+
+        // A settings edit can reenter this actor while source queries suspend.
+        // Never install buckets grouped for the retired configuration.
+        guard queryContextRevision == contextRevision else { return nil }
 
         // Merge only successfully discovered kinds: a failed kind keeps its
         // prior source map (so a resolvable selection stays resolvable) and is
@@ -135,6 +140,25 @@ extension HealthKitFetchEngine {
             fetchedHealthDataSourcePermissionRawValue = permissionRawValue
         }
         return nextOptionsByKind
+    }
+
+    /// Identity-only provenance for cache admission, not another source picker
+    /// cache. Missing kinds mean unresolved discovery; an empty known bucket
+    /// is authoritative. Names are used only through the shared identity rule.
+    func cacheSourceIdentities() -> [HealthMetricKind: [String: [String]]] {
+        healthSourcesByKind.mapValues { bucket in
+            var identities = bucket.mapValues { sources in
+                Array(Set(sources.map {
+                    BodyHealthDataSourceOption.individualSourceIdentityKey(
+                        bundleIdentifier: $0.bundleIdentifier,
+                        name: BodyHealthSourceResolver.identityName(for: $0)
+                    )
+                })).sorted()
+            }
+            identities[BodyHealthDataSourceOption.allSources.id] = Array(Set(identities.values.flatMap { $0 })).sorted()
+            identities[BodyHealthDataSourceOption.noComparison.id] = []
+            return identities
+        }
     }
 
     /// Discovers sources for just `kinds` and merges them into the memoized map

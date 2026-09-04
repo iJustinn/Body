@@ -1044,7 +1044,7 @@ final class SourceGuardTests: XCTestCase {
 
     func testHealthDashboardUpdatesRecalculateReadinessBeforeSaving() throws {
         let source = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
-        let updateStart = try XCTUnwrap(source.range(of: "private func updateHealthDashboardSnapshot(")?.lowerBound)
+        let updateStart = try XCTUnwrap(source.range(of: "func updateHealthDashboardSnapshot(")?.lowerBound)
         let saveStart = try XCTUnwrap(
             source.range(of: "HealthDashboardSnapshotStore.save(", range: updateStart..<source.endIndex)?.lowerBound
         )
@@ -2179,9 +2179,13 @@ final class SourceGuardTests: XCTestCase {
         // authorization step and the deadline wrapper, so slicing from there
         // measured past these lines instead of guarding them.
         let start = try XCTUnwrap(storeSource.range(of: "func performHealthMetricRefresh(")?.lowerBound)
-        let block = String(storeSource[start...].prefix(3_000))
+        let end = try XCTUnwrap(storeSource.range(of: "let nextTrends =", range: start..<storeSource.endIndex)?.lowerBound)
+        let block = String(storeSource[start..<end])
 
         XCTAssertTrue(block.contains("let capturedDaySampleSignatures = currentDaySampleSignatures()"))
+        XCTAssertTrue(block.contains("await engine.queryContextRevision == queryRevision"))
+        XCTAssertTrue(block.contains("queryScope == currentDashboardCacheScope()"))
+        XCTAssertTrue(block.contains("mayApplyRefreshInputs(inputs)"))
         XCTAssertTrue(block.contains("currentDaySampleSignatures() == capturedDaySampleSignatures"))
         XCTAssertTrue(block.contains("strippingDaySamples()"))
     }
@@ -2219,8 +2223,8 @@ final class SourceGuardTests: XCTestCase {
     /// The entitlement handler's invalidation has to reach the memoized sidecar
     /// load, not just `healthTrends` and the file — otherwise the corrective refresh
     /// it kicks off re-merges the pre-flip comparison samples from the memo and
-    /// re-persists them. Order matters: hydrate (populate the memo + restore the
-    /// primary scope), clear, strip the memo, then persist.
+    /// re-persists them. Input capture synchronously scopes the live cache;
+    /// hydrate and strip the memo before persisting the context change.
 
     func testProEntitlementChangeInvalidatesMemoizedComparisonDaySamples() throws {
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
@@ -2228,12 +2232,12 @@ final class SourceGuardTests: XCTestCase {
         let block = String(storeSource[start...].prefix(2_000))
 
         let hydrate = try XCTUnwrap(block.range(of: "await self.hydratePersistedDaySamplesIfNeeded()")?.lowerBound)
-        let clear = try XCTUnwrap(block.range(of: "clearingSecondarySeries()")?.lowerBound)
+        let capture = try XCTUnwrap(block.range(of: "self.captureRefreshInputs()")?.lowerBound)
         let invalidate = try XCTUnwrap(block.range(of: "await self.invalidateMemoizedComparisonDaySamples()")?.lowerBound)
-        let persist = try XCTUnwrap(block.range(of: "self.persistDaySampleSidecar()")?.lowerBound)
+        let persist = try XCTUnwrap(block.range(of: "self.persistContextChange()")?.lowerBound)
 
-        XCTAssertLessThan(hydrate, clear)
-        XCTAssertLessThan(clear, invalidate)
+        XCTAssertLessThan(capture, hydrate)
+        XCTAssertLessThan(hydrate, invalidate)
         XCTAssertLessThan(invalidate, persist)
         // Re-point the memo, never nil it: a nil forces a re-read that can beat the
         // asynchronous sidecar write above and restore what was just cleared.
@@ -2627,17 +2631,17 @@ final class SourceGuardTests: XCTestCase {
     func testFullRefreshRecomputesStressOnceAndWritesOnce() throws {
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
         let refreshStart = try XCTUnwrap(
-            storeSource.range(of: "private func refreshRecentMonths(")?.lowerBound
+            storeSource.range(of: "func refreshRecentMonths(")?.lowerBound
         )
         let refreshEnd = try XCTUnwrap(
             storeSource.range(
-                of: "    private func refresh(\n        month: Int,",
+                of: "    func refresh(\n        month: Int,",
                 range: refreshStart..<storeSource.endIndex
             )?.lowerBound
         )
         let refreshBlock = String(storeSource[refreshStart..<refreshEnd])
         let updateStart = try XCTUnwrap(
-            storeSource.range(of: "private func updateHealthDashboardSnapshot(")?.lowerBound
+            storeSource.range(of: "func updateHealthDashboardSnapshot(")?.lowerBound
         )
         let updateBlock = String(storeSource[updateStart...].prefix(3_000))
 
@@ -2666,17 +2670,17 @@ final class SourceGuardTests: XCTestCase {
     func testFullRefreshRecomputesBodyRadarOnceAndCarriesItForward() throws {
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
         let refreshStart = try XCTUnwrap(
-            storeSource.range(of: "private func refreshRecentMonths(")?.lowerBound
+            storeSource.range(of: "func refreshRecentMonths(")?.lowerBound
         )
         let refreshEnd = try XCTUnwrap(
             storeSource.range(
-                of: "    private func refresh(\n        month: Int,",
+                of: "    func refresh(\n        month: Int,",
                 range: refreshStart..<storeSource.endIndex
             )?.lowerBound
         )
         let refreshBlock = String(storeSource[refreshStart..<refreshEnd])
         let updateStart = try XCTUnwrap(
-            storeSource.range(of: "private func updateHealthDashboardSnapshot(")?.lowerBound
+            storeSource.range(of: "func updateHealthDashboardSnapshot(")?.lowerBound
         )
         let updateBlock = String(storeSource[updateStart...].prefix(3_000))
 
@@ -3193,7 +3197,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.0 (build 7)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.0 (build 8)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 4)**"))
@@ -4001,11 +4006,10 @@ final class SourceGuardTests: XCTestCase {
         // `persistDaySampleSidecar()` is what makes the day-sample sidecar durable —
         // including the lazily fetched intraday merge that lets the metric detail
         // Day View render cached data instantly on the next launch. Guard the call
-        // count so a future refactor can't silently drop that persistence. The
-        // three deliberate full-strip sites call `truncatePersistedDaySamples()`
-        // instead (H-17: a save of an all-empty payload now merges into a
-        // populated sidecar rather than truncating it, so truncation there is
-        // explicit), which is why the count is lower than the pre-Phase-3 11.
+        // count so a future refactor can't silently drop that persistence.
+        // Source-setting edits share `persistContextChange()`, which saves
+        // compatible series and their per-metric scope instead of truncating
+        // the entire sidecar. Lazy loads still persist their own merges.
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
 
         XCTAssertGreaterThanOrEqual(storeSource.occurrenceCount(of: "persistDaySampleSidecar()"), 6)
