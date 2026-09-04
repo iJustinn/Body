@@ -1192,7 +1192,11 @@ struct BodyHomeView: View {
             value: Self.bodyRadarCardValue(for: summary),
             unit: "",
             symbolName: BodyHomeCardKind.bodyRadar.iconName,
-            symbolColor: BodyHomeCardKind.bodyRadar.tintColor,
+            // White rather than the card kind's gray: the dotted-person glyph reads
+            // as washed out at this size in the kind's own tint. The dots preview
+            // takes its color from each ring's own band, so this only moves the icon
+            // and the tile behind it.
+            symbolColor: .white,
             chartPreviewStyle: .dots,
             previewDotEntries: Self.bodyRadarDotEntries(for: summary),
             // Same three slots as Vitals, read top to bottom as Major / Minor /
