@@ -3873,6 +3873,7 @@ private struct BodyMetricWarningsSettingsSheet: View {
     let workoutStore: HealthKitWorkoutStore
 
     @AppStorage(BodyAppearancePreference.metricWarningNotificationsKey) private var metricWarningNotificationsEnabled = false
+    @AppStorage(BodyAppearancePreference.metricWarningsOnReadinessHeroKey) private var showsWarningsOnReadinessHero = true
 
     /// Needed for the high heart rate default, which tracks zone 3's lower bound.
     @State private var resolvedMaxHeartRate: Double?
@@ -3913,6 +3914,9 @@ private struct BodyMetricWarningsSettingsSheet: View {
                         .padding(.horizontal, 4)
                 }
 
+                BodyMetricWarningReadinessHeroRow(isEnabled: $showsWarningsOnReadinessHero)
+                    .bodyCardBackground(translucent: true)
+
                 ForEach(MetricWarningKind.allCases) { kind in
                     VStack(spacing: 0) {
                         BodyMetricWarningToggleRow(
@@ -3943,7 +3947,7 @@ private struct BodyMetricWarningsSettingsSheet: View {
                     .bodyCardBackground(translucent: true)
                 }
 
-                Text("Warnings appear on the Home card and the metric's detail page.")
+                Text("Warnings appear on the Home card, the readiness score, and the metric's detail page.")
                     .font(.system(.footnote, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -4019,6 +4023,46 @@ private struct BodyMetricWarningNotificationsRow: View {
             Spacer(minLength: 12)
 
             Toggle("Notify Me", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+/// Toggles the warning badges that sit next to the readiness level on the
+/// Home readiness hero. Off leaves the Home card and detail page warnings
+/// untouched, it only hides the badges on the hero.
+private struct BodyMetricWarningReadinessHeroRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: "bolt.heart.fill", color: .yellow)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Show on Readiness")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Add warning signs next to the readiness level")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Show on Readiness", isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")

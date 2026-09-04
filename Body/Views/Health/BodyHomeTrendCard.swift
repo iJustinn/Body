@@ -62,8 +62,16 @@ struct BodyHomeTrendCard: View {
         let symbolName: String
         let symbolColor: Color
 
+        /// Namespaces the trend card's identity away from the grid card of the same
+        /// metric. Both live in Home's single ScrollView, and `BodyHomeCardKind` and
+        /// `HealthMetricKind` share raw values ("heartRate", "oxygenSaturation"), so
+        /// an un-prefixed id made `scrollTo` ambiguous: a readiness-hero warning
+        /// badge could scroll to the trend card at the bottom of the page while the
+        /// glow lit the grid card off-screen above it.
+        static let scrollIDPrefix = "trend-"
+
         var id: String {
-            presentation.id
+            Self.scrollIDPrefix + presentation.id
         }
     }
 

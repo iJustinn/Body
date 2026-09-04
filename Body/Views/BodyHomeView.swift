@@ -260,6 +260,37 @@ private final class BodyHomeScrollState {
     var offset: CGFloat = 0
 }
 
+/// The card a readiness-hero warning badge last pointed at, glowing for a moment so
+/// the scroll lands somewhere obvious. Its own `@Observable` for the same reason the
+/// scroll offset is: only the grid's glow overlay reads it.
+@Observable
+private final class BodyHomeCardHighlightState {
+    var card: BodyHomeCardKind?
+}
+
+/// The ring a card wears for a moment after a readiness-hero warning badge scrolled to
+/// it. Reads the highlight state itself so only this small overlay re-renders when the
+/// glow moves, not the grid that hosts it.
+private struct BodyHomeCardHighlightGlow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let card: BodyHomeCardKind
+    let highlightState: BodyHomeCardHighlightState
+    let tint: Color
+
+    private var isHighlighted: Bool {
+        highlightState.card == card
+    }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+            .strokeBorder(tint.opacity(isHighlighted ? 0.9 : 0), lineWidth: 2)
+            .shadow(color: tint.opacity(isHighlighted ? 0.7 : 0), radius: 12)
+            .allowsHitTesting(false)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: isHighlighted)
+    }
+}
+
 /// Applies the readiness hero's scroll fade and pin. It reads `scrollState.offset`, so this
 /// small view re-renders as the page scrolls while `BodyHomeView`'s body does not.
 private struct BodyReadinessHeroScrollFade<Content: View>: View {
@@ -327,6 +358,8 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.metricWarningsOnReadinessHeroKey) private var showsWarningsOnReadinessHero = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.summaryReselectCount) private var summaryReselectCount
     @Environment(\.scenePhase) private var scenePhase
@@ -338,6 +371,13 @@ struct BodyHomeView: View {
     // hero fade wrapper that reads it — not this whole body. (The metric-card models are
     // additionally memoized in BodyHomeTrendComputationCache, keyed on their full input set.)
     @State private var scrollState = BodyHomeScrollState()
+    // Which card a readiness-hero warning badge just scrolled to, held in its own
+    // @Observable for the same reason as the scroll offset: setting it on this view
+    // would rebuild every metric card model twice per tap.
+    @State private var cardHighlightState = BodyHomeCardHighlightState()
+    /// Clears the glow after its moment. Held so a second badge tap replaces the
+    /// first one's countdown instead of racing it.
+    @State private var cardHighlightTask: Task<Void, Never>?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     /// Shared namespace for the card → detail zoom transition (matchedTransitionSource +
     /// `.navigationTransition(.zoom)`). Threaded into `BodyHomeTrendsSection` for trends.
@@ -398,55 +438,57 @@ struct BodyHomeView: View {
                 BodyHomeBackgroundScrollDim(scrollState: scrollState)
                     .ignoresSafeArea()
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 14) {
-                        if let healthDataNotice = workoutStore.healthDataNotice {
-                            BodyHealthNoticeBanner(message: healthDataNotice)
-                        }
-
-                        starMetricHero
-
-                        if horizontalSizeClass == .regular {
-                            HStack(alignment: .top, spacing: 14) {
-                                metricCardsGrid(lookup: metricCardLookup)
-                                    .frame(maxWidth: .infinity, alignment: .top)
-
-                                if !trendCards.visible.isEmpty {
-                                    homeTrendsContent(trendCards)
-                                        .frame(maxWidth: .infinity, alignment: .top)
-                                }
+                ScrollViewReader { scrollProxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 14) {
+                            if let healthDataNotice = workoutStore.healthDataNotice {
+                                BodyHealthNoticeBanner(message: healthDataNotice)
                             }
-                        } else {
-                            metricCardsGrid(lookup: metricCardLookup)
 
-                            homeTrendsSection(trendCards)
+                            starMetricHero(proxy: scrollProxy, lookup: metricCardLookup)
+
+                            if horizontalSizeClass == .regular {
+                                HStack(alignment: .top, spacing: 14) {
+                                    metricCardsGrid(lookup: metricCardLookup)
+                                        .frame(maxWidth: .infinity, alignment: .top)
+
+                                    if !trendCards.visible.isEmpty {
+                                        homeTrendsContent(trendCards)
+                                            .frame(maxWidth: .infinity, alignment: .top)
+                                    }
+                                }
+                            } else {
+                                metricCardsGrid(lookup: metricCardLookup)
+
+                                homeTrendsSection(trendCards)
+                            }
                         }
+                        .padding(.horizontal)
+                        .padding(.top, 10)
+                        .padding(.bottom, 110)
+                        .readableContentColumn(maxWidth: AppLayout.homeContentWidth)
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            // Rounded up to the next 8 pt: the preview sizing reads
+                            // thresholds, so a sub-point difference must not churn
+                            // the memoized card models.
+                            (proxy.size.width / 8).rounded(.up) * 8
+                        } action: { width in
+                            homeContentWidth = width
+                        }
+                        // Pin the content to the page width: a vertical ScrollView becomes
+                        // horizontally pannable as soon as its content reports even a fraction
+                        // of a point wider than the viewport, which let the whole page drift
+                        // sideways under a diagonal drag.
+                        .frame(width: page.size.width)
                     }
-                    .padding(.horizontal)
-                    .padding(.top, 10)
-                    .padding(.bottom, 110)
-                    .readableContentColumn(maxWidth: AppLayout.homeContentWidth)
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        // Rounded up to the next 8 pt: the preview sizing reads
-                        // thresholds, so a sub-point difference must not churn
-                        // the memoized card models.
-                        (proxy.size.width / 8).rounded(.up) * 8
-                    } action: { width in
-                        homeContentWidth = width
+                    .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+                        Task { await workoutStore.requestAuthorizationAndRefresh() }
                     }
-                    // Pin the content to the page width: a vertical ScrollView becomes
-                    // horizontally pannable as soon as its content reports even a fraction
-                    // of a point wider than the viewport, which let the whole page drift
-                    // sideways under a diagonal drag.
-                    .frame(width: page.size.width)
-                }
-                .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
-                    Task { await workoutStore.requestAuthorizationAndRefresh() }
-                }
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    geometry.contentOffset.y + geometry.contentInsets.top
-                } action: { _, offset in
-                    scrollState.offset = max(0, offset)
+                    .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                        geometry.contentOffset.y + geometry.contentInsets.top
+                    } action: { _, offset in
+                        scrollState.offset = max(0, offset)
+                    }
                 }
             }
             .frame(width: page.size.width, height: page.size.height)
@@ -583,10 +625,18 @@ struct BodyHomeView: View {
     /// The home-page star hero promoted above the grid. Readiness shows its score text
     /// here, over the full-bleed color backdrop supplied by `homeBackground` (which
     /// bleeds behind the status bar). Readiness is the only star-eligible metric.
+    ///
+    /// Takes the card lookup rather than reading `metricCardsByKind` itself: that
+    /// property snapshots the whole summary and trend store to key its memo, and
+    /// `body` has already paid for it once this pass.
     @ViewBuilder
-    private var starMetricHero: some View {
+    private func starMetricHero(
+        proxy: ScrollViewProxy,
+        lookup: [HealthMetricKind: BodyHealthMetricCard.Model]
+    ) -> some View {
         switch starredHomeCard {
         case .readiness:
+            let badges = heroWarningBadges(lookup: lookup)
             // The scroll fade/pin lives in the wrapper (which reads scrollState.offset) so
             // scrolling re-renders only it, not this body. Reading the offset here would
             // rebuild every metric card model on each scroll frame.
@@ -600,13 +650,78 @@ struct BodyHomeView: View {
                         readiness: workoutStore.healthSummary.readiness,
                         morningScore: todaysMorningReadiness,
                         aiComment: heroAIComment,
-                        onRegenerateAIComment: regenerateReadinessComment
+                        onRegenerateAIComment: regenerateReadinessComment,
+                        warningBadges: badges
                     )
                 }
                 .buttonStyle(.plain)
+                // The badges draw inside the button's label — the only place they stay
+                // aligned with the headline — but a nested button there never gets the
+                // tap and a SwiftUI gesture fights this button (the reason the comment's
+                // press-and-hold is a UIKit recognizer). So the tap targets are real
+                // buttons laid over the glyphs from out here, where hit testing, the
+                // button trait and VoiceOver all work normally. They sit inside the
+                // fade wrapper, so they go inert with the hero as the page scrolls.
+                .overlayPreferenceValue(BodyReadinessHeroBadgeAnchorKey.self) { anchors in
+                    GeometryReader { geometry in
+                        ForEach(badges) { badge in
+                            if let anchor = anchors[badge.id] {
+                                let frame = geometry[anchor]
+                                Button {
+                                    revealHomeCard(badge.card, proxy: proxy)
+                                } label: {
+                                    Color.clear.contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(Text(verbatim: badge.accessibilityLabel))
+                                // Full height, glyph width: the row is narrow so the
+                                // headline keeps its space, but a 28 pt-tall target is
+                                // a mean thing to ask a thumb for. Widening it instead
+                                // would overlap the neighbouring badge's target.
+                                .frame(width: frame.width, height: max(frame.height, 44))
+                                .position(x: frame.midX, y: frame.midY)
+                            }
+                        }
+                    }
+                }
             }
         default:
             EmptyView()
+        }
+    }
+
+    /// The warning signs the hero mirrors from the grid. Reads the visible card order so
+    /// a card the user turned off contributes nothing, and there is nowhere for a badge
+    /// to point that isn't on screen.
+    private func heroWarningBadges(
+        lookup: [HealthMetricKind: BodyHealthMetricCard.Model]
+    ) -> [BodyReadinessHeroWarningBadge] {
+        guard showsWarningsOnReadinessHero else {
+            return []
+        }
+
+        return BodyReadinessHeroWarningBadge.badges(visibleCards: visibleHomeCards, lookup: lookup)
+    }
+
+    /// Scrolls the grid to a card and glows it for a moment, so a badge tap lands
+    /// somewhere the eye can find.
+    private func revealHomeCard(_ card: BodyHomeCardKind, proxy: ScrollViewProxy) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.45)) {
+            // `BodyHomeCardKind.id` is its raw value, which is what the grid's
+            // ForEach publishes — an explicit `.id()` on the card would give it a
+            // second identity and is exactly what the flat-ForEach drag reorder
+            // cannot survive.
+            proxy.scrollTo(card.id, anchor: .center)
+        }
+
+        // Set plainly: the glow scopes its own fade, so an animation here would only
+        // give the change a second, competing curve.
+        cardHighlightTask?.cancel()
+        cardHighlightState.card = card
+        cardHighlightTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.4))
+            guard !Task.isCancelled else { return }
+            cardHighlightState.card = nil
         }
     }
 
@@ -1454,6 +1569,19 @@ struct BodyHomeView: View {
             }
             .accessibilityAction(named: "Move later") {
                 moveHomeCard(card, offset: 1)
+            }
+            // Outermost, after the drop: applied any earlier and the glow (and its
+            // shadow) would be baked into UIKit's drag preview snapshot. The cost is
+            // that it sits outside `matchedTransitionSource`, so tapping a glowing
+            // card drops the glow as the zoom starts.
+            .overlay {
+                // The card's own accent, so the glow reads as that card lighting up
+                // rather than a generic selection ring.
+                BodyHomeCardHighlightGlow(
+                    card: card,
+                    highlightState: cardHighlightState,
+                    tint: card.tintColor
+                )
             }
     }
 

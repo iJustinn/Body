@@ -1208,6 +1208,21 @@ final class SourceGuardTests: XCTestCase {
         let cardSource = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricCard.swift")
         XCTAssertTrue(cardSource.contains("warningSymbolName"))
 
+        // The hero mirrors the cards' badges rather than re-deriving them, and its tap
+        // targets are laid over the glyphs from outside the hero's button: a nested
+        // button in that label never gets the tap.
+        XCTAssertTrue(homeSource.contains("BodyReadinessHeroWarningBadge.badges(visibleCards: visibleHomeCards, lookup: lookup)"))
+        XCTAssertTrue(homeSource.contains(".overlayPreferenceValue(BodyReadinessHeroBadgeAnchorKey.self)"))
+        // The grid card's scroll anchor is the ForEach's own id. An explicit `.id(card)`
+        // would give the card a second identity, which the flat-ForEach drag reorder
+        // cannot survive.
+        XCTAssertTrue(homeSource.contains("proxy.scrollTo(card.id, anchor: .center)"))
+        XCTAssertFalse(homeSource.contains(".id(card)"))
+
+        let heroSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyReadinessStarHero.swift")
+        XCTAssertTrue(heroSource.contains("struct BodyReadinessHeroWarningBadge"))
+        XCTAssertTrue(heroSource.contains(".anchorPreference(key: BodyReadinessHeroBadgeAnchorKey.self, value: .bounds)"))
+
         let detailSource = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
         let cardsStart = try XCTUnwrap(detailSource.range(of: "private var metricDetailCards: some View")?.lowerBound)
         let cardsEnd = try XCTUnwrap(

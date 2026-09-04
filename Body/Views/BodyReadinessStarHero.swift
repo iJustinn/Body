@@ -19,6 +19,66 @@ enum BodyReadinessHeroMetrics {
     static let numberRowFromTop: CGFloat = 190
 }
 
+/// One warning sign mirrored onto the readiness hero from the Home card that is
+/// already showing it. Built from the finished card models rather than from the
+/// warning events, so the hero can never draw a glyph or a tint the card itself
+/// isn't drawing.
+struct BodyReadinessHeroWarningBadge: Identifiable, Equatable {
+    let card: BodyHomeCardKind
+    let symbolName: String
+    let color: Color
+    /// Spoken by the badge's button. Body Radar names its verdict; the heart
+    /// cards fall back to their own localized title.
+    let accessibilityLabel: String
+
+    var id: String {
+        card.rawValue
+    }
+
+    /// The badges for the cards currently in the Home grid that are showing a
+    /// warning glyph, in the order the grid lays them out. `visibleCards` is the
+    /// grid's own order, so a card the user turned off contributes nothing and
+    /// there is nowhere for a badge to point that isn't on screen.
+    ///
+    /// Only three cards can ever set `warningSymbolName`, so the row is capped by
+    /// construction rather than by a `prefix` here.
+    static func badges(
+        visibleCards: [BodyHomeCardKind],
+        lookup: [HealthMetricKind: BodyHealthMetricCard.Model]
+    ) -> [BodyReadinessHeroWarningBadge] {
+        visibleCards.compactMap { card in
+            guard let metricKind = card.healthMetricKind,
+                  let model = lookup[metricKind],
+                  let symbolName = model.warningSymbolName else {
+                return nil
+            }
+
+            return BodyReadinessHeroWarningBadge(
+                card: card,
+                symbolName: symbolName,
+                color: model.warningColor,
+                // `title` is a raw catalog key the card localizes at render time,
+                // so it has to be resolved here rather than spoken as written.
+                accessibilityLabel: model.warningAccessibilityLabel
+                    ?? String(localized: String.LocalizationValue(model.title))
+            )
+        }
+    }
+}
+
+/// Reports each hero badge glyph's bounds so the tap targets can be laid over
+/// them from outside the hero's own button. The glyphs sit inside that button's
+/// label, where a nested button never receives a tap and a SwiftUI gesture
+/// fights the button (see `BodyReadinessCommentRegenerateGesture`), so the row
+/// draws here and `BodyHomeView` overlays real buttons on top.
+struct BodyReadinessHeroBadgeAnchorKey: PreferenceKey {
+    static let defaultValue: [String: Anchor<CGRect>] = [:]
+
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue()) { _, next in next }
+    }
+}
+
 /// Fixed, full-bleed color backdrop for the Readiness star hero. Lives in the home
 /// page's `.ignoresSafeArea()` background so the readiness color reaches the very top
 /// of the screen (behind the status bar) and melts into the page background lower down,
@@ -66,6 +126,11 @@ struct BodyReadinessHeroLabel: View {
     /// Press-and-hold (3 s) on a generated comment asks Apple Intelligence for a
     /// fresh rewrite. Nil disables the hold; the authored line never offers it.
     var onRegenerateAIComment: (() -> Void)? = nil
+
+    /// Warning signs mirrored from the Home cards, drawn beside the readiness
+    /// level. Drawing only: the taps are handled by buttons the host overlays on
+    /// these glyphs, outside the hero's own button. Empty everywhere but Home.
+    var warningBadges: [BodyReadinessHeroWarningBadge] = []
 
     /// Animated score for the big number — counts up from 0 on launch and rolls to each
     /// new value, kept roughly in sync with the backdrop fill's rise.
@@ -196,10 +261,23 @@ struct BodyReadinessHeroLabel: View {
 
     private var statusText: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(headline)
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            // The row is pinned to the full width rather than hugging its
+            // content: the explanation slot below swaps between a one-liner and
+            // a paragraph, and the VStack sizing to its widest child would slide
+            // the badges in and out with it.
+            HStack(alignment: .center, spacing: 8) {
+                Text(headline)
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    // Takes the leftover width itself instead of leaving it to a
+                    // Spacer: given only its ideal width to report, the headline
+                    // truncated rather than scaling when the badges crowded it.
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                warningBadgeRow
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             ZStack(alignment: .topLeading) {
                 explanationText
@@ -220,6 +298,33 @@ struct BodyReadinessHeroLabel: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// The warning signs beside the readiness level, each the same glyph and tint
+    /// its own Home card is showing. Publishes its glyphs' bounds so the host can
+    /// lay tap targets over them; nothing here is interactive.
+    private var warningBadgeRow: some View {
+        HStack(spacing: 0) {
+            ForEach(warningBadges) { badge in
+                Image(systemName: badge.symbolName)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(badge.color)
+                    // A fixed box rather than the glyph's own size, so three badges
+                    // cost a predictable width and the tap targets laid over them
+                    // are all the same. Kept tight: at 34 a three-badge row pushed
+                    // "Moderate Readiness" past its scale floor and truncated it on
+                    // a narrow screen. The host gives the targets their height back.
+                    .frame(width: 28, height: 28)
+                    .anchorPreference(key: BodyReadinessHeroBadgeAnchorKey.self, value: .bounds) {
+                        [badge.id: $0]
+                    }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+            }
+        }
+        // The same fade the card badges use, so a warning arriving mid-refresh
+        // reads as one change in both places.
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: warningBadges)
     }
 
     /// The explanation slot: the Apple Intelligence glyph leads both the placeholder and

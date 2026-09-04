@@ -50,6 +50,7 @@ enum BodyAppearancePreference {
     static let metricWarningsKey = "metricWarnings"
     static let metricWarningThresholdsKey = "metricWarningThresholds"
     static let metricWarningNotificationsKey = "metricWarningNotificationsEnabled"
+    static let metricWarningsOnReadinessHeroKey = "metricWarningsOnReadinessHero"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthPermissionExpandedMigratedKey = "healthPermissionExpandedMigrated"
     static let healthCardioFitnessMigratedKey = "healthCardioFitnessMigrated"

@@ -1432,6 +1432,22 @@
         }
       }
     },
+    "Add warning signs next to the readiness level" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add warning signs next to the readiness level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在恢复状态等级旁添加警告标志"
+          }
+        }
+      }
+    },
     "Adjust Photo" : {
       "localizations" : {
         "en" : {
@@ -12085,6 +12101,22 @@
         }
       }
     },
+    "Show on Readiness" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show on Readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在恢复状态上显示"
+          }
+        }
+      }
+    },
     "Show Separator" : {
       "localizations" : {
         "en" : {
@@ -14368,18 +14400,18 @@
         }
       }
     },
-    "Warnings appear on the Home card and the metric's detail page." : {
+    "Warnings appear on the Home card, the readiness score, and the metric's detail page." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Warnings appear on the Home card and the metric's detail page."
+            "value" : "Warnings appear on the Home card, the readiness score, and the metric's detail page."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "警告会显示在主页卡片和该指标的详情页上。"
+            "value" : "警告会显示在主页卡片、恢复状态评分和该指标的详情页上。"
           }
         }
       }
