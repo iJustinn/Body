@@ -182,7 +182,9 @@ enum VitalsCalculator {
         return assessment(on: todayKey, series: series, calendar: calendar)
     }
 
-    private struct VitalSeries {
+    /// Internal rather than private so `BodyRadarCalculator` can build the same
+    /// per-day series for signals that have no `VitalKind` case.
+    struct VitalSeries {
         var floor: Double
         var valuesByDay: [Date: Double]
         /// Ascending by day, one entry per day, so a night's baseline window is
@@ -290,7 +292,7 @@ enum VitalsCalculator {
     /// one value per day sorted by day: the same window, the same
     /// recent-exclusion rule, the same median and spread, but read as a slice
     /// instead of rescanning every day of history for every night.
-    private static func windowedBaseline(
+    static func windowedBaseline(
         series: VitalSeries,
         scoringDay: Date,
         oldestDay: Date,

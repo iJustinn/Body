@@ -8,6 +8,7 @@ import Foundation
 enum HealthMetricKind: String, CaseIterable, Identifiable {
     case readiness
     case stress
+    case bodyRadar
     case sleep
     case basics
     case heartRate
@@ -43,6 +44,11 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
             return HealthMetricDetailHelpText(
                 title: String(localized: "About Stress", table: "BodyMetricsKit"),
                 body: String(localized: "Stress scores quiet moments through the day by comparing your heart rate and heart rate variability with your own baseline. The variability measure is RMSSD (root mean square of successive differences), computed from the beat to beat heartbeat recordings your Apple Watch saves, with SDNN used as a fallback when those recordings are not available. Your baseline is built from your own history using a robust median and a MAD (median absolute deviation) comparison, so a level reflects how far a moment sits from your normal rather than from anyone else. Movement drives heart rate on its own, so workouts and active stretches are masked out rather than scored, and stretches without enough heart rate data are left blank instead of counted as calm.\nIt is an estimate of physiological arousal, the load your body is under, not a measure of psychological stress, and not a diagnosis. Exercise, caffeine, illness, heat, and excitement can all raise it. It takes about two weeks of data to learn your baseline before any level appears.", table: "BodyMetricsKit")
+            )
+        case .bodyRadar:
+            return HealthMetricDetailHelpText(
+                title: String(localized: "bodyRadar.detail.helpTitle", defaultValue: "About Body Radar", table: "BodyMetricsKit"),
+                body: String(localized: "bodyRadar.detail.help", defaultValue: "Body Radar looks for overnight changes that often come with the early stages of illness. It compares last night's sleeping heart rate, respiratory rate, skin temperature, heart rate variability, and yesterday's inactive time with your own typical range, learned from about eight weeks of your own sleep data. It takes about two weeks of nights to calibrate.\nThe result is scored once each morning and stays fixed for the rest of the day. Levels are absolute, so if your device does not record skin temperature or respiratory rate there are fewer signals to corroborate each other and Major signs are less likely to appear.\nIt is not a medical device and does not diagnose conditions.", table: "BodyMetricsKit")
             )
         case .sleep:
             return HealthMetricDetailHelpText(
@@ -146,6 +152,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
         switch self {
         case .readiness,
              .stress,
+             .bodyRadar,
              .sleep,
              .basics,
              .heartRate,
@@ -233,6 +240,11 @@ struct HealthSummarySnapshot: Codable, Equatable {
     /// an arbitrarily old reading as current until the first recompute. It
     /// repopulates on the next `recalculatingStress`.
     var stressCurrentScore: Int?
+    /// The frozen Body Radar reading for the latest scored night plus the recent
+    /// nights behind the card preview, recomputed from the cached sleep history
+    /// by `HealthDashboardSnapshot.recalculatingBodyRadar`. `nil` until a night
+    /// is scored (or when the Sleep permission is off).
+    var bodyRadar: BodyRadarSummary?
     /// Today's earliest past-threshold episode per warning kind, fetched with the
     /// summary so the home card can flag it without the intraday samples. Kinds
     /// with nothing past their threshold today are simply absent.
@@ -277,6 +289,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         cardioFitnessProfile: CardioFitnessProfile? = nil,
         stress: StressDaySummary? = nil,
         stressCurrentScore: Int? = nil,
+        bodyRadar: BodyRadarSummary? = nil,
         metricWarnings: [MetricWarningEvent] = []
     ) {
         self.activityRings = activityRings
@@ -301,6 +314,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         self.cardioFitnessProfile = cardioFitnessProfile
         self.stress = stress
         self.stressCurrentScore = stressCurrentScore
+        self.bodyRadar = bodyRadar
         self.metricWarnings = metricWarnings
     }
 
@@ -330,7 +344,8 @@ struct HealthSummarySnapshot: Codable, Equatable {
             // demographics, not dashboard data the user can read.
             cardioFitness.value == nil &&
             stress == nil &&
-            stressCurrentScore == nil
+            stressCurrentScore == nil &&
+            bodyRadar == nil
     }
 
     static let empty = HealthSummarySnapshot(
@@ -445,6 +460,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         case cardioFitness
         case cardioFitnessProfile
         case stress
+        case bodyRadar
         case metricWarnings
     }
 
@@ -488,6 +504,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         stress = (try? container.decodeIfPresent(StressDaySummary.self, forKey: .stress))
         // `stressCurrentScore` is transient — see its declaration.
         stressCurrentScore = nil
+        bodyRadar = (try? container.decodeIfPresent(BodyRadarSummary.self, forKey: .bodyRadar))
         if let warnings = (try? container.decodeIfPresent([MetricWarningEvent].self, forKey: .metricWarnings)) {
             metricWarnings = warnings
         } else {
@@ -513,6 +530,9 @@ struct HealthSummarySnapshot: Codable, Equatable {
         }
         if !selection.includes(.sleep) {
             filtered.sleep = HealthSummarySnapshot.empty.sleep
+            // Body Radar scores overnight signals from the sleep history, so it
+            // rides the Sleep toggle the way Stress rides Heart.
+            filtered.bodyRadar = nil
         }
         if !selection.includes(.heart) {
             filtered.heartRate = HealthSummarySnapshot.empty.heartRate
@@ -585,6 +605,8 @@ struct HealthSummarySnapshot: Codable, Equatable {
         case .stress:
             next.stress = refreshed.stress
             next.stressCurrentScore = refreshed.stressCurrentScore
+        case .bodyRadar:
+            next.bodyRadar = refreshed.bodyRadar
         case .sleep:
             next.sleep = refreshed.sleep
         case .basics:
@@ -985,6 +1007,73 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             }
 
         return next
+    }
+
+    /// Recorded Body Radar nights outlive the sleep-history cache, so they are
+    /// kept as long as the recorded stress days.
+    static let bodyRadarRecordedDayRetention = 400
+
+    /// Recomputes Body Radar: the frozen night records (`trends.recordedBodyRadar`)
+    /// and the summary the card and detail page read (`summary.bodyRadar`).
+    ///
+    /// Its own hook rather than a branch of `recalculatingStress`: the two read
+    /// different inputs and ride different permissions (Radar needs Sleep, Stress
+    /// needs Heart). `wakeTime` and `now` are the same pair the readiness morning
+    /// freeze uses, because Radar freezes on the identical rule: today's night is
+    /// scored once, at `wake + 10 min` (or 10:00 local without a wake time), and
+    /// never re-scored for the rest of the day.
+    ///
+    /// `workouts` is passed explicitly, as with `recalculatingStress` — the
+    /// snapshot holds no workout months, and the inactive-time signal is masked
+    /// out on any day that carries one.
+    func recalculatingBodyRadar(
+        on date: Date = Date(),
+        workouts: [WorkoutSummary] = [],
+        calendar: Calendar = .bodyGregorian,
+        now: Date = Date(),
+        wakeTime: Date? = nil,
+        recordedBodyRadarContext: String? = nil
+    ) -> HealthDashboardSnapshot {
+        var next = self
+        let scoreDay = calendar.startOfDay(for: date)
+
+        // Records captured under different inputs (a permission or source
+        // change) no longer describe the same signal, so drop them — the same
+        // rule the readiness morning records and the recorded stress days follow.
+        if let recordedBodyRadarContext, next.trends.recordedBodyRadarContext != recordedBodyRadarContext {
+            next.trends.recordedBodyRadar = []
+            next.trends.recordedBodyRadarContext = recordedBodyRadarContext
+        }
+
+        let result = BodyRadarCalculator.summary(
+            sleepHistory: next.trends.sleepHistory,
+            currentDaySleep: next.summary.sleep,
+            hourlySteps: next.trends.stepsDaySamples.points,
+            workoutDays: Set(workouts.map { calendar.startOfDay(for: $0.startDate) }),
+            recorded: next.trends.recordedBodyRadar,
+            today: scoreDay,
+            now: now,
+            wakeTime: wakeTime,
+            calendar: calendar
+        )
+
+        next.trends.recordedBodyRadar = Self.pruningRecordedBodyRadar(
+            result.recorded,
+            before: scoreDay,
+            calendar: calendar
+        )
+        next.summary.bodyRadar = result.summary == .empty ? nil : result.summary
+        return next
+    }
+
+    /// Recorded nights older than `bodyRadarRecordedDayRetention` dropped, sorted.
+    private static func pruningRecordedBodyRadar(
+        _ nights: [BodyRadarNight],
+        before scoreDay: Date,
+        calendar: Calendar
+    ) -> [BodyRadarNight] {
+        let cutoff = calendar.date(byAdding: .day, value: -bodyRadarRecordedDayRetention, to: scoreDay) ?? scoreDay
+        return nights.filter { $0.date >= cutoff }.sorted { $0.date < $1.date }
     }
 
     /// A reading older than this is history, not "right now": the home card must

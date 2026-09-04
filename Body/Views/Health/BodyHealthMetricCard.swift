@@ -13,6 +13,14 @@ struct BodyHealthMetricCard: View {
             /// 0…1, from `SleepVitalReferenceRange.markerPosition`.
             var position: Double
             var region: SleepVitalRegion
+            /// Ring color when the region's own color does not apply: Body
+            /// Radar reuses the three slots for None / Minor / Major.
+            var tint: Color? = nil
+            /// Wash for the slot the ring sits in, when the verdict colors its
+            /// own band rather than the fixed highlighted one.
+            var bandTint: Color? = nil
+            /// Ring opacity; the "no data" marker is the same ring, faded.
+            var opacity: Double = 1
         }
 
         /// The cardio fitness level the newest reading landed in, for the levels
@@ -38,8 +46,21 @@ struct BodyHealthMetricCard: View {
         let previewCalendarPoints: [HealthTrendCalendarPoint]
         let previewRangeCalendarPoints: [HealthTrendRangeCalendarPoint]
         let previewDotEntries: [DotEntry]
+        /// Which of the three dots-preview slots draws as the colored band.
+        /// Vitals highlights its typical middle band; Body Radar has none and
+        /// lets each ring wash its own slot through `DotEntry.bandTint`.
+        let dotPreviewHighlightedRegion: SleepVitalRegion?
+        /// Whether the three slots always split the height evenly instead of
+        /// growing the occupied ones. Body Radar's bands are fixed thresholds.
+        let dotPreviewEqualRegions: Bool
+        /// Skeleton rings drawn while the dots preview is pending.
+        let dotPreviewPlaceholderCount: Int
         let levelPreviewEntry: LevelEntry?
         let warningSymbolName: String?
+        let warningColor: Color
+        /// Nil keeps the heart-rate wording every badge carried before Body
+        /// Radar borrowed the glyph for its own verdict.
+        let warningAccessibilityLabel: String?
 
         init(
             kind: HealthMetricKind,
@@ -53,8 +74,13 @@ struct BodyHealthMetricCard: View {
             chartPreview: HealthTrendSeries? = nil,
             chartRangePreview: HealthTrendRangeSeries? = nil,
             previewDotEntries: [DotEntry] = [],
+            dotPreviewHighlightedRegion: SleepVitalRegion? = .typical,
+            dotPreviewEqualRegions: Bool = false,
+            dotPreviewPlaceholderCount: Int = VitalKind.allCases.count,
             levelPreviewEntry: LevelEntry? = nil,
             warningSymbolName: String? = nil,
+            warningColor: Color = .yellow,
+            warningAccessibilityLabel: String? = nil,
             previewDayCount: Int = BodyHomeMetricCardPreview.previewDayCount
         ) {
             self.kind = kind
@@ -66,8 +92,13 @@ struct BodyHealthMetricCard: View {
             self.prominentMetrics = prominentMetrics
             self.chartPreviewStyle = chartPreviewStyle
             self.previewDotEntries = previewDotEntries
+            self.dotPreviewHighlightedRegion = dotPreviewHighlightedRegion
+            self.dotPreviewEqualRegions = dotPreviewEqualRegions
+            self.dotPreviewPlaceholderCount = dotPreviewPlaceholderCount
             self.levelPreviewEntry = levelPreviewEntry
             self.warningSymbolName = warningSymbolName
+            self.warningColor = warningColor
+            self.warningAccessibilityLabel = warningAccessibilityLabel
             // Preview points are derived once per model — the preview view
             // used to regroup the full trend series in chained computed
             // properties on every render of every card.
@@ -98,7 +129,7 @@ struct BodyHealthMetricCard: View {
         /// Cards whose headline is a status word rather than a number: Vitals'
         /// "Typical"/"Below Average" and Stress's band word ("Rest"/"Low"/…).
         var usesWordValue: Bool {
-            kind == .vitals || kind == .stress
+            kind == .vitals || kind == .stress || kind == .bodyRadar
         }
     }
 
@@ -228,8 +259,10 @@ struct BodyHealthMetricCard: View {
             if let warningSymbolName = metric.warningSymbolName {
                 Image(systemName: warningSymbolName)
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.yellow)
-                    .accessibilityLabel(Text("Low Heart Rate"))
+                    .foregroundStyle(metric.warningColor)
+                    .accessibilityLabel(
+                        metric.warningAccessibilityLabel.map { Text(verbatim: $0) } ?? Text("Low Heart Rate")
+                    )
                     .transition(.opacity)
             }
         }
@@ -252,6 +285,9 @@ struct BodyHealthMetricCard: View {
                     calendarPoints: metric.previewCalendarPoints,
                     rangeCalendarPoints: metric.previewRangeCalendarPoints,
                     dotEntries: metric.previewDotEntries,
+                    dotHighlightedRegion: metric.dotPreviewHighlightedRegion,
+                    dotEqualRegions: metric.dotPreviewEqualRegions,
+                    dotPlaceholderCount: metric.dotPreviewPlaceholderCount,
                     levelPreviewEntry: metric.levelPreviewEntry,
                     tintColor: metric.symbolColor,
                     style: metric.chartPreviewStyle,
@@ -328,6 +364,9 @@ struct BodyHealthMetricCardTrendPreview: View {
     let calendarPoints: [HealthTrendCalendarPoint]
     let rangeCalendarPoints: [HealthTrendRangeCalendarPoint]
     let dotEntries: [BodyHealthMetricCard.Model.DotEntry]
+    let dotHighlightedRegion: SleepVitalRegion?
+    let dotEqualRegions: Bool
+    let dotPlaceholderCount: Int
     let levelPreviewEntry: BodyHealthMetricCard.Model.LevelEntry?
     let tintColor: Color
     let style: BodyHomeMetricCardPreview.Style
@@ -346,6 +385,9 @@ struct BodyHealthMetricCardTrendPreview: View {
         calendarPoints: [HealthTrendCalendarPoint],
         rangeCalendarPoints: [HealthTrendRangeCalendarPoint] = [],
         dotEntries: [BodyHealthMetricCard.Model.DotEntry] = [],
+        dotHighlightedRegion: SleepVitalRegion? = .typical,
+        dotEqualRegions: Bool = false,
+        dotPlaceholderCount: Int = VitalKind.allCases.count,
         levelPreviewEntry: BodyHealthMetricCard.Model.LevelEntry? = nil,
         tintColor: Color,
         style: BodyHomeMetricCardPreview.Style,
@@ -355,6 +397,9 @@ struct BodyHealthMetricCardTrendPreview: View {
         self.calendarPoints = calendarPoints
         self.rangeCalendarPoints = rangeCalendarPoints
         self.dotEntries = dotEntries
+        self.dotHighlightedRegion = dotHighlightedRegion
+        self.dotEqualRegions = dotEqualRegions
+        self.dotPlaceholderCount = dotPlaceholderCount
         self.levelPreviewEntry = levelPreviewEntry
         self.tintColor = tintColor
         self.style = style
@@ -640,20 +685,28 @@ struct BodyHealthMetricCardTrendPreview: View {
     private struct PreviewDot: Equatable {
         var position: Double
         var region: SleepVitalRegion?
+        var tint: Color? = nil
+        var bandTint: Color? = nil
+        var opacity: Double = 1
     }
-
-    /// One skeleton ring per vital, so the pending card shows the same number of
-    /// rings the assessed one will.
-    private static let placeholderDotCount = VitalKind.allCases.count
 
     private var previewDots: [PreviewDot] {
         switch phase {
         case .data:
-            return dotEntries.map { PreviewDot(position: $0.position, region: $0.region) }
+            return dotEntries.map {
+                PreviewDot(
+                    position: $0.position,
+                    region: $0.region,
+                    tint: $0.tint,
+                    bandTint: $0.bandTint,
+                    opacity: $0.opacity
+                )
+            }
         case .pending:
+            // One skeleton ring per reading the assessed card will show.
             return Array(
                 repeating: PreviewDot(position: 0.5, region: nil),
-                count: Self.placeholderDotCount
+                count: dotPlaceholderCount
             )
         case .unavailable:
             // No rings at all: the skeleton ones promise readings that are
@@ -685,21 +738,22 @@ struct BodyHealthMetricCardTrendPreview: View {
     private var dotsPreview: some View {
         GeometryReader { proxy in
             let dots = previewDots
-            let layout = DotPreviewLayout(size: proxy.size, occupied: occupiedRegions(for: dots))
+            // An empty occupied set is the even three-way split.
+            let layout = DotPreviewLayout(size: proxy.size, occupied: dotEqualRegions ? [] : occupiedRegions(for: dots))
 
             ZStack {
                 RoundedRectangle(cornerRadius: layout.cornerRadius(for: .high), style: .continuous)
-                    .fill(Color.secondary.opacity(isAwaitingDots ? 0.24 : 0.42))
+                    .fill(regionColor(for: .high, dots: dots))
                     .frame(width: proxy.size.width, height: layout.height(for: .high))
                     .position(x: proxy.size.width / 2, y: layout.centerY(for: .high))
 
                 RoundedRectangle(cornerRadius: layout.cornerRadius(for: .typical), style: .continuous)
-                    .fill(bandColor)
+                    .fill(regionColor(for: .typical, dots: dots))
                     .frame(width: proxy.size.width, height: layout.height(for: .typical))
                     .position(x: proxy.size.width / 2, y: layout.centerY(for: .typical))
 
                 RoundedRectangle(cornerRadius: layout.cornerRadius(for: .low), style: .continuous)
-                    .fill(Color.secondary.opacity(isAwaitingDots ? 0.24 : 0.42))
+                    .fill(regionColor(for: .low, dots: dots))
                     .frame(width: proxy.size.width, height: layout.height(for: .low))
                     .position(x: proxy.size.width / 2, y: layout.centerY(for: .low))
 
@@ -710,6 +764,7 @@ struct BodyHealthMetricCardTrendPreview: View {
                             Circle()
                                 .strokeBorder(dotColor(for: dot), lineWidth: layout.dotStroke)
                         )
+                        .opacity(dot.opacity)
                         .frame(width: layout.dotDiameter, height: layout.dotDiameter)
                         .position(
                             x: dotX(at: index, in: proxy.size, count: dots.count),
@@ -883,7 +938,26 @@ struct BodyHealthMetricCardTrendPreview: View {
         isAwaitingDots ? Color.secondary.opacity(0.24) : Color(red: 0.21, green: 0.30, blue: 0.45)
     }
 
+    /// The highlighted slot takes the band color, a slot whose ring carries a
+    /// band tint takes that wash, and the rest stay muted.
+    private func regionColor(for region: SleepVitalRegion, dots: [PreviewDot]) -> Color {
+        if region == dotHighlightedRegion {
+            return bandColor
+        }
+
+        if !isAwaitingDots,
+           let tint = dots.first(where: { $0.region == region })?.bandTint {
+            return tint.opacity(0.38)
+        }
+
+        return Color.secondary.opacity(isAwaitingDots ? 0.24 : 0.42)
+    }
+
     private func dotColor(for dot: PreviewDot) -> Color {
+        if let tint = dot.tint {
+            return tint
+        }
+
         switch dot.region {
         case .typical:
             return BodyVitalsChartStyle.typicalColor

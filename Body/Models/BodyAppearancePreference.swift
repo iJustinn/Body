@@ -58,7 +58,7 @@ extension HealthMetricKind {
 
     var supportedComparisonCharts: Set<SourceComparisonChartKind> {
         switch self {
-        case .readiness, .stress:
+        case .readiness, .stress, .bodyRadar:
             return []
         case .sleep:
             return [.line]
@@ -309,6 +309,11 @@ extension BodyAppearancePreference {
     /// The Stress twin of `homeTrendCardCardioFitnessMigratedKey`.
     static let homeTrendCardStressMigratedKey = "homeTrendCardStressMigrated"
 
+    /// Set once the Body Radar card has been offered to an existing Summary
+    /// Cards layout. The Body Radar twin of `summaryCardStressMigratedKey`,
+    /// keyed independently so it runs once on its own.
+    static let summaryCardBodyRadarMigratedKey = "summaryCardBodyRadarMigrated"
+
     /// The user's on-device display name shown on the Settings profile card.
     static let profileNameKey = "profileName"
 
@@ -419,7 +424,8 @@ struct BodySummaryCardSelection: Equatable {
                 ?? defaultRawValue
         )
         let cardioFitnessMigrated = migratingCardioFitnessIfNeeded(stored, defaults: defaults)
-        return migratingStressIfNeeded(cardioFitnessMigrated, defaults: defaults)
+        let stressMigrated = migratingStressIfNeeded(cardioFitnessMigrated, defaults: defaults)
+        return migratingBodyRadarIfNeeded(stressMigrated, defaults: defaults)
     }
 
     /// One-time migration that shows the Cardio Fitness card to users whose saved
@@ -478,6 +484,31 @@ struct BodySummaryCardSelection: Equatable {
             defaults.set(migrated.rawValue, forKey: BodyAppearancePreference.summaryCardSelectionKey)
         }
         defaults.set(true, forKey: BodyAppearancePreference.summaryCardStressMigratedKey)
+        return migrated
+    }
+
+    /// The Body Radar twin of `migratingStressIfNeeded` above — same one-time,
+    /// idempotent mechanics, its own flag, run independently of the migrations
+    /// that came before it.
+    private static func migratingBodyRadarIfNeeded(
+        _ selection: BodySummaryCardSelection,
+        defaults: UserDefaults
+    ) -> BodySummaryCardSelection {
+        guard !defaults.bool(forKey: BodyAppearancePreference.summaryCardBodyRadarMigratedKey) else {
+            return selection
+        }
+
+        // An empty selection is a deliberate "hide every card" choice, so adding one
+        // back would override it. The flag is still recorded, keeping this one-time.
+        var migrated = selection
+        if !selection.selectedCards.isEmpty {
+            migrated.selectedCards.insert(.bodyRadar)
+        }
+
+        if migrated != selection {
+            defaults.set(migrated.rawValue, forKey: BodyAppearancePreference.summaryCardSelectionKey)
+        }
+        defaults.set(true, forKey: BodyAppearancePreference.summaryCardBodyRadarMigratedKey)
         return migrated
     }
 }
@@ -950,6 +981,14 @@ struct BodyDashboardFetchSelection: Equatable {
         .steps,
         .activeEnergy
     ]
+    /// Body Radar reads the overnight vitals carried on the sleep history plus
+    /// the hourly step buckets its inactive-time signal is masked from. Its own
+    /// set for the same reason the stress one is: the metrics overlap but are
+    /// not the same, and neither should pull the other's data.
+    private static let bodyRadarDependencyKinds: Set<HealthMetricKind> = [
+        .sleep,
+        .steps
+    ]
     private static let vitalsMetricKinds: Set<HealthMetricKind> = [.sleep]
 
     static let defaultValue = BodyDashboardFetchSelection(
@@ -996,13 +1035,18 @@ struct BodyDashboardFetchSelection: Equatable {
             metrics.formUnion(Self.vitalsMetricKinds)
         }
 
-        // Stress expands LAST, and only into what is still missing: a dependency
-        // some other card renders keeps its full payload, while the rest are
-        // input-only. No other expansion can add a meta kind, so closing the
-        // full-payload set first is order-independent.
-        let inputOnlyKinds: Set<HealthMetricKind> = metrics.contains(.stress)
-            ? Self.stressDependencyKinds.subtracting(metrics)
-            : []
+        // The derived metrics expand LAST, and only into what is still missing:
+        // a dependency some other card renders keeps its full payload, while the
+        // rest are input-only. No other expansion can add a meta kind, so closing
+        // the full-payload set first is order-independent.
+        var derivedDependencies: Set<HealthMetricKind> = []
+        if metrics.contains(.stress) {
+            derivedDependencies.formUnion(Self.stressDependencyKinds)
+        }
+        if metrics.contains(.bodyRadar) {
+            derivedDependencies.formUnion(Self.bodyRadarDependencyKinds)
+        }
+        let inputOnlyKinds = derivedDependencies.subtracting(metrics)
 
         fullPayloadKinds = metrics
         metricKinds = metrics.union(inputOnlyKinds)
@@ -1013,7 +1057,7 @@ struct BodyDashboardFetchSelection: Equatable {
     }
 
     /// Whether the layout renders this kind's card payload, as opposed to
-    /// fetching it only to score Stress.
+    /// fetching it only to score a derived metric.
     func includesFullPayload(_ kind: HealthMetricKind) -> Bool {
         fullPayloadKinds.contains(kind)
     }
@@ -1190,6 +1234,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     case activityRings
     case readiness
     case stress
+    case bodyRadar
     case exerciseMinutes
     case trainingLoad
     case wristTemperature
@@ -1216,6 +1261,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         .heartRateVariability,
         .readiness,
         .stress,
+        .bodyRadar,
         .activeEnergy,
         .restingEnergy,
         .restingHeartRate,
@@ -1267,6 +1313,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return .readiness
         case .stress:
             return .stress
+        case .bodyRadar:
+            return .bodyRadar
         case .exerciseMinutes:
             return .exerciseMinutes
         case .trainingLoad:
@@ -1310,6 +1358,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Readiness")
         case .stress:
             return String(localized: "Stress")
+        case .bodyRadar:
+            return String(localized: "Body Radar")
         case .exerciseMinutes:
             return String(localized: "Exercise Minutes")
         case .trainingLoad:
@@ -1353,6 +1403,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return String(localized: "Readiness from sleep, strain, and vitals")
         case .stress:
             return String(localized: "Stress from heart rate and HRV")
+        case .bodyRadar:
+            return String(localized: "Overnight signals that may point to illness")
         case .exerciseMinutes:
             return String(localized: "Daily exercise minute total")
         case .trainingLoad:
@@ -1389,12 +1441,13 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     }
 
     /// Per-kind beta chip label — Readiness keeps the original "v1" chip, Stress
-    /// shows "Beta v1" instead, and every other card carries no chip at all.
+    /// and Body Radar show "Beta v1" instead, and every other card carries no
+    /// chip at all.
     var betaVersionLabel: LocalizedStringKey? {
         switch self {
         case .readiness:
             return "v1"
-        case .stress:
+        case .stress, .bodyRadar:
             return "Beta v1"
         case .vitals,
              .cardioFitness,
@@ -1429,6 +1482,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return "bolt.heart.fill"
         case .stress:
             return "brain.head.profile.fill"
+        case .bodyRadar:
+            return "person.and.background.dotted"
         case .exerciseMinutes:
             return "figure.run"
         case .trainingLoad:
@@ -1471,6 +1526,8 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return Color(red: 0.12, green: 0.68, blue: 0.55)
         case .stress:
             return Color(red: 0.90, green: 0.35, blue: 0.75)
+        case .bodyRadar:
+            return Color(.systemGray2)
         case .exerciseMinutes,
              .trainingLoad,
              .steps,

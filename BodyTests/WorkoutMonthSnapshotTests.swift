@@ -2731,7 +2731,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedDown = BodyHomeCardKind.reordered(order, moving: .sleep, to: .basics)
         XCTAssertEqual(
             Array(movedDown.prefix(9)),
-            [.vitals, .trainingLoad, .basics, .sleep, .heartRate, .heartRateVariability, .readiness, .stress, .activeEnergy]
+            [.vitals, .trainingLoad, .basics, .sleep, .heartRate, .heartRateVariability, .readiness, .stress, .bodyRadar]
         )
         XCTAssertEqual(movedDown.last, .activityRings)
         XCTAssertEqual(Set(movedDown), Set(order))
@@ -2977,6 +2977,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertFalse(BodyHomeCardKind.vitals.isBeta)
         XCTAssertFalse(BodyHomeCardKind.cardioFitness.isBeta)
         XCTAssertTrue(BodyHomeCardKind.readiness.isBeta)
+        XCTAssertTrue(BodyHomeCardKind.bodyRadar.isBeta)
+        XCTAssertEqual(BodyHomeCardKind.bodyRadar.betaVersionLabel, "Beta v1")
         XCTAssertFalse(BodyHomeCardKind.starEligible.contains(.vitals))
     }
 
@@ -3580,6 +3582,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             [
                 .readiness,
                 .stress,
+                .bodyRadar,
                 .sleep,
                 .basics,
                 .heartRate,

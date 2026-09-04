@@ -135,6 +135,18 @@ struct HealthTrendSnapshot: Codable, Equatable {
     /// authoritative (see `recalculatingReadiness`). Persisted with the records,
     /// so a context change is still detected after a failed refresh or relaunch.
     var recordedReadinessContext: String
+    /// Per-night frozen Body Radar records, keyed by `startOfDay` of the wake
+    /// day. Frozen once each morning on the readiness freeze rule and never
+    /// re-scored that day, so the card cannot change its answer under the user
+    /// after a nap or a late sync. Carried forward across refreshes (see
+    /// `HealthKitFetchEngine.fetchHealthTrends`) because Body Radar is derived,
+    /// never fetched, and the records outlive the sleep-history cache.
+    var recordedBodyRadar: [BodyRadarNight]
+    /// Signature of the Body Radar input context under which `recordedBodyRadar`
+    /// was captured. Its own field rather than the readiness or stress one: the
+    /// three metrics read different inputs, so a change to one must not drop the
+    /// others' records (see `recalculatingBodyRadar`).
+    var recordedBodyRadarContext: String
 
     static let empty = HealthTrendSnapshot(
         sleep: .empty,
@@ -191,7 +203,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         stressBackfillScannedThrough: nil,
         stressBackfillComplete: false,
         recordedReadiness: [],
-        recordedReadinessContext: ""
+        recordedReadinessContext: "",
+        recordedBodyRadar: [],
+        recordedBodyRadarContext: ""
     )
 
     var isEmpty: Bool {
@@ -245,7 +259,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
             stepsDaySamples.isEmpty &&
             stepsDaySamplesSecondary.isEmpty &&
             recordedStressDays.isEmpty &&
-            recordedReadiness.isEmpty
+            recordedReadiness.isEmpty &&
+            recordedBodyRadar.isEmpty
     }
 
     init(
@@ -303,7 +318,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         stressBackfillScannedThrough: Date? = nil,
         stressBackfillComplete: Bool = false,
         recordedReadiness: [RecordedReadinessEntry] = [],
-        recordedReadinessContext: String = ""
+        recordedReadinessContext: String = "",
+        recordedBodyRadar: [BodyRadarNight] = [],
+        recordedBodyRadarContext: String = ""
     ) {
         self.sleep = sleep
         self.sleepSecondary = sleepSecondary
@@ -360,6 +377,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.stressBackfillComplete = stressBackfillComplete
         self.recordedReadiness = recordedReadiness
         self.recordedReadinessContext = recordedReadinessContext
+        self.recordedBodyRadar = recordedBodyRadar
+        self.recordedBodyRadarContext = recordedBodyRadarContext
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -418,6 +437,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case stressBackfillComplete
         case recordedReadiness
         case recordedReadinessContext
+        case recordedBodyRadar
+        case recordedBodyRadarContext
     }
 
     /// Decodes tolerantly: a missing series key is treated as an empty series rather than a
@@ -573,6 +594,14 @@ struct HealthTrendSnapshot: Codable, Equatable {
             String.self,
             forKey: .recordedReadinessContext
         ) ?? ""
+        recordedBodyRadar = try container.decodeIfPresent(
+            [BodyRadarNight].self,
+            forKey: .recordedBodyRadar
+        ) ?? []
+        recordedBodyRadarContext = try container.decodeIfPresent(
+            String.self,
+            forKey: .recordedBodyRadarContext
+        ) ?? ""
     }
 
     func series(for kind: HealthMetricKind) -> HealthTrendSeries {
@@ -617,7 +646,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             return steps
         case .cardioFitness:
             return cardioFitness
-        case .vitals:
+        case .vitals, .bodyRadar:
             return .empty
         }
     }
@@ -650,7 +679,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .timeInDaylight,
              .vitals,
              .cardioFitness,
-             .stress:
+             .stress,
+             .bodyRadar:
             return .empty
         }
     }
@@ -682,7 +712,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .timeInDaylight,
              .steps,
              .vitals,
-             .cardioFitness:
+             .cardioFitness,
+             .bodyRadar:
             return .empty
         }
     }
@@ -712,7 +743,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .steps,
              .vitals,
              .cardioFitness,
-             .stress:
+             .stress,
+             .bodyRadar:
             return .empty
         }
     }
@@ -746,7 +778,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .timeInDaylight,
              .vitals,
              .cardioFitness,
-             .stress:
+             .stress,
+             .bodyRadar:
             return .empty
         }
     }
@@ -779,7 +812,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .timeInDaylight,
              .vitals,
              .cardioFitness,
-             .stress:
+             .stress,
+             .bodyRadar:
             return .empty
         }
     }
@@ -795,6 +829,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.stressRanges = refreshed.stressRanges
             next.recordedStressDays = refreshed.recordedStressDays
             next.recordedStressContext = refreshed.recordedStressContext
+        case .bodyRadar:
+            next.recordedBodyRadar = refreshed.recordedBodyRadar
+            next.recordedBodyRadarContext = refreshed.recordedBodyRadarContext
         case .sleep:
             next.sleep = refreshed.sleep
             next.sleepSecondary = refreshed.sleepSecondary
@@ -907,6 +944,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.sleepSecondary = .empty
             filtered.sleepHistory = .empty
             filtered.sleepHistorySecondary = .empty
+            // Body Radar is scored end to end from the overnight signals, so the
+            // frozen nights go with the history they were scored from.
+            filtered.recordedBodyRadar = []
         }
         if !selection.includes(.heart) {
             filtered.heartRate = .empty
@@ -1098,7 +1138,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .timeInDaylight,
              .vitals,
              .cardioFitness,
-             .stress:
+             .stress,
+             .bodyRadar:
             break
         }
         return stripped

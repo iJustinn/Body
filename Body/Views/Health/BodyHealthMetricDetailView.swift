@@ -29,6 +29,9 @@ struct BodyHealthMetricDetailModel {
     /// empty-state split and the time-in-band breakdown both read it directly
     /// rather than re-parsing `value`.
     let stress: StressDaySummary?
+    /// The frozen nights behind the Body Radar page: the band chart and the
+    /// signal rows both read them, so nothing is re-derived from `value`.
+    let bodyRadar: BodyRadarSummary?
     /// Live training-load ratio behind `value`, unformatted — the About your interval
     /// card marks the band it falls in while nothing is scrubbed.
     let trainingLoadValue: Double?
@@ -76,6 +79,7 @@ struct BodyHealthMetricDetailModel {
         secondaryValueFormatter: ((Double) -> String)?,
         readiness: ReadinessSummary? = nil,
         stress: StressDaySummary? = nil,
+        bodyRadar: BodyRadarSummary? = nil,
         trainingLoadValue: Double? = nil,
         cardioFitnessValue: Double? = nil,
         cardioFitnessProfile: CardioFitnessProfile? = nil,
@@ -105,6 +109,7 @@ struct BodyHealthMetricDetailModel {
         self.sleepHistorySecondary = sleepHistorySecondary
         self.readiness = readiness
         self.stress = stress
+        self.bodyRadar = bodyRadar
         self.trainingLoadValue = trainingLoadValue
         self.cardioFitnessValue = cardioFitnessValue
         self.cardioFitnessProfile = cardioFitnessProfile
@@ -733,7 +738,8 @@ struct BodyHealthMetricDetailView: View {
              .wristTemperature,
              .timeInDaylight,
              .cardioFitness,
-             .vitals:
+             .vitals,
+             .bodyRadar:
             return false
         }
     }
@@ -1475,22 +1481,31 @@ struct BodyHealthMetricDetailView: View {
     // at the bottom-left.
     private var metricHero: some View {
         VStack(alignment: .leading, spacing: 14) {
-            BodyHealthTrendRangeSelector(
-                // Bind to the effective (clamped) range, not the raw selection, so a
-                // locked pill can't appear selected while the chart renders Week.
-                selectedRange: Binding(
-                    get: { selectedTrendRange },
-                    set: { selectedTrendRangeSelection = $0 }
-                ),
-                appearance: .onGradient,
-                isProUnlocked: isBodyProUnlocked,
-                onLockedRangeTap: { showBodyProPaywall = true }
-            )
-            .sheet(isPresented: $showBodyProPaywall) {
-                NavigationStack { BodyProView() }
+            // Body Radar only ever holds the last three weeks of frozen nights, so the
+            // range pills would toggle between identical charts.
+            if !isBodyRadarDetail {
+                BodyHealthTrendRangeSelector(
+                    // Bind to the effective (clamped) range, not the raw selection, so a
+                    // locked pill can't appear selected while the chart renders Week.
+                    selectedRange: Binding(
+                        get: { selectedTrendRange },
+                        set: { selectedTrendRangeSelection = $0 }
+                    ),
+                    appearance: .onGradient,
+                    isProUnlocked: isBodyProUnlocked,
+                    onLockedRangeTap: { showBodyProPaywall = true }
+                )
+                .sheet(isPresented: $showBodyProPaywall) {
+                    NavigationStack { BodyProView() }
+                }
             }
 
-            if vitalsNeedsMoreSleepData {
+            if isBodyRadarDetail {
+                BodyRadarChart(
+                    nights: model.bodyRadar?.recentNights ?? [],
+                    floatingCallout: floatingCallout
+                )
+            } else if vitalsNeedsMoreSleepData {
                 // The calibration notice replaces the outlier hero: without a
                 // baseline the typical band and axes would chart nothing real.
                 Text("Vitals needs about two weeks of sleep data to learn your typical ranges.")
@@ -1549,6 +1564,9 @@ struct BodyHealthMetricDetailView: View {
             }
             helpTextCard
             dataSourceFooter
+        } else if isBodyRadarDetail {
+            helpTextCard
+            dataSourceFooter
         } else {
             if isBasicsDetail {
                 basicsRangeCard
@@ -1604,6 +1622,9 @@ struct BodyHealthMetricDetailView: View {
             // The headline follows the chart: it reads the visible range, not the
             // single latest night the home card shows.
             BodyMetricStatusValueText(text: vitalsHeroStatusText, fontSize: 40)
+        } else if isBodyRadarDetail {
+            // A verdict, not a number: the same word treatment Vitals uses.
+            BodyMetricStatusValueText(text: model.value, fontSize: 40)
         } else if !model.value.isEmpty {
             heroBigValue(model.value, unit: model.unit)
         } else if let firstMetric = model.headerMetrics.first {
@@ -1632,7 +1653,21 @@ struct BodyHealthMetricDetailView: View {
     // the hero's value row.
     @ViewBuilder
     private var heroValueTrailing: some View {
-        if model.kind == .basics {
+        if isBodyRadarDetail {
+            // A verdict has no average to show, so the slot names the window the
+            // chart covers instead.
+            Text(
+                String(
+                    localized: "bodyRadar.detail.recentNights",
+                    defaultValue: "Last 21 Nights"
+                )
+            )
+            .font(.system(.subheadline, design: .rounded))
+            .fontWeight(.semibold)
+            .foregroundColor(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+        } else if model.kind == .basics {
             BodyBasicsTrendLegend(
                 weightColor: model.symbolColor,
                 bodyFatColor: basicsBodyFatColor,
@@ -3121,6 +3156,10 @@ struct BodyHealthMetricDetailView: View {
 
     private var isVitalsDetail: Bool {
         model.kind == .vitals
+    }
+
+    private var isBodyRadarDetail: Bool {
+        model.kind == .bodyRadar
     }
 
     /// Every assessable night in the sleep history, graded against each vital's

@@ -37,12 +37,13 @@ final class HealthMetricPresentationTests: XCTestCase {
 
     /// The kinds with no row are the ones no card and no widget presents as a
     /// single value: `.basics` fans out to three measurements, `.vitals` is a
-    /// group of overnight readings, and `.bodyMassIndex` has no card of its own.
-    func testKindsWithoutAPresentationRowAreTheExpectedThree() {
+    /// group of overnight readings, `.bodyMassIndex` has no card of its own, and
+    /// `.bodyRadar` reads as a word state rather than a number.
+    func testKindsWithoutAPresentationRowAreTheExpectedFour() {
         let missing = HealthMetricKind.allCases.filter {
             HealthMetricPresentation.presentation(for: $0) == nil
         }
-        XCTAssertEqual(Set(missing), [.basics, .vitals, .bodyMassIndex])
+        XCTAssertEqual(Set(missing), [.basics, .vitals, .bodyMassIndex, .bodyRadar])
     }
 
     /// The two accessors that used to hold their own switch statements now read

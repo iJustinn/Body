@@ -39,12 +39,16 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
         .steps,
         .activeEnergy
     ]
+    private static let bodyRadarDependencyKinds: Set<HealthMetricKind> = [
+        .sleep,
+        .steps
+    ]
     private static let vitalsMetricKinds: Set<HealthMetricKind> = [.sleep]
 
-    /// The nine toggles the exhaustive sweep varies: the three expansion
-    /// triggers (basics/readiness/vitals) + stress itself + its five
-    /// dependency cards, each independently present or absent as a Home card.
-    /// 2^9 = 512 combinations.
+    /// The ten toggles the exhaustive sweep varies: the three expansion
+    /// triggers (basics/readiness/vitals) + the two input-only derived cards
+    /// (stress, Body Radar) + the five dependency cards they share, each
+    /// independently present or absent as a Home card. 2^10 = 1024 combinations.
     private struct Toggles {
         var basics: Bool
         var readiness: Bool
@@ -55,6 +59,7 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
         var sleep: Bool
         var steps: Bool
         var activeEnergy: Bool
+        var bodyRadar: Bool
 
         init(bits: Int) {
             basics = bits & 0x1 != 0
@@ -66,6 +71,7 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
             sleep = bits & 0x40 != 0
             steps = bits & 0x80 != 0
             activeEnergy = bits & 0x100 != 0
+            bodyRadar = bits & 0x200 != 0
         }
 
         var directKinds: Set<HealthMetricKind> {
@@ -79,6 +85,7 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
             if sleep { kinds.insert(.sleep) }
             if steps { kinds.insert(.steps) }
             if activeEnergy { kinds.insert(.activeEnergy) }
+            if bodyRadar { kinds.insert(.bodyRadar) }
             return kinds
         }
 
@@ -93,6 +100,7 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
             if sleep { cards.insert(.sleep) }
             if steps { cards.insert(.steps) }
             if activeEnergy { cards.insert(.activeEnergy) }
+            if bodyRadar { cards.insert(.bodyRadar) }
             return cards
         }
     }
@@ -116,6 +124,9 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
         if direct.contains(.stress) {
             union.formUnion(Self.stressDependencyKinds)
         }
+        if direct.contains(.bodyRadar) {
+            union.formUnion(Self.bodyRadarDependencyKinds)
+        }
 
         return union
     }
@@ -129,11 +140,11 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
 
     // MARK: - Exhaustive equivalence
 
-    /// All 512 combinations of the nine toggles above. For each: `includes`
+    /// All 1024 combinations of the ten toggles above. For each: `includes`
     /// must equal the legacy flat union for every `HealthMetricKind`, and the
     /// new full/input split must obey its invariants.
     func testIncludesMatchesLegacyUnionAcrossAllCombinations() throws {
-        for bits in 0..<512 {
+        for bits in 0..<1_024 {
             let toggles = Toggles(bits: bits)
             let fetch = selection(toggles)
             let legacy = legacyUnion(toggles)
@@ -157,16 +168,21 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
                 XCTAssertFalse(fetch.includesFullPayload(kind), "bits=\(bits) kind=\(kind)")
             }
 
-            // The input-only set is a subset of the stress dependency kinds.
+            // The input-only set is a subset of the derived dependency kinds.
             let inputOnlyKinds = HealthMetricKind.allCases.filter(fetch.isInputOnly)
             XCTAssertTrue(
-                Set(inputOnlyKinds).isSubset(of: Self.stressDependencyKinds),
-                "bits=\(bits) input-only kinds \(inputOnlyKinds) escape the stress dependency set"
+                Set(inputOnlyKinds).isSubset(
+                    of: Self.stressDependencyKinds.union(Self.bodyRadarDependencyKinds)
+                ),
+                "bits=\(bits) input-only kinds \(inputOnlyKinds) escape the derived dependency sets"
             )
 
-            // No stress card => no input-only kinds at all.
-            if !toggles.stress {
-                XCTAssertTrue(inputOnlyKinds.isEmpty, "bits=\(bits) input-only kinds without .stress: \(inputOnlyKinds)")
+            // Neither derived card => no input-only kinds at all.
+            if !toggles.stress, !toggles.bodyRadar {
+                XCTAssertTrue(
+                    inputOnlyKinds.isEmpty,
+                    "bits=\(bits) input-only kinds without a derived card: \(inputOnlyKinds)"
+                )
             }
         }
     }

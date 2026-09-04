@@ -675,7 +675,8 @@ actor HealthKitFetchEngine {
         case .readiness,
              .stress:
             return .heart
-        case .sleep:
+        case .sleep,
+             .bodyRadar:
             return .sleep
         case .basics,
              .bodyMass,
@@ -3525,6 +3526,11 @@ actor HealthKitFetchEngine {
         let cachedRecordedStressContext = cachedTrends.recordedStressContext
         let cachedStressBackfillScannedThrough = cachedTrends.stressBackfillScannedThrough
         let cachedStressBackfillComplete = cachedTrends.stressBackfillComplete
+        // Body Radar is derived too, and its frozen nights outlive the sleep
+        // history they were scored from, so they carry forward for the same
+        // reason the recorded stress days do.
+        let cachedRecordedBodyRadar = cachedTrends.recordedBodyRadar
+        let cachedRecordedBodyRadarContext = cachedTrends.recordedBodyRadarContext
 
         // Oldest day a windowed leaf queries, and the boundary the merge splices
         // on. Every windowed leaf below reads `trendWindowDays` as its `maxDays`
@@ -3932,7 +3938,9 @@ actor HealthKitFetchEngine {
             stressBackfillScannedThrough: cachedStressBackfillScannedThrough,
             stressBackfillComplete: cachedStressBackfillComplete,
             recordedReadiness: cachedTrends.recordedReadiness,
-            recordedReadinessContext: cachedTrends.recordedReadinessContext
+            recordedReadinessContext: cachedTrends.recordedReadinessContext,
+            recordedBodyRadar: cachedRecordedBodyRadar,
+            recordedBodyRadarContext: cachedRecordedBodyRadarContext
         )
         return HealthTrendFetchResult(trends: trends, hadQueryFailure: hadQueryFailure)
     }
@@ -4086,6 +4094,13 @@ actor HealthKitFetchEngine {
             return HealthDashboardMetricFetchResult(snapshot: existing, hadQueryFailure: false, ranQueries: false)
         }
 
+        // Body Radar is computed the same way, from the cached sleep history and
+        // step buckets plus the workout months only the store holds, so it takes
+        // the same early return before the permission guard below.
+        if kind == .bodyRadar {
+            return HealthDashboardMetricFetchResult(snapshot: existing, hadQueryFailure: false, ranQueries: false)
+        }
+
         guard permissionSelection.includes(Self.healthPermission(forMetric: kind)) else {
             // Permission disabled: cached snapshot returned without querying, so
             // this no-op must not advance the sync badge.
@@ -4100,7 +4115,7 @@ actor HealthKitFetchEngine {
         // Derived metrics: nothing to query here. Readiness recomputed above;
         // Stress recomputes in the store, which holds the workouts its activity
         // mask needs.
-        case .readiness, .stress:
+        case .readiness, .stress, .bodyRadar:
             break
         case .sleep, .vitals:
             async let sleepSummary = fetchSleepSummary(calendar: calendar)

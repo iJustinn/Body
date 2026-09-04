@@ -795,6 +795,51 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(["chart.dayCount.short"], in: catalog)
     }
 
+    /// Body Radar state/region/signal names and detail copy, split across the
+    /// BodyMetricsKit table (BodyRadar model and view code) and the app table
+    /// (Home card + detail page copy owned by Body itself).
+    func testBodyRadarKeysResolveInCatalogs() throws {
+        let metricsKitCatalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        let metricsKitKeys = [
+            "bodyRadar.state.calibrating",
+            "bodyRadar.state.missingSleep",
+            "bodyRadar.state.noSigns",
+            "bodyRadar.state.minorSigns",
+            "bodyRadar.state.majorSigns",
+            "bodyRadar.region.none",
+            "bodyRadar.region.minor",
+            "bodyRadar.region.major",
+            "bodyRadar.signal.sleepingHeartRate",
+            "bodyRadar.signal.sleepingHeartRate.short",
+            "bodyRadar.signal.respiratoryRate",
+            "bodyRadar.signal.respiratoryRate.short",
+            "bodyRadar.signal.wristTemperature",
+            "bodyRadar.signal.wristTemperature.short",
+            "bodyRadar.signal.heartRateVariability",
+            "bodyRadar.signal.heartRateVariability.short",
+            "bodyRadar.signal.inactiveTime",
+            "bodyRadar.signal.inactiveTime.short",
+            "bodyRadar.detail.help",
+            "bodyRadar.detail.helpTitle"
+        ]
+
+        try assertKeysTranslated(metricsKitKeys, in: metricsKitCatalog)
+
+        let appCatalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let appKeys = [
+            "Body Radar",
+            "Overnight signs of strain",
+            "bodyRadar.card.allTypical",
+            "bodyRadar.detail.recentNights",
+            "bodyRadar.chart.bandsDescription",
+            "bodyRadar.state.noData"
+        ]
+
+        try assertKeysTranslated(appKeys, in: appCatalog)
+    }
+
     /// One language's resolved string for `key`, so a test can assert the translation
     /// itself and not merely that the entry exists.
     private func value(of key: String, language: String, in catalog: [String: Any]) throws -> String {

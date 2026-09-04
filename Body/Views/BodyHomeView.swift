@@ -808,6 +808,7 @@ struct BodyHomeView: View {
                 chartPreview: trends.series(for: .stress),
                 previewDayCount: previewDayCount
             ),
+            bodyRadarMetric(summary: summary.bodyRadar),
             metric(
                 kind: .exerciseMinutes,
                 title: "Exercise Minutes",
@@ -1060,6 +1061,121 @@ struct BodyHomeView: View {
             chartPreview: chartPreview,
             previewDayCount: previewDayCount
         )
+    }
+
+    /// Body Radar reads as a verdict rather than a number: one word for the band
+    /// the night landed in, with the preview's ring showing where inside it, the
+    /// way the Vitals card reads.
+    private func bodyRadarMetric(summary: BodyRadarSummary?) -> BodyHealthMetricCard.Model {
+        // Only a scored night in the Minor or Major band earns the badge.
+        let warningRegion: BodyRadarRegion? = summary?.latest.flatMap { night in
+            night.state.isScored && night.region != BodyRadarRegion.none ? night.region : nil
+        }
+        return BodyHealthMetricCard.Model(
+            kind: .bodyRadar,
+            title: "Body Radar",
+            value: Self.bodyRadarCardValue(for: summary),
+            unit: "",
+            symbolName: BodyHomeCardKind.bodyRadar.iconName,
+            symbolColor: BodyHomeCardKind.bodyRadar.tintColor,
+            chartPreviewStyle: .dots,
+            previewDotEntries: Self.bodyRadarDotEntries(for: summary),
+            // Same three slots as Vitals, read top to bottom as Major / Minor /
+            // None: fixed thresholds, so the bands stay equal; no standing
+            // highlight, the verdict washes its own band; and the pending
+            // skeleton shows the single ring the verdict will.
+            dotPreviewHighlightedRegion: nil,
+            dotPreviewEqualRegions: true,
+            dotPreviewPlaceholderCount: 1,
+            // Its own verdict, not a HealthKit warning event, so it doesn't go
+            // through the metric-warning preference the heart cards read.
+            warningSymbolName: warningRegion == nil ? nil : "exclamationmark.triangle.fill",
+            warningColor: BodyRadarChartStyle.color(for: warningRegion ?? BodyRadarRegion.none),
+            warningAccessibilityLabel: Self.bodyRadarCardValue(for: summary)
+        )
+    }
+
+    /// One word, the band the night landed in, so the card reads at a glance
+    /// the way the Vitals card does. A night with no verdict keeps its state's
+    /// own word instead, and a missing summary (Sleep access off, so nothing can
+    /// ever be scored) reads as No Data rather than a calibration that never ends.
+    static func bodyRadarCardValue(for summary: BodyRadarSummary?) -> String {
+        guard let summary else {
+            return Self.bodyRadarNoDataTitle
+        }
+
+        switch summary.state {
+        case .calibrating, .missingSleep:
+            return summary.state.title
+        case .noSigns:
+            return String(localized: "Typical")
+        case .minorSigns:
+            return BodyRadarRegion.minor.title
+        case .majorSigns:
+            return BodyRadarRegion.major.title
+        }
+    }
+
+    /// The preview reads like the Vitals one, with a single ring for the latest
+    /// night: None rests in the typical band, Minor in the low region and Major
+    /// in the high one, so the ring takes the same color the detail chart's dot
+    /// does. A night with no data or no verdict shows the same ring faded on
+    /// the floor; only a missing summary leaves the skeleton.
+    /// Shown when there is no Body Radar summary at all, so no night can be
+    /// scored and no calibration is under way.
+    static var bodyRadarNoDataTitle: String {
+        String(localized: "bodyRadar.state.noData", defaultValue: "No Data")
+    }
+
+    static func bodyRadarDotEntries(for summary: BodyRadarSummary?) -> [BodyHealthMetricCard.Model.DotEntry] {
+        guard let summary, let latest = summary.latest else {
+            return []
+        }
+
+        guard latest.state.isScored else {
+            return [.init(
+                position: 0.02,
+                region: .low,
+                tint: Color.secondary,
+                opacity: BodyRadarChartStyle.placeholderOpacity
+            )]
+        }
+
+        let position = BodyRadarChartPoint(night: latest)
+            .bandPosition(majorCeiling: BodyRadarChartStyle.majorEvidenceCeiling)
+        let third = 1.0 / 3.0
+        // Held just inside each third so the ring never lands on the boundary
+        // the preview reads the region from.
+        let inset = 0.01
+
+        // The preview's slots are the Vitals ones (low / typical / high, bottom
+        // to top); Body Radar reads them as None / Minor / Major, so each ring
+        // carries its own color and washes its own band. A typical night keeps
+        // everything gray.
+        switch latest.region {
+        case .none:
+            return [.init(
+                position: position * (third - inset),
+                region: .low,
+                tint: Color.secondary
+            )]
+        case .minor:
+            let color = BodyRadarChartStyle.color(for: .minor)
+            return [.init(
+                position: third + inset + position * (third - inset * 2),
+                region: .typical,
+                tint: color,
+                bandTint: color
+            )]
+        case .major:
+            let color = BodyRadarChartStyle.color(for: .major)
+            return [.init(
+                position: third * 2 + inset + position * (third - inset),
+                region: .high,
+                tint: color,
+                bandTint: color
+            )]
+        }
     }
 
     private func energyMetric(
@@ -1886,6 +2002,32 @@ struct BodyHomeView: View {
                         unit: ""
                     )
                 ],
+                helpText: kind.detailHelpText,
+                dataSourceText: kind.detailDataSourceText
+            )
+        case .bodyRadar:
+            // Like Vitals, Body Radar has no metric series of its own: the page is
+            // drawn from the nights the summary carries, so the model hands the
+            // summary over and the detail view charts it.
+            let radar = summary.bodyRadar
+            return BodyHealthMetricDetailModel(
+                kind: kind,
+                title: "Body Radar",
+                value: radar?.state.title ?? Self.bodyRadarNoDataTitle,
+                unit: "",
+                symbolName: BodyHomeCardKind.bodyRadar.iconName,
+                symbolColor: BodyHomeCardKind.bodyRadar.tintColor,
+                series: radar?.evidenceSeries() ?? HealthTrendSeries(points: []),
+                basicsTrend: nil,
+                sleepStageSnapshot: nil,
+                sleepScore: nil,
+                sleepVitals: nil,
+                sleepDuration: nil,
+                sleepHistory: trends.sleepHistory,
+                chartStyle: .line,
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) },
+                secondaryValueFormatter: nil,
+                bodyRadar: radar,
                 helpText: kind.detailHelpText,
                 dataSourceText: kind.detailDataSourceText
             )

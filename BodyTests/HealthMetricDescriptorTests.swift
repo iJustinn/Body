@@ -17,12 +17,13 @@ import XCTest
 @testable import Body
 
 final class HealthMetricDescriptorTests: XCTestCase {
-    /// The kinds that are deliberately NOT a single quantity query: two derived
+    /// The kinds that are deliberately NOT a single quantity query: three derived
     /// scores, two sleep-sessionization views, the body-measurement fan-out, and
     /// the workout-derived training load.
     private let bespokeKinds: Set<HealthMetricKind> = [
         .readiness,
         .stress,
+        .bodyRadar,
         .sleep,
         .basics,
         .trainingLoad,

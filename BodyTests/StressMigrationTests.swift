@@ -183,4 +183,88 @@ final class StressMigrationTests: XCTestCase {
         XCTAssertFalse(migrated.includes(.cardioFitness), "the cardio fitness migration already ran")
         XCTAssertTrue(migrated.includes(.stress), "the stress migration is independently keyed")
     }
+
+    // MARK: - Body Radar home card visibility migration
+
+    /// Body Radar's twin of the Stress summary-card migration. It has no trend
+    /// card, so only the summary surface migrates.
+    func testCustomizedLayoutGainsTheBodyRadarCard() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(
+            "sleep,heartRate,steps",
+            forKey: BodyAppearancePreference.summaryCardSelectionKey
+        )
+
+        let migrated = BodySummaryCardSelection.load(defaults: defaults)
+
+        XCTAssertTrue(migrated.includes(.bodyRadar))
+        XCTAssertTrue(
+            defaults.bool(forKey: BodyAppearancePreference.summaryCardBodyRadarMigratedKey)
+        )
+    }
+
+    func testBodyRadarCardVisibilityOptOutIsNotReEnabled() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(
+            "sleep,heartRate",
+            forKey: BodyAppearancePreference.summaryCardSelectionKey
+        )
+        _ = BodySummaryCardSelection.load(defaults: defaults)
+
+        // The user hides it again; a second load must respect that.
+        defaults.set(
+            "sleep,heartRate",
+            forKey: BodyAppearancePreference.summaryCardSelectionKey
+        )
+
+        XCTAssertFalse(BodySummaryCardSelection.load(defaults: defaults).includes(.bodyRadar))
+    }
+
+    /// "Hide every card" stays hidden, as with Stress above.
+    func testEmptyLayoutIsNotGivenALoneBodyRadarCard() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("none", forKey: BodyAppearancePreference.summaryCardSelectionKey)
+
+        XCTAssertFalse(BodySummaryCardSelection.load(defaults: defaults).includes(.bodyRadar))
+        XCTAssertTrue(
+            defaults.bool(forKey: BodyAppearancePreference.summaryCardBodyRadarMigratedKey),
+            "still one-time"
+        )
+    }
+
+    /// Keyed independently of the Stress migration, so a user who already ran
+    /// that one still gets the Body Radar card.
+    func testBodyRadarAndStressMigrationsRunIndependently() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("sleep,heartRate", forKey: BodyAppearancePreference.summaryCardSelectionKey)
+        defaults.set(true, forKey: BodyAppearancePreference.summaryCardStressMigratedKey)
+
+        let migrated = BodySummaryCardSelection.load(defaults: defaults)
+
+        XCTAssertFalse(migrated.includes(.stress), "the stress migration already ran")
+        XCTAssertTrue(migrated.includes(.bodyRadar), "the body radar migration is independently keyed")
+    }
+
+    /// The card's fetch expansion: showing Body Radar must pull in the sleep and
+    /// step data it scores from, even when no other card renders them.
+    func testBodyRadarCardExpandsIntoItsInputKinds() throws {
+        let fetch = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: [.bodyRadar]),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [])
+        )
+
+        XCTAssertTrue(fetch.includes(.sleep))
+        XCTAssertTrue(fetch.includes(.steps))
+        XCTAssertTrue(fetch.isInputOnly(.sleep))
+        XCTAssertTrue(fetch.isInputOnly(.steps))
+        XCTAssertTrue(fetch.includesFullPayload(.bodyRadar))
+    }
 }
