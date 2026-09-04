@@ -1,5 +1,11 @@
 # Version History
 
+## 1.1.0 (build 7)
+
+- **New Body Radar card (Beta v1).** A phone-only card watches five overnight signals, sleeping heart rate, respiratory rate, wrist temperature, HRV, and inactive time, against your own baseline and reports No signs, Minor signs, or Major signs each morning, with Calibrating and Missing sleep states while it learns or lacks data. Scored once at wake and frozen for the day, so a later refresh or a nap can't change today's result. Detail page mirrors Vitals with Major/Minor/None bands and per-signal rows. On by default for new installs, and turned on once automatically for existing users. It is not a medical device.
+- **A custom data source can now hold a single source.** Settings > Data > Source > Custom Sources previously kept Save disabled until two sources were ticked; one is now enough, so a custom source can be a single renamed, re-iconed Apple Health source. The section's hint reads "Pick one or more sources to include in this one.", and the Settings row's subtitle now reads "1 source" instead of "1 sources".
+- Updated the app, widget, watch, and test bundle version to 1.1.0 build 7.
+
 ## 1.1.0 (build 6)
 
 - **Settings > Appearance > Background now names the background you picked.** With the background off the row still reads "Off"; with it on the row shows the matching saved profile's name, like "ohmybody" or "iJustin", instead of a plain "On". Colors that match no saved profile keep showing "On".

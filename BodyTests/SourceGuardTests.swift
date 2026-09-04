@@ -1628,7 +1628,8 @@ final class SourceGuardTests: XCTestCase {
         // the skeleton in place instead of gaining a chart it didn't have.
         XCTAssertTrue(source.contains("|| chartPreviewStyle == .dots"))
         XCTAssertTrue(source.contains("var region: SleepVitalRegion?"))
-        XCTAssertTrue(source.contains("private static let placeholderDotCount = VitalKind.allCases.count"))
+        XCTAssertTrue(source.contains("dotPlaceholderCount: Int = VitalKind.allCases.count"))
+        XCTAssertTrue(source.contains("count: dotPlaceholderCount"))
         XCTAssertTrue(source.contains("PreviewDot(position: 0.5, region: nil)"))
         XCTAssertTrue(source.contains("isAwaitingDots ? Color.secondary.opacity(0.24) : Color(red: 0.21, green: 0.30, blue: 0.45)"))
         // One ForEach over the resolved dots (skeleton or assessed) keeps ring
@@ -1645,7 +1646,7 @@ final class SourceGuardTests: XCTestCase {
         // regions, no `if` wrapping one of them.
         XCTAssertEqual(previewBlock.occurrenceCount(of: "RoundedRectangle(cornerRadius: layout.cornerRadius(for:"), 3)
         XCTAssertFalse(previewBlock.contains("Capsule("))
-        XCTAssertTrue(previewBlock.contains("occupied: occupiedRegions(for: dots)"))
+        XCTAssertTrue(previewBlock.contains("occupiedRegions(for: dots)"))
     }
 
     func testSummaryMetricValuesUseClockStyleNumericTransitions() throws {
@@ -2565,6 +2566,24 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(engineSource.contains("let cachedHeartbeatRMSSDDaySamples = cachedTrends.heartbeatRMSSDDaySamples"))
     }
 
+    /// The Body Radar twin of the guard above: Radar is derived too, so its
+    /// frozen nights and their context signature are state `fetchHealthTrends`
+    /// is the sole custodian of. Letting either default to empty in the assembly
+    /// would wipe every frozen night on each full refresh.
+
+    func testFullRefreshCarriesForwardTheRecordedBodyRadarNights() throws {
+        let engineSource = try healthKitFetchEngineText()
+        let assemblyStart = try XCTUnwrap(engineSource.range(of: "let trends = HealthTrendSnapshot(")?.lowerBound)
+        let assemblyBlock = String(engineSource[assemblyStart...].prefix(5_500))
+
+        XCTAssertTrue(assemblyBlock.contains("recordedBodyRadar: cachedRecordedBodyRadar,"))
+        XCTAssertTrue(assemblyBlock.contains("recordedBodyRadarContext: cachedRecordedBodyRadarContext"))
+        XCTAssertTrue(engineSource.contains("let cachedRecordedBodyRadar = cachedTrends.recordedBodyRadar"))
+        XCTAssertTrue(
+            engineSource.contains("let cachedRecordedBodyRadarContext = cachedTrends.recordedBodyRadarContext")
+        )
+    }
+
     /// The same regression one layer up: neither readiness nor stress is fetched,
     /// so the summary leaf of the progressive publish always carries them empty.
     /// Publishing it as-is blanked the card for the length of every refresh —
@@ -2576,10 +2595,11 @@ final class SourceGuardTests: XCTestCase {
         let publishStart = try XCTUnwrap(
             storeSource.range(of: "healthSummary = result.summary")?.lowerBound
         )
-        let publishBlock = String(storeSource[publishStart...].prefix(200))
+        let publishBlock = String(storeSource[publishStart...].prefix(300))
 
         XCTAssertTrue(publishBlock.contains(".replacingMetric(.readiness, with: healthSummary)"))
         XCTAssertTrue(publishBlock.contains(".replacingMetric(.stress, with: healthSummary)"))
+        XCTAssertTrue(publishBlock.contains(".replacingMetric(.bodyRadar, with: healthSummary)"))
     }
 
     /// The full refresh runs the stress recompute ONCE, in the tail where the
@@ -2617,9 +2637,121 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertEqual(refreshBlock.components(separatedBy: "saveHealthWidgetSnapshot()").count - 1, 1)
         XCTAssertTrue(
             updateBlock.contains(
-                "let carriedSummary = recomputesStress ? summary : summary.replacingMetric(.stress, with: healthSummary)"
+                "var carriedSummary = recomputesStress ? summary : summary.replacingMetric(.stress, with: healthSummary)"
             )
         )
+    }
+
+    /// The Body Radar twin of the stress carry above. Radar is derived too, its
+    /// activity mask needs the joined workouts, and its recompute is skipped on
+    /// the same dashboard publish — so the full refresh must carry the live
+    /// summary forward and re-run it once in the tail, or the card blanks for the
+    /// length of every refresh and the coalesced write persists the blank.
+
+    func testFullRefreshRecomputesBodyRadarOnceAndCarriesItForward() throws {
+        let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let refreshStart = try XCTUnwrap(
+            storeSource.range(of: "private func refreshRecentMonths(")?.lowerBound
+        )
+        let refreshEnd = try XCTUnwrap(
+            storeSource.range(
+                of: "    private func refresh(\n        month: Int,",
+                range: refreshStart..<storeSource.endIndex
+            )?.lowerBound
+        )
+        let refreshBlock = String(storeSource[refreshStart..<refreshEnd])
+        let updateStart = try XCTUnwrap(
+            storeSource.range(of: "private func updateHealthDashboardSnapshot(")?.lowerBound
+        )
+        let updateBlock = String(storeSource[updateStart...].prefix(3_000))
+
+        XCTAssertTrue(refreshBlock.contains("recomputesBodyRadar: false"))
+        XCTAssertTrue(refreshBlock.contains("await recomputeBodyRadar(on: date, calendar: calendar, persists: false)"))
+        XCTAssertTrue(updateBlock.contains("carriedSummary.replacingMetric(.bodyRadar, with: healthSummary)"))
+        // Radar rides Sleep, not Heart, and only pays when the card is shown.
+        XCTAssertTrue(storeSource.contains("permissionSelection.includes(.sleep)"))
+        XCTAssertTrue(storeSource.contains("BodyDashboardFetchSelection.load().includes(.bodyRadar)"))
+    }
+
+    /// Radar reads the hourly step buckets for its inactive-time signal, and the
+    /// dashboard refresh only carries them forward from cache. The Stress input
+    /// load is what refetches them, and it is gated on Heart plus the Stress
+    /// card — so with Stress hidden or Heart off, Radar needs its own steps-only
+    /// load, skipped whenever the Stress load is going to run.
+    func testBodyRadarStepLoadCoversTheStressLoadGap() throws {
+        let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let startStart = try XCTUnwrap(
+            storeSource.range(of: "private func startBodyRadarStepLoadIfNeeded() {")?.lowerBound
+        )
+        let startBlock = String(storeSource[startStart...].prefix(500))
+        let loadStart = try XCTUnwrap(
+            storeSource.range(of: "private func loadBodyRadarStepSamples() async {")?.lowerBound
+        )
+        let loadBlock = String(storeSource[loadStart...].prefix(3_000))
+
+        // Never alongside the Stress load, which already fetches `.steps` over
+        // the same window and recomputes Radar afterwards.
+        XCTAssertTrue(startBlock.contains("stressInputLoadTask == nil"))
+        XCTAssertTrue(startBlock.contains("computesBodyRadar"))
+        XCTAssertTrue(startBlock.contains("permissionSelection.includes(.steps)"))
+        // Same window, epoch/signature guards and refresh-slot wait the Stress
+        // input load applies, then the Radar recompute the load exists for.
+        XCTAssertTrue(loadBlock.contains("HealthKitFetchEngine.intradayDaySampleInterval(calendar: calendar, anchor: nil)"))
+        XCTAssertTrue(loadBlock.contains("await awaitNextRefreshCompletion()"))
+        XCTAssertTrue(loadBlock.contains("guard await awaitRefreshSlotFree() else {"))
+        XCTAssertTrue(loadBlock.contains("Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch)"))
+        XCTAssertTrue(loadBlock.contains("currentDaySampleSignatures() == capturedDaySampleSignatures"))
+        XCTAssertTrue(loadBlock.contains("trends.stepsDaySamples = HealthKitFetchEngine.mergeIntradaySamples("))
+        XCTAssertTrue(loadBlock.contains("await recomputeBodyRadar(on: Date(), calendar: calendar)"))
+        // Fired from both refresh tails, right where the Stress load is.
+        XCTAssertEqual(
+            storeSource.components(separatedBy: "            startBodyRadarStepLoadIfNeeded()\n").count - 1,
+            2
+        )
+    }
+
+    /// The Radar record context signs the source of every kind its scoring
+    /// reads, which includes the sleep vitals — otherwise switching the
+    /// heart-rate (or HRV / respiratory / wrist-temperature) source leaves the
+    /// frozen nights scored under the old source in place forever.
+    func testBodyRadarSignedSourceKindsCoverTheSleepVitals() throws {
+        let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let kindsStart = try XCTUnwrap(
+            storeSource.range(of: "nonisolated static let bodyRadarSignedSourceKinds:")?.lowerBound
+        )
+        let kindsBlock = String(storeSource[kindsStart...].prefix(400))
+        let signatureStart = try XCTUnwrap(
+            storeSource.range(of: "nonisolated static func bodyRadarRecordContextSignature(")?.lowerBound
+        )
+        let signatureBlock = String(storeSource[signatureStart...].prefix(1_500))
+
+        XCTAssertTrue(kindsBlock.contains("bodyRadarInputMetricKinds.union(["))
+        for kind in [".heartRate", ".heartRateVariability", ".respiratoryRate", ".wristTemperature"] {
+            XCTAssertTrue(kindsBlock.contains(kind), "\(kind) is missing from bodyRadarSignedSourceKinds")
+        }
+        XCTAssertTrue(signatureBlock.contains("let sources = bodyRadarSignedSourceKinds"))
+        // The recompute trigger stays on the narrower input set.
+        XCTAssertTrue(storeSource.contains("recomputesBodyRadar: Self.bodyRadarInputMetricKinds.contains(kind)"))
+    }
+
+    func testBodyRadarRecordContextSignatureTracksVitalSourceChanges() {
+        func signature(_ selection: BodyHealthDataSourceSelection) -> String {
+            HealthKitWorkoutStore.bodyRadarRecordContextSignature(
+                permissionSelection: .defaultValue,
+                healthDataSourceSelection: selection,
+                combinesHealthDataSourcesByName: false,
+                showsSubMinuteAwakeStages: false,
+                showsLeadingTrailingAwakeStages: false
+            )
+        }
+
+        let base = signature(BodyHealthDataSourceSelection(selectedOptions: [:]))
+        for kind in [HealthMetricKind.heartRate, .heartRateVariability, .respiratoryRate, .wristTemperature] {
+            let pinned = BodyHealthDataSourceSelection(
+                selectedOptions: [kind: BodyHealthDataSourceOption(id: "com.example.tracker", name: "Tracker")]
+            )
+            XCTAssertNotEqual(base, signature(pinned), "\(kind) source change must change the Radar context")
+        }
     }
 
     func testSecondarySleepStageHistorySkipsVitalsHydration() throws {
@@ -3046,7 +3178,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.0 (build 6)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.0 (build 7)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 4)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 3)**"))
@@ -3179,6 +3312,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.0 build 7."))
         XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 6)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.0 build 6."))
         XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 5)"))
