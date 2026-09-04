@@ -198,7 +198,7 @@ struct BodyCustomSourceEditorSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(
                 title: "Select Sources",
-                detail: "Pick at least two sources to merge into this one."
+                detail: "Pick one or more sources to include in this one."
             )
 
             if discoveredSources.isEmpty {

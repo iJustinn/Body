@@ -4318,7 +4318,11 @@ private struct BodySourceSettingsSheet: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
 
-                    Text("\(group.memberIdentityKeys.count) sources")
+                    Text(
+                        group.memberIdentityKeys.count == 1
+                            ? "1 source"
+                            : "\(group.memberIdentityKeys.count) sources"
+                    )
                         .font(.system(.subheadline, design: .rounded))
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)

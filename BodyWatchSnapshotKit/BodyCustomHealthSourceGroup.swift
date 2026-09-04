@@ -70,8 +70,8 @@ struct BodyCustomHealthSourceGroup: Codable, Equatable, Identifiable {
 
 enum BodyCustomHealthSourceGroupStore {
     static let maximumGroupCount = 5
-    /// A group merging fewer than two sources is just the source itself.
-    static let minimumMemberCount = 2
+    /// A group needs at least one member to resolve to anything.
+    static let minimumMemberCount = 1
 
     static func groups(from rawValue: String) -> [BodyCustomHealthSourceGroup] {
         guard
