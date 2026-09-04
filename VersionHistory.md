@@ -1,5 +1,10 @@
 # Version History
 
+## 1.1.0 (build 8)
+
+- Reserved for the RefreshOptimizationPlan-03 data-path refinement. Implementation and verification status for each phase is tracked in `docs/RefreshOptimizationPlan-03.md`; this entry does not imply that later phases are complete.
+- Updated the app, widget, watch, and test bundle build number to 8. The marketing version remains 1.1.0.
+
 ## 1.1.0 (build 7)
 
 - **Warning signs now show on the Readiness hero.** With Readiness as your starred Home metric, the warning badges that already sit on the Heart Rate, Blood Oxygen and Body Radar cards also appear in a row to the right of the readiness level headline, up to three of them, each the exact glyph and color its own card shows, including Body Radar's orange Minor signs and red Major signs tint. A badge only appears while its card is shown on Home, and Heart Rate contributes one badge even when both the low and high heart rate warnings fired. Tapping a badge scrolls Home down to that card and glows it briefly instead of opening the Readiness detail, tapping the hero anywhere else still opens the detail, and the badges stop responding once the hero fades out on scroll. Each badge is a button for VoiceOver, labelled with the metric's name (Body Radar uses its verdict word). A new toggle, Settings > Metrics > Warnings > Show on Readiness ("Add warning signs next to the readiness level"), on by default, controls the hero badges only, never the card glyphs or the detail page cards; Body Radar's badge is its own verdict rather than a HealthKit threshold warning, so it follows this toggle but not the per-kind Warnings toggles. The Warnings sheet's closing footnote now reads "Warnings appear on the Home card, the readiness score, and the metric's detail page."

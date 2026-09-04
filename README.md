@@ -6,7 +6,11 @@
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Readiness, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **1.1.0 (build 7)**
+Current app version: **1.1.0 (build 8)**
+
+All RefreshOptimizationPlan-03 phases use build 8. Explicit source, grouping, and sleep-parsing edits retain user-initiated refresh scope: authorization prompting when needed, the recent chart months, and scoped workout-effort reconciliation. Rejected dashboard commits release their trend anchor without clearing a newer refresh's anchor.
+
+Permission changes invalidate visible data immediately, then serialize privacy cleanup and cached filtering before corrective refresh. Cleanup holds the refresh slot, overlapping toggles coalesce after all cleanup finishes, and cancelling the Settings caller does not abandon an already-applied opt-out.
 
 ## Screenshots
 
@@ -100,7 +104,7 @@ How a metric looks lives in a second table, `BodyMetricsKit/HealthMetricPresenta
 
 The `HealthKitWorkoutStore` keeps two of its jobs in files of their own. `Body/Services/BodyWorkoutDetailCacheStore.swift` owns the per-workout detail session caches and the exact set each clear gate drops, so an authorization pass, a permission toggle, the background transition and Clear Cache each name the subset they invalidate instead of repeating seven `removeAll()` calls. `Body/Services/BodyCompanionPublisher.swift` owns the widget and watch snapshot publishes: the store captures what they read in one synchronous main-actor pass, split into the half both snapshots render from and the extras only the widget needs, and the publisher does the derivation, the encoding and the disk work on the serial persist queue, hopping back to the main actor only to re-check the cache epoch before it sends.
 
-Refresh input admission is separate from the refresh deadline and cache-reset generation. A request started before a source, permission, grouping, entitlement, sleep-parsing, sleep-goal, layout, or calendar-context change cannot subsequently pass the refresh publication/freshness gate. Detached dashboard scoring checks its captured inputs too, and queued watch sends recheck them before delivery. Source display names are excluded from this identity. This is the first part of [RP-03](docs/RefreshOptimizationPlan-03.md); compatible cache fallback and durable effective-source scope remain part of its unfinished Implementation Phase 1.
+Refresh input admission is separate from the refresh deadline and cache-reset generation. A request started before a source, permission, grouping, entitlement, sleep-parsing, sleep-goal, layout, or calendar-context change cannot subsequently pass the refresh publication/freshness gate. Detached dashboard scoring checks its captured inputs too, and queued watch sends recheck them before delivery. Source display names are excluded from this identity. [RP-03](docs/RefreshOptimizationPlan-03.md) also scopes summary, daily, and intraday fallback per metric using effective source membership. Incompatible data is removed before queries or companion captures; compatible metrics remain available. The dashboard context and version 3 day-sample sidecar persist this provenance. Settings edits coalesce into one latest-context correction; a sleep-goal-only edit recomputes from cached inputs without fetching raw HealthKit data. This does not add source-discovery expiry, mutation detection, or new freshness guarantees.
 
 ## Privacy
 
