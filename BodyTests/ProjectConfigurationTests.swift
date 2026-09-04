@@ -338,6 +338,17 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(project.contains("Body reads workout, sleep, heart, and body measurement data"))
     }
 
+    func testRefreshInputAdmissionDocumentationStaysInSync() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        let refinement = try BodyTestSupport.sourceText(at: "docs/RefreshOptimizationPlan-03.md")
+        XCTAssertTrue(readme.contains("Refresh input admission"))
+        XCTAssertTrue(readme.contains("Source display names are excluded"))
+        XCTAssertTrue(testPlan.contains("HealthKitRefreshInputContextTests"))
+        XCTAssertTrue(testPlan.contains("A→B→A"))
+        XCTAssertTrue(refinement.contains("Implementation Phase 1"))
+    }
+
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
 

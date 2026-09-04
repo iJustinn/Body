@@ -18,6 +18,10 @@ Generated 2026-09-03 against branch `body-v1.1.0` (app version 1.1.0 build 7).
 
 ## 2. Automated Tests
 
+### RP-03 refresh input admission
+
+`HealthKitRefreshInputContextTests` covers unchanged input identity, display-name-only source changes, cancelled A→B→A source edits, and a real scripted HealthKit leaf followed by a sleep-goal change before freshness admission. An obsolete request must not advance the sync badge or persisted initial-load/freshness markers; a new request must still succeed. `HealthKitWorkoutStoreTimeoutTests` continues to cover the independent deadline fence. Implementation Phase 1 remains incomplete until source-scoped fallback, effective-source persistence, corrective scheduling, and the remaining suspended-compute/consumer integration cases in `docs/RefreshOptimizationPlan-03.md` are implemented and verified.
+
 | ID | Priority | Case | Expected |
 | --- | --- | --- | --- |
 | A1 | Critical | Month snapshot groups workouts by day | Multiple workouts on one date roll up to one active day and preserve workout count |

@@ -573,9 +573,67 @@ final class HealthKitWorkoutStore {
     /// pulls), which always may apply.
     @TaskLocal private static var runningRefreshGeneration: Int?
 
+    /// A settings revision is independent of deadline abandonment and cache
+    /// deletion. In particular, A → B → A must retire work started under A.
+    @ObservationIgnored private var refreshInputRevision = 0
+    @ObservationIgnored private var lastObservedRefreshInputs: RefreshInputs?
+    @TaskLocal private static var runningRefreshInputs: CapturedRefreshInputs?
+
+    struct RefreshInputs: Equatable {
+        let primary: String
+        let secondary: String
+        let permissions: String
+        let combinesSources: Bool
+        let groups: String
+        let proUnlocked: Bool
+        let subMinuteAwake: Bool
+        let boundaryAwake: Bool
+        let calendarIdentifier: String
+        let timeZoneIdentifier: String
+        let idealSleepDuration: TimeInterval
+        let fetchSelection: BodyDashboardFetchSelection
+    }
+
+    struct CapturedRefreshInputs: Equatable {
+        let revision: Int
+        let inputs: RefreshInputs
+    }
+
+    /// Canonical source IDs, not display names or JSON dictionary ordering.
+    /// Also reads preferences changed outside this store, so a late result is
+    /// rejected even before the corresponding settings callback gets its turn.
+    func captureRefreshInputs() -> CapturedRefreshInputs {
+        let calendar = Calendar.bodyGregorian
+        let inputs = RefreshInputs(
+            primary: healthDataSourceSelection.signature,
+            secondary: secondaryHealthDataSourceSelection.signature,
+            permissions: permissionSelection.rawValue,
+            combinesSources: combinesHealthDataSourcesByName,
+            groups: customSourceGroupsSignatureSuffix,
+            proUnlocked: isProUnlocked,
+            subMinuteAwake: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
+            boundaryAwake: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(),
+            calendarIdentifier: String(describing: calendar.identifier),
+            timeZoneIdentifier: calendar.timeZone.identifier,
+            idealSleepDuration: Self.storedIdealSleepDuration(),
+            fetchSelection: BodyDashboardFetchSelection.load()
+        )
+        if let previous = lastObservedRefreshInputs, previous != inputs {
+            refreshInputRevision &+= 1
+        }
+        lastObservedRefreshInputs = inputs
+        return CapturedRefreshInputs(revision: refreshInputRevision, inputs: inputs)
+    }
+
+    func mayApplyRefreshInputs(_ captured: CapturedRefreshInputs) -> Bool {
+        captured == captureRefreshInputs()
+    }
+
     /// Whether the code running right now still speaks for the current refresh.
     private var mayApplyRefreshResults: Bool {
-        Self.runningRefreshGeneration.map { $0 == refreshGeneration } ?? true
+        let ownsGeneration = Self.runningRefreshGeneration.map { $0 == refreshGeneration } ?? true
+        let ownsInputs = Self.runningRefreshInputs.map { mayApplyRefreshInputs($0) } ?? true
+        return ownsGeneration && ownsInputs
     }
 
     /// Runs one user-facing refresh `body` under `deadline` and ABANDONS it if
@@ -592,9 +650,12 @@ final class HealthKitWorkoutStore {
         body: @escaping @MainActor () async -> Void
     ) async -> Bool {
         let generation = refreshGeneration
+        let inputs = captureRefreshInputs()
         let bodyTask = Task { @MainActor in
             await Self.$runningRefreshGeneration.withValue(generation) {
-                await body()
+                await Self.$runningRefreshInputs.withValue(inputs) {
+                    await body()
+                }
             }
         }
 
@@ -986,6 +1047,7 @@ final class HealthKitWorkoutStore {
             // waits for the refresh slot and would lag the re-render.
             MainActor.assumeIsolated {
                 self.proEntitlementGeneration &+= 1
+                _ = self.captureRefreshInputs()
             }
             Task { @MainActor in
                 // An entitlement flip has to invalidate, not just refetch: the full
@@ -1027,12 +1089,14 @@ final class HealthKitWorkoutStore {
         idealSleepDuration: TimeInterval,
         recordedReadinessContext: String
     ) {
+        let inputs = captureRefreshInputs()
         Task {
             let epoch = self.cacheEpoch
             // A refresh can rebuild the overlay under the current inputs before
             // this task gets its turn; its result is the fresher one, so there
             // is nothing stale left to fix.
-            guard self.healthTrends.recordedReadinessContext != recordedReadinessContext else {
+            guard self.mayApplyRefreshInputs(inputs),
+                  self.healthTrends.recordedReadinessContext != recordedReadinessContext else {
                 return
             }
 
@@ -1056,6 +1120,7 @@ final class HealthKitWorkoutStore {
             // must a refresh that rebuilt the overlay first: either way this
             // result is the stale one now.
             guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: self.cacheEpoch),
+                  self.mayApplyRefreshInputs(inputs),
                   self.healthTrends.recordedReadinessContext != recordedReadinessContext else {
                 return
             }
@@ -1294,6 +1359,7 @@ final class HealthKitWorkoutStore {
             recomputesStress: Self.stressInputMetricKinds.contains(kind),
             recomputesBodyRadar: Self.bodyRadarInputMetricKinds.contains(kind)
         )
+        guard mayApplyRefreshResults else { return }
         authorizationState = .authorized
         if !metricFetch.hadQueryFailure, metricFetch.ranQueries {
             // A clean metric-only pull genuinely re-derived readiness (any
@@ -1321,6 +1387,7 @@ final class HealthKitWorkoutStore {
                 // fetch this pull just memoized, so the watch replays the
                 // post-edit efforts instead of the pre-edit array.
                 if let seed = await engine.trainingLoadDailyLoadSeed(calendar: calendar) {
+                    guard mayApplyRefreshResults else { return }
                     setCachedComputeTrainingLoadSeed(startDay: seed.startDay, loads: seed.loads, through: date)
                 }
             }
@@ -3195,6 +3262,7 @@ final class HealthKitWorkoutStore {
 
         permissionSelection = nextSelection
         nextSelection.save()
+        _ = captureRefreshInputs()
         await engine.setPermissionSelection(nextSelection)
         if permission == .workouts {
             detailCaches.clearAll()
@@ -3448,6 +3516,7 @@ final class HealthKitWorkoutStore {
 
         combinesHealthDataSourcesByName = combines
         UserDefaults.standard.set(combines, forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey)
+        _ = captureRefreshInputs()
         await engine.setCombinesHealthDataSourcesByName(combines)
         await fetchHealthDataSourceOptions(calendar: .bodyGregorian)
 
@@ -3590,6 +3659,7 @@ final class HealthKitWorkoutStore {
         secondaryHealthDataSourceSelection = nextSecondarySelection
         nextSelection.save()
         nextSecondarySelection.save()
+        _ = captureRefreshInputs()
         await engine.setHealthDataSourceSelection(nextSelection)
         await engine.setSecondaryHealthDataSourceSelection(nextSecondarySelection)
 
@@ -3603,6 +3673,7 @@ final class HealthKitWorkoutStore {
     private func applyCustomHealthSourceGroups(_ groups: [BodyCustomHealthSourceGroup]) async {
         customHealthSourceGroups = groups
         Self.saveCustomHealthSourceGroups(groups)
+        _ = captureRefreshInputs()
         await engine.setCustomHealthSourceGroups(groups)
         await fetchHealthDataSourceOptions(calendar: .bodyGregorian)
 
@@ -3632,6 +3703,7 @@ final class HealthKitWorkoutStore {
         secondaryHealthDataSourceSelection = nextSecondarySelection
         nextSelection.save()
         nextSecondarySelection.save()
+        _ = captureRefreshInputs()
         await engine.setHealthDataSourceSelection(nextSelection)
         await engine.setSecondaryHealthDataSourceSelection(nextSecondarySelection)
 
@@ -3659,6 +3731,7 @@ final class HealthKitWorkoutStore {
     /// bare `Task { requestAuthorizationAndRefresh() }` the Settings onChange used
     /// to fire was lost whenever it landed during a launch/resume refresh).
     func refetchAfterSleepDisplayPreferenceChange() async {
+        _ = captureRefreshInputs()
         guard await awaitRefreshSlotFree() else {
             return
         }
@@ -3675,6 +3748,7 @@ final class HealthKitWorkoutStore {
 
         secondaryHealthDataSourceSelection = nextSelection
         nextSelection.save()
+        _ = captureRefreshInputs()
         await engine.setSecondaryHealthDataSourceSelection(nextSelection)
 
         guard await awaitRefreshSlotFree() else {
@@ -3698,6 +3772,7 @@ final class HealthKitWorkoutStore {
 
         healthDataSourceSelection = nextSelection
         nextSelection.save()
+        _ = captureRefreshInputs()
         await engine.setHealthDataSourceSelection(nextSelection)
 
         // Wait out any in-flight refresh so the `isRefreshing` guard in
@@ -3724,6 +3799,7 @@ final class HealthKitWorkoutStore {
 
         secondaryHealthDataSourceSelection = nextSelection
         nextSelection.save()
+        _ = captureRefreshInputs()
         await engine.setSecondaryHealthDataSourceSelection(nextSelection)
 
         guard await awaitRefreshSlotFree() else {
@@ -5895,8 +5971,10 @@ final class HealthKitWorkoutStore {
         persists: Bool = true
     ) async {
         let epoch = cacheEpoch
+        let inputs = captureRefreshInputs()
         let calendar = Calendar.bodyGregorian
         let anchorDate = await engine.healthTrendAnchorDate ?? Date()
+        guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { return }
         let permissionSelection = self.permissionSelection
         let idealSleepDuration = Self.storedIdealSleepDuration()
         // Stress is derived, never fetched, so a freshly fetched summary always
@@ -5980,7 +6058,8 @@ final class HealthKitWorkoutStore {
         // don't publish or persist the recomputed snapshot onto the wiped state.
         // A refresh abandoned at `healthRefreshDeadline` loses the same way: its
         // late snapshot must not overwrite a newer refresh's.
-        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch), mayApplyRefreshResults else {
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+              mayApplyRefreshInputs(inputs), mayApplyRefreshResults else {
             return
         }
 
@@ -6016,6 +6095,7 @@ final class HealthKitWorkoutStore {
     /// publish, the readiness reapply, and the stress recompute into ONE write
     /// after the tail settles instead of three full encodes per pass.
     private func persistDashboardSnapshot() {
+        guard mayApplyRefreshResults else { return }
         let snapshotToSave = HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
@@ -6131,6 +6211,7 @@ final class HealthKitWorkoutStore {
         }
 
         let epoch = cacheEpoch
+        let inputs = captureRefreshInputs()
         let now = Date()
         let captured = HealthDashboardSnapshot(
             summary: healthSummary,
@@ -6152,7 +6233,8 @@ final class HealthKitWorkoutStore {
         // Same rule as `updateHealthDashboardSnapshot`: a Clear Cache that landed
         // while the off-actor scoring ran must win, and a refresh abandoned at
         // `healthRefreshDeadline` must not publish over a newer one's state.
-        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch), mayApplyRefreshResults else {
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+              mayApplyRefreshInputs(inputs), mayApplyRefreshResults else {
             return
         }
 
@@ -6228,6 +6310,7 @@ final class HealthKitWorkoutStore {
         }
 
         let epoch = cacheEpoch
+        let inputs = captureRefreshInputs()
         let now = Date()
         let captured = HealthDashboardSnapshot(
             summary: healthSummary,
@@ -6255,7 +6338,8 @@ final class HealthKitWorkoutStore {
 
         // Same rule as `recomputeStress`: a Clear Cache or an abandoned refresh
         // that landed while the off-actor scoring ran must win.
-        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch), mayApplyRefreshResults else {
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+              mayApplyRefreshInputs(inputs), mayApplyRefreshResults else {
             return
         }
 
@@ -6532,9 +6616,10 @@ final class HealthKitWorkoutStore {
         fetchesTrainingLoad: Bool,
         hadQueryFailure: Bool
     ) async {
-        guard includesWorkouts, fetchesTrainingLoad, !hadQueryFailure else {
+        guard includesWorkouts, fetchesTrainingLoad, !hadQueryFailure, mayApplyRefreshResults else {
             return
         }
+        let inputs = captureRefreshInputs()
         // The guard above certifies the dashboard fetch just recomputed the
         // Training Load summary/series cleanly — the honest place to advance
         // TL's watch watermark. Deliberately BEFORE the engine-seed guard
@@ -6545,6 +6630,7 @@ final class HealthKitWorkoutStore {
         guard let seed = await engine.trainingLoadDailyLoadSeed(calendar: calendar) else {
             return
         }
+        guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { return }
         setCachedComputeTrainingLoadSeed(startDay: seed.startDay, loads: seed.loads, through: date)
     }
 
@@ -6562,6 +6648,7 @@ final class HealthKitWorkoutStore {
     /// lives on the publisher, which this store owns, so dismissing the settings
     /// view does not drop it.
     func republishCompanionSnapshots() {
+        _ = captureRefreshInputs()
         companionPublisher.scheduleRepublish { [weak self] in
             guard let self, !self.isClearingCache else { return }
             // One shared capture for both publishes: the summary, trends and
@@ -6670,6 +6757,8 @@ final class HealthKitWorkoutStore {
     /// `republishCompanionSnapshots`, which saves the widget snapshot from the
     /// same capture: taking it twice would read the store twice for one rebuild.
     private func publishWatchSnapshot(shared: BodyCompanionPublishInput.Shared) {
+        guard mayApplyRefreshResults else { return }
+        let inputs = captureRefreshInputs()
         companionPublisher.publishWatchSnapshot(
             makeCompanionPublishInput(shared: shared),
             isEpochCurrent: { [weak self] capturedEpoch in
@@ -6677,6 +6766,7 @@ final class HealthKitWorkoutStore {
                     return false
                 }
                 return Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: self.cacheEpoch)
+                    && self.mayApplyRefreshInputs(inputs)
             }
         )
     }
@@ -7097,6 +7187,7 @@ final class HealthKitWorkoutStore {
     }
 
     private func applyPermissionSelectionToCachedData() async {
+        let inputs = captureRefreshInputs()
         // A toggle can change the Stress record context, and the recompute at
         // the end of this drops the recorded days it invalidates. Stop the
         // history walk first, so a chunk scored under the OLD inputs can't land
@@ -7106,6 +7197,7 @@ final class HealthKitWorkoutStore {
         // Cache can land during the sidecar load / off-actor filter below.
         let epoch = cacheEpoch
         await hydratePersistedDaySamplesIfNeeded()
+        guard mayApplyRefreshInputs(inputs) else { return }
         let rawSnapshot = HealthDashboardSnapshot(
             summary: healthSummary,
             trends: healthTrends,
@@ -7125,7 +7217,8 @@ final class HealthKitWorkoutStore {
 
         // A cache clear landed mid-filter — don't republish/persist the filtered
         // snapshot onto the wiped state.
-        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+              mayApplyRefreshInputs(inputs) else {
             return
         }
 
@@ -7140,6 +7233,7 @@ final class HealthKitWorkoutStore {
         // days it invalidates must drop now rather than at the next refresh.
         await recomputeStress(on: Date(), calendar: .bodyGregorian)
         await recomputeBodyRadar(on: Date(), calendar: .bodyGregorian)
+        guard mayApplyRefreshInputs(inputs) else { return }
 
         if !permissionSelection.includes(.workouts) {
             clearWorkoutSnapshots()
