@@ -5,28 +5,33 @@
 
 import Foundation
 import HealthKit
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// Runs ONE headless metric-warning evaluation for the background refresh task:
 /// reads the persisted warning settings, fetches today's warnings through a
 /// fresh `HealthKitFetchEngine`, and posts at most one notification per kind per
 /// day (the day-keyed `MetricWarningNotificationLedger` is the dedup record).
 ///
-/// An actor so the ledger's read-modify-write can never interleave with the
-/// foreground seeding path or a second background pass.
+/// Ledger mutations are synchronous actor operations. Evaluations may suspend;
+/// they must reload the ledger after delivery rather than save an older copy.
 actor MetricWarningBackgroundEvaluator {
+    typealias WarningResults = [MetricWarningKind: HealthKitFetchEngine.QueryOutcome<MetricWarningEvent>]
+
+    struct Delivery {
+        var authorization: @Sendable () async -> UNAuthorizationStatus
+        var add: @Sendable (UNNotificationRequest) async throws -> Void
+    }
     enum Outcome {
         /// Every requested kind resolved; anything past threshold was notified.
         case success
         /// Some kinds resolved and at least one notification was posted, but at
         /// least one kind was inconclusive.
         case partialFailure
-        /// Nothing was attempted (toggle off, no kinds, app foreground-active,
-        /// notifications not authorized). Reported as a *successful* task run:
-        /// there was no work, not a failed attempt.
+        /// Admission stopped the pass without an observed failure (toggle off,
+        /// no kinds, foreground active, or notifications not authorized).
+        /// Earlier successful submissions stand. Reported as a successful task.
         case skipped
-        /// Nothing usable came back — every kind was inconclusive, or the
-        /// evaluation timed out.
+        /// At least one kind failed and nothing was posted, or evaluation timed out.
         case failure
     }
 
@@ -41,8 +46,11 @@ actor MetricWarningBackgroundEvaluator {
     static let evaluationDeadline: Duration = .seconds(20)
 
     private let defaults: UserDefaults
-    private let calendar: Calendar
-    private let notificationCenter: UNUserNotificationCenter
+    private let calendarContext: @Sendable () -> (calendar: Calendar, date: Date)
+    private var calendar: Calendar { calendarContext().calendar }
+    private let delivery: Delivery
+    private let warningQuery: (@Sendable (Set<MetricWarningKind>) async -> WarningResults?)?
+    private var evaluationInFlight = false
     private let isForegroundActive: @Sendable () async -> Bool
     /// Injected so the deadline behaviour can be exercised against a fake store
     /// whose reads never resume.
@@ -50,20 +58,32 @@ actor MetricWarningBackgroundEvaluator {
 
     init(
         defaults: UserDefaults = .standard,
-        calendar: Calendar = .bodyGregorian,
+        calendar: Calendar? = nil,
         notificationCenter: UNUserNotificationCenter = .current(),
         healthStore: any BodyHealthQuerying = HKHealthStore(),
+        delivery: Delivery? = nil,
+        warningQuery: (@Sendable (Set<MetricWarningKind>) async -> WarningResults?)? = nil,
+        calendarContext: (@Sendable () -> (calendar: Calendar, date: Date))? = nil,
         isForegroundActive: @escaping @Sendable () async -> Bool
     ) {
         self.defaults = defaults
-        self.calendar = calendar
-        self.notificationCenter = notificationCenter
+        self.calendarContext = calendarContext ?? { (calendar ?? .bodyGregorian, Date()) }
+        self.delivery = delivery ?? Delivery(
+            authorization: { await notificationCenter.notificationSettings().authorizationStatus },
+            add: { try await notificationCenter.add($0) }
+        )
+        self.warningQuery = warningQuery
         self.healthStore = healthStore
         self.isForegroundActive = isForegroundActive
     }
 
     @discardableResult
     func evaluate() async -> Outcome {
+        guard !evaluationInFlight, !Task.isCancelled else { return .skipped }
+        evaluationInFlight = true
+        defer { evaluationInFlight = false }
+        let context = evaluationContext()
+        let calendar = calendar
         guard defaults.bool(forKey: BodyAppearancePreference.metricWarningNotificationsKey) else {
             return .skipped
         }
@@ -86,36 +106,63 @@ actor MetricWarningBackgroundEvaluator {
         // Post nothing and leave the ledger untouched when we couldn't deliver:
         // marking a kind notified here would suppress the real notification once
         // the user grants permission.
-        let settings = await notificationCenter.notificationSettings()
-        switch settings.authorizationStatus {
+        switch await delivery.authorization() {
         case .authorized, .provisional:
             break
         default:
             return .skipped
         }
 
-        guard let results = await fetchWarnings(kinds: kinds) else {
+        guard !Task.isCancelled, context == evaluationContext() else { return .skipped }
+        let fetched: WarningResults?
+        if let warningQuery {
+            fetched = await warningQuery(kinds)
+        } else {
+            fetched = await fetchWarnings(kinds: kinds)
+        }
+        guard let results = fetched else {
             return .failure
         }
 
         var postedCount = 0
         var failedCount = 0
-        var ledger = loadLedger()
 
         for kind in MetricWarningKind.allCases where kinds.contains(kind) {
             switch results[kind] {
             case .success(let event?):
+                // Recheck after all suspension points, including authorization
+                // and foreground state. No await between the last context check
+                // and submission. Already-submitted requests are not recalled.
+                let authorization = await delivery.authorization()
+                let foreground = await isForegroundActive()
+                guard !Task.isCancelled, !foreground,
+                      authorization == .authorized || authorization == .provisional,
+                      context == evaluationContext() else {
+                    // Losing admission cannot erase failures already observed.
+                    guard failedCount == 0 else {
+                        return postedCount > 0 ? .partialFailure : .failure
+                    }
+                    return .skipped
+                }
+                let ledger = loadLedger()
                 guard ledger.shouldNotify(kind: kind, event: event, calendar: calendar) else {
                     continue
                 }
-                guard await postNotification(for: event) else {
+                guard await postNotification(for: event, calendar: calendar) else {
                     failedCount += 1
                     continue
                 }
                 // Ledger advances ONLY after the add succeeded, so a failed
                 // delivery is retried by the next background pass.
-                ledger.markNotified(kind: kind, on: event.startDate, calendar: calendar)
-                saveLedger(ledger)
+                var latestLedger = loadLedger()
+                // Foreground seeding may have advanced this kind during add.
+                // Preserve that newer day as well as unrelated kinds.
+                var delivered = MetricWarningNotificationLedger.defaultValue
+                delivered.markNotified(kind: kind, on: event.startDate, calendar: calendar)
+                if (latestLedger.lastNotifiedDayKeys[kind] ?? "") < (delivered.lastNotifiedDayKeys[kind] ?? "") {
+                    latestLedger.markNotified(kind: kind, on: event.startDate, calendar: calendar)
+                }
+                saveLedger(latestLedger)
                 postedCount += 1
             case .success:
                 continue
@@ -147,6 +194,27 @@ actor MetricWarningBackgroundEvaluator {
 
     // MARK: - Fetch
 
+    /// Content-addressed settings revision, excluding the delivery ledger.
+    /// Includes the app's standard settings as well as an injected suite; the
+    /// headless engine itself receives thresholds captured from this evaluator.
+    private func evaluationContext() -> [String] {
+        let keys = [
+            BodyAppearancePreference.metricWarningNotificationsKey,
+            BodyAppearancePreference.metricWarningsKey,
+            BodyAppearancePreference.metricWarningThresholdsKey,
+            BodyAppearancePreference.healthPermissionSelectionKey,
+            BodyAppearancePreference.healthDataSourceSelectionKey,
+            BodyAppearancePreference.secondaryHealthDataSourceSelectionKey,
+            BodyAppearancePreference.combinesHealthDataSourcesByNameKey,
+            BodyAppearancePreference.customHealthSourceGroupsKey
+        ]
+        let (calendar, now) = calendarContext()
+        return [String(describing: calendar.identifier), calendar.timeZone.identifier,
+                String(calendar.startOfDay(for: now).timeIntervalSince1970)] + [defaults, UserDefaults.standard].flatMap { suite in
+            keys.map { suite.object(forKey: $0).map { String(describing: $0) } ?? "<unset>" }
+        }
+    }
+
     /// `nil` when the evaluation overran `evaluationDeadline`, or the task was
     /// cancelled. Raced through `OneShotDeadlineRace` rather than run in a task
     /// group: cancellation is cooperative, so a group — and the old
@@ -161,14 +229,17 @@ actor MetricWarningBackgroundEvaluator {
         deadline: Duration = MetricWarningBackgroundEvaluator.evaluationDeadline
     ) async -> [MetricWarningKind: HealthKitFetchEngine.QueryOutcome<MetricWarningEvent>]? {
         let engine = HealthKitFetchEngine(
-            permission: BodyHealthPermissionSelection.load(),
-            healthDataSourceSelection: BodyHealthDataSourceSelection.load(),
-            secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection.load(),
+            permission: BodyHealthPermissionSelection.load(defaults: defaults),
+            healthDataSourceSelection: BodyHealthDataSourceSelection.load(defaults: defaults),
+            secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection.load(defaults: defaults),
             combinesHealthDataSourcesByName: defaults.bool(
                 forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey
             ),
             customHealthSourceGroups: HealthKitWorkoutStore.loadCustomHealthSourceGroups(defaults: defaults),
-            healthStore: healthStore
+            healthStore: healthStore,
+            capturedWarningThresholds: BodyMetricWarningThresholds.storedValue(
+                from: defaults.string(forKey: BodyAppearancePreference.metricWarningThresholdsKey) ?? ""
+            )
         )
 
         let calendar = calendar
@@ -189,7 +260,7 @@ actor MetricWarningBackgroundEvaluator {
 
     // MARK: - Notification
 
-    private func postNotification(for event: MetricWarningEvent) async -> Bool {
+    private func postNotification(for event: MetricWarningEvent, calendar: Calendar) async -> Bool {
         let content = UNMutableNotificationContent()
         content.title = Self.notificationTitle(for: event.kind)
         content.body = Self.notificationBody(for: event)
@@ -202,7 +273,7 @@ actor MetricWarningBackgroundEvaluator {
         )
 
         do {
-            try await notificationCenter.add(request)
+            try await delivery.add(request)
             return true
         } catch {
             return false
