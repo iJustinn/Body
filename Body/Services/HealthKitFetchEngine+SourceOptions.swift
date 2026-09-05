@@ -41,9 +41,8 @@ extension HealthKitFetchEngine {
         for kind in BodyHealthSourceResolver.watchComputeSourceKinds {
             guard let bucket = healthSourcesByKind[kind] else { continue }
             let ids = bucket.keys.filter { $0.hasPrefix("source:") }.sorted()
-            if !ids.isEmpty {
-                result[kind.rawValue] = ids
-            }
+            // Known empty must clear a previously populated phone expectation.
+            result[kind.rawValue] = ids
         }
         return result
     }
@@ -76,18 +75,29 @@ extension HealthKitFetchEngine {
         }
     }
 
-    func fetchHealthDataSourceOptions(calendar: Calendar) async -> [HealthMetricKind: [BodyHealthDataSourceOption]]? {
+    static let healthSourceDiscoveryFreshnessInterval: TimeInterval = 24 * 60 * 60
+
+    private func hasFreshHealthSources(for kind: HealthMetricKind, now: Date) -> Bool {
+        guard let date = healthSourceDiscoveryDates[kind] else { return false }
+        let elapsed = now.timeIntervalSince(date)
+        return elapsed >= 0 && elapsed < Self.healthSourceDiscoveryFreshnessInterval
+    }
+
+    func fetchHealthDataSourceOptions(
+        calendar: Calendar, force: Bool = false, now: Date = Date()
+    ) async -> [HealthMetricKind: [BodyHealthDataSourceOption]]? {
         let contextRevision = queryContextRevision
         let permissionRawValue = permissionSelection.rawValue
-        if fetchedHealthDataSourcePermissionRawValue == permissionRawValue,
-           !healthSourcesByKind.isEmpty {
-            return nil
-        }
-
         let kinds = HealthMetricKind.sourceSelectableKinds.filter { kind in
             permissionSelection.includes(healthPermission(forSourceKind: kind))
                 && !healthSampleTypes(forSourceKind: kind).isEmpty
         }
+        if !force, fetchedHealthDataSourcePermissionRawValue == permissionRawValue,
+           kinds.allSatisfy({ hasFreshHealthSources(for: $0, now: now) }) {
+            return nil
+        }
+        markHealthSourcesDirty(for: Set(kinds))
+        let discoveryGeneration = healthSourceDiscoveryGeneration
 
         // Fan the per-kind source queries out concurrently instead of awaiting
         // them one kind at a time — on a first refresh this is ~13 serial
@@ -109,7 +119,8 @@ extension HealthKitFetchEngine {
 
         // A settings edit can reenter this actor while source queries suspend.
         // Never install buckets grouped for the retired configuration.
-        guard queryContextRevision == contextRevision else { return nil }
+        guard queryContextRevision == contextRevision,
+              healthSourceDiscoveryGeneration == discoveryGeneration else { return nil }
 
         // Merge only successfully discovered kinds: a failed kind keeps its
         // prior source map (so a resolvable selection stays resolvable) and is
@@ -133,6 +144,7 @@ extension HealthKitFetchEngine {
             )
             nextOptionsByKind[kindSource.kind] = options
             nextSourcesByKind[kindSource.kind] = sourcesByID
+            healthSourceDiscoveryDates[kindSource.kind] = now
         }
 
         healthSourcesByKind = nextSourcesByKind
@@ -165,20 +177,24 @@ extension HealthKitFetchEngine {
     /// — the focused counterpart of `fetchHealthDataSourceOptions` for a
     /// headless caller (the background metric-warning evaluation) that needs a
     /// pinned source to RESOLVE without paying for the full option fan-out.
-    /// Kinds already discovered this process, not source-selectable, without
+    /// Kinds with fresh discovery, not source-selectable, without
     /// permission, or without sample types are skipped; a kind whose query
-    /// fails simply stays absent, so its selection remains `.unresolved` and
-    /// the leaf fetch skips with failure semantics (H4). Deliberately does NOT
+    /// fails retains its prior map and stays dirty. Without a prior map its
+    /// selection remains `.unresolved`, so the leaf skips with failure semantics
+    /// (H4). Deliberately does NOT
     /// record `fetchedHealthDataSourcePermissionRawValue`: this is a partial
     /// discovery and must never short-circuit the full one.
-    func discoverHealthSources(for kinds: Set<HealthMetricKind>) async {
+    func discoverHealthSources(for kinds: Set<HealthMetricKind>, now: Date = Date()) async {
         let pending = kinds.filter { kind in
-            healthSourcesByKind[kind] == nil
+            !hasFreshHealthSources(for: kind, now: now)
                 && kind.supportsHealthDataSourceSelection
                 && permissionSelection.includes(healthPermission(forSourceKind: kind))
                 && !healthSampleTypes(forSourceKind: kind).isEmpty
         }
         guard !pending.isEmpty else { return }
+        let contextRevision = queryContextRevision
+        markHealthSourcesDirty(for: pending)
+        let discoveryGeneration = healthSourceDiscoveryGeneration
 
         let kindSources = await withTaskGroup(of: KindSources.self) { group in
             for kind in pending {
@@ -192,6 +208,8 @@ extension HealthKitFetchEngine {
             return collected
         }
 
+        guard queryContextRevision == contextRevision,
+              healthSourceDiscoveryGeneration == discoveryGeneration else { return }
         for kindSource in kindSources {
             guard let sources = kindSource.sources else { continue }
             let (_, sourcesByID) = BodyHealthSourceResolver.sourceOptionsAndMap(
@@ -201,6 +219,7 @@ extension HealthKitFetchEngine {
                 displayName: Self.displayName(for:)
             )
             healthSourcesByKind[kindSource.kind] = sourcesByID
+            healthSourceDiscoveryDates[kindSource.kind] = now
         }
     }
 

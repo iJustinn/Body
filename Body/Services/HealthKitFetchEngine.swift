@@ -38,6 +38,7 @@ actor HealthKitFetchEngine {
     var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
     var combinesHealthDataSourcesByName: Bool
     var customHealthSourceGroups: [BodyCustomHealthSourceGroup]
+    private let capturedWarningThresholds: BodyMetricWarningThresholds?
 
     var healthSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:] {
         didSet {
@@ -46,6 +47,8 @@ actor HealthKitFetchEngine {
     }
     private(set) var queryContextRevision = 0
     var fetchedHealthDataSourcePermissionRawValue: String?
+    var healthSourceDiscoveryDates: [HealthMetricKind: Date] = [:]
+    var healthSourceDiscoveryGeneration = 0
 
     var anchorDate: Date?
 
@@ -261,7 +264,8 @@ actor HealthKitFetchEngine {
         combinesHealthDataSourcesByName: Bool,
         customHealthSourceGroups: [BodyCustomHealthSourceGroup] = [],
         healthStore: any BodyHealthQuerying = HKHealthStore(),
-        timeZoneLedger: BodyTimeZoneLedger = BodyTimeZoneLedger()
+        timeZoneLedger: BodyTimeZoneLedger = BodyTimeZoneLedger(),
+        capturedWarningThresholds: BodyMetricWarningThresholds? = nil
     ) {
         self.healthStore = healthStore
         self.timeZoneLedger = timeZoneLedger
@@ -270,6 +274,7 @@ actor HealthKitFetchEngine {
         self.secondaryHealthDataSourceSelection = secondaryHealthDataSourceSelection
         self.combinesHealthDataSourcesByName = combinesHealthDataSourcesByName
         self.customHealthSourceGroups = customHealthSourceGroups
+        self.capturedWarningThresholds = capturedWarningThresholds
     }
 
     // MARK: - Selection setters
@@ -334,6 +339,15 @@ actor HealthKitFetchEngine {
     func clearSourceCache() {
         healthSourcesByKind = [:]
         fetchedHealthDataSourcePermissionRawValue = nil
+        healthSourceDiscoveryDates.removeAll()
+        healthSourceDiscoveryGeneration &+= 1
+    }
+
+    /// A known type change invalidates discovery freshness without throwing
+    /// away the last usable map while a replacement query may still fail.
+    func markHealthSourcesDirty(for kinds: Set<HealthMetricKind>) {
+        for kind in kinds { healthSourceDiscoveryDates.removeValue(forKey: kind) }
+        healthSourceDiscoveryGeneration &+= 1
     }
 
     /// Full reconcile: drops every cached effort outcome, in memory and on disk,
@@ -1993,12 +2007,13 @@ actor HealthKitFetchEngine {
     /// the high heart rate kind).
     /// The limit today's detection runs against: the user's Settings override,
     /// else the default (zone 3's lower bound for high heart rate). Read straight
-    /// from `UserDefaults.standard` — the suite the app's `@AppStorage` uses — so
-    /// the engine doesn't need the value pushed in on every change.
-    private func warningThreshold(for kind: MetricWarningKind) -> Double {
+    /// from `UserDefaults.standard` for foreground callers. A headless engine
+    /// pins its captured thresholds so settings changing during source discovery
+    /// cannot silently change the query's input context. Internal for tests.
+    func warningThreshold(for kind: MetricWarningKind) -> Double {
         let rawValue = UserDefaults.standard
             .string(forKey: BodyAppearancePreference.metricWarningThresholdsKey) ?? ""
-        return BodyMetricWarningThresholds.storedValue(from: rawValue)
+        return (capturedWarningThresholds ?? BodyMetricWarningThresholds.storedValue(from: rawValue))
             .threshold(
                 for: kind,
                 maxHeartRate: kind == .highHeartRate ? userMaxHeartRate() : nil

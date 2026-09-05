@@ -408,26 +408,43 @@ enum BodyHealthSourceResolver {
         customGroups: [BodyCustomHealthSourceGroup] = [],
         displayName: (HKSource) -> String
     ) -> (options: [BodyHealthDataSourceOption], sourcesByID: [String: [HKSource]]) {
+        sourceOptionsAndMap(
+            from: sources, combinesSourcesByName: combinesSourcesByName, customGroups: customGroups,
+            bundleIdentifier: { $0.bundleIdentifier }, identityName: { Self.identityName(for: $0) },
+            displayName: displayName
+        )
+    }
+
+    /// The same grouping path with value-type source fixtures: HKSource has no
+    /// public initializer in an unsigned test host.
+    static func sourceOptionsAndMap<Source>(
+        from sources: [Source],
+        combinesSourcesByName: Bool,
+        customGroups: [BodyCustomHealthSourceGroup] = [],
+        bundleIdentifier: (Source) -> String,
+        identityName: (Source) -> String,
+        displayName: (Source) -> String
+    ) -> (options: [BodyHealthDataSourceOption], sourcesByID: [String: [Source]]) {
         let sortedSources = sources.sorted { lhs, rhs in
             let lhsName = displayName(lhs)
             let rhsName = displayName(rhs)
             if lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedSame {
-                return lhs.bundleIdentifier < rhs.bundleIdentifier
+                return bundleIdentifier(lhs) < bundleIdentifier(rhs)
             }
             return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending
         }
 
-        var sourcesByID: [String: [HKSource]] = [:]
+        var sourcesByID: [String: [Source]] = [:]
         let duplicateNameBundleIdentifiers = Set(
-            Dictionary(grouping: sortedSources, by: \.bundleIdentifier)
-                .compactMap { bundleIdentifier, sources in
+            Dictionary(grouping: sortedSources, by: bundleIdentifier)
+                .compactMap { identifier, sources in
                     let sourceNameKeys = Set(sources.map { source in
                         BodyHealthDataSourceOption.individualSourceIdentityKey(
-                            bundleIdentifier: source.bundleIdentifier,
-                            name: identityName(for: source)
+                            bundleIdentifier: bundleIdentifier(source),
+                            name: identityName(source)
                         )
                     })
-                    return sourceNameKeys.count > 1 ? bundleIdentifier : nil
+                    return sourceNameKeys.count > 1 ? identifier : nil
                 }
         )
         for source in sortedSources {
@@ -443,13 +460,13 @@ enum BodyHealthSourceResolver {
             // dedupe via the same bucket) whenever disambiguation isn't
             // needed.
             let plainID = BodyHealthDataSourceOption.individualSourceID(
-                bundleIdentifier: source.bundleIdentifier,
-                name: identityName(for: source),
+                bundleIdentifier: bundleIdentifier(source),
+                name: identityName(source),
                 disambiguatesBundleIdentifier: false
             )
             let disambiguatedID = BodyHealthDataSourceOption.individualSourceID(
-                bundleIdentifier: source.bundleIdentifier,
-                name: identityName(for: source),
+                bundleIdentifier: bundleIdentifier(source),
+                name: identityName(source),
                 disambiguatesBundleIdentifier: true
             )
             sourcesByID[plainID, default: []].append(source)
@@ -459,7 +476,7 @@ enum BodyHealthSourceResolver {
         }
 
         let groupedSources = Dictionary(grouping: sortedSources) { source in
-            BodyHealthDataSourceOption.normalizedSourceName(identityName(for: source))
+            BodyHealthDataSourceOption.normalizedSourceName(identityName(source))
         }
         // Register the combined-name alias for EVERY group, including
         // singletons: a `combined-name:` selection is persisted by whichever
@@ -474,7 +491,7 @@ enum BodyHealthSourceResolver {
         // Display is unaffected: the `options` picker list below keeps its own
         // count-aware ID choice.
         for group in groupedSources.values {
-            sourcesByID[BodyHealthDataSourceOption.combinedSourceID(for: identityName(for: group[0]))] = group
+            sourcesByID[BodyHealthDataSourceOption.combinedSourceID(for: identityName(group[0]))] = group
         }
 
         sourcesByID = registeringCustomGroupBuckets(
@@ -482,8 +499,8 @@ enum BodyHealthSourceResolver {
             customGroups: customGroups,
             identityKey: { source in
                 BodyHealthDataSourceOption.individualSourceIdentityKey(
-                    bundleIdentifier: source.bundleIdentifier,
-                    name: identityName(for: source)
+                    bundleIdentifier: bundleIdentifier(source),
+                    name: identityName(source)
                 )
             }
         )
@@ -492,11 +509,11 @@ enum BodyHealthSourceResolver {
         if combinesSourcesByName {
             options = groupedSources.values.map { group in
                 let optionID = group.count > 1
-                    ? BodyHealthDataSourceOption.combinedSourceID(for: identityName(for: group[0]))
+                    ? BodyHealthDataSourceOption.combinedSourceID(for: identityName(group[0]))
                     : BodyHealthDataSourceOption.individualSourceID(
-                        bundleIdentifier: group[0].bundleIdentifier,
-                        name: identityName(for: group[0]),
-                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(group[0].bundleIdentifier)
+                        bundleIdentifier: bundleIdentifier(group[0]),
+                        name: identityName(group[0]),
+                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(bundleIdentifier(group[0]))
                     )
                 return BodyHealthDataSourceOption(
                     id: optionID,
@@ -507,9 +524,9 @@ enum BodyHealthSourceResolver {
             options = sortedSources.map { source in
                 return BodyHealthDataSourceOption(
                     id: BodyHealthDataSourceOption.individualSourceID(
-                        bundleIdentifier: source.bundleIdentifier,
-                        name: identityName(for: source),
-                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(source.bundleIdentifier)
+                        bundleIdentifier: bundleIdentifier(source),
+                        name: identityName(source),
+                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(bundleIdentifier(source))
                     ),
                     name: displayName(source)
                 )
