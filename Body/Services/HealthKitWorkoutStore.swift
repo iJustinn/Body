@@ -151,6 +151,8 @@ final class HealthKitWorkoutStore {
     @ObservationIgnored
     private var healthSummaryPrimarySignature: String?
     @ObservationIgnored private var dashboardCacheScope: HealthDashboardCacheScope?
+    @ObservationIgnored private var completedDashboardFreshness: HealthDashboardSnapshotStore.Freshness?
+    private(set) var activityRingBackfillState: HealthDashboardSnapshotStore.ActivityRingBackfillState = .pending(resumeFrom: nil)
     @ObservationIgnored private var dashboardPublicationToken = HealthDashboardPublicationToken()
     @ObservationIgnored private var cacheSourceIdentities: [HealthMetricKind: [String: [String]]] = [:]
     @ObservationIgnored private var contextRefreshTask: Task<Void, Never>?
@@ -648,6 +650,7 @@ final class HealthKitWorkoutStore {
             needsContextRefresh = true
             if contextRefreshRequiresFetch {
                 lastSuccessfulRefreshDate = nil
+                completedDashboardFreshness = nil
                 HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
             }
             scheduleContextRefreshIfNeeded()
@@ -838,8 +841,8 @@ final class HealthKitWorkoutStore {
         // the abandoned refresh never published, stamping the payload with a
         // signature that doesn't match it.
         let daySampleSignatures = currentDaySampleSignatures()
-        let secondarySignature = currentSecondarySelectionSignature()
         let summaryContextSignature = healthSummaryPrimarySignature
+        let persistenceMetadata = currentDashboardPersistenceMetadata()
         let hydratedDaySamples = await persistedDaySamplesHydration?.value
         // Nothing landed at all, or the trends are still the empty placeholder
         // while a real sidecar sits on disk — either way the write can only
@@ -853,12 +856,12 @@ final class HealthKitWorkoutStore {
             Self.snapshotPersistQueue.async {
                 defer { continuation.resume() }
                 guard token.isValid else { return }
-                HealthDashboardSnapshotStore.save(
+                HealthDashboardSnapshotStore.saveWithOutcome(
                     snapshotToSave,
                     daySampleSignatures: daySampleSignatures,
-                    summaryContextSignature: summaryContextSignature
+                    summaryContextSignature: summaryContextSignature,
+                    metadata: persistenceMetadata
                 )
-                HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
             }
         }
         await refreshCacheDiskSize()
@@ -891,6 +894,7 @@ final class HealthKitWorkoutStore {
         initialMonthSnapshots: [WorkoutMonthSnapshot] = WorkoutSnapshotStore.loadPersistedMonths(),
         initialHealthDashboardSnapshot: HealthDashboardSnapshot? = nil,
         initialSummaryContextSignature: String? = nil,
+        initialPersistenceMetadata: HealthDashboardSnapshotStore.PersistenceMetadata = .init(),
         initialPermissionSelection: BodyHealthPermissionSelection = BodyHealthPermissionSelection.load(),
         initialHealthDataSourceSelection: BodyHealthDataSourceSelection = BodyHealthDataSourceSelection.load(),
         initialSecondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection = BodyHealthSecondaryDataSourceSelection.load(),
@@ -931,7 +935,8 @@ final class HealthKitWorkoutStore {
         let loadedDashboard = initialHealthDashboardSnapshot.map {
             HealthDashboardSnapshotStore.LoadedSnapshot(
                 snapshot: $0,
-                summaryContextSignature: initialSummaryContextSignature
+                summaryContextSignature: initialSummaryContextSignature,
+                metadata: initialPersistenceMetadata
             )
         } ?? HealthDashboardSnapshotStore.loadOrEmptyWithContext()
         // Skip the readiness recompute at init: it's a per-day iteration over up
@@ -1048,7 +1053,7 @@ final class HealthKitWorkoutStore {
         // the current selection/prefs still match the ones it was saved under.
         healthSummaryPrimarySignature = loadedDashboard.summaryContextSignature
         dashboardCacheScope = HealthDashboardCacheScope(signature: loadedDashboard.summaryContextSignature)
-        let storedSecondarySignature = HealthDashboardSnapshotStore.loadSecondarySelectionSignature()
+        let storedSecondarySignature = loadedDashboard.metadata.secondarySelectionSignature
         if storedSecondarySignature != initialSecondaryHealthDataSourceSelection.signature + initialCustomSourceGroupsSuffix {
             healthTrends = filteredHealthDashboardSnapshot.trends.clearingSecondarySeries()
         } else {
@@ -1067,7 +1072,10 @@ final class HealthKitWorkoutStore {
         loadedActivityRingMonthKeys = Set(activityRingHistory.loadedMonthKeySet(calendar: .bodyGregorian))
         // Restore the persisted last-successful-refresh timestamp so the
         // cold-start sync path applies the same tiered TTL as a warm resume.
-        lastSuccessfulRefreshDate = HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate()
+        completedDashboardFreshness = loadedDashboard.metadata.freshness
+        lastSuccessfulRefreshDate = loadedDashboard.metadata.freshness?.date
+        activityRingBackfillState = initialPermissionSelection.includes(.activityRings)
+            ? loadedDashboard.metadata.ringBackfill : .pending(resumeFrom: nil)
         hasCompletedInitialHealthDataLoad = HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted()
         // Restore the compute seed's data watermark from the SAME persisted
         // value: it was written only when a clean full refresh landed — the
@@ -1148,6 +1156,11 @@ final class HealthKitWorkoutStore {
         }
         reconcileDashboardCacheScope()
         _ = captureRefreshInputs()
+        if completedDashboardFreshness?.contextSignature != dashboardFreshnessContextSignature() {
+            completedDashboardFreshness = nil
+            lastSuccessfulRefreshDate = nil
+            lastVitalsRefreshDate = nil
+        }
     }
 
     /// Rebuilds the persisted readiness overlay when the frozen morning records
@@ -3867,17 +3880,17 @@ final class HealthKitWorkoutStore {
             activityRingHistory: activityRingHistory
         )
         let daySampleSignatures = currentDaySampleSignatures()
-        let secondarySignature = currentSecondarySelectionSignature()
         let summaryContextSignature = healthSummaryPrimarySignature
+        let persistenceMetadata = currentDashboardPersistenceMetadata()
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
-            HealthDashboardSnapshotStore.save(
+            HealthDashboardSnapshotStore.saveWithOutcome(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
-                summaryContextSignature: summaryContextSignature
+                summaryContextSignature: summaryContextSignature,
+                metadata: persistenceMetadata
             )
-            HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
             Task { @MainActor in await self.refreshCacheDiskSize() }
         }
     }
@@ -4656,13 +4669,15 @@ final class HealthKitWorkoutStore {
             // Carry the current summary-context signature so this ring-pagination
             // save doesn't clobber the persisted one back to nil (H2a).
             let summaryContextSignature = healthSummaryPrimarySignature
+            let persistenceMetadata = currentDashboardPersistenceMetadata()
             let token = dashboardPublicationToken
             Self.snapshotPersistQueue.async {
                 guard token.isValid else { return }
-                HealthDashboardSnapshotStore.save(
+                HealthDashboardSnapshotStore.saveWithOutcome(
                     snapshotToSave,
                     daySampleSignatures: daySampleSignatures,
-                    summaryContextSignature: summaryContextSignature
+                    summaryContextSignature: summaryContextSignature,
+                    metadata: persistenceMetadata
                 )
             }
             authorizationState = .authorized
@@ -4800,6 +4815,8 @@ final class HealthKitWorkoutStore {
         customSourceIDsWithDataByKind = [:]
         persistedDaySamplesHydration = nil
         lastSuccessfulRefreshDate = nil
+        completedDashboardFreshness = nil
+        activityRingBackfillState = .pending(resumeFrom: nil)
         // A tombstoned install is back to first launch, so the load overlay
         // must present again.
         hasCompletedInitialHealthDataLoad = false
@@ -4958,6 +4975,7 @@ final class HealthKitWorkoutStore {
         // through `persistPublishedDashboardSnapshot` instead.
         let persistEpoch = cacheEpoch
         var publishedDashboard = false
+        var completedFullRefresh = false
 
         do {
             // Source discovery must finish before any dashboard query — the
@@ -5041,6 +5059,7 @@ final class HealthKitWorkoutStore {
             // inputs are current for the estimator.
             await autoApplyPredictedEffortIfNeeded(monthKeys: Array(keys))
             setRefreshStage(.finishing)
+            completedFullRefresh = !hadQueryFailure
         } catch {
             handleRefreshError(error)
         }
@@ -5053,6 +5072,9 @@ final class HealthKitWorkoutStore {
         if publishedDashboard,
            mayApplyRefreshResults,
            Self.mayApplyLoad(capturedEpoch: persistEpoch, currentEpoch: cacheEpoch) {
+            if completedFullRefresh {
+                stageCompletedDashboardFreshness(date: date)
+            }
             persistDashboardSnapshot()
             saveHealthWidgetSnapshot()
         }
@@ -5180,6 +5202,10 @@ final class HealthKitWorkoutStore {
             // recent workouts, so browsing an older month simply finds none.
             await autoApplyPredictedEffortIfNeeded(monthKeys: [key])
             setRefreshStage(.finishing)
+            if updatesHealthSummary, !hadQueryFailure, mayApplyRefreshResults {
+                stageCompletedDashboardFreshness(date: refreshDate)
+                persistDashboardSnapshot()
+            }
         } catch {
             handleRefreshError(error)
         }
@@ -5368,7 +5394,7 @@ final class HealthKitWorkoutStore {
         // rewrites the day-sample sidecar from `healthTrends`.
         await hydratePersistedDaySamplesIfNeeded()
 
-        let backfillState = HealthDashboardSnapshotStore.loadActivityRingBackfillState()
+        let backfillState = activityRingBackfillState
         let result: ActivityRingHistoryFetchResult
         switch backfillState {
         case .pending(let resumeFrom):
@@ -5418,10 +5444,6 @@ final class HealthKitWorkoutStore {
             foundDays: !result.history.days.isEmpty,
             now: date
         )
-        if nextBackfillState != backfillState {
-            HealthDashboardSnapshotStore.saveActivityRingBackfillState(nextBackfillState)
-        }
-
         if result.authorizationDenied {
             // Access was revoked: every cached month is stale, not just the
             // refreshed window.
@@ -5441,12 +5463,14 @@ final class HealthKitWorkoutStore {
         // `result.hadQueryFailure` is deliberately dropped: this load no longer
         // gates the refresh, so a transient ring failure must not withhold the
         // freshness TTL for summary/trend data that landed cleanly.
+        activityRingBackfillState = nextBackfillState
         persistActivityRingHistory()
     }
 
     /// Lands ONE chunk of a running backfill walk: applies it through the
-    /// shared funnel, makes the grown history durable, and moves the resume
-    /// checkpoint onto disk. Returns whether the walk may continue — `false`
+    /// shared funnel, then queues the grown history and checkpoint together.
+    /// The live walk need not wait for disk: a quit resumes the last committed
+    /// envelope, never the newer in-memory checkpoint. Returns `false`
     /// once a Clear Cache has invalidated the epoch the walk started under, so
     /// the engine stops querying for a store that no longer wants the answer.
     ///
@@ -5467,14 +5491,13 @@ final class HealthKitWorkoutStore {
         guard applyActivityRingHistoryChunk(chunk.history, capturedEpoch: capturedEpoch, calendar: calendar) else {
             return false
         }
-        persistActivityRingHistory()
-
         // The chunk that reached history start carries no checkpoint: whether
         // the walk `completed` is the terminal state's call, so nothing here
         // can push a finished backfill back to pending.
         if let nextChunkEndDate = chunk.nextChunkEndDate {
-            HealthDashboardSnapshotStore.saveActivityRingBackfillState(.pending(resumeFrom: nextChunkEndDate))
+            activityRingBackfillState = .pending(resumeFrom: nextChunkEndDate)
         }
+        persistActivityRingHistory()
         return true
     }
 
@@ -5525,8 +5548,8 @@ final class HealthKitWorkoutStore {
         return true
     }
 
-    /// Makes each ring chunk durable as it lands, so a walk interrupted by a
-    /// quit resumes from what's on disk instead of starting over. Same
+    /// Queues each ring chunk with its checkpoint, so a walk interrupted by a
+    /// quit resumes from what's actually on disk. Same
     /// signature-carrying save as the older-month pagination path.
     private func persistActivityRingHistory() {
         let snapshotToSave = HealthDashboardSnapshot(
@@ -5536,13 +5559,15 @@ final class HealthKitWorkoutStore {
         )
         let daySampleSignatures = currentDaySampleSignatures()
         let summaryContextSignature = healthSummaryPrimarySignature
+        let persistenceMetadata = currentDashboardPersistenceMetadata()
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
-            HealthDashboardSnapshotStore.save(
+            HealthDashboardSnapshotStore.saveWithOutcome(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
-                summaryContextSignature: summaryContextSignature
+                summaryContextSignature: summaryContextSignature,
+                metadata: persistenceMetadata
             )
         }
     }
@@ -5694,6 +5719,7 @@ final class HealthKitWorkoutStore {
         HealthDashboardSnapshotStore.clearWatchTrainingLoadSeed()
         lastSuccessfulRefreshDate = nil
         HealthDashboardSnapshotStore.clearLastSuccessfulRefreshDate()
+        completedDashboardFreshness = nil
     }
 
     /// What a custom group's MEMBERSHIP adds to every cache signature. Empty
@@ -6247,6 +6273,40 @@ final class HealthKitWorkoutStore {
         return true
     }
 
+    /// Only a settled full-refresh tail may offer a new cold-start watermark.
+    /// `markRefreshSucceeded` updates live state earlier, before compute awaits;
+    /// abandonment and intermediate saves must not persist that newer claim.
+    func stageCompletedDashboardFreshness(date: Date) {
+        guard mayApplyRefreshResults, lastSuccessfulRefreshDate == date else { return }
+        completedDashboardFreshness = .init(
+            date: date,
+            contextSignature: dashboardFreshnessContextSignature()
+        )
+    }
+
+    private func dashboardFreshnessContextSignature() -> String {
+        let selection = BodyDashboardFetchSelection.load()
+        let tiers = HealthMetricKind.allCases.sorted { $0.rawValue < $1.rawValue }.map {
+            "\($0.rawValue):\(selection.includes($0)):\(selection.includesFullPayload($0))"
+        }
+        return HealthDashboardCacheScope.key(
+            [currentDashboardCacheScope().signature, String(selection.includesActivityRings)] + tiers
+        )
+    }
+
+    /// Captured in the same synchronous span as each payload, before queueing.
+    /// A failed write leaves the candidate in memory so another save can retry
+    /// without fetching again; only metadata decoded from disk is durable.
+    func currentDashboardPersistenceMetadata() -> HealthDashboardSnapshotStore.PersistenceMetadata {
+        HealthDashboardSnapshotStore.PersistenceMetadata(
+            ringBackfill: permissionSelection.includes(.activityRings)
+                ? activityRingBackfillState : .pending(resumeFrom: nil),
+            secondarySelectionSignature: currentSecondarySelectionSignature(),
+            freshness: completedDashboardFreshness?.contextSignature == dashboardFreshnessContextSignature()
+                ? completedDashboardFreshness : nil
+        )
+    }
+
     /// Encodes and writes the live dashboard snapshot (summary + trends + ring
     /// history) plus the signatures that gate its reuse. Split out of
     /// `updateHealthDashboardSnapshot` so the full refresh can coalesce that
@@ -6260,21 +6320,21 @@ final class HealthKitWorkoutStore {
             trends: healthTrends,
             activityRingHistory: activityRingHistory
         )
-        let secondarySignature = currentSecondarySelectionSignature()
         let daySampleSignatures = currentDaySampleSignatures()
         // Persist the summary-context signature stamped at publish time so a
         // cold start can gate the summary reuse (H2a). Rides inside the
         // snapshot, so it saves atomically with the data on every path.
         let summaryContextSignature = healthSummaryPrimarySignature
+        let persistenceMetadata = currentDashboardPersistenceMetadata()
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
-            HealthDashboardSnapshotStore.save(
+            HealthDashboardSnapshotStore.saveWithOutcome(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
-                summaryContextSignature: summaryContextSignature
+                summaryContextSignature: summaryContextSignature,
+                metadata: persistenceMetadata
             )
-            HealthDashboardSnapshotStore.saveSecondarySelectionSignature(secondarySignature)
             Task { @MainActor in await self.refreshCacheDiskSize() }
         }
     }
@@ -6450,13 +6510,15 @@ final class HealthKitWorkoutStore {
         // clobber the persisted one back to nil (H2a), as in the readiness
         // reapply below.
         let summaryContextSignature = healthSummaryPrimarySignature
+        let persistenceMetadata = currentDashboardPersistenceMetadata()
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
-            HealthDashboardSnapshotStore.save(
+            HealthDashboardSnapshotStore.saveWithOutcome(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
-                summaryContextSignature: summaryContextSignature
+                summaryContextSignature: summaryContextSignature,
+                metadata: persistenceMetadata
             )
         }
     }
@@ -6531,13 +6593,15 @@ final class HealthKitWorkoutStore {
         )
         let daySampleSignatures = currentDaySampleSignatures()
         let summaryContextSignature = healthSummaryPrimarySignature
+        let persistenceMetadata = currentDashboardPersistenceMetadata()
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
-            HealthDashboardSnapshotStore.save(
+            HealthDashboardSnapshotStore.saveWithOutcome(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
-                summaryContextSignature: summaryContextSignature
+                summaryContextSignature: summaryContextSignature,
+                metadata: persistenceMetadata
             )
         }
     }
@@ -6571,13 +6635,15 @@ final class HealthKitWorkoutStore {
         // Same reason as `recomputeStress`: carry the current summary-context
         // signature so this save doesn't clobber the persisted one back to nil.
         let summaryContextSignature = healthSummaryPrimarySignature
+        let persistenceMetadata = currentDashboardPersistenceMetadata()
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
-            HealthDashboardSnapshotStore.save(
+            HealthDashboardSnapshotStore.saveWithOutcome(
                 updated,
                 daySampleSignatures: daySampleSignatures,
-                summaryContextSignature: summaryContextSignature
+                summaryContextSignature: summaryContextSignature,
+                metadata: persistenceMetadata
             )
         }
     }
@@ -6647,13 +6713,15 @@ final class HealthKitWorkoutStore {
         // save doesn't clobber the persisted one back to nil (H2a). Readiness
         // isn't part of the signature, so it still describes `updated.summary`.
         let summaryContextSignature = healthSummaryPrimarySignature
+        let persistenceMetadata = currentDashboardPersistenceMetadata()
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
-            HealthDashboardSnapshotStore.save(
+            HealthDashboardSnapshotStore.saveWithOutcome(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
-                summaryContextSignature: summaryContextSignature
+                summaryContextSignature: summaryContextSignature,
+                metadata: persistenceMetadata
             )
         }
         saveHealthWidgetSnapshot()
@@ -6739,7 +6807,8 @@ final class HealthKitWorkoutStore {
         }
         if refreshedVitals, !hadQueryFailure {
             lastSuccessfulRefreshDate = date
-            HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate(date)
+            // Live success is immediate. Only the settled dashboard tail may
+            // attach this date to an atomic persisted envelope.
             // A clean full refresh re-derived readiness from this fetch too, so
             // its watch watermark advances with it. (The workout-only paths
             // advance it on their own, from
@@ -7437,12 +7506,12 @@ final class HealthKitWorkoutStore {
             // backfill progress must fall with it — otherwise re-enabling rings
             // resumes recent-months-only fetches and the ten-year history never
             // rebuilds.
-            HealthDashboardSnapshotStore.clearActivityRingBackfillState()
-        } else if case .suppressed = HealthDashboardSnapshotStore.loadActivityRingBackfillState() {
+            activityRingBackfillState = .pending(resumeFrom: nil)
+        } else if case .suppressed = activityRingBackfillState {
             // Rings are back on in Body's own selection, so the denial that
             // parked the backfill may be gone: re-arm it and let the next ring
             // load find out.
-            HealthDashboardSnapshotStore.saveActivityRingBackfillState(.pending(resumeFrom: nil))
+            activityRingBackfillState = .pending(resumeFrom: nil)
         }
 
         let snapshotToSave = HealthDashboardSnapshot(
@@ -7450,13 +7519,15 @@ final class HealthKitWorkoutStore {
         )
         let daySampleSignatures = currentDaySampleSignatures()
         let summaryContextSignature = healthSummaryPrimarySignature
+        let persistenceMetadata = currentDashboardPersistenceMetadata()
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
-            HealthDashboardSnapshotStore.save(
+            HealthDashboardSnapshotStore.saveWithOutcome(
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
-                summaryContextSignature: summaryContextSignature
+                summaryContextSignature: summaryContextSignature,
+                metadata: persistenceMetadata
             )
         }
         saveHealthWidgetSnapshot()

@@ -611,8 +611,8 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
     }
 
     /// The ten-year walk runs for minutes, so every chunk has to be on screen
-    /// AND on disk the moment it lands — not accumulated and applied once at the
-    /// end, which is what made the calendar appear in a single step.
+    /// and queued with its checkpoint as it lands, not accumulated at the end.
+    /// HealthDashboardDurabilityTests covers the independent disk boundary.
     @MainActor
     func testActivityRingBackfillChunksLandAndCheckpointAsTheyArrive() throws {
         let restoreBackfillState = preserveActivityRingBackfillState()
@@ -644,7 +644,7 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
         XCTAssertEqual(store.activityRingHistory.days.map(\.date), [march5])
         XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [marchKey])
         XCTAssertEqual(
-            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            store.activityRingBackfillState,
             .pending(resumeFrom: marchStart)
         )
 
@@ -664,7 +664,7 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
         XCTAssertEqual(store.activityRingHistory.days.map(\.date), [february10, march5])
         XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [februaryKey, marchKey])
         XCTAssertEqual(
-            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            store.activityRingBackfillState,
             .pending(resumeFrom: februaryStart)
         )
 
@@ -685,7 +685,7 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
         XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [januaryKey, februaryKey, marchKey])
         XCTAssertEqual(store.cacheStatus.activityRingMonthCount, 3)
         XCTAssertEqual(
-            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            store.activityRingBackfillState,
             .pending(resumeFrom: februaryStart)
         )
     }
@@ -732,11 +732,11 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
         XCTAssertEqual(store.activityRingHistory.days.map(\.date), [february10, march5])
         XCTAssertEqual(store.activityRingHistory.loadedMonthKeys, [februaryKey, marchKey])
         XCTAssertEqual(
-            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            store.activityRingBackfillState,
             .pending(resumeFrom: februaryStart)
         )
         XCTAssertNotEqual(
-            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            store.activityRingBackfillState,
             .pending(resumeFrom: nil)
         )
     }
@@ -786,7 +786,7 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
         )
         XCTAssertTrue(store.activityRingHistory.days.isEmpty)
         XCTAssertEqual(
-            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            store.activityRingBackfillState,
             .pending(resumeFrom: nil)
         )
     }
@@ -824,7 +824,7 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
         )
         XCTAssertEqual(store.activityRingHistory.days.count, 31)
         XCTAssertEqual(
-            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            store.activityRingBackfillState,
             .pending(resumeFrom: checkpoint)
         )
 
@@ -1022,7 +1022,7 @@ final class HealthKitWorkoutStoreMonthWindowTests: XCTestCase {
         // And the refused chunk must not push the reset progress back to a
         // checkpoint the user has opted out of.
         XCTAssertEqual(
-            HealthDashboardSnapshotStore.loadActivityRingBackfillState(),
+            store.activityRingBackfillState,
             .pending(resumeFrom: nil)
         )
     }

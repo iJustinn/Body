@@ -1046,11 +1046,23 @@ final class SourceGuardTests: XCTestCase {
         let source = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
         let updateStart = try XCTUnwrap(source.range(of: "func updateHealthDashboardSnapshot(")?.lowerBound)
         let saveStart = try XCTUnwrap(
-            source.range(of: "HealthDashboardSnapshotStore.save(", range: updateStart..<source.endIndex)?.lowerBound
+            source.range(of: "HealthDashboardSnapshotStore.saveWithOutcome(", range: updateStart..<source.endIndex)?.lowerBound
         )
         let updateBlock = String(source[updateStart..<saveStart])
 
         XCTAssertTrue(updateBlock.contains(".recalculatingReadiness("))
+    }
+
+    func testEveryDashboardSaveCarriesCapturedDurabilityMetadata() throws {
+        let source = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let saveCount = source.occurrenceCount(of: "HealthDashboardSnapshotStore.saveWithOutcome(")
+        XCTAssertEqual(saveCount, 10)
+        XCTAssertEqual(source.occurrenceCount(of: "let persistenceMetadata = currentDashboardPersistenceMetadata()"), saveCount)
+        XCTAssertEqual(source.occurrenceCount(of: "metadata: persistenceMetadata"), saveCount)
+        XCTAssertFalse(source.contains("HealthDashboardSnapshotStore.save("))
+        XCTAssertFalse(source.contains("HealthDashboardSnapshotStore.saveLastSuccessfulRefreshDate("))
+        XCTAssertFalse(source.contains("HealthDashboardSnapshotStore.saveSecondarySelectionSignature("))
+        XCTAssertFalse(source.contains("HealthDashboardSnapshotStore.saveActivityRingBackfillState("))
     }
 
     @MainActor

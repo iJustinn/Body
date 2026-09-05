@@ -12,6 +12,8 @@ All RefreshOptimizationPlan-03 phases use build 8. Explicit source, grouping, an
 
 Permission changes invalidate visible data immediately, then serialize privacy cleanup and cached filtering before corrective refresh. Cleanup holds the refresh slot, overlapping toggles coalesce after all cleanup finishes, and cancelling the Settings caller does not abandon an already-applied opt-out.
 
+Dashboard durability: the versioned dashboard envelope stores ring progress, comparison scope, and cold-start freshness atomically with their payload. Live refresh success does not wait for disk. Legacy snapshots keep their history but restart unproven ring backfill and freshness; main and day-sample sidecar saves report durability independently. A failed save retains the previous file, and a later compatible save can retry the captured data without refetching. This does not yet add authoritative-empty intraday repair.
+
 ## Screenshots
 
 <p align="center">

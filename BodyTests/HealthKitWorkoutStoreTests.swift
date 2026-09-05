@@ -393,7 +393,10 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
         let vitalsRefreshDate = Date(timeIntervalSince1970: 1_700_000_100)
         store.markRefreshSucceeded(date: vitalsRefreshDate, refreshedVitals: true, publishesWatch: false)
         XCTAssertEqual(store.lastSuccessfulRefreshDate, vitalsRefreshDate)
-        XCTAssertEqual(HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate(), vitalsRefreshDate)
+        // The live TTL is immediate; only a settled tail saved with its payload
+        // may restore freshness after a relaunch. No unbound defaults stamp.
+        XCTAssertNil(HealthDashboardSnapshotStore.loadLastSuccessfulRefreshDate())
+        XCTAssertNil(store.currentDashboardPersistenceMetadata().freshness)
     }
 
     func testHealthKitWorkoutTypeMappingPreservesSpecificActivities() {

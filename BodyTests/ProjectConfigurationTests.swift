@@ -358,6 +358,18 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(refinement.contains("Implementation Phase 1"))
     }
 
+    func testDashboardDurabilityDocumentationStaysInSync() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        let refinement = try BodyTestSupport.sourceText(at: "docs/RefreshOptimizationPlan-03.md")
+        XCTAssertTrue(readme.contains("Dashboard durability"))
+        XCTAssertTrue(readme.contains("cold-start freshness atomically with their payload"))
+        XCTAssertTrue(readme.contains("main and day-sample sidecar saves report durability independently"))
+        XCTAssertTrue(testPlan.contains("HealthDashboardDurabilityTests"))
+        XCTAssertTrue(testPlan.contains("reload at both atomic-write boundaries"))
+        XCTAssertTrue(refinement.contains("Implementation Phase 2: durable progress and freshness"))
+    }
+
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
 
