@@ -338,8 +338,10 @@ struct BodyWorkoutsView: View {
                     .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)
             }
-            .task {
+            .task(id: scenePhase) {
+                guard scenePhase == .active else { return }
                 await workoutStore.loadRecentWorkoutMonthsIfNeeded()
+                await workoutStore.loadMonthIfNeeded(month: selectedMonth, year: selectedYear, allowPrompt: false)
                 animateListInIfNeeded()
             }
             .onAppear {
@@ -759,14 +761,16 @@ struct BodyWorkoutsView: View {
             return true
         }
 
-        if workoutStore.hasLoadedSnapshot(month: monthYear.month, year: monthYear.year) {
+        if workoutStore.hasFreshSnapshot(month: monthYear.month, year: monthYear.year) {
             applyMonthSelection(monthYear)
             return true
         }
 
-        if workoutStore.hasCachedWorkouts(month: monthYear.month, year: monthYear.year) {
+        if workoutStore.hasLoadedSnapshot(month: monthYear.month, year: monthYear.year)
+            || workoutStore.hasCachedWorkouts(month: monthYear.month, year: monthYear.year) {
             // Cached months (seeded at launch, or fetched earlier this session)
-            // show instantly. HealthKit may still have newer data, so refresh
+            // show instantly, including known-empty months fetched this session.
+            // HealthKit may still have newer data, so refresh
             // it in the background after a short settle instead of queuing a
             // fetch for every month the user swipes past on the way here.
             applyMonthSelection(monthYear)

@@ -84,19 +84,48 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
     let generatedAt: Date
     let days: [WorkoutDaySummary]
     let schemaVersion: Int?
+    var validatedAt: Date?
+    var validationContext: String?
 
     init(
         month: Int,
         year: Int,
         generatedAt: Date,
         days: [WorkoutDaySummary],
-        schemaVersion: Int? = WorkoutMonthSnapshot.currentSchemaVersion
+        schemaVersion: Int? = WorkoutMonthSnapshot.currentSchemaVersion,
+        validatedAt: Date? = nil,
+        validationContext: String? = nil
     ) {
         self.month = month
         self.year = year
         self.generatedAt = generatedAt
         self.days = days
         self.schemaVersion = schemaVersion
+        self.validatedAt = validatedAt
+        self.validationContext = validationContext
+    }
+
+    func isValidated(now: Date, context: String) -> Bool {
+        guard let validatedAt, validationContext == context else { return false }
+        let age = now.timeIntervalSince(validatedAt)
+        return age >= 0 && age < 300
+    }
+
+    mutating func recordValidation(
+        at date: Date, context: String, previous: Self?,
+        allDetailsValidated: Bool, hadQueryFailure: Bool
+    ) {
+        validatedAt = nil
+        validationContext = nil
+        guard !hadQueryFailure else { return }
+        if allDetailsValidated {
+            validatedAt = date
+            validationContext = context
+        } else if previous?.validationContext == context {
+            // Reuse neither renews nor destroys an existing validation.
+            validatedAt = previous?.validatedAt
+            validationContext = context
+        }
     }
 
     var activeDayCount: Int {

@@ -133,7 +133,7 @@ enum WorkoutSnapshotStore {
             return false
         }
 
-        let data: Data
+        var data: Data
         do {
             // `.sortedKeys` keeps the encoded bytes deterministic so the
             // save-if-changed compare below actually dedupes writes;
@@ -164,12 +164,22 @@ enum WorkoutSnapshotStore {
                     year: snapshot.year,
                     generatedAt: existingSnapshot.generatedAt,
                     days: snapshot.days,
-                    schemaVersion: snapshot.schemaVersion
+                    schemaVersion: snapshot.schemaVersion,
+                    validatedAt: snapshot.validatedAt,
+                    validationContext: snapshot.validationContext
                 )
                 let restampedEncoder = JSONEncoder()
                 restampedEncoder.outputFormatting = [.sortedKeys]
-                if let restamped = try? restampedEncoder.encode(restampedSnapshot), restamped == existing {
-                    return false
+                if let restamped = try? restampedEncoder.encode(restampedSnapshot) {
+                    if restamped == existing { return false }
+                    // Validation metadata can advance without changing the
+                    // content timestamp used by search and other consumers.
+                    if existingSnapshot.month == snapshot.month,
+                       existingSnapshot.year == snapshot.year,
+                       existingSnapshot.schemaVersion == snapshot.schemaVersion,
+                       existingSnapshot.days == snapshot.days {
+                        data = restamped
+                    }
                 }
             }
         }

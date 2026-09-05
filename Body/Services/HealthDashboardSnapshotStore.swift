@@ -241,6 +241,7 @@ enum HealthDashboardSnapshotStore {
         /// subsequent partial repair checkpoints remain bound to their payload.
         var ringDayIdentityVersion: Int? = 1
         var ringBackfillResumeDay: ActivityRingDaySummary.CalendarDay?
+        var ringHistoricalRepair: HistoricalMonthRepairProgress?
     }
 
     struct Freshness: Codable, Equatable {

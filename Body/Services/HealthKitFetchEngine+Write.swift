@@ -257,10 +257,12 @@ extension HealthKitFetchEngine {
         // drop every aged entry it holds.
         await hydratePersistedEffortLedgerIfNeeded()
         effortLevelsByWorkoutID[workoutID] = clampedScore
+        effortResultRevisions[workoutID, default: 0] &+= 1
         confirmedNoEffortWorkoutIDs.remove(workoutID)
         effortWorkoutDatesByID[workoutID] = WorkoutEffortDateRange(
             startDate: workout.startDate,
-            endDate: workout.endDate
+            endDate: workout.endDate,
+            validatedAt: now
         )
         persistEffortLedger()
 

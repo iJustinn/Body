@@ -46,7 +46,8 @@ extension HealthKitFetchEngine {
                 startDate: window.start,
                 endDate: window.end,
                 includesHeartRateSamples: false,
-                includesDetailMetrics: false
+                includesDetailMetrics: false,
+                requiresValidatedEffort: true
             )
         }
         sharedTrainingLoadWorkoutsTask = task

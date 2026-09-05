@@ -22,6 +22,8 @@ struct WorkoutEffortLedgerEntry: Codable, Equatable {
     var startDate: Date
     var endDate: Date
     var effort: Double?
+    /// Optional for schema-1 migration: a legacy entry remains displayable but stale.
+    var validatedAt: Date? = nil
 }
 
 /// The dates of a workout whose effort outcome is cached, kept alongside the
@@ -31,6 +33,7 @@ struct WorkoutEffortLedgerEntry: Codable, Equatable {
 struct WorkoutEffortDateRange: Codable, Equatable {
     var startDate: Date
     var endDate: Date
+    var validatedAt: Date? = nil
 }
 
 struct WorkoutEffortLedger: Codable, Equatable {
@@ -125,18 +128,18 @@ enum WorkoutEffortLedgerStore {
     /// Fire-and-forget write on the persist queue. Callers hold the ledger on an
     /// actor and must not block it on disk; an unchanged ledger skips the write
     /// entirely inside `save`.
-    static func enqueueSave(_ ledger: WorkoutEffortLedger) {
+    static func enqueueSave(_ ledger: WorkoutEffortLedger, directoryURL: URL? = defaultDirectoryURL) {
         persistQueue.async {
-            save(ledger)
+            save(ledger, directoryURL: directoryURL)
         }
     }
 
     /// Enqueues the delete and waits for it, so a caller clearing its in-memory
     /// maps can guarantee no earlier save is still queued behind the wipe.
-    static func deleteAllAndWait() async {
+    static func deleteAllAndWait(directoryURL: URL? = defaultDirectoryURL) async {
         await withCheckedContinuation { continuation in
             persistQueue.async {
-                deleteAll()
+                deleteAll(directoryURL: directoryURL)
                 continuation.resume()
             }
         }

@@ -63,7 +63,7 @@ actor HealthKitFetchEngine {
     /// Cache for the per-workout effort-score fan-out (`fetchEffortLevels`):
     /// effort needs one relationship-predicate query per workout, and both the
     /// training-load fetch and the month refreshes re-walk the same historical
-    /// workouts every refresh. Found scores are trusted; workouts confirmed
+    /// workouts every refresh. Found scores have a 24-hour validation TTL; workouts confirmed
     /// score-less are only skipped once they ended over
     /// `BodyWorkoutEffortFetcher.effortConfirmationAge` ago (ratings land right
     /// after a workout). Entries for deleted workouts are just unused.
@@ -93,6 +93,8 @@ actor HealthKitFetchEngine {
     /// gathered before a clear can't repopulate the maps — and enqueue a save —
     /// after the clear already deleted the ledger.
     private var effortCacheGeneration = 0
+    var effortResultRevisions: [UUID: Int] = [:]
+    private let effortLedgerDirectoryURL: URL?
 
     nonisolated static let logger = Logger(
         subsystem: "com.zihengthedeveloper.Body",
@@ -241,6 +243,8 @@ actor HealthKitFetchEngine {
     struct HealthTrendFetchResult {
         let trends: HealthTrendSnapshot
         let hadQueryFailure: Bool
+        var successfulLeaves: Set<HealthTrendReconciliationLeaf> = []
+        var retentionStart: Date? = nil
     }
 
     struct TrainingLoadWorkoutsWindow: Equatable {
@@ -266,7 +270,8 @@ actor HealthKitFetchEngine {
         customHealthSourceGroups: [BodyCustomHealthSourceGroup] = [],
         healthStore: any BodyHealthQuerying = HKHealthStore(),
         timeZoneLedger: BodyTimeZoneLedger = BodyTimeZoneLedger(),
-        capturedWarningThresholds: BodyMetricWarningThresholds? = nil
+        capturedWarningThresholds: BodyMetricWarningThresholds? = nil,
+        effortLedgerDirectoryURL: URL? = WorkoutEffortLedgerStore.defaultDirectoryURL
     ) {
         self.healthStore = healthStore
         self.timeZoneLedger = timeZoneLedger
@@ -276,6 +281,7 @@ actor HealthKitFetchEngine {
         self.combinesHealthDataSourcesByName = combinesHealthDataSourcesByName
         self.customHealthSourceGroups = customHealthSourceGroups
         self.capturedWarningThresholds = capturedWarningThresholds
+        self.effortLedgerDirectoryURL = effortLedgerDirectoryURL
     }
 
     // MARK: - Selection setters
@@ -364,7 +370,7 @@ actor HealthKitFetchEngine {
         // re-merge its results and enqueue a save after the delete below.
         didHydrateEffortLedger = true
         effortCacheGeneration += 1
-        await WorkoutEffortLedgerStore.deleteAllAndWait()
+        await WorkoutEffortLedgerStore.deleteAllAndWait(directoryURL: effortLedgerDirectoryURL)
     }
 
     /// Pull-to-refresh reconcile: drops only the effort entries the refresh is
@@ -375,9 +381,8 @@ actor HealthKitFetchEngine {
     ///
     /// Convergence: an effort score edited in Apple Fitness on an OLD workout is
     /// picked up when the user pulls to refresh while that workout's month is
-    /// displayed, or via Clear Cache in Settings (which wipes everything). Aged
-    /// scores are otherwise treated as immutable — the same premise
-    /// `confirmableNoEffortWorkoutIDs` already relies on.
+    /// displayed, or via Clear Cache in Settings (which wipes everything).
+    /// Otherwise aged scores and confirmed absences revalidate after 24 hours.
     func clearWorkoutEffortCache(
         scopedTo monthKeys: [BodyWorkoutMonthKey],
         calendar: Calendar,
@@ -450,8 +455,8 @@ actor HealthKitFetchEngine {
         if let existing = effortLedgerHydration {
             hydration = existing
         } else {
-            hydration = Task.detached(priority: .userInitiated) {
-                WorkoutEffortLedgerStore.load()
+            hydration = Task.detached(priority: .userInitiated) { [effortLedgerDirectoryURL] in
+                WorkoutEffortLedgerStore.load(directoryURL: effortLedgerDirectoryURL)
             }
             effortLedgerHydration = hydration
         }
@@ -470,7 +475,8 @@ actor HealthKitFetchEngine {
             guard effortWorkoutDatesByID[id] == nil else { continue }
             effortWorkoutDatesByID[id] = WorkoutEffortDateRange(
                 startDate: entry.startDate,
-                endDate: entry.endDate
+                endDate: entry.endDate,
+                validatedAt: entry.validatedAt
             )
             if let effort = entry.effort {
                 effortLevelsByWorkoutID[id] = effort
@@ -490,7 +496,8 @@ actor HealthKitFetchEngine {
                 confirmedNoEffortIDs: confirmedNoEffortWorkoutIDs,
                 dates: effortWorkoutDatesByID,
                 now: now
-            )
+            ),
+            directoryURL: effortLedgerDirectoryURL
         )
     }
 
@@ -516,13 +523,15 @@ actor HealthKitFetchEngine {
                 entries[id] = WorkoutEffortLedgerEntry(
                     startDate: range.startDate,
                     endDate: range.endDate,
-                    effort: effort
+                    effort: effort,
+                    validatedAt: range.validatedAt
                 )
             } else if confirmedNoEffortIDs.contains(id) {
                 entries[id] = WorkoutEffortLedgerEntry(
                     startDate: range.startDate,
                     endDate: range.endDate,
-                    effort: nil
+                    effort: nil,
+                    validatedAt: range.validatedAt
                 )
             }
         }
@@ -2290,6 +2299,15 @@ actor HealthKitFetchEngine {
 
     // MARK: - Workouts
 
+    struct WorkoutSummariesFetchResult {
+        let workouts: [WorkoutSummary]
+        /// Membership was queried successfully, but these contributions were not.
+        /// Cached display values must not be mistaken for record validation.
+        let unvalidatedRecordIDs: Set<UUID>
+        let hasUnvalidatedDetails: Bool
+        var hadQueryFailure: Bool = false
+    }
+
     func fetchWorkouts(
         month: Int,
         year: Int,
@@ -2297,6 +2315,18 @@ actor HealthKitFetchEngine {
         allowsCachedWorkoutReuse: Bool = false,
         reusableSummariesByID: [UUID: WorkoutSummary] = [:]
     ) async throws -> [WorkoutSummary] {
+        try await fetchWorkoutsWithValidation(month: month, year: year, calendar: calendar,
+            allowsCachedWorkoutReuse: allowsCachedWorkoutReuse,
+            reusableSummariesByID: reusableSummariesByID).workouts
+    }
+
+    func fetchWorkoutsWithValidation(
+        month: Int,
+        year: Int,
+        calendar: Calendar,
+        allowsCachedWorkoutReuse: Bool = false,
+        reusableSummariesByID: [UUID: WorkoutSummary] = [:]
+    ) async throws -> WorkoutSummariesFetchResult {
         // Third seeding point, alongside the two sleep fetches: the Workouts tab
         // refreshes a month without going through them, so without this a
         // travelling user's ledger could stay unaware of the current zone. The
@@ -2307,7 +2337,7 @@ actor HealthKitFetchEngine {
         timeZoneLedger.recordCurrentZone()
         let start = calendar.date(from: DateComponents(year: year, month: month, day: 1)) ?? Date()
         let end = calendar.date(byAdding: DateComponents(month: 1), to: start) ?? start
-        return try await fetchWorkoutSummaries(
+        return try await fetchWorkoutSummariesWithValidation(
             startDate: start,
             endDate: end,
             includesHeartRateSamples: true,
@@ -2321,9 +2351,25 @@ actor HealthKitFetchEngine {
         endDate: Date,
         includesHeartRateSamples: Bool,
         includesDetailMetrics: Bool = true,
+        requiresValidatedEffort: Bool = false,
         allowsCachedWorkoutReuse: Bool = false,
         reusableSummariesByID: [UUID: WorkoutSummary] = [:]
     ) async throws -> [WorkoutSummary] {
+        try await fetchWorkoutSummariesWithValidation(startDate: startDate, endDate: endDate,
+            includesHeartRateSamples: includesHeartRateSamples, includesDetailMetrics: includesDetailMetrics,
+            requiresValidatedEffort: requiresValidatedEffort, allowsCachedWorkoutReuse: allowsCachedWorkoutReuse,
+            reusableSummariesByID: reusableSummariesByID).workouts
+    }
+
+    func fetchWorkoutSummariesWithValidation(
+        startDate: Date,
+        endDate: Date,
+        includesHeartRateSamples: Bool,
+        includesDetailMetrics: Bool = true,
+        requiresValidatedEffort: Bool = false,
+        allowsCachedWorkoutReuse: Bool = false,
+        reusableSummariesByID: [UUID: WorkoutSummary] = [:]
+    ) async throws -> WorkoutSummariesFetchResult {
         // Window + ordering come from the shared `BodyWorkoutFetch` so the
         // watch's delta fetch covers exactly the same workouts (the mapping
         // below shares `BodyWorkoutFetch.summary(for:)` with it too).
@@ -2334,27 +2380,10 @@ actor HealthKitFetchEngine {
         // query and throws `CancellationError`, so the caller (and training load)
         // treats it as a failure and keeps its cache rather than blanking the
         // month. See `runCancellableQuery`.
-        let workoutsResult: Result<[HKWorkout], Error> = await runCancellableQuery(
-            cancelledValue: .failure(CancellationError())
-        ) { resume in
-            HKSampleQuery(
-                sampleType: HKObjectType.workoutType(),
-                predicate: predicate,
-                limit: HKObjectQueryNoLimit,
-                sortDescriptors: [sort]
-            ) { _, samples, error in
-                if let error {
-                    resume(.failure(error))
-                    return
-                }
-
-                resume(.success(samples as? [HKWorkout] ?? []))
-            }
-        }
-        let workouts = try workoutsResult.get()
+        let workouts = try await fetchWorkoutObjects(predicate: predicate, sort: sort)
 
         guard !workouts.isEmpty else {
-            return []
+            return .init(workouts: [], unvalidatedRecordIDs: [], hasUnvalidatedDetails: false)
         }
 
         // Finished workouts whose HR payload was already fetched this session
@@ -2478,6 +2507,9 @@ actor HealthKitFetchEngine {
 
         let resolvedHeartRateSamples = await heartRateSamplesByWorkoutID
         let (resolvedEffortLevels, failedEffortIDs) = await fetchedEffortLevels
+        if requiresValidatedEffort, !failedEffortIDs.isEmpty {
+            throw WorkoutInputValidationError.effort
+        }
         let resolvedCardioFitness = await cardioFitnessByWorkoutID
         let (resolvedStepCadence, failedStepCadenceIDs) = await stepCadenceByWorkoutID
         let (resolvedWorkoutDistance, failedWorkoutDistanceIDs) = await workoutDistanceByWorkoutID
@@ -2563,7 +2595,35 @@ actor HealthKitFetchEngine {
             }
         }
 
-        return summaries
+        let unvalidatedRecordIDs = includesDetailMetrics
+            ? failedWorkoutDistanceIDs.union(reusedWorkoutDistanceByID.keys)
+            : Set(workouts.map(\.uuid))
+        return .init(workouts: summaries, unvalidatedRecordIDs: unvalidatedRecordIDs,
+            hasUnvalidatedDetails: heartRateBatchFailed || cardioFitnessFailed
+                || !failedEffortIDs.isEmpty || !failedStepCadenceIDs.isEmpty
+                || !unvalidatedRecordIDs.isEmpty || !reusedHeartRateIDs.isEmpty
+                || !reusedStepCadenceByID.isEmpty,
+            hadQueryFailure: heartRateBatchFailed || cardioFitnessFailed || !failedEffortIDs.isEmpty
+                || !failedStepCadenceIDs.isEmpty || !failedWorkoutDistanceIDs.isEmpty)
+    }
+
+    enum WorkoutInputValidationError: Error { case workouts, effort }
+
+    private func fetchWorkoutObjects(predicate: NSPredicate, sort: NSSortDescriptor) async throws -> [HKWorkout] {
+        let semaphore = HealthKitQueryPool.current.semaphore
+        await semaphore.acquire()
+        defer { semaphore.release() }
+        try Task.checkCancellation()
+        BodyRefreshProfile.shared.enterQuery()
+        defer { BodyRefreshProfile.shared.exitQuery() }
+        let outcome = await healthStore.samples(.init(sampleType: HKObjectType.workoutType(),
+            predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: [sort]))
+        try Task.checkCancellation()
+        switch outcome {
+        case .success(let samples): return samples as? [HKWorkout] ?? []
+        case .failure(let error): throw error ?? WorkoutInputValidationError.workouts
+        case .cancelled: throw CancellationError()
+        }
     }
 
     nonisolated static let heartRateReuseMinimumAge: TimeInterval = 24 * 60 * 60
@@ -2825,8 +2885,18 @@ actor HealthKitFetchEngine {
         failed ? cached : fetched
     }
 
-    private func fetchEffortLevels(
-        forWorkouts workouts: [HKWorkout]
+    /// Freshness is independent of workout age and includes identity changes.
+    nonisolated static func effortValidationIsFresh(
+        _ range: WorkoutEffortDateRange?, startDate: Date, endDate: Date, now: Date
+    ) -> Bool {
+        guard let range, range.startDate == startDate, range.endDate == endDate,
+              let validatedAt = range.validatedAt else { return false }
+        let age = now.timeIntervalSince(validatedAt)
+        return age >= 0 && age < 24 * 60 * 60
+    }
+
+    func fetchEffortLevels(
+        forWorkouts workouts: [HKWorkout], now: Date = Date()
     ) async -> (levels: [UUID: Double], failedIDs: Set<UUID>) {
         guard !workouts.isEmpty else {
             return ([:], [])
@@ -2838,11 +2908,16 @@ actor HealthKitFetchEngine {
 
         // Captured before the fan-out suspends; see the post-gather check.
         let generation = effortCacheGeneration
-        let candidateIDs = Self.effortFetchCandidateIDs(
+        let capturedRevisions = effortResultRevisions
+        var candidateIDs = Self.effortFetchCandidateIDs(
             workoutIDs: workouts.map(\.uuid),
             cachedEffortIDs: Set(effortLevelsByWorkoutID.keys),
             confirmedNoEffortIDs: confirmedNoEffortWorkoutIDs
         )
+        candidateIDs.formUnion(workouts.filter {
+            !Self.effortValidationIsFresh(effortWorkoutDatesByID[$0.uuid],
+                startDate: $0.startDate, endDate: $0.endDate, now: now)
+        }.map(\.uuid))
         let candidates = workouts.filter { candidateIDs.contains($0.uuid) }
         // Measurement only (RefreshOptimizationPlan-02 §6): the candidate count
         // is what decides whether persisting the effort ledger is worth seconds
@@ -2870,7 +2945,7 @@ actor HealthKitFetchEngine {
         // concurrency instead of one in-flight HK query per workout in the
         // month (multiple months refresh concurrently on top of this).
         let maxConcurrentQueries = 12
-        let (fetched, completedIDs, failedIDs) = await withTaskGroup(
+        let (fetched, completedIDs, queryFailedIDs) = await withTaskGroup(
             of: (UUID, BodyWorkoutEffortOutcome).self,
             returning: ([UUID: Double], Set<UUID>, Set<UUID>).self
         ) { group in
@@ -2914,7 +2989,7 @@ actor HealthKitFetchEngine {
         // (the fetched values are fresh, and the caller's apply path is
         // generation-gated at the store level), but nothing is cached or
         // persisted; the next fetch re-queries these candidates.
-        guard effortCacheGeneration == generation else {
+        guard effortCacheGeneration == generation, !Task.isCancelled else {
             // Same shape as the normal return below: whatever the cache holds
             // now for these workouts, with this gather's values on top. Reading
             // only `fetched` here would report every non-candidate workout as
@@ -2927,19 +3002,42 @@ actor HealthKitFetchEngine {
                 }
             }
             results.merge(fetched) { _, fresh in fresh }
-            return (levels: results, failedIDs: failedIDs.subtracting(results.keys))
+            return (levels: results, failedIDs: Set(workouts.map(\.uuid)))
         }
+
+        // A newer outcome for this UUID wins without discarding other workouts.
+        let admittedIDs = completedIDs.filter {
+            effortResultRevisions[$0, default: 0] == capturedRevisions[$0, default: 0]
+        }
+        // A concurrent gather may already have validated these same inputs.
+        // Keep its admitted value (including authoritative absence) instead of
+        // turning successful overlap into a failure. A later-started gather can
+        // have a validation date after this call's `now`; that is new proof, not
+        // a persisted clock-rollback cache hit. Clear still fails above.
+        let supersededIDs = completedIDs.subtracting(admittedIDs)
+        let validatedByPeer = Set(workouts.compactMap { workout -> UUID? in
+            guard supersededIDs.contains(workout.uuid),
+                  let range = effortWorkoutDatesByID[workout.uuid],
+                  let validatedAt = range.validatedAt,
+                  Self.effortValidationIsFresh(range, startDate: workout.startDate,
+                    endDate: workout.endDate, now: max(now, validatedAt)) else { return nil }
+            return workout.uuid
+        })
+        let failedIDs = queryFailedIDs.union(supersededIDs.subtracting(validatedByPeer))
 
         // Single post-gather cache mutation: no mid-stream writes a concurrent
         // refresh could observe half-applied. Only successfully completed
         // queries can confirm a workout score-less — an errored query stays
         // uncached so the next refresh retries it.
-        let now = Date()
-        effortLevelsByWorkoutID.merge(fetched) { _, fresh in fresh }
+        for id in admittedIDs {
+            effortLevelsByWorkoutID[id] = fetched[id]
+            confirmedNoEffortWorkoutIDs.remove(id)
+            effortResultRevisions[id, default: 0] &+= 1
+        }
         confirmedNoEffortWorkoutIDs.formUnion(
             Self.confirmableNoEffortWorkoutIDs(
                 queried: candidates
-                    .filter { completedIDs.contains($0.uuid) }
+                    .filter { admittedIDs.contains($0.uuid) }
                     .map { (id: $0.uuid, endDate: $0.endDate) },
                 foundIDs: Set(fetched.keys),
                 now: now
@@ -2947,10 +3045,11 @@ actor HealthKitFetchEngine {
         )
         // Dates for everything now cached, so the entry can be scoped by month
         // and by age later. Failed queries cache nothing and get no dates.
-        for candidate in candidates where completedIDs.contains(candidate.uuid) {
+        for candidate in candidates where admittedIDs.contains(candidate.uuid) {
             effortWorkoutDatesByID[candidate.uuid] = WorkoutEffortDateRange(
                 startDate: candidate.startDate,
-                endDate: candidate.endDate
+                endDate: candidate.endDate,
+                validatedAt: now
             )
         }
         if !candidates.isEmpty {
@@ -2964,10 +3063,9 @@ actor HealthKitFetchEngine {
                 results[workout.uuid] = effort
             }
         }
-        // Failed candidates that ended up with a process-cached score (a prior
-        // refresh found one) are no longer "failed with no data" — drop them so
-        // the assembly only reuses the cached summary for genuinely missing IDs.
-        return (levels: results, failedIDs: failedIDs.subtracting(results.keys))
+        // Keep failure separate from display fallback so derived freshness cannot
+        // be renewed just because a stale score was available.
+        return (levels: results, failedIDs: failedIDs)
     }
 
     private func fetchSavedEffortLevel(for workout: HKWorkout) async -> BodyWorkoutEffortOutcome {
@@ -3210,26 +3308,23 @@ actor HealthKitFetchEngine {
             return .success(nil)
         }
 
-        let metersOutcome: QueryOutcome<Double> = await trackedHealthQuery(cancelledValue: .failure) { resume in
-            let query = HKStatisticsQuery(
-                quantityType: distanceType,
-                quantitySamplePredicate: HKQuery.predicateForObjects(from: workout),
-                options: .cumulativeSum
-            ) { _, statistics, error in
-                guard let statistics else {
-                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
-                    resume(.failure)
-                    return
-                }
-                resume(.success(statistics.sumQuantity()?.doubleValue(for: .meter())))
-            }
-            healthStore.execute(query)
-        }
-
-        switch metersOutcome {
-        case .failure:
+        let semaphore = HealthKitQueryPool.current.semaphore
+        await semaphore.acquire()
+        defer { semaphore.release() }
+        guard !Task.isCancelled else { return .failure }
+        BodyRefreshProfile.shared.enterQuery()
+        defer { BodyRefreshProfile.shared.exitQuery() }
+        let outcome = await healthStore.cumulativeQuantity(.init(quantityType: distanceType,
+            predicate: HKQuery.predicateForObjects(from: workout), options: .cumulativeSum))
+        guard !Task.isCancelled else { return .failure }
+        switch outcome {
+        case .failure(let error):
+            Self.logTrendQueryFailure(identifier.rawValue, error: error)
             return .failure
-        case .success(let meters):
+        case .cancelled:
+            return .failure
+        case .success(let quantity):
+            let meters = quantity?.doubleValue(for: .meter())
             guard let meters, meters > 0 else { return .success(nil) }
             return .success(meters)
         }
@@ -3817,9 +3912,13 @@ actor HealthKitFetchEngine {
         // value, same rule as primaries. The store ORs `hadQueryFailure` with the
         // summary and ring-history bits before advancing the freshness TTL.
         var hadQueryFailure = false
-        func resolved<Series>(_ fetched: Series?, cached: Series) -> Series {
+        var successfulLeaves: Set<HealthTrendReconciliationLeaf> = []
+        func resolved<Series>(_ fetched: Series?, cached: Series,
+                              leaf: HealthTrendReconciliationLeaf? = nil) -> Series {
             if fetched == nil {
                 hadQueryFailure = true
+            } else if let leaf {
+                successfulLeaves.insert(leaf)
             }
             return fetched ?? cached
         }
@@ -3832,21 +3931,23 @@ actor HealthKitFetchEngine {
         func merged(
             _ fetched: HealthTrendSeries?,
             cached: HealthTrendSeries,
-            from mergeStart: Date?
+            from mergeStart: Date?,
+            leaf: HealthTrendReconciliationLeaf
         ) -> HealthTrendSeries {
             resolved(
                 fetched.map { Self.mergeWindowedTrend(cached: cached, fresh: $0, windowStart: mergeStart) },
-                cached: cached
+                cached: cached, leaf: leaf
             )
         }
         func mergedRange(
             _ fetched: HealthTrendRangeSeries?,
             cached: HealthTrendRangeSeries,
-            from mergeStart: Date?
+            from mergeStart: Date?,
+            leaf: HealthTrendReconciliationLeaf
         ) -> HealthTrendRangeSeries {
             resolved(
                 fetched.map { Self.mergeWindowedTrendRange(cached: cached, fresh: $0, windowStart: mergeStart) },
-                cached: cached
+                cached: cached, leaf: leaf
             )
         }
 
@@ -3864,12 +3965,12 @@ actor HealthKitFetchEngine {
                     windowStart: sleepMergeStart
                 )
             },
-            cached: cachedTrends.sleepHistory
+            cached: cachedTrends.sleepHistory, leaf: .sleep
         )
-        let fetchedSleepHistorySecondary = resolved(await sleepHistorySecondary, cached: cachedTrends.sleepHistorySecondary)
+        let fetchedSleepHistorySecondary = resolved(await sleepHistorySecondary, cached: cachedTrends.sleepHistorySecondary, leaf: .sleepSecondary)
         let fetchedHeartRatePair = await heartRatePair
-        let fetchedHeartRate = merged(fetchedHeartRatePair?.0, cached: cachedTrends.heartRate, from: windowMergeStart(for: .heartRate))
-        let fetchedHeartRateRanges = mergedRange(fetchedHeartRatePair?.1, cached: cachedTrends.heartRateRanges, from: windowMergeStart(for: .heartRate))
+        let fetchedHeartRate = merged(fetchedHeartRatePair?.0, cached: cachedTrends.heartRate, from: windowMergeStart(for: .heartRate), leaf: .heartRate)
+        let fetchedHeartRateRanges = mergedRange(fetchedHeartRatePair?.1, cached: cachedTrends.heartRateRanges, from: windowMergeStart(for: .heartRate), leaf: .heartRate)
         let fetchedHeartRateVariabilityPair = await heartRateVariabilityPair
         let fetchedHeartRateVariability = resolved(
             (fetchedHeartRateVariabilityPair?.0).map {
@@ -3879,7 +3980,7 @@ actor HealthKitFetchEngine {
                     windowStart: heartRateVariabilityMergeStart
                 )
             },
-            cached: cachedTrends.heartRateVariability
+            cached: cachedTrends.heartRateVariability, leaf: .heartRateVariability
         )
         let fetchedHeartRateVariabilityRanges = resolved(
             (fetchedHeartRateVariabilityPair?.1).map {
@@ -3889,47 +3990,47 @@ actor HealthKitFetchEngine {
                     windowStart: heartRateVariabilityMergeStart
                 )
             },
-            cached: cachedTrends.heartRateVariabilityRanges
+            cached: cachedTrends.heartRateVariabilityRanges, leaf: .heartRateVariability
         )
         let fetchedRespiratoryRatePair = await respiratoryRatePair
-        let fetchedRespiratoryRate = merged(fetchedRespiratoryRatePair?.0, cached: cachedTrends.respiratoryRate, from: windowMergeStart(for: .respiratoryRate))
-        let fetchedRespiratoryRateRanges = mergedRange(fetchedRespiratoryRatePair?.1, cached: cachedTrends.respiratoryRateRanges, from: windowMergeStart(for: .respiratoryRate))
+        let fetchedRespiratoryRate = merged(fetchedRespiratoryRatePair?.0, cached: cachedTrends.respiratoryRate, from: windowMergeStart(for: .respiratoryRate), leaf: .respiratoryRate)
+        let fetchedRespiratoryRateRanges = mergedRange(fetchedRespiratoryRatePair?.1, cached: cachedTrends.respiratoryRateRanges, from: windowMergeStart(for: .respiratoryRate), leaf: .respiratoryRate)
         let fetchedOxygenSaturationPair = await oxygenSaturationPair
-        let fetchedOxygenSaturation = merged(fetchedOxygenSaturationPair?.0, cached: cachedTrends.oxygenSaturation, from: windowMergeStart(for: .oxygenSaturation))
-        let fetchedOxygenSaturationRanges = mergedRange(fetchedOxygenSaturationPair?.1, cached: cachedTrends.oxygenSaturationRanges, from: windowMergeStart(for: .oxygenSaturation))
+        let fetchedOxygenSaturation = merged(fetchedOxygenSaturationPair?.0, cached: cachedTrends.oxygenSaturation, from: windowMergeStart(for: .oxygenSaturation), leaf: .oxygenSaturation)
+        let fetchedOxygenSaturationRanges = mergedRange(fetchedOxygenSaturationPair?.1, cached: cachedTrends.oxygenSaturationRanges, from: windowMergeStart(for: .oxygenSaturation), leaf: .oxygenSaturation)
         let trends = HealthTrendSnapshot(
             sleep: fetchedSleepHistory.durationSeries,
             sleepSecondary: fetchedSleepHistorySecondary.durationSeries,
             heartRate: fetchedHeartRate,
             heartRateRanges: fetchedHeartRateRanges,
-            heartRateRangesSecondary: resolved(await heartRateRangesSecondary, cached: cachedTrends.heartRateRangesSecondary),
-            restingHeartRate: merged(await restingHeartRate, cached: cachedTrends.restingHeartRate, from: windowMergeStart(for: .restingHeartRate)),
-            restingHeartRateSecondary: resolved(await restingHeartRateSecondary, cached: cachedTrends.restingHeartRateSecondary),
-            bodyMass: merged(await bodyMass, cached: cachedTrends.bodyMass, from: windowMergeStart(for: .bodyMass)),
-            bodyFatPercentage: merged(await bodyFatPercentage, cached: cachedTrends.bodyFatPercentage, from: windowMergeStart(for: .bodyFatPercentage)),
+            heartRateRangesSecondary: resolved(await heartRateRangesSecondary, cached: cachedTrends.heartRateRangesSecondary, leaf: .heartRateRangesSecondary),
+            restingHeartRate: merged(await restingHeartRate, cached: cachedTrends.restingHeartRate, from: windowMergeStart(for: .restingHeartRate), leaf: .restingHeartRate),
+            restingHeartRateSecondary: resolved(await restingHeartRateSecondary, cached: cachedTrends.restingHeartRateSecondary, leaf: .restingHeartRateSecondary),
+            bodyMass: merged(await bodyMass, cached: cachedTrends.bodyMass, from: windowMergeStart(for: .bodyMass), leaf: .bodyMass),
+            bodyFatPercentage: merged(await bodyFatPercentage, cached: cachedTrends.bodyFatPercentage, from: windowMergeStart(for: .bodyFatPercentage), leaf: .bodyFatPercentage),
             heartRateVariability: fetchedHeartRateVariability,
             heartRateVariabilityRanges: fetchedHeartRateVariabilityRanges,
-            heartRateVariabilityRangesSecondary: resolved(await heartRateVariabilityRangesSecondary, cached: cachedTrends.heartRateVariabilityRangesSecondary),
+            heartRateVariabilityRangesSecondary: resolved(await heartRateVariabilityRangesSecondary, cached: cachedTrends.heartRateVariabilityRangesSecondary, leaf: .heartRateVariabilityRangesSecondary),
             respiratoryRate: fetchedRespiratoryRate,
             respiratoryRateRanges: fetchedRespiratoryRateRanges,
             oxygenSaturation: fetchedOxygenSaturation,
             oxygenSaturationRanges: fetchedOxygenSaturationRanges,
-            oxygenSaturationRangesSecondary: resolved(await oxygenSaturationRangesSecondary, cached: cachedTrends.oxygenSaturationRangesSecondary),
-            bodyMassIndex: merged(await bodyMassIndex, cached: cachedTrends.bodyMassIndex, from: windowMergeStart(for: .bodyMassIndex)),
-            activeEnergy: merged(await activeEnergy, cached: cachedTrends.activeEnergy, from: windowMergeStart(for: .activeEnergy)),
-            activeEnergySecondary: resolved(await activeEnergySecondary, cached: cachedTrends.activeEnergySecondary),
-            restingEnergy: merged(await restingEnergy, cached: cachedTrends.restingEnergy, from: windowMergeStart(for: .restingEnergy)),
-            restingEnergySecondary: resolved(await restingEnergySecondary, cached: cachedTrends.restingEnergySecondary),
-            exerciseMinutes: merged(await exerciseMinutes, cached: cachedTrends.exerciseMinutes, from: windowMergeStart(for: .exerciseMinutes)),
-            exerciseMinutesSecondary: resolved(await exerciseMinutesSecondary, cached: cachedTrends.exerciseMinutesSecondary),
+            oxygenSaturationRangesSecondary: resolved(await oxygenSaturationRangesSecondary, cached: cachedTrends.oxygenSaturationRangesSecondary, leaf: .oxygenSaturationRangesSecondary),
+            bodyMassIndex: merged(await bodyMassIndex, cached: cachedTrends.bodyMassIndex, from: windowMergeStart(for: .bodyMassIndex), leaf: .bodyMassIndex),
+            activeEnergy: merged(await activeEnergy, cached: cachedTrends.activeEnergy, from: windowMergeStart(for: .activeEnergy), leaf: .activeEnergy),
+            activeEnergySecondary: resolved(await activeEnergySecondary, cached: cachedTrends.activeEnergySecondary, leaf: .activeEnergySecondary),
+            restingEnergy: merged(await restingEnergy, cached: cachedTrends.restingEnergy, from: windowMergeStart(for: .restingEnergy), leaf: .restingEnergy),
+            restingEnergySecondary: resolved(await restingEnergySecondary, cached: cachedTrends.restingEnergySecondary, leaf: .restingEnergySecondary),
+            exerciseMinutes: merged(await exerciseMinutes, cached: cachedTrends.exerciseMinutes, from: windowMergeStart(for: .exerciseMinutes), leaf: .exerciseMinutes),
+            exerciseMinutesSecondary: resolved(await exerciseMinutesSecondary, cached: cachedTrends.exerciseMinutesSecondary, leaf: .exerciseMinutesSecondary),
             // Training load is its own 408-day system with its own memoized
             // fetch, not a windowed leaf.
             trainingLoad: resolved(await trainingLoad, cached: cachedTrends.trainingLoad),
-            wristTemperature: merged(await wristTemperature, cached: cachedTrends.wristTemperature, from: windowMergeStart(for: .wristTemperature)),
-            timeInDaylight: merged(await timeInDaylight, cached: cachedTrends.timeInDaylight, from: windowMergeStart(for: .timeInDaylight)),
-            steps: merged(await steps, cached: cachedTrends.steps, from: windowMergeStart(for: .steps)),
-            stepsSecondary: resolved(await stepsSecondary, cached: cachedTrends.stepsSecondary),
-            cardioFitness: merged(await cardioFitness, cached: cachedTrends.cardioFitness, from: windowMergeStart(for: .cardioFitness)),
+            wristTemperature: merged(await wristTemperature, cached: cachedTrends.wristTemperature, from: windowMergeStart(for: .wristTemperature), leaf: .wristTemperature),
+            timeInDaylight: merged(await timeInDaylight, cached: cachedTrends.timeInDaylight, from: windowMergeStart(for: .timeInDaylight), leaf: .timeInDaylight),
+            steps: merged(await steps, cached: cachedTrends.steps, from: windowMergeStart(for: .steps), leaf: .steps),
+            stepsSecondary: resolved(await stepsSecondary, cached: cachedTrends.stepsSecondary, leaf: .stepsSecondary),
+            cardioFitness: merged(await cardioFitness, cached: cachedTrends.cardioFitness, from: windowMergeStart(for: .cardioFitness), leaf: .cardioFitness),
             stress: cachedStress,
             stressRanges: cachedStressRanges,
             sleepHistory: fetchedSleepHistory,
@@ -3959,7 +4060,26 @@ actor HealthKitFetchEngine {
             recordedBodyRadar: cachedRecordedBodyRadar,
             recordedBodyRadarContext: cachedRecordedBodyRadarContext
         )
-        return HealthTrendFetchResult(trends: trends, hadQueryFailure: hadQueryFailure)
+        return Self.finalizedTrendFetchResult(trends: trends, hadQueryFailure: hadQueryFailure,
+            successfulLeaves: successfulLeaves, sleepVitalsHadFailure: sleepHistoryResult.vitalsHadFailure,
+            retentionStart: recentHealthTrendInterval(calendar: calendar).start)
+    }
+
+    nonisolated static func finalizedTrendFetchResult(
+        trends: HealthTrendSnapshot, hadQueryFailure: Bool,
+        successfulLeaves: Set<HealthTrendReconciliationLeaf>, sleepVitalsHadFailure: Bool,
+        retentionStart: Date
+    ) -> HealthTrendFetchResult {
+        var successfulLeaves = successfulLeaves
+        // Successful sleep samples with failed vital hydration are not complete
+        // historical coverage; other successful leaves can still reconcile.
+        if sleepVitalsHadFailure { successfulLeaves.remove(.sleep) }
+        var retained = trends
+        for leaf in HealthTrendReconciliationLeaf.allCases {
+            leaf.copy(from: trends, to: &retained, retainingFrom: retentionStart)
+        }
+        return HealthTrendFetchResult(trends: retained, hadQueryFailure: hadQueryFailure || sleepVitalsHadFailure,
+            successfulLeaves: successfulLeaves, retentionStart: retentionStart)
     }
 
     /// Incremental day-sample refetch for the per-metric detail refresh:

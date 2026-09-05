@@ -150,6 +150,7 @@ struct WorkoutRecordLedger: Codable {
     /// Records stay hidden until the whole history has been folded in — a partial scan
     /// would crown the most recent workout in every metric.
     var baselineComplete: Bool
+    var historicalRepair: HistoricalMonthRepairProgress?
 
     /// Derived, never encoded: holder and cohort size per type per metric.
     private var index: [String: [WorkoutRecordMetric: Holder]] = [:]
@@ -211,7 +212,37 @@ struct WorkoutRecordLedger: Codable {
         rebuildIndex()
     }
 
+    /// Replace only authoritative membership in this interval. A failed detail
+    /// read keeps the old contribution, including when its display fallback is nil.
+    mutating func reconcile(
+        workouts: [WorkoutSummary], start: Date, end: Date,
+        unvalidatedRecordIDs: Set<UUID>
+    ) {
+        let arrived = Set(workouts.map(\.id))
+        let stale = contributions.filter {
+            $0.value.startDate >= start && $0.value.startDate < end && !arrived.contains($0.key)
+        }.map(\.key)
+        for id in stale { contributions.removeValue(forKey: id) }
+        for workout in workouts where !unvalidatedRecordIDs.contains(workout.id) {
+            contributions[workout.id] = WorkoutRecordContribution(workout: workout)
+        }
+        rebuildIndex()
+    }
+
     // MARK: - Reads
+
+    /// The checkpoint and its inputs share one encoded ledger. Failed inputs
+    /// leave both untouched, so relaunch cannot skip their repair.
+    @discardableResult
+    mutating func applyValidatedBaselineChunk(
+        workouts: [WorkoutSummary], scannedThrough: Date,
+        unvalidatedRecordIDs: Set<UUID>
+    ) -> Bool {
+        guard unvalidatedRecordIDs.isEmpty else { return false }
+        upsert(workouts)
+        self.scannedThrough = scannedThrough
+        return true
+    }
 
     /// How this workout stands in each of its type's record metrics.
     ///
@@ -331,6 +362,7 @@ struct WorkoutRecordLedger: Codable {
         case contributions
         case scannedThrough
         case baselineComplete
+        case historicalRepair
     }
 
     /// `contributions` persists as an array sorted by UUID string: a dictionary keyed by
@@ -370,6 +402,7 @@ struct WorkoutRecordLedger: Codable {
         schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         scannedThrough = try container.decodeIfPresent(Date.self, forKey: .scannedThrough)
         baselineComplete = try container.decode(Bool.self, forKey: .baselineComplete)
+        historicalRepair = try container.decodeIfPresent(HistoricalMonthRepairProgress.self, forKey: .historicalRepair)
         let stored = try container.decode([StoredContribution].self, forKey: .contributions)
         contributions = stored.reduce(into: [:]) { $0[$1.id] = $1.contribution }
         rebuildIndex()
@@ -380,6 +413,7 @@ struct WorkoutRecordLedger: Codable {
         try container.encode(schemaVersion, forKey: .schemaVersion)
         try container.encodeIfPresent(scannedThrough, forKey: .scannedThrough)
         try container.encode(baselineComplete, forKey: .baselineComplete)
+        try container.encodeIfPresent(historicalRepair, forKey: .historicalRepair)
         let stored = contributions
             .map { StoredContribution(id: $0.key, contribution: $0.value) }
             .sorted { $0.id.uuidString < $1.id.uuidString }
