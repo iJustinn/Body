@@ -168,6 +168,8 @@ final class HealthKitWorkoutStore {
     @ObservationIgnored var beforePermissionDiskStrip: (@MainActor () async -> Void)?
     @ObservationIgnored var beforePermissionSnapshotCommit: (@MainActor () async -> Void)?
     private(set) var healthTrends: HealthTrendSnapshot = .empty
+    @ObservationIgnored private var authoritativeDaySampleSeries: Set<HealthDaySampleSeries> = []
+    @ObservationIgnored private(set) var daySampleRevisions: [HealthDaySampleSeries: Int] = [:]
     private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty {
         didSet { pendingActivityRingRepairMonthKeys = activityRingHistory.pendingDayIdentityMonthKeys }
     }
@@ -828,11 +830,9 @@ final class HealthKitWorkoutStore {
     /// with the main file.
     private func persistPublishedDashboardSnapshot() async {
         let epoch = cacheEpoch
-        // Hydration must still run first so the save carries the current
-        // samples forward: `HealthDashboardSnapshotStore.save` now refuses to
-        // replace a populated sidecar with an all-empty payload, but a
-        // partially populated pre-hydration payload (some series still empty)
-        // still overwrites those series on disk.
+        // Hydrate compatible, unreconciled samples before capturing the save.
+        // Successfully repaired empties are excluded from the memoized seed;
+        // persistence independently preserves unqueried empty series.
         await hydratePersistedDaySamplesIfNeeded()
         // A Clear Cache landed while the sidecar loaded: don't write the state
         // it just wiped back to disk.
@@ -854,6 +854,7 @@ final class HealthKitWorkoutStore {
         let daySampleSignatures = currentDaySampleSignatures()
         let summaryContextSignature = healthSummaryPrimarySignature
         let persistenceMetadata = currentDashboardPersistenceMetadata()
+        let daySampleWriteIntent = authoritativeDaySampleSeries
         let hydratedDaySamples = await persistedDaySamplesHydration?.value
         // Nothing landed at all, or the trends are still the empty placeholder
         // while a real sidecar sits on disk — either way the write can only
@@ -871,7 +872,8 @@ final class HealthKitWorkoutStore {
                     snapshotToSave,
                     daySampleSignatures: daySampleSignatures,
                     summaryContextSignature: summaryContextSignature,
-                    metadata: persistenceMetadata
+                    metadata: persistenceMetadata,
+                    authoritativeDaySampleSeries: daySampleWriteIntent
                 )
             }
         }
@@ -1392,7 +1394,7 @@ final class HealthKitWorkoutStore {
         // deadline never counts the user's decision time — same shape as the
         // other refresh entry points.
         await runRefreshWithDeadline {
-            await self.performHealthMetricRefresh(kind, date: date, calendar: calendar)
+            await self.performHealthMetricRefresh(kind, date: date, calendar: calendar, intent: intent)
         }
         await engine.setHealthTrendAnchorDate(nil)
     }
@@ -1406,7 +1408,8 @@ final class HealthKitWorkoutStore {
     func performHealthMetricRefresh(
         _ kind: HealthMetricKind,
         date: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        intent: BodyWorkoutRefreshIntent = .userInitiated
     ) async {
         if kind == .trainingLoad {
             // The detail pull is an explicit gesture on the metric whose window
@@ -1433,7 +1436,8 @@ final class HealthKitWorkoutStore {
             for: kind,
             calendar: calendar,
             existing: existing,
-            idealSleepDuration: Self.storedIdealSleepDuration()
+            idealSleepDuration: Self.storedIdealSleepDuration(),
+            reconcilesRetainedIntradayWindow: intent == .userInitiated
         )
         // A pull abandoned at `healthRefreshDeadline` keeps running; nothing
         // below may publish, persist, or stamp watermarks for a load the user
@@ -1447,7 +1451,7 @@ final class HealthKitWorkoutStore {
             return
         }
         let nextSummary = healthSummary.replacingMetric(kind, with: metricFetch.snapshot.summary)
-        // The day-sample fetches inside the engine are incremental: they merge
+        // Passive day-sample fetches inside the engine are incremental: they merge
         // onto the `existing` cache captured above. The source mutators push the
         // new selection into the engine BEFORE they wait out this refresh (see
         // `updateSecondaryHealthDataSource`), so a switch landing mid-fetch would
@@ -1456,7 +1460,8 @@ final class HealthKitWorkoutStore {
         // mixed series stamped with the NEW signature, which `scopedForHydration`
         // then accepts forever. Drop the fetched day samples in that case; the
         // mutator clears and refetches them right after this refresh releases.
-        let fetchedTrends = currentDaySampleSignatures() == capturedDaySampleSignatures
+        let acceptsDaySamples = currentDaySampleSignatures() == capturedDaySampleSignatures
+        let fetchedTrends = acceptsDaySamples
             ? metricFetch.snapshot.trends
             : metricFetch.snapshot.trends.strippingDaySamples()
         let nextTrends = healthTrends.replacingMetric(kind, with: fetchedTrends)
@@ -1467,7 +1472,8 @@ final class HealthKitWorkoutStore {
             activityRingHistory: activityRingHistory,
             recomputesReadiness: Self.readinessInputMetricKinds.contains(kind),
             recomputesStress: Self.stressInputMetricKinds.contains(kind),
-            recomputesBodyRadar: Self.bodyRadarInputMetricKinds.contains(kind)
+            recomputesBodyRadar: Self.bodyRadarInputMetricKinds.contains(kind),
+            authoritativeDaySamples: acceptsDaySamples ? metricFetch.authoritativeDaySampleSeries : []
         ) else { return }
         guard mayApplyRefreshResults else { return }
         authorizationState = .authorized
@@ -2707,7 +2713,7 @@ final class HealthKitWorkoutStore {
         // current selection resolves away can't resurrect stale intraday points
         // (H6). A legacy/v1 sidecar (no combine stamp) fails closed and is dropped
         // one-time.
-        let scoped = daySamples.scopedForHydration(
+        var scoped = daySamples.scopedForHydration(
             currentPrimarySignature: currentPrimarySelectionSignature(),
             currentSecondarySignature: currentSecondarySelectionSignature(),
             currentCombinesByName: combinesHealthDataSourcesByName,
@@ -2716,11 +2722,45 @@ final class HealthKitWorkoutStore {
             currentPrimaryMetricScopes: currentDashboardCacheScope().rawSignatures(),
             currentSecondaryMetricScopes: currentDashboardCacheScope().rawSignatures(secondary: true)
         )
+        // A memoized pre-repair sidecar must not resurrect successfully deleted
+        // samples, even when the replacement write has not finished yet.
+        scoped = excludingReconciledDaySamples(from: scoped)
         guard !scoped.isEmpty else {
             return
         }
 
         healthTrends = healthTrends.mergingMissingDaySamples(from: scoped)
+    }
+
+    func excludingReconciledDaySamples(from samples: HealthTrendDaySampleSnapshot) -> HealthTrendDaySampleSnapshot {
+        var next = samples
+        for series in authoritativeDaySampleSeries { next[keyPath: series.keyPath] = .empty }
+        return next
+    }
+
+    private func recordAuthoritativeDaySamples(_ series: Set<HealthDaySampleSeries>) {
+        guard !series.isEmpty else { return }
+        authoritativeDaySampleSeries.formUnion(series)
+        for field in series { daySampleRevisions[field, default: 0] &+= 1 }
+    }
+
+    /// Admit each raw field independently: another loader's Steps publication
+    /// must not discard this load's HRV or oxygen result. Repeated repairs still
+    /// advance their field revision even when write authority was already held.
+    @discardableResult
+    func publishDaySamples(
+        from candidate: HealthTrendSnapshot,
+        successfulSeries: Set<HealthDaySampleSeries>,
+        capturedRevisions: [HealthDaySampleSeries: Int]
+    ) -> Set<HealthDaySampleSeries> {
+        let admitted = successfulSeries.filter {
+            daySampleRevisions[$0, default: 0] == capturedRevisions[$0, default: 0]
+        }
+        var next = healthTrends
+        for field in admitted { next[keyPath: field.trendKeyPath] = candidate[keyPath: field.trendKeyPath] }
+        healthTrends = next
+        recordAuthoritativeDaySamples(admitted)
+        return admitted
     }
 
     /// Strips the comparison series from the session's memoized sidecar load after
@@ -2812,6 +2852,7 @@ final class HealthKitWorkoutStore {
         let cachedPrimary = healthTrends.daySeries(for: kind)
         let cachedSecondary = healthTrends.secondaryDaySeries(for: kind)
         let capturedDaySampleSignatures = currentDaySampleSignatures()
+        let capturedDaySampleRevisions = daySampleRevisions
         // No comparison source selected (or the Pro gate / primary-collapse rule
         // resolved it away). The fetch below short-circuits to an authoritative
         // `.empty`, which must REPLACE the cached series — but `mergeIntradaySamples`
@@ -2953,9 +2994,17 @@ final class HealthKitWorkoutStore {
               currentDaySampleSignatures() == capturedDaySampleSignatures else {
             return
         }
-        healthTrends = trends
         // Make the lazily fetched series durable so the next launch renders the
         // day chart straight from the sidecar.
+        var successfulSeries: Set<HealthDaySampleSeries> = []
+        for series in HealthDaySampleSeries.allCases
+        where series.kind == kind && series != .heartbeatRMSSDDaySamples {
+            if series.isSecondary ? secondarySamples != nil : primarySamples != nil {
+                successfulSeries.insert(series)
+            }
+        }
+        guard !publishDaySamples(from: trends, successfulSeries: successfulSeries,
+                                 capturedRevisions: capturedDaySampleRevisions).isEmpty else { return }
         persistDaySampleSidecar()
     }
 
@@ -3018,6 +3067,7 @@ final class HealthKitWorkoutStore {
         let calendar = Calendar.bodyGregorian
         let interval = HealthKitFetchEngine.intradayDaySampleInterval(calendar: calendar, anchor: nil)
         let capturedDaySampleSignatures = currentDaySampleSignatures()
+        let capturedDaySampleRevisions = daySampleRevisions
 
         var fetched: [HealthMetricKind: (samples: HealthTrendSeries, refetchStart: Date)] = [:]
         for kind in Self.stressIntradaySampleKinds
@@ -3103,7 +3153,12 @@ final class HealthKitWorkoutStore {
                 refetchStart: rmssdFetchStart
             )
         }
-        healthTrends = trends
+        var successfulSeries = Set(HealthDaySampleSeries.allCases.filter {
+            !$0.isSecondary && $0 != .heartbeatRMSSDDaySamples && fetched[$0.kind] != nil
+        })
+        if rmssdSamples != nil { successfulSeries.insert(.heartbeatRMSSDDaySamples) }
+        guard !publishDaySamples(from: trends, successfulSeries: successfulSeries,
+                                 capturedRevisions: capturedDaySampleRevisions).isEmpty else { return }
         persistDaySampleSidecar()
         await recomputeStress(on: Date(), calendar: calendar)
         await recomputeBodyRadar(on: Date(), calendar: calendar)
@@ -3158,6 +3213,7 @@ final class HealthKitWorkoutStore {
         let calendar = Calendar.bodyGregorian
         let interval = HealthKitFetchEngine.intradayDaySampleInterval(calendar: calendar, anchor: nil)
         let capturedDaySampleSignatures = currentDaySampleSignatures()
+        let capturedDaySampleRevisions = daySampleRevisions
         // Hourly cumulative buckets overlap on their own day and the merge has
         // no bucket dedupe, so restart at that day's midnight.
         let fetchStart = max(
@@ -3200,7 +3256,8 @@ final class HealthKitWorkoutStore {
             windowStart: interval.start,
             refetchStart: fetchStart
         )
-        healthTrends = trends
+        guard !publishDaySamples(from: trends, successfulSeries: [.stepsDaySamples],
+                                 capturedRevisions: capturedDaySampleRevisions).isEmpty else { return }
         persistDaySampleSidecar()
         await recomputeBodyRadar(on: Date(), calendar: calendar)
     }
@@ -3900,6 +3957,7 @@ final class HealthKitWorkoutStore {
         let daySampleSignatures = currentDaySampleSignatures()
         let summaryContextSignature = healthSummaryPrimarySignature
         let persistenceMetadata = currentDashboardPersistenceMetadata()
+        let daySampleWriteIntent = authoritativeDaySampleSeries
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
@@ -3907,7 +3965,8 @@ final class HealthKitWorkoutStore {
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
                 summaryContextSignature: summaryContextSignature,
-                metadata: persistenceMetadata
+                metadata: persistenceMetadata,
+                authoritativeDaySampleSeries: daySampleWriteIntent
             )
             Task { @MainActor in await self.refreshCacheDiskSize() }
         }
@@ -4701,6 +4760,7 @@ final class HealthKitWorkoutStore {
             // save doesn't clobber the persisted one back to nil (H2a).
             let summaryContextSignature = healthSummaryPrimarySignature
             let persistenceMetadata = currentDashboardPersistenceMetadata()
+            let daySampleWriteIntent = authoritativeDaySampleSeries
             let token = dashboardPublicationToken
             Self.snapshotPersistQueue.async {
                 guard token.isValid else { return }
@@ -4708,7 +4768,8 @@ final class HealthKitWorkoutStore {
                     snapshotToSave,
                     daySampleSignatures: daySampleSignatures,
                     summaryContextSignature: summaryContextSignature,
-                    metadata: persistenceMetadata
+                    metadata: persistenceMetadata,
+                    authoritativeDaySampleSeries: daySampleWriteIntent
                 )
             }
             authorizationState = .authorized
@@ -4834,6 +4895,8 @@ final class HealthKitWorkoutStore {
         healthSummaryPrimarySignature = nil
         healthTrends = .empty
         activityRingHistory = .empty
+        authoritativeDaySampleSeries.removeAll()
+        for field in HealthDaySampleSeries.allCases { daySampleRevisions[field, default: 0] &+= 1 }
         loadedMonthKeys.removeAll()
         monthLoadOrder = [key]
         loadedActivityRingMonthKeys.removeAll()
@@ -5628,6 +5691,7 @@ final class HealthKitWorkoutStore {
         let daySampleSignatures = currentDaySampleSignatures()
         let summaryContextSignature = healthSummaryPrimarySignature
         let persistenceMetadata = currentDashboardPersistenceMetadata()
+        let daySampleWriteIntent = authoritativeDaySampleSeries
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
@@ -5635,7 +5699,8 @@ final class HealthKitWorkoutStore {
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
                 summaryContextSignature: summaryContextSignature,
-                metadata: persistenceMetadata
+                metadata: persistenceMetadata,
+                authoritativeDaySampleSeries: daySampleWriteIntent
             )
         }
     }
@@ -5763,6 +5828,10 @@ final class HealthKitWorkoutStore {
     private func reconcileDashboardCacheScope() {
         let scope = currentDashboardCacheScope()
         guard scope != dashboardCacheScope else { return }
+        if scope.rawSignatures() != dashboardCacheScope?.rawSignatures()
+            || scope.rawSignatures(secondary: true) != dashboardCacheScope?.rawSignatures(secondary: true) {
+            for field in HealthDaySampleSeries.allCases { daySampleRevisions[field, default: 0] &+= 1 }
+        }
         let fetchChanged = scope.primary != dashboardCacheScope?.primary
             || scope.secondary != dashboardCacheScope?.secondary
             || scope.aggregation != dashboardCacheScope?.aggregation
@@ -6219,7 +6288,8 @@ final class HealthKitWorkoutStore {
         recomputesReadiness: Bool = true,
         recomputesStress: Bool = true,
         recomputesBodyRadar: Bool = true,
-        persists: Bool = true
+        persists: Bool = true,
+        authoritativeDaySamples: Set<HealthDaySampleSeries> = []
     ) async -> Bool {
         let epoch = cacheEpoch
         let inputs = captureRefreshInputs()
@@ -6324,6 +6394,7 @@ final class HealthKitWorkoutStore {
         // Scope the summary reuse to the selection this snapshot reflects.
         healthSummaryPrimarySignature = scope.signature
         healthTrends = filteredSnapshot.trends
+        recordAuthoritativeDaySamples(authoritativeDaySamples)
         self.activityRingHistory = nextActivityRingHistory
         loadedActivityRingMonthKeys = Set(nextActivityRingHistory.loadedMonthKeySet(calendar: calendar))
         // Fresh dashboard data may include backfilled months; let older-month
@@ -6401,6 +6472,7 @@ final class HealthKitWorkoutStore {
         // snapshot, so it saves atomically with the data on every path.
         let summaryContextSignature = healthSummaryPrimarySignature
         let persistenceMetadata = currentDashboardPersistenceMetadata()
+        let daySampleWriteIntent = authoritativeDaySampleSeries
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
@@ -6408,7 +6480,8 @@ final class HealthKitWorkoutStore {
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
                 summaryContextSignature: summaryContextSignature,
-                metadata: persistenceMetadata
+                metadata: persistenceMetadata,
+                authoritativeDaySampleSeries: daySampleWriteIntent
             )
             Task { @MainActor in await self.refreshCacheDiskSize() }
         }
@@ -6586,6 +6659,7 @@ final class HealthKitWorkoutStore {
         // reapply below.
         let summaryContextSignature = healthSummaryPrimarySignature
         let persistenceMetadata = currentDashboardPersistenceMetadata()
+        let daySampleWriteIntent = authoritativeDaySampleSeries
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
@@ -6593,7 +6667,8 @@ final class HealthKitWorkoutStore {
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
                 summaryContextSignature: summaryContextSignature,
-                metadata: persistenceMetadata
+                metadata: persistenceMetadata,
+                authoritativeDaySampleSeries: daySampleWriteIntent
             )
         }
     }
@@ -6669,6 +6744,7 @@ final class HealthKitWorkoutStore {
         let daySampleSignatures = currentDaySampleSignatures()
         let summaryContextSignature = healthSummaryPrimarySignature
         let persistenceMetadata = currentDashboardPersistenceMetadata()
+        let daySampleWriteIntent = authoritativeDaySampleSeries
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
@@ -6676,7 +6752,8 @@ final class HealthKitWorkoutStore {
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
                 summaryContextSignature: summaryContextSignature,
-                metadata: persistenceMetadata
+                metadata: persistenceMetadata,
+                authoritativeDaySampleSeries: daySampleWriteIntent
             )
         }
     }
@@ -6711,6 +6788,7 @@ final class HealthKitWorkoutStore {
         // signature so this save doesn't clobber the persisted one back to nil.
         let summaryContextSignature = healthSummaryPrimarySignature
         let persistenceMetadata = currentDashboardPersistenceMetadata()
+        let daySampleWriteIntent = authoritativeDaySampleSeries
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
@@ -6718,7 +6796,8 @@ final class HealthKitWorkoutStore {
                 updated,
                 daySampleSignatures: daySampleSignatures,
                 summaryContextSignature: summaryContextSignature,
-                metadata: persistenceMetadata
+                metadata: persistenceMetadata,
+                authoritativeDaySampleSeries: daySampleWriteIntent
             )
         }
     }
@@ -6789,6 +6868,7 @@ final class HealthKitWorkoutStore {
         // isn't part of the signature, so it still describes `updated.summary`.
         let summaryContextSignature = healthSummaryPrimarySignature
         let persistenceMetadata = currentDashboardPersistenceMetadata()
+        let daySampleWriteIntent = authoritativeDaySampleSeries
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
@@ -6796,7 +6876,8 @@ final class HealthKitWorkoutStore {
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
                 summaryContextSignature: summaryContextSignature,
-                metadata: persistenceMetadata
+                metadata: persistenceMetadata,
+                authoritativeDaySampleSeries: daySampleWriteIntent
             )
         }
         saveHealthWidgetSnapshot()
@@ -7595,6 +7676,7 @@ final class HealthKitWorkoutStore {
         let daySampleSignatures = currentDaySampleSignatures()
         let summaryContextSignature = healthSummaryPrimarySignature
         let persistenceMetadata = currentDashboardPersistenceMetadata()
+        let daySampleWriteIntent = authoritativeDaySampleSeries
         let token = dashboardPublicationToken
         Self.snapshotPersistQueue.async {
             guard token.isValid else { return }
@@ -7602,7 +7684,8 @@ final class HealthKitWorkoutStore {
                 snapshotToSave,
                 daySampleSignatures: daySampleSignatures,
                 summaryContextSignature: summaryContextSignature,
-                metadata: persistenceMetadata
+                metadata: persistenceMetadata,
+                authoritativeDaySampleSeries: daySampleWriteIntent
             )
         }
         saveHealthWidgetSnapshot()

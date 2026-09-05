@@ -58,8 +58,8 @@ extension HealthKitFetchEngine {
     /// point + epsilon" cursor permanently loses any sample that lands with an
     /// older timestamp after a newer one is already cached. Re-fetching this
     /// window on each refresh lets those late arrivals (and deletions) reconcile.
-    /// 48h covers realistic Watch/third-party sync lag; older-than-48h late
-    /// arrivals are rare enough to accept.
+    /// Passive reads keep this bounded overlap. An explicit sample-metric pull
+    /// reconciles the full retained window for edits and older late arrivals.
     nonisolated static let incrementalOverlapWindow: TimeInterval = 48 * 60 * 60
 
     /// Start date for an incremental sample fetch. Anchored on the latest cached

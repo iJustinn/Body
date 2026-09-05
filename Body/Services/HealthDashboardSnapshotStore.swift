@@ -267,6 +267,10 @@ enum HealthDashboardSnapshotStore {
     /// Production uses the same encode-before-write and byte-dedupe path.
     struct PersistenceIO {
         var encoder: () -> JSONEncoder = { makeSnapshotEncoder() }
+        var read: (URL) throws -> Data = { try Data(contentsOf: $0) }
+        var decodeDaySamples: (Data) throws -> HealthTrendDaySampleSnapshot = {
+            try JSONDecoder().decode(HealthTrendDaySampleSnapshot.self, from: $0)
+        }
         var write: (Data, URL) throws -> Void = { data, url in
             try BodySnapshotDirectory.prepare(url.deletingLastPathComponent())
             // Background reads must work while locked after the first unlock.
@@ -295,6 +299,7 @@ enum HealthDashboardSnapshotStore {
         daySampleSignatures: HealthTrendDaySampleSignatures? = nil,
         summaryContextSignature: String? = nil,
         metadata: PersistenceMetadata,
+        authoritativeDaySampleSeries: Set<HealthDaySampleSeries> = [],
         defaults: UserDefaults = .standard,
         fileURL: URL? = snapshotFileURL,
         io: PersistenceIO = PersistenceIO()
@@ -321,7 +326,7 @@ enum HealthDashboardSnapshotStore {
                     metadata: metadata
                 )
             )
-            mainOutcome = writeIfChanged(data, to: fileURL, io: io)
+            mainOutcome = writeIfChanged(data, to: fileURL, existingData: try? io.read(fileURL), io: io)
         } catch {
             logger.error("Health dashboard snapshot encode failed: \(error.localizedDescription, privacy: .public)")
             mainOutcome = .failed
@@ -331,7 +336,7 @@ enum HealthDashboardSnapshotStore {
         }
         let sidecarOutcome = saveDaySamples(
             HealthTrendDaySampleSnapshot(trends: snapshot.trends, signatures: daySampleSignatures),
-            alongside: fileURL, io: io
+            alongside: fileURL, authoritativeSeries: authoritativeDaySampleSeries, io: io
         )
         return SaveOutcome(main: mainOutcome, sidecar: sidecarOutcome)
     }
@@ -339,6 +344,7 @@ enum HealthDashboardSnapshotStore {
     private static func saveDaySamples(
         _ daySamples: HealthTrendDaySampleSnapshot,
         alongside fileURL: URL,
+        authoritativeSeries: Set<HealthDaySampleSeries>,
         io: PersistenceIO
     ) -> FileSaveOutcome {
         let sidecarURL = daySamplesFileURL(alongside: fileURL)
@@ -346,7 +352,27 @@ enum HealthDashboardSnapshotStore {
             return .unchanged
         }
 
-        let payload = daySamples
+        var payload = daySamples
+        var preservedUnloadedSeries = false
+        let missingSeries = HealthDaySampleSeries.allCases.filter {
+            !authoritativeSeries.contains($0) && daySamples[keyPath: $0.keyPath].isEmpty
+        }
+        // A fully supplied/authoritative payload needs no preservation decode.
+        // Reuse these bytes for dedupe and this decode for the all-empty guard.
+        var existingData: Data?
+        var existing: HealthTrendDaySampleSnapshot?
+        if !missingSeries.isEmpty {
+            existingData = try? io.read(sidecarURL)
+            existing = existingData.flatMap { try? io.decodeDaySamples($0) }
+        }
+        if let existing {
+            for series in missingSeries
+            where !existing[keyPath: series.keyPath].isEmpty
+                && series.hasCompatibleScope(existing, payload) {
+                payload[keyPath: series.keyPath] = existing[keyPath: series.keyPath]
+                preservedUnloadedSeries = true
+            }
+        }
         // An all-empty payload over a populated sidecar is only a no-op when
         // the sidecar's scope already matches the incoming payload exactly
         // (H-17): schemaVersion and all four selection/permission signatures.
@@ -356,9 +382,8 @@ enum HealthDashboardSnapshotStore {
         // deselected the only source whose Day View was loaded), and the
         // empty payload is a legitimate invalidation that must overwrite the
         // sidecar, matching `strippingDaySamples()`/`truncateDaySamples()`.
-        if daySamples.isEmpty,
-           let existingData = try? Data(contentsOf: sidecarURL),
-           let existing = try? JSONDecoder().decode(HealthTrendDaySampleSnapshot.self, from: existingData),
+        if authoritativeSeries.isEmpty, daySamples.isEmpty,
+           let existing,
            !existing.isEmpty,
            existing.schemaVersion == daySamples.schemaVersion,
            existing.primarySelectionSignature == daySamples.primarySelectionSignature,
@@ -378,11 +403,13 @@ enum HealthDashboardSnapshotStore {
             logger.error("Health dashboard day-sample encode failed: \(error.localizedDescription, privacy: .public)")
             return .failed
         }
-        return writeIfChanged(data, to: sidecarURL, io: io)
+        if missingSeries.isEmpty { existingData = try? io.read(sidecarURL) }
+        let outcome = writeIfChanged(data, to: sidecarURL, existingData: existingData, io: io)
+        return outcome == .unchanged && preservedUnloadedSeries ? .preserved : outcome
     }
 
-    private static func writeIfChanged(_ data: Data, to fileURL: URL, io: PersistenceIO) -> FileSaveOutcome {
-        if (try? Data(contentsOf: fileURL)) == data { return .unchanged }
+    private static func writeIfChanged(_ data: Data, to fileURL: URL, existingData: Data?, io: PersistenceIO) -> FileSaveOutcome {
+        if existingData == data { return .unchanged }
         do {
             try io.write(data, fileURL)
             return .written

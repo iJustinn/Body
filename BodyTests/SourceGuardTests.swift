@@ -2153,9 +2153,9 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(engineSource.contains("for kind: HealthMetricKind,"))
         XCTAssertTrue(engineSource.contains("let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)"))
         XCTAssertTrue(engineSource.contains("sourceOption: secondaryOption"))
-        XCTAssertTrue(engineSource.contains("trends.heartRateDaySamplesSecondary = resolvedTrend(await heartRateDaySamplesSecondary"))
-        XCTAssertTrue(engineSource.contains("trends.heartRateVariabilityDaySamplesSecondary = resolvedTrend(await heartRateVariabilityDaySamplesSecondary"))
-        XCTAssertTrue(engineSource.contains("trends.oxygenSaturationDaySamplesSecondary = resolvedTrend(await oxygenSaturationDaySamplesSecondary"))
+        XCTAssertTrue(engineSource.contains("trends.heartRateDaySamplesSecondary = resolvedDaySamples(await heartRateDaySamplesSecondary"))
+        XCTAssertTrue(engineSource.contains("trends.heartRateVariabilityDaySamplesSecondary = resolvedDaySamples(await heartRateVariabilityDaySamplesSecondary"))
+        XCTAssertTrue(engineSource.contains("trends.oxygenSaturationDaySamplesSecondary = resolvedDaySamples(await oxygenSaturationDaySamplesSecondary"))
         // Resting heart rate deliberately has NO intraday fetch: it is absent from
         // `supportsMetricDayView` / `HealthMetricKind.dayViewKinds`, so its day
         // samples were queried and persisted but never rendered.
@@ -2201,6 +2201,10 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(block.contains("mayApplyRefreshInputs(inputs)"))
         XCTAssertTrue(block.contains("currentDaySampleSignatures() == capturedDaySampleSignatures"))
         XCTAssertTrue(block.contains("strippingDaySamples()"))
+        let publishEnd = try XCTUnwrap(storeSource.range(of: "authorizationState = .authorized", range: end..<storeSource.endIndex)?.lowerBound)
+        let publishBlock = String(storeSource[end..<publishEnd])
+        XCTAssertTrue(block.contains("let acceptsDaySamples = currentDaySampleSignatures() == capturedDaySampleSignatures"))
+        XCTAssertTrue(publishBlock.contains("authoritativeDaySamples: acceptsDaySamples ? metricFetch.authoritativeDaySampleSeries : []"))
     }
 
     /// Every `HealthDashboardSnapshotStore.save` rewrites the day-sample sidecar from

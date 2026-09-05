@@ -739,7 +739,7 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
         XCTAssertEqual(sidecar.secondarySelectionSignature, "S1")
     }
 
-    func testSaveWithOnePopulatedSeriesStillOverwritesTheOthers() throws {
+    func testSaveWithOnePopulatedSeriesClearsOnlyExplicitlyAuthoritativeEmptySeries() throws {
         let suiteName = "BodyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         let fileURL = temporarySnapshotFileURL()
@@ -752,12 +752,12 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
         let populated = try makeSnapshot(heartRateDaySamples: heartRateSamples, stepsDaySamples: stepsSamples)
         XCTAssertTrue(HealthDashboardSnapshotStore.save(populated, defaults: defaults, fileURL: fileURL))
 
-        // A partial payload (heart rate populated, steps empty) is a real
-        // partial invalidation, not a blanket "nothing changed" no-op, so it
-        // still overwrites: steps clears while heart rate's new value lands.
+        // Successful empty steps coverage is explicit; an unqueried empty
+        // field must not be interpreted as deletion just because HR is present.
         let updatedHeartRate = sampleSeries(count: 11, baseValue: 66)
         let partial = try makeSnapshot(heartRateDaySamples: updatedHeartRate, stepsDaySamples: .empty)
-        XCTAssertTrue(HealthDashboardSnapshotStore.save(partial, defaults: defaults, fileURL: fileURL))
+        XCTAssertTrue(HealthDashboardSnapshotStore.saveWithOutcome(partial, metadata: .init(),
+            authoritativeDaySampleSeries: [.stepsDaySamples], defaults: defaults, fileURL: fileURL).didWrite)
 
         let sidecar = try XCTUnwrap(HealthDashboardSnapshotStore.loadDaySamples(fileURL: fileURL))
         XCTAssertEqual(sidecar.heartRateDaySamples, updatedHeartRate)
