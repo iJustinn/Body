@@ -65,6 +65,23 @@ final class HealthDashboardDurabilityTests: XCTestCase {
         XCTAssertFalse(Store.FileSaveOutcome.failed.isDurable)
     }
 
+    func testHistoricalRingRepairCursorCannotOutrunPayloadOnWriteFailure() throws {
+        let old = snapshot(value: 60)
+        let repaired = HealthDashboardSnapshot(summary: old.summary, trends: old.trends,
+            activityRingHistory: .init(days: [], loadedMonthKeys: old.activityRingHistory.loadedMonthKeys))
+        var stamp = metadata(completed: true)
+        save(old, metadata: stamp)
+        stamp.ringHistoricalRepair = .init(nextMonthStart: day, validatedAt: day, context: "rings")
+        var io = Store.PersistenceIO()
+        io.write = { _, _ in throw InjectedFailure.write }
+        XCTAssertEqual(save(repaired, metadata: stamp, io: io).main, .failed)
+        XCTAssertNil(try load().metadata.ringHistoricalRepair)
+        XCTAssertEqual(try load().snapshot.activityRingHistory, old.activityRingHistory)
+        XCTAssertTrue(save(repaired, metadata: stamp).main.isDurable)
+        XCTAssertEqual(try load().metadata.ringHistoricalRepair, stamp.ringHistoricalRepair)
+        XCTAssertTrue(try load().snapshot.activityRingHistory.days.isEmpty)
+    }
+
     func testMainWriteFailureKeepsOldCheckpointAndRetryDoesNotRefetchSidecar() throws {
         let old = snapshot(value: 60), new = snapshot(value: 65)
         save(old, metadata: metadata(completed: false))

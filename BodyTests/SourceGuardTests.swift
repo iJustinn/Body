@@ -2545,7 +2545,8 @@ final class SourceGuardTests: XCTestCase {
         // Once in each clear (full and scoped).
         XCTAssertEqual(engineSource.occurrenceCount(of: "effortCacheGeneration += 1"), 2)
         XCTAssertTrue(engineSource.contains("let generation = effortCacheGeneration"))
-        XCTAssertTrue(engineSource.contains("guard effortCacheGeneration == generation else {"))
+        XCTAssertTrue(engineSource.contains("guard effortCacheGeneration == generation, !Task.isCancelled else {"),
+                      "Missing generation/cancellation admission in \(BodyTestSupport.projectRoot.path)")
     }
 
     /// The tracked query wrappers hold a budget permit across their await, so a
@@ -2588,8 +2589,10 @@ final class SourceGuardTests: XCTestCase {
     func testFullRefreshCarriesForwardEveryStressTrendField() throws {
         let engineSource = try healthKitFetchEngineText()
         let assemblyStart = try XCTUnwrap(engineSource.range(of: "let trends = HealthTrendSnapshot(")?.lowerBound)
-        // Window sized to the whole initializer call (~4.6k chars today).
-        let assemblyBlock = String(engineSource[assemblyStart...].prefix(5_500))
+        let assemblyEnd = try XCTUnwrap(
+            engineSource.range(of: "return Self.finalizedTrendFetchResult", range: assemblyStart..<engineSource.endIndex)?.lowerBound
+        )
+        let assemblyBlock = String(engineSource[assemblyStart..<assemblyEnd])
 
         XCTAssertTrue(assemblyBlock.contains("stress: cachedStress,"))
         XCTAssertTrue(assemblyBlock.contains("stressRanges: cachedStressRanges,"))
@@ -2610,7 +2613,10 @@ final class SourceGuardTests: XCTestCase {
     func testFullRefreshCarriesForwardTheRecordedBodyRadarNights() throws {
         let engineSource = try healthKitFetchEngineText()
         let assemblyStart = try XCTUnwrap(engineSource.range(of: "let trends = HealthTrendSnapshot(")?.lowerBound)
-        let assemblyBlock = String(engineSource[assemblyStart...].prefix(5_500))
+        let assemblyEnd = try XCTUnwrap(
+            engineSource.range(of: "return Self.finalizedTrendFetchResult", range: assemblyStart..<engineSource.endIndex)?.lowerBound
+        )
+        let assemblyBlock = String(engineSource[assemblyStart..<assemblyEnd])
 
         XCTAssertTrue(assemblyBlock.contains("recordedBodyRadar: cachedRecordedBodyRadar,"))
         XCTAssertTrue(assemblyBlock.contains("recordedBodyRadarContext: cachedRecordedBodyRadarContext"))
@@ -4074,6 +4080,19 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(workoutsSource.contains("if didLoad == true {"))
         XCTAssertTrue(workoutsSource.contains("applyMonthSelection(pending.monthYear)"))
         XCTAssertTrue(workoutsSource.contains("return false"))
+    }
+
+    func testStaleLoadedEmptyMonthNavigatesBeforeBackgroundRevalidation() throws {
+        let source = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutsView.swift")
+        let start = try XCTUnwrap(source.range(of: "if workoutStore.hasLoadedSnapshot(month: monthYear.month, year: monthYear.year)")?.lowerBound)
+        let end = try XCTUnwrap(source.range(of: "// First-wins latch:", range: start..<source.endIndex)?.lowerBound)
+        let branch = String(source[start..<end])
+        XCTAssertTrue(branch.contains("|| workoutStore.hasCachedWorkouts(month: monthYear.month, year: monthYear.year)"))
+        XCTAssertTrue(branch.contains("applyMonthSelection(monthYear)"))
+        XCTAssertTrue(branch.contains("cachedMonthRefreshTask = Task"))
+        XCTAssertTrue(branch.contains("await monthLoadTask(for: monthYear).value"))
+        XCTAssertTrue(branch.contains("return true"))
+        XCTAssertFalse(branch.contains("pendingMonthSelection ="))
     }
 
     func testHealthSyncBadgeIsWiredIntoMainTabWithGlassAndMaterialFallback() throws {
