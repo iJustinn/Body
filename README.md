@@ -12,7 +12,7 @@ All RefreshOptimizationPlan-03 phases use build 8. Explicit source, grouping, an
 
 Permission changes invalidate visible data immediately, then serialize privacy cleanup and cached filtering before corrective refresh. Cleanup holds the refresh slot, overlapping toggles coalesce after all cleanup finishes, and cancelling the Settings caller does not abandon an already-applied opt-out.
 
-Dashboard durability: the versioned dashboard envelope stores ring progress, comparison scope, and cold-start freshness atomically with their payload. Live refresh success does not wait for disk. Legacy snapshots keep their history but restart unproven ring backfill and freshness; main and day-sample sidecar saves report durability independently. A failed save retains the previous file, and a later compatible save can retry the captured data without refetching. This does not yet add authoritative-empty intraday repair.
+Dashboard durability: the versioned dashboard envelope stores ring progress, comparison scope, and cold-start freshness atomically with their payload. Live refresh success does not wait for disk. Legacy snapshots keep their history but restart unproven ring backfill and freshness; main and day-sample sidecar saves report durability independently. A failed save retains the previous file, and a later compatible save can retry the captured data without refetching. Explicit intraday repair supplies per-series authority for successful empty reads.
 
 Background warning admission is rechecked immediately before submission: changed warning settings, source selections, permissions, foreground state, or cancellation stop stale requests. Evaluations do not overlap, and successful submission merges into the latest notification ledger so foreground seeding is preserved. Requests already handed to the system are outside that cancellation guarantee.
 
@@ -25,6 +25,8 @@ Ring history now preserves explicit calendar-day identities across travel, inclu
 Archive repair remains reachable after ordinary pagination reaches the history start. It preserves that end-of-history decision and prior empty probes; scattered empty repair months count as validated coverage, not a continuous displayed gap. Pending repair keys are cached in memory on history replacement, including initial load, and reused by scroll admission and pagination. No derived repair queue is persisted.
 
 Background warning exits preserve earlier failures: losing submission eligibility reports failure, or partial failure if another warning was already delivered, when an earlier kind failed. With no earlier failure the exit remains skipped. Notification ledger rules are unchanged.
+
+Intraday repair: explicit Heart Rate, HRV, Respiratory Rate, and Blood Oxygen pulls reconcile the full retained sample window; passive reads keep the 48 hour overlap. Successful empty reads clear only their authoritative series on disk, while failed or unqueried series preserve compatible cached data. Memoized hydration and older lazy reads cannot resurrect a newly repaired deletion. Per-series revisions preserve unrelated concurrent loads; stripping incompatible samples also drops their write authority. Hourly Steps and Active Energy reads retain their existing full-window behavior. Effort and historical coverage policies remain the subsequent Phase 4 steps.
 
 ## Screenshots
 

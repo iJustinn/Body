@@ -404,6 +404,17 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("already-submitted requests are not recalled"))
     }
 
+    func testIntradayRepairDocumentationStaysInSync() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        XCTAssertTrue(readme.contains("Intraday repair: explicit Heart Rate"))
+        XCTAssertTrue(readme.contains("failed or unqueried series preserve compatible cached data"))
+        XCTAssertTrue(testPlan.contains("RP-03 Phase 4a intraday repair"))
+        XCTAssertTrue(testPlan.contains("IntradayRepairTests"))
+        XCTAssertTrue(readme.contains("Per-series revisions preserve unrelated concurrent loads"))
+        XCTAssertTrue(testPlan.contains("one read and at most one decode per save"))
+    }
+
     func testDashboardDurabilityDocumentationStaysInSync() throws {
         let readme = try BodyTestSupport.sourceText(at: "README.md")
         let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
