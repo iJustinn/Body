@@ -153,6 +153,7 @@ final class HealthKitWorkoutStore {
     @ObservationIgnored private var dashboardCacheScope: HealthDashboardCacheScope?
     @ObservationIgnored private var completedDashboardFreshness: HealthDashboardSnapshotStore.Freshness?
     private(set) var activityRingBackfillState: HealthDashboardSnapshotStore.ActivityRingBackfillState = .pending(resumeFrom: nil)
+    @ObservationIgnored private var activityRingBackfillResumeDay: ActivityRingDaySummary.CalendarDay?
     @ObservationIgnored private var dashboardPublicationToken = HealthDashboardPublicationToken()
     @ObservationIgnored private var cacheSourceIdentities: [HealthMetricKind: [String: [String]]] = [:]
     @ObservationIgnored private var contextRefreshTask: Task<Void, Never>?
@@ -167,7 +168,11 @@ final class HealthKitWorkoutStore {
     @ObservationIgnored var beforePermissionDiskStrip: (@MainActor () async -> Void)?
     @ObservationIgnored var beforePermissionSnapshotCommit: (@MainActor () async -> Void)?
     private(set) var healthTrends: HealthTrendSnapshot = .empty
-    private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty
+    private(set) var activityRingHistory: ActivityRingHistorySnapshot = .empty {
+        didSet { pendingActivityRingRepairMonthKeys = activityRingHistory.pendingDayIdentityMonthKeys }
+    }
+    /// Derived in memory on every history replacement, never during a scroll read.
+    private(set) var pendingActivityRingRepairMonthKeys: [ActivityRingMonthKey] = []
     private(set) var permissionSelection: BodyHealthPermissionSelection
     private(set) var healthDataSourceSelection: BodyHealthDataSourceSelection
     private(set) var secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection
@@ -321,6 +326,9 @@ final class HealthKitWorkoutStore {
     private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
     private(set) var loadingActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     private(set) var hasMoreActivityRingHistory = true
+    var canLoadEarlierActivityRings: Bool {
+        hasMoreActivityRingHistory || !pendingActivityRingRepairMonthKeys.isEmpty
+    }
 
     /// Disk size of the three snapshot caches, refreshed off the main thread
     /// (`refreshCacheDiskSize`). `cacheStatus` reads this instead of running
@@ -418,7 +426,7 @@ final class HealthKitWorkoutStore {
     /// Session-only: never refetched this session, never persisted; cleared
     /// whenever a refresh applies fresh dashboard ring history.
     @ObservationIgnored
-    private var exhaustedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
+    private(set) var exhaustedActivityRingMonthKeys: Set<ActivityRingMonthKey> = []
     @ObservationIgnored
     private var lastAppEntrySyncDate: Date?
     @ObservationIgnored
@@ -593,6 +601,7 @@ final class HealthKitWorkoutStore {
     /// deletion. In particular, A → B → A must retire work started under A.
     @ObservationIgnored private var refreshInputRevision = 0
     @ObservationIgnored private var lastObservedRefreshInputs: RefreshInputs?
+    @ObservationIgnored private let calendarContext: () -> (calendar: Calendar, date: Date)
     @TaskLocal private static var runningRefreshInputs: CapturedRefreshInputs?
 
     struct RefreshInputs: Equatable {
@@ -606,6 +615,7 @@ final class HealthKitWorkoutStore {
         let boundaryAwake: Bool
         let calendarIdentifier: String
         let timeZoneIdentifier: String
+        let summaryDayStart: Date
         var idealSleepDuration: TimeInterval
         let fetchSelection: BodyDashboardFetchSelection
     }
@@ -619,7 +629,7 @@ final class HealthKitWorkoutStore {
     /// Also reads preferences changed outside this store, so a late result is
     /// rejected even before the corresponding settings callback gets its turn.
     func captureRefreshInputs(intent: BodyWorkoutRefreshIntent = .passiveResume) -> CapturedRefreshInputs {
-        let calendar = Calendar.bodyGregorian
+        let (calendar, now) = calendarContext()
         let inputs = RefreshInputs(
             primary: healthDataSourceSelection.signature,
             secondary: secondaryHealthDataSourceSelection.signature,
@@ -631,6 +641,7 @@ final class HealthKitWorkoutStore {
             boundaryAwake: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(),
             calendarIdentifier: String(describing: calendar.identifier),
             timeZoneIdentifier: calendar.timeZone.identifier,
+            summaryDayStart: calendar.startOfDay(for: now),
             idealSleepDuration: Self.storedIdealSleepDuration(),
             fetchSelection: BodyDashboardFetchSelection.load()
         )
@@ -903,8 +914,10 @@ final class HealthKitWorkoutStore {
         customNameDefaults: UserDefaults = .standard,
         engineHealthStore: (any BodyHealthQuerying)? = nil,
         timeZoneLedger: BodyTimeZoneLedger? = nil,
-        date: Date = Date()
+        date: Date = Date(),
+        calendarContext: @escaping () -> (calendar: Calendar, date: Date) = { (.bodyGregorian, Date()) }
     ) {
+        self.calendarContext = calendarContext
         self.customNameDefaults = customNameDefaults
         workoutCustomNames = Self.loadWorkoutCustomNames(from: customNameDefaults)
         permissionSelection = initialPermissionSelection
@@ -1069,13 +1082,17 @@ final class HealthKitWorkoutStore {
                 calendar: .bodyGregorian,
                 keepingRecentMonthCount: Self.recentChartMonthCount
             )
+        // Initialization does not run the history property's observer.
+        pendingActivityRingRepairMonthKeys = activityRingHistory.pendingDayIdentityMonthKeys
         loadedActivityRingMonthKeys = Set(activityRingHistory.loadedMonthKeySet(calendar: .bodyGregorian))
         // Restore the persisted last-successful-refresh timestamp so the
         // cold-start sync path applies the same tiered TTL as a warm resume.
         completedDashboardFreshness = loadedDashboard.metadata.freshness
         lastSuccessfulRefreshDate = loadedDashboard.metadata.freshness?.date
         activityRingBackfillState = initialPermissionSelection.includes(.activityRings)
+            && loadedDashboard.metadata.ringDayIdentityVersion == 1
             ? loadedDashboard.metadata.ringBackfill : .pending(resumeFrom: nil)
+        activityRingBackfillResumeDay = loadedDashboard.metadata.ringBackfillResumeDay
         hasCompletedInitialHealthDataLoad = HealthDashboardSnapshotStore.loadInitialHealthDataLoadCompleted()
         // Restore the compute seed's data watermark from the SAME persisted
         // value: it was written only when a clean full refresh landed — the
@@ -1401,7 +1418,7 @@ final class HealthKitWorkoutStore {
             await engine.clearWorkoutEffortCache()
         }
         setRefreshStage(.fetching)
-        await fetchHealthDataSourceOptions(calendar: calendar)
+        await fetchHealthDataSourceOptions(calendar: calendar, force: true)
         let inputs = captureRefreshInputs()
         let queryRevision = await engine.queryContextRevision
         guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { return }
@@ -1507,6 +1524,7 @@ final class HealthKitWorkoutStore {
     /// next manual refresh.
     private func refreshAfterWrite(_ kind: HealthMetricKind) async {
         guard await awaitRefreshSlotFree() else { return }
+        await engine.markHealthSourcesDirty(for: [kind])
         // A write already raised its own (share) permission sheet; this read-side
         // refresh must never stack a second one on top of it.
         await refreshHealthMetric(kind, intent: .passiveResume)
@@ -4570,7 +4588,9 @@ final class HealthKitWorkoutStore {
             return
         }
 
-        guard !Task.isCancelled, loadingActivityRingMonthKeys.isEmpty, hasMoreActivityRingHistory else {
+        let pendingRepairMonthKeys = pendingActivityRingRepairMonthKeys
+        guard !Task.isCancelled, loadingActivityRingMonthKeys.isEmpty,
+              hasMoreActivityRingHistory || !pendingRepairMonthKeys.isEmpty else {
             return
         }
 
@@ -4586,13 +4606,14 @@ final class HealthKitWorkoutStore {
             loadedActivityRingMonthKeys = Set(activityRingHistory.loadedMonthKeySet(calendar: calendar))
         }
 
-        let candidates = Self.previousActivityRingMonthCandidates(
+        let repairCandidates = Array(pendingRepairMonthKeys.reversed().prefix(3))
+        let candidates = repairCandidates.isEmpty ? Self.previousActivityRingMonthCandidates(
             loadedKeys: loadedActivityRingMonthKeys,
             exhaustedKeys: exhaustedActivityRingMonthKeys,
             limit: 3,
             date: date,
             calendar: calendar
-        )
+        ) : repairCandidates
         guard !candidates.isEmpty else {
             return
         }
@@ -4623,6 +4644,16 @@ final class HealthKitWorkoutStore {
                     return
                 }
 
+                if !repairCandidates.isEmpty {
+                    // Even an empty successful month is authoritative repair.
+                    // Failed reads above cannot advance this coverage or retire
+                    // archived values. At most three months per pagination pass.
+                    guard applyActivityRingArchiveRepair(previousHistory, capturedEpoch: epoch, calendar: calendar) else { return }
+                    mergedHistory = activityRingHistory
+                    // Repair candidates need not be adjacent. They never enter
+                    // the ordinary pagination gap accumulator or its merge.
+                    continue
+                }
                 guard !previousHistory.days.isEmpty else {
                     exhaustedActivityRingMonthKeys.insert(candidate)
                     emptyProbedKeys.append(candidate)
@@ -4741,11 +4772,15 @@ final class HealthKitWorkoutStore {
             )
             return mergeOlderActivityRingHistory(olderMonth, gapKeys: gapKeys, calendar: calendar)
         case .noOlderData:
-            hasMoreActivityRingHistory = false
+            noteActivityRingHistoryExhausted()
             return nil
         case .failed:
             return nil
         }
+    }
+
+    func noteActivityRingHistoryExhausted() {
+        hasMoreActivityRingHistory = false
     }
 
     func clearLocalCache(date: Date = Date()) async {
@@ -4981,7 +5016,7 @@ final class HealthKitWorkoutStore {
             // Source discovery must finish before any dashboard query — the
             // per-source predicate reads `healthSourcesByKind`, so racing it
             // would silently fetch all-source data for custom-source users.
-            await fetchHealthDataSourceOptions(calendar: calendar)
+            await fetchHealthDataSourceOptions(calendar: calendar, force: intent == .userInitiated)
 
             let (fetchedHealthSummary, fetchedHealthTrends, hadQueryFailure, fetchedPartialTrendWindow) =
                 try await fetchDashboardSnapshotProgressively(
@@ -5133,7 +5168,7 @@ final class HealthKitWorkoutStore {
         let dashboardFetchSelection = BodyDashboardFetchSelection.load()
         do {
             if updatesHealthSummary {
-                await fetchHealthDataSourceOptions(calendar: calendar)
+                await fetchHealthDataSourceOptions(calendar: calendar, force: true)
 
                 let (fetchedHealthSummary, fetchedHealthTrends, leafFailure, partialTrendWindow) =
                     try await fetchDashboardSnapshotProgressively(
@@ -5394,7 +5429,14 @@ final class HealthKitWorkoutStore {
         // rewrites the day-sample sidecar from `healthTrends`.
         await hydratePersistedDaySamplesIfNeeded()
 
-        let backfillState = activityRingBackfillState
+        let backfillState: HealthDashboardSnapshotStore.ActivityRingBackfillState
+        if case .pending(let checkpoint) = activityRingBackfillState {
+            // The checkpoint is an exclusive calendar-day boundary, just like
+            // the records. Never interpret a saved midnight in a new zone.
+            backfillState = .pending(resumeFrom: checkpoint == nil ? nil : activityRingBackfillResumeDay?.date(in: calendar))
+        } else {
+            backfillState = activityRingBackfillState
+        }
         let result: ActivityRingHistoryFetchResult
         switch backfillState {
         case .pending(let resumeFrom):
@@ -5464,6 +5506,11 @@ final class HealthKitWorkoutStore {
         // gates the refresh, so a transient ring failure must not withhold the
         // freshness TTL for summary/trend data that landed cleanly.
         activityRingBackfillState = nextBackfillState
+        if case .pending(let checkpoint?) = nextBackfillState {
+            activityRingBackfillResumeDay = .init(date: checkpoint, calendar: calendar)
+        } else {
+            activityRingBackfillResumeDay = nil
+        }
         persistActivityRingHistory()
     }
 
@@ -5496,6 +5543,7 @@ final class HealthKitWorkoutStore {
         // can push a finished backfill back to pending.
         if let nextChunkEndDate = chunk.nextChunkEndDate {
             activityRingBackfillState = .pending(resumeFrom: nextChunkEndDate)
+            activityRingBackfillResumeDay = .init(date: nextChunkEndDate, calendar: calendar)
         }
         persistActivityRingHistory()
         return true
@@ -5517,7 +5565,8 @@ final class HealthKitWorkoutStore {
     func applyActivityRingHistoryChunk(
         _ chunk: ActivityRingHistorySnapshot,
         capturedEpoch: Int,
-        calendar: Calendar = .bodyGregorian
+        calendar: Calendar = .bodyGregorian,
+        resetsPagination: Bool = true
     ) -> Bool {
         // A Clear Cache landed since the chunk was requested — don't republish
         // onto the wiped history. Rings being switched off is the same story:
@@ -5543,8 +5592,27 @@ final class HealthKitWorkoutStore {
         // Fresh ring data may include backfilled months; let older-month
         // pagination re-probe instead of staying pinned at a previously
         // detected history start.
-        exhaustedActivityRingMonthKeys.removeAll()
-        hasMoreActivityRingHistory = true
+        if resetsPagination {
+            exhaustedActivityRingMonthKeys.removeAll()
+            hasMoreActivityRingHistory = true
+        }
+        return true
+    }
+
+    /// Archive repair validates individual months, not a contiguous pagination
+    /// gap. Keep the existing history-end decision and all prior empty probes.
+    @discardableResult
+    func applyActivityRingArchiveRepair(
+        _ chunk: ActivityRingHistorySnapshot,
+        capturedEpoch: Int,
+        calendar: Calendar = .bodyGregorian
+    ) -> Bool {
+        guard !chunk.loadedMonthKeys.isEmpty else { return false }
+        var repair = chunk
+        if repair.days.isEmpty { repair.loadedMonthKeys = [] }
+        guard applyActivityRingHistoryChunk(repair, capturedEpoch: capturedEpoch,
+                                           calendar: calendar, resetsPagination: false) else { return false }
+        if repair.days.isEmpty { exhaustedActivityRingMonthKeys.formUnion(chunk.loadedMonthKeys) }
         return true
     }
 
@@ -5625,7 +5693,7 @@ final class HealthKitWorkoutStore {
     }
 
     func currentDashboardCacheScope() -> HealthDashboardCacheScope {
-        let calendar = Calendar.bodyGregorian
+        let (calendar, now) = calendarContext()
         let aggregation = HealthDashboardCacheScope.key([
             String(describing: calendar.identifier), calendar.timeZone.identifier, "aggregation-v1"
         ])
@@ -5684,7 +5752,8 @@ final class HealthKitWorkoutStore {
         }
         let primary = Dictionary(uniqueKeysWithValues: HealthDashboardCacheScope.leafKinds.map { ($0.rawValue, source($0, comparison: false)) })
         let secondary = Dictionary(uniqueKeysWithValues: HealthDashboardCacheScope.leafKinds.map { ($0.rawValue, source($0, comparison: true)) })
-        return HealthDashboardCacheScope(primary: primary, secondary: secondary, aggregation: aggregation, sleepGoal: Self.storedIdealSleepDuration())
+        return HealthDashboardCacheScope(primary: primary, secondary: secondary, aggregation: aggregation,
+                                         sleepGoal: Self.storedIdealSleepDuration(), summaryDayStart: calendar.startOfDay(for: now))
     }
 
     /// Synchronous normalization happens before a settings mutator's first
@@ -5697,6 +5766,7 @@ final class HealthKitWorkoutStore {
         let fetchChanged = scope.primary != dashboardCacheScope?.primary
             || scope.secondary != dashboardCacheScope?.secondary
             || scope.aggregation != dashboardCacheScope?.aggregation
+            || scope.summaryDayStart != dashboardCacheScope?.summaryDayStart
         dashboardPublicationToken.invalidate()
         dashboardPublicationToken = HealthDashboardPublicationToken()
         let next = scope.scoping(HealthDashboardSnapshot(
@@ -6303,7 +6373,12 @@ final class HealthKitWorkoutStore {
                 ? activityRingBackfillState : .pending(resumeFrom: nil),
             secondarySelectionSignature: currentSecondarySelectionSignature(),
             freshness: completedDashboardFreshness?.contextSignature == dashboardFreshnessContextSignature()
-                ? completedDashboardFreshness : nil
+                ? completedDashboardFreshness : nil,
+            ringBackfillResumeDay: {
+                guard permissionSelection.includes(.activityRings),
+                      case .pending(.some) = activityRingBackfillState else { return nil }
+                return activityRingBackfillResumeDay
+            }()
         )
     }
 
@@ -7799,11 +7874,11 @@ final class HealthKitWorkoutStore {
     }
 
 
-    private func fetchHealthDataSourceOptions(calendar: Calendar) async {
+    private func fetchHealthDataSourceOptions(calendar: Calendar, force: Bool = false) async {
         let signpostState = BodyPerformanceSignposts.signposter.beginInterval("SourceOptions")
         defer { BodyPerformanceSignposts.signposter.endInterval("SourceOptions", signpostState) }
         let inputs = captureRefreshInputs()
-        let nextOptionsByKind = await engine.fetchHealthDataSourceOptions(calendar: calendar)
+        let nextOptionsByKind = await engine.fetchHealthDataSourceOptions(calendar: calendar, force: force)
         let revision = await engine.queryContextRevision
         let identities = await engine.cacheSourceIdentities()
         let expected = await engine.watchComputeExpectedSourceIDs()

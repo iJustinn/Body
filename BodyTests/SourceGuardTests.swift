@@ -1888,7 +1888,8 @@ final class SourceGuardTests: XCTestCase {
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
         let engineSource = try healthKitFetchEngineText()
 
-        XCTAssertTrue(storeSource.contains("fetchHealthDataSourceOptions(calendar: calendar)"))
+        XCTAssertTrue(storeSource.contains("fetchHealthDataSourceOptions(calendar: calendar, force: true)"))
+        XCTAssertTrue(storeSource.contains("fetchHealthDataSourceOptions(calendar: calendar, force: intent == .userInitiated)"))
         XCTAssertTrue(engineSource.contains("sourcePredicate(for: sourceKind)"))
         XCTAssertTrue(engineSource.contains("combinedPredicate(startDate:"))
 

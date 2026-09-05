@@ -32,6 +32,9 @@ struct HealthDashboardCacheScope: Codable, Equatable {
     var primary: [String: Source]
     var secondary: [String: Source]
     var aggregation: String
+    /// Today's summary is not reusable across midnight. Optional for legacy
+    /// scopes, which must revalidate today's fields without losing history.
+    var summaryDayStart: Date?
     var sleepGoal: TimeInterval
     var computeVersion = 1
 
@@ -55,12 +58,13 @@ struct HealthDashboardCacheScope: Codable, Equatable {
 
     init(
         primary: [String: Source], secondary: [String: Source],
-        aggregation: String, sleepGoal: TimeInterval
+        aggregation: String, sleepGoal: TimeInterval, summaryDayStart: Date? = nil
     ) {
         self.primary = primary
         self.secondary = secondary
         self.aggregation = aggregation
         self.sleepGoal = sleepGoal
+        self.summaryDayStart = summaryDayStart
     }
 
     /// Per-kind raw identity. Hourly cumulative samples are calendar buckets;
@@ -127,6 +131,20 @@ struct HealthDashboardCacheScope: Codable, Equatable {
                 currentPrimary: rawSignatures(), currentSecondary: rawSignatures(secondary: true)
             )
         next.trends = next.trends.strippingDaySamples().mergingMissingDaySamples(from: raw)
+
+        if old?.summaryDayStart != summaryDayStart {
+            // Only today's cumulative/current fields expire at midnight. Latest
+            // readings, wake-attributed sleep and historical series remain valid.
+            for kind: HealthMetricKind in [.steps, .activeEnergy, .restingEnergy, .exerciseMinutes, .timeInDaylight, .trainingLoad] {
+                next.summary = next.summary.replacingMetric(kind, with: .empty)
+            }
+            next.summary.activityRings = .empty
+            next.summary.metricWarnings = []
+            next.summary.readiness = .unavailable
+            next.summary.stress = nil
+            next.summary.stressCurrentScore = nil
+            next.summary.bodyRadar = nil
+        }
 
         if !changed.isDisjoint(with: HealthKitWorkoutStore.readinessInputMetricKinds)
             || old?.sleepGoal != sleepGoal || old?.computeVersion != computeVersion {

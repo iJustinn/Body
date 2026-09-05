@@ -237,6 +237,10 @@ enum HealthDashboardSnapshotStore {
         var ringBackfill: ActivityRingBackfillState = .pending(resumeFrom: nil)
         var secondarySelectionSignature: String?
         var freshness: Freshness?
+        /// Missing in pre-day-identity envelopes. Progress is restarted once;
+        /// subsequent partial repair checkpoints remain bound to their payload.
+        var ringDayIdentityVersion: Int? = 1
+        var ringBackfillResumeDay: ActivityRingDaySummary.CalendarDay?
     }
 
     struct Freshness: Codable, Equatable {

@@ -376,7 +376,7 @@ struct BodyActivityRingsDetailView: View {
     @State private var dayCallout = BodyChartFloatingCalloutState()
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
-    private let calendar = Calendar.bodyGregorian
+    private var calendar: Calendar { .bodyGregorian }
     /// Distance from the content top that counts as "near the top" for
     /// paging in older months.
     private let olderMonthLoadThreshold: CGFloat = 300
@@ -465,7 +465,7 @@ struct BodyActivityRingsDetailView: View {
         .overlay(alignment: .top) {
             // Outside the scroll content so showing/hiding it can't change
             // the content size or perturb anchoring.
-            if isLoadingOlderMonths && workoutStore.hasMoreActivityRingHistory {
+            if isLoadingOlderMonths && workoutStore.canLoadEarlierActivityRings {
                 ProgressView()
                     .padding(10)
                     .background(.ultraThinMaterial, in: Circle())
@@ -507,6 +507,11 @@ struct BodyActivityRingsDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             // The cached months bake in "today" (future-day dimming), so they
             // must be rebuilt when the day rolls over while the screen is up.
+            refreshCalendarMonths()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+            // Rebuild display dates from the stored day labels while this
+            // screen remains active across a time-zone change.
             refreshCalendarMonths()
         }
         .onChange(of: scenePhase) {
@@ -581,7 +586,7 @@ struct BodyActivityRingsDetailView: View {
               !isLoadingOlderMonths,
               hasUserInteracted || isUnderfilled,
               remainingAutomaticLoads > 0,
-              workoutStore.hasMoreActivityRingHistory,
+              workoutStore.canLoadEarlierActivityRings,
               workoutStore.loadingActivityRingMonthKeys.isEmpty
         else {
             return

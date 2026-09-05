@@ -278,7 +278,8 @@ extension HealthKitFetchEngine {
                     // day are left for the finished walk's result to mark.
                     loadedMonthKeys: chunkDays.first.map {
                         Self.activityRingMonthKeySpan(from: $0.date, to: chunkEnd, calendar: calendar)
-                    } ?? []
+                    } ?? [],
+                    validatedMonthKeys: Self.activityRingMonthKeySpan(from: chunkStart, to: chunkEnd, calendar: calendar)
                 ),
                 hadQueryFailure: false,
                 reachedHistoryStart: reachedHistoryStart,
@@ -554,7 +555,8 @@ extension HealthKitFetchEngine {
 
             return ActivityRingDaySummary(
                 date: calendar.startOfDay(for: date),
-                summary: Self.activityRingSummary(from: summary)
+                summary: Self.activityRingSummary(from: summary),
+                calendar: calendar
             )
         }
         .sorted { $0.date < $1.date }

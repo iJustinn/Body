@@ -5734,7 +5734,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 ActivityRingDaySummary(date: march2, summary: summary),
                 ActivityRingDaySummary(date: march3, summary: summary)
             ],
-            loadedMonthKeys: [januaryKey, februaryKey, marchKey]
+            loadedMonthKeys: [januaryKey, februaryKey, marchKey],
+            validatedMonthKeys: [] // Deliberately unproven legacy coverage.
         )
 
         let repairedHistory = corruptedHistory.removingLikelyBoundaryTruncatedLoadedMonths(

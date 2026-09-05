@@ -93,6 +93,14 @@ struct BodyApp: App {
                         await proStore.refreshEntitlement()
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+                    guard scenePhase == .active else { return }
+                    _ = workoutStore.captureRefreshInputs()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+                    guard scenePhase == .active else { return }
+                    _ = workoutStore.captureRefreshInputs()
+                }
         }
     }
 

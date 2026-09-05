@@ -79,6 +79,43 @@ struct ActivityRingMetric: Codable, Equatable {
 struct ActivityRingDaySummary: Codable, Equatable, Identifiable {
     var date: Date
     var summary: ActivityRingSummary
+    /// HealthKit activity summaries identify a Gregorian calendar day. `date`
+    /// remains the original query instant for backward decoding, not grouping.
+    var calendarDay: CalendarDay?
+
+    struct CalendarDay: Codable, Equatable {
+        let year: Int
+        let month: Int
+        let day: Int
+
+        init(date: Date, calendar: Calendar) {
+            year = calendar.component(.year, from: date)
+            month = calendar.component(.month, from: date)
+            day = calendar.component(.day, from: date)
+        }
+
+        func date(in calendar: Calendar) -> Date? {
+            guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)),
+                  calendar.component(.year, from: date) == year,
+                  calendar.component(.month, from: date) == month,
+                  calendar.component(.day, from: date) == day else { return nil }
+            return date
+        }
+    }
+
+    init(date: Date, summary: ActivityRingSummary, calendar: Calendar = .bodyGregorian) {
+        self.date = date
+        self.summary = summary
+        calendarDay = CalendarDay(date: date, calendar: calendar)
+    }
+
+    func date(in calendar: Calendar) -> Date? {
+        calendarDay?.date(in: calendar)
+    }
+
+    var monthKey: ActivityRingMonthKey? {
+        calendarDay.map { ActivityRingMonthKey(month: $0.month, year: $0.year) }
+    }
 
     var id: Date {
         date
@@ -147,29 +184,64 @@ struct ActivityRingMonthKey: Codable, Equatable, Hashable, Identifiable {
 struct ActivityRingHistorySnapshot: Codable, Equatable {
     var days: [ActivityRingDaySummary]
     var loadedMonthKeys: [ActivityRingMonthKey]
+    /// Legacy instants have no proven original zone. Keep their values on disk,
+    /// but do not display guessed calendar days or count them as closed rings.
+    var unattributedDays: [ActivityRingDaySummary]
+    /// Authoritative query coverage, including empty months omitted from the UI.
+    var validatedMonthKeys: [ActivityRingMonthKey]
+
+    var pendingDayIdentityMonthKeys: [ActivityRingMonthKey] {
+        let pending = Set(unattributedDays.flatMap { Self.possibleMonthKeys(for: $0) })
+            .subtracting(validatedMonthKeys)
+        return Self.sortedUniqueMonthKeys(Array(pending))
+    }
+
+    private static let attributionCalendar: Calendar = {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        return utc
+    }()
+
+    private static func possibleMonthKeys(for day: ActivityRingDaySummary) -> [ActivityRingMonthKey] {
+        return (-2...2).map { offset in
+            ActivityRingMonthKey(date: day.date.addingTimeInterval(Double(offset) * 86_400), calendar: attributionCalendar)
+        }
+    }
 
     var isEmpty: Bool {
-        days.isEmpty
+        days.isEmpty && unattributedDays.isEmpty
     }
 
     static let empty = ActivityRingHistorySnapshot(days: [])
 
-    init(days: [ActivityRingDaySummary], loadedMonthKeys: [ActivityRingMonthKey] = []) {
+    init(days: [ActivityRingDaySummary], loadedMonthKeys: [ActivityRingMonthKey] = [],
+         unattributedDays: [ActivityRingDaySummary] = [], validatedMonthKeys: [ActivityRingMonthKey]? = nil) {
         self.days = days.sorted { $0.date < $1.date }
         self.loadedMonthKeys = Self.sortedUniqueMonthKeys(loadedMonthKeys)
+        self.unattributedDays = unattributedDays
+        self.validatedMonthKeys = Self.sortedUniqueMonthKeys(validatedMonthKeys ?? loadedMonthKeys)
     }
 
     private enum CodingKeys: String, CodingKey {
         case days
         case loadedMonthKeys
+        case unattributedDays
+        case validatedMonthKeys
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        days = try container.decode([ActivityRingDaySummary].self, forKey: .days)
-            .sorted { $0.date < $1.date }
+        let decodedDays = try container.decode([ActivityRingDaySummary].self, forKey: .days)
+        days = decodedDays.filter { $0.calendarDay != nil }.sorted { $0.date < $1.date }
+        unattributedDays = (try container.decodeIfPresent([ActivityRingDaySummary].self, forKey: .unattributedDays) ?? [])
+            + decodedDays.filter { $0.calendarDay == nil }
+        // Old loaded-month claims do not prove the original day attribution.
+        let hasIdentityCoverage = container.contains(.validatedMonthKeys)
         loadedMonthKeys = Self.sortedUniqueMonthKeys(
-            try container.decodeIfPresent([ActivityRingMonthKey].self, forKey: .loadedMonthKeys) ?? []
+            hasIdentityCoverage ? (try container.decodeIfPresent([ActivityRingMonthKey].self, forKey: .loadedMonthKeys) ?? []) : []
+        )
+        validatedMonthKeys = Self.sortedUniqueMonthKeys(
+            try container.decodeIfPresent([ActivityRingMonthKey].self, forKey: .validatedMonthKeys) ?? []
         )
     }
 
@@ -177,6 +249,8 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(days, forKey: .days)
         try container.encode(loadedMonthKeys, forKey: .loadedMonthKeys)
+        try container.encode(unattributedDays, forKey: .unattributedDays)
+        try container.encode(validatedMonthKeys, forKey: .validatedMonthKeys)
     }
 
     func calendarMonths(
@@ -187,7 +261,8 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
         let today = calendar.startOfDay(for: date)
         var summariesByDay: [Date: ActivityRingSummary] = [:]
         for day in days.sorted(by: { $0.date < $1.date }) {
-            summariesByDay[calendar.startOfDay(for: day.date)] = day.summary
+            guard let date = day.date(in: calendar) else { continue }
+            summariesByDay[calendar.startOfDay(for: date)] = day.summary
         }
         let currentMonthStart = calendar.dateInterval(of: .month, for: today)?.start ?? today
         let summaryMonthStarts = Set(summariesByDay.keys
@@ -243,7 +318,7 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
     }
 
     func loadedMonthKeySet(calendar: Calendar = .bodyGregorian) -> [ActivityRingMonthKey] {
-        let dayMonthKeys = days.map { ActivityRingMonthKey(date: $0.date, calendar: calendar) }
+        let dayMonthKeys = days.compactMap(\.monthKey)
         return Self.sortedUniqueMonthKeys(loadedMonthKeys + dayMonthKeys)
     }
 
@@ -254,8 +329,8 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
         }
 
         return ActivityRingHistorySnapshot(
-            days: days.filter { loadedKeys.contains(ActivityRingMonthKey(date: $0.date, calendar: calendar)) },
-            loadedMonthKeys: loadedMonthKeys
+            days: days.filter { $0.monthKey.map { loadedKeys.contains($0) } ?? false },
+            loadedMonthKeys: loadedMonthKeys, unattributedDays: unattributedDays, validatedMonthKeys: validatedMonthKeys
         )
     }
 
@@ -270,10 +345,11 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
         }
 
         let daysByMonth = Dictionary(grouping: days) { day in
-            ActivityRingMonthKey(date: day.date, calendar: calendar)
+            day.monthKey
         }
         let truncatedKeys = explicitLoadedKeys.filter { key in
             guard
+                !validatedMonthKeys.contains(key),
                 let monthStart = key.startDate(calendar: calendar),
                 monthStart < currentMonthStart,
                 let monthDays = daysByMonth[key],
@@ -283,7 +359,7 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
                 return false
             }
 
-            return calendar.component(.day, from: onlyDay.date) == 1
+            return onlyDay.calendarDay?.day == 1
         }
 
         guard !truncatedKeys.isEmpty else {
@@ -291,8 +367,9 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
         }
 
         return ActivityRingHistorySnapshot(
-            days: days.filter { !truncatedKeys.contains(ActivityRingMonthKey(date: $0.date, calendar: calendar)) },
-            loadedMonthKeys: loadedMonthKeys.filter { !truncatedKeys.contains($0) }
+            days: days.filter { day in day.monthKey.map { !truncatedKeys.contains($0) } ?? true },
+            loadedMonthKeys: loadedMonthKeys.filter { !truncatedKeys.contains($0) },
+            unattributedDays: unattributedDays, validatedMonthKeys: validatedMonthKeys
         )
     }
 
@@ -313,7 +390,7 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
         }
 
         let earliestKeptMonthStart: Date
-        if let earliestDayDate = days.first?.date {
+        if let earliestDayDate = days.compactMap({ $0.date(in: calendar) }).min() {
             guard let earliestDataMonthStart = calendar.dateInterval(of: .month, for: earliestDayDate)?.start else {
                 return self
             }
@@ -346,7 +423,8 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
             return self
         }
 
-        return ActivityRingHistorySnapshot(days: days, loadedMonthKeys: keptKeys)
+        return ActivityRingHistorySnapshot(days: days, loadedMonthKeys: keptKeys,
+                                           unattributedDays: unattributedDays, validatedMonthKeys: validatedMonthKeys)
     }
 
     /// REPLACES, it does not merge. Every month `other` claims as loaded loses
@@ -372,14 +450,28 @@ struct ActivityRingHistorySnapshot: Codable, Equatable {
         let otherLoadedKeys = other.loadedMonthKeys.isEmpty
             ? other.loadedMonthKeySet(calendar: calendar)
             : other.loadedMonthKeys
-        let replacementKeys = Set(otherLoadedKeys)
+        // Empty validated chunks are authoritative too, even when their months
+        // are omitted from the visible grid. Their coverage is exactly the
+        // query window, never a speculative span to the history start.
+        let replacementKeys = Set(otherLoadedKeys + other.validatedMonthKeys)
         let retainedDays = days.filter { day in
-            !replacementKeys.contains(ActivityRingMonthKey(date: day.date, calendar: calendar))
+            day.monthKey.map { !replacementKeys.contains($0) } ?? true
+        }
+
+        let validated = Set(validatedMonthKeys + other.validatedMonthKeys)
+        var archived = unattributedDays
+        for day in other.unattributedDays where !archived.contains(day) { archived.append(day) }
+        // A legacy midnight could name either side of a month boundary. Do not
+        // retire it until every possible month has been read successfully. Use
+        // a conservative two-day UTC margin, wider than any supported zone.
+        archived.removeAll { day in
+            Self.possibleMonthKeys(for: day).allSatisfy { validated.contains($0) }
         }
 
         return ActivityRingHistorySnapshot(
             days: retainedDays + other.days,
-            loadedMonthKeys: loadedMonthKeys + otherLoadedKeys
+            loadedMonthKeys: loadedMonthKeys + otherLoadedKeys,
+            unattributedDays: archived, validatedMonthKeys: Array(validated)
         )
     }
 
