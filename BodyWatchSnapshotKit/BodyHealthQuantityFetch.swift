@@ -152,35 +152,31 @@ enum BodyHealthQuantityFetch {
         var intervalComponents = DateComponents()
         intervalComponents.day = 1
 
-        switch await store.statisticsCollection(
+        switch await store.dailyQuantities(
             BodyStatisticsCollectionRequest(
                 quantityType: quantityType,
                 predicate: predicate,
                 options: aggregation.statisticsOptions,
                 anchorDate: anchor,
                 intervalComponents: intervalComponents
-            )
+            ), aggregation: aggregation, from: start, to: end
         ) {
         case .failure(let error):
             onFailure?(error)
             return .failure
         case .cancelled:
             return .failure
-        case .success(let statisticsCollection):
+        case .success(let quantities):
             var points: [HealthTrendDataPoint] = []
-            statisticsCollection.enumerateStatistics(from: start, to: end) { statistics, _ in
-                guard let quantity = aggregation.quantity(from: statistics) else {
-                    return
-                }
-
-                let value = valueTransform(quantity.doubleValue(for: unit))
+            for dated in quantities {
+                let value = valueTransform(dated.quantity.doubleValue(for: unit))
                 guard value.isFinite else {
-                    return
+                    continue
                 }
 
                 points.append(
                     HealthTrendDataPoint(
-                        date: calendar.startOfDay(for: statistics.startDate),
+                        date: calendar.startOfDay(for: dated.date),
                         value: value
                     )
                 )

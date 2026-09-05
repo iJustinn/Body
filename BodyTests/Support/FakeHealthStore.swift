@@ -56,6 +56,8 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
     private var sourceScripts: [String: Script] = [:]
     private var statisticsScripts: [String: Script] = [:]
     private var statisticsCollectionScripts: [String: Script] = [:]
+    private var cumulativeQuantities: [String: HKQuantity?] = [:]
+    private var dailyQuantityValues: [String: [BodyDatedQuantity]] = [:]
     private var executedQueriesValue: [HKQuery] = []
     private var stoppedQueriesValue: [HKQuery] = []
     private var leafRequestsValue: [LeafRequest] = []
@@ -79,7 +81,51 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
         lock.lock(); statisticsCollectionScripts[type.identifier] = script; lock.unlock()
     }
 
+    func scriptCumulativeQuantity(for type: HKQuantityType, quantity: HKQuantity?) {
+        lock.lock(); cumulativeQuantities[type.identifier] = .some(quantity); lock.unlock()
+    }
+
+    func cumulativeQuantity(_ request: BodyStatisticsRequest) async -> BodyHealthReadOutcome<HKQuantity?> {
+        if let quantity = scriptedCumulativeQuantity(request.quantityType.identifier) {
+            record(.statistics(request.quantityType.identifier))
+            return .success(quantity)
+        }
+        switch await statistics(request) {
+        case .success(let value): return .success(value.sumQuantity())
+        case .failure(let error): return .failure(error)
+        case .cancelled: return .cancelled
+        }
+    }
+
+    private func scriptedCumulativeQuantity(_ identifier: String) -> HKQuantity?? {
+        lock.lock(); defer { lock.unlock() }
+        return cumulativeQuantities[identifier]
+    }
+
     // MARK: - Recorded traffic
+
+    func scriptDailyQuantities(for type: HKQuantityType, values: [BodyDatedQuantity]) {
+        lock.lock(); dailyQuantityValues[type.identifier] = values; lock.unlock()
+    }
+
+    private func scriptedDailyQuantities(_ identifier: String) -> [BodyDatedQuantity]? {
+        lock.lock(); defer { lock.unlock() }
+        return dailyQuantityValues[identifier]
+    }
+
+    func dailyQuantities(_ request: BodyStatisticsCollectionRequest,
+        aggregation: BodyDailyQuantityAggregation, from start: Date, to end: Date
+    ) async -> BodyHealthReadOutcome<[BodyDatedQuantity]> {
+        if let values = scriptedDailyQuantities(request.quantityType.identifier) {
+            record(.statisticsCollection(request.quantityType.identifier))
+            return .success(values)
+        }
+        switch await statisticsCollection(request) {
+        case .failure(let error): return .failure(error)
+        case .cancelled: return .cancelled
+        case .success: return .failure(Unscripted())
+        }
+    }
 
     var executedQueries: [HKQuery] {
         lock.lock(); defer { lock.unlock() }; return executedQueriesValue
@@ -133,8 +179,9 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
 
     func samples(_ request: BodySampleRequest) async -> BodyHealthReadOutcome<[HKSample]> {
         let identifier = request.sampleType.identifier
+        let response = script(sampleScripts, identifier)
         record(.samples(identifier))
-        return await resolve(script(sampleScripts, identifier)) { script in
+        return await resolve(response) { script in
             switch script {
             case .samples(let samples):
                 return .success(samples)

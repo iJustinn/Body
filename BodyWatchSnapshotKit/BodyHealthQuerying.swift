@@ -95,10 +95,13 @@ struct BodyStatisticsCollectionRequest: @unchecked Sendable {
     }
 }
 
-/// Everything Body asks of `HKHealthStore`, so the store can be substituted in
-/// tests. `HKHealthStore` itself is `NS_SWIFT_SENDABLE`, which is what lets the
-/// engine hoist an `any BodyHealthQuerying` into the `@Sendable` bodies its
-/// external-query bracket runs unstructured.
+/// Value projection of one daily statistic, preserving HealthKit's quantity.
+struct BodyDatedQuantity {
+    let date: Date
+    let quantity: HKQuantity
+}
+
+/// Everything Body asks of `HKHealthStore`, including scriptable leaf reads.
 protocol BodyHealthQuerying: AnyObject, Sendable {
     // Callback passthroughs: the engine-internal query sites own their own
     // continuations and cancellation, so they only need execute/stop.
@@ -115,9 +118,13 @@ protocol BodyHealthQuerying: AnyObject, Sendable {
     func samples(_ request: BodySampleRequest) async -> BodyHealthReadOutcome<[HKSample]>
     func sources(for sampleType: HKSampleType) async -> BodyHealthReadOutcome<[HKSource]>
     func statistics(_ request: BodyStatisticsRequest) async -> BodyHealthReadOutcome<HKStatistics>
+    func cumulativeQuantity(_ request: BodyStatisticsRequest) async -> BodyHealthReadOutcome<HKQuantity?>
     func statisticsCollection(
         _ request: BodyStatisticsCollectionRequest
     ) async -> BodyHealthReadOutcome<HKStatisticsCollection>
+    func dailyQuantities(_ request: BodyStatisticsCollectionRequest,
+        aggregation: BodyDailyQuantityAggregation, from start: Date, to end: Date
+    ) async -> BodyHealthReadOutcome<[BodyDatedQuantity]>
 
     // Authorization, writes and characteristics: forwarded 1:1, in the exact
     // shapes the call sites use.
@@ -142,6 +149,35 @@ protocol BodyHealthQuerying: AnyObject, Sendable {
     ) async throws -> Bool
     func dateOfBirthComponents() throws -> DateComponents
     func biologicalSex() throws -> HKBiologicalSexObject
+}
+
+extension BodyHealthQuerying {
+    func dailyQuantities(_ request: BodyStatisticsCollectionRequest,
+        aggregation: BodyDailyQuantityAggregation, from start: Date, to end: Date
+    ) async -> BodyHealthReadOutcome<[BodyDatedQuantity]> {
+        switch await statisticsCollection(request) {
+        case .success(let collection):
+            var values: [BodyDatedQuantity] = []
+            collection.enumerateStatistics(from: start, to: end) { statistic, _ in
+                if let quantity = aggregation.quantity(from: statistic) {
+                    values.append(.init(date: statistic.startDate, quantity: quantity))
+                }
+            }
+            return .success(values)
+        case .failure(let error): return .failure(error)
+        case .cancelled: return .cancelled
+        }
+    }
+
+    /// Value projection keeps a successful empty statistic scriptable without
+    /// constructing HKStatistics, which has no public initializer.
+    func cumulativeQuantity(_ request: BodyStatisticsRequest) async -> BodyHealthReadOutcome<HKQuantity?> {
+        switch await statistics(request) {
+        case .success(let value): return .success(value.sumQuantity())
+        case .failure(let error): return .failure(error)
+        case .cancelled: return .cancelled
+        }
+    }
 }
 
 extension HKHealthStore: BodyHealthQuerying {
