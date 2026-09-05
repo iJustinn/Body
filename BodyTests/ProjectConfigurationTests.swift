@@ -358,6 +358,52 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(refinement.contains("Implementation Phase 1"))
     }
 
+    func testSourceDiscoveryDocumentationStaysInSync() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        XCTAssertTrue(readme.contains("Source discovery freshness"))
+        XCTAssertTrue(readme.contains("expires after 24 hours"))
+        XCTAssertTrue(testPlan.contains("HealthSourceDiscoveryFreshnessTests"))
+        XCTAssertTrue(testPlan.contains("observer-triggered invalidation remains part of the later observer phase"))
+    }
+
+    func testCalendarFreshnessDocumentationStaysInSync() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        let app = try BodyTestSupport.sourceText(at: "Body/BodyApp.swift")
+        XCTAssertTrue(readme.contains("Midnight invalidation precedes resume freshness gates"))
+        XCTAssertTrue(readme.contains("historical workout grouping is unchanged"))
+        XCTAssertTrue(testPlan.contains("HealthDashboardCalendarContextTests"))
+        XCTAssertTrue(app.contains(".NSCalendarDayChanged"))
+        XCTAssertTrue(app.contains(".NSSystemTimeZoneDidChange"))
+    }
+
+    func testRingDayIdentityDocumentationStaysInSync() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        let detail = try BodyTestSupport.sourceText(at: "Body/Views/BodyActivityRingsDetailView.swift")
+        XCTAssertTrue(readme.contains("Legacy entries without proven day attribution remain archived on disk"))
+        XCTAssertTrue(readme.contains("at most three per pass"))
+        XCTAssertTrue(readme.contains("Archive repair remains reachable"))
+        XCTAssertTrue(readme.contains("Pending repair keys are cached in memory on history replacement"))
+        XCTAssertTrue(testPlan.contains("Cache tests cover initial load, partial and complete validation"))
+        XCTAssertTrue(testPlan.contains("P5 pagination review regressions"))
+        XCTAssertTrue(testPlan.contains("ActivityRingDayIdentityTests"))
+        XCTAssertTrue(detail.contains(".NSSystemTimeZoneDidChange"))
+        XCTAssertTrue(detail.contains("private var calendar: Calendar { .bodyGregorian }"))
+    }
+
+    func testWarningAdmissionDocumentationStaysInSync() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        XCTAssertTrue(readme.contains("Background warning admission"))
+        XCTAssertTrue(readme.contains("latest notification ledger"))
+        XCTAssertTrue(readme.contains("Background warning exits preserve earlier failures"))
+        XCTAssertTrue(testPlan.contains("P7 mid-loop outcome regression"))
+        XCTAssertTrue(testPlan.contains("MetricWarningSubmissionTests"))
+        XCTAssertTrue(testPlan.contains("already-submitted requests are not recalled"))
+    }
+
     func testDashboardDurabilityDocumentationStaysInSync() throws {
         let readme = try BodyTestSupport.sourceText(at: "README.md")
         let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")

@@ -14,6 +14,18 @@ Permission changes invalidate visible data immediately, then serialize privacy c
 
 Dashboard durability: the versioned dashboard envelope stores ring progress, comparison scope, and cold-start freshness atomically with their payload. Live refresh success does not wait for disk. Legacy snapshots keep their history but restart unproven ring backfill and freshness; main and day-sample sidecar saves report durability independently. A failed save retains the previous file, and a later compatible save can retry the captured data without refetching. This does not yet add authoritative-empty intraday repair.
 
+Background warning admission is rechecked immediately before submission: changed warning settings, source selections, permissions, foreground state, or cancellation stop stale requests. Evaluations do not overlap, and successful submission merges into the latest notification ledger so foreground seeding is preserved. Requests already handed to the system are outside that cancellation guarantee.
+
+Source discovery freshness is separate from dashboard freshness. Explicit dashboard and metric repairs rediscover sources; passive discovery expires after 24 hours or a known write invalidates it. Failed kinds retain their usable maps and retry later. Changed membership invalidates dependent caches and updates watch source expectations, including a successfully discovered empty source set.
+
+Calendar freshness binds recomputable aggregates to their calendar and time zone, and today's summaries to their local day. Midnight invalidation precedes resume freshness gates. Active-app day and time-zone notifications use the same context fence as resume and late-result admission. Raw instants and frozen observations retain their original attribution; historical workout grouping is unchanged. Failed aggregate queries leave incompatible values unavailable until a successful repair.
+
+Ring history now preserves explicit calendar-day identities across travel, including partial-backfill checkpoints. Legacy entries without proven day attribution remain archived on disk and are excluded from dated ring counts until successful reconciliation replaces them. Upgrade restarts unproven backfill once; partial repair resumes from its atomically saved day boundary. Older-month pagination also repairs remaining archived months, at most three per pass. Failed queries or writes do not erase the archived history.
+
+Archive repair remains reachable after ordinary pagination reaches the history start. It preserves that end-of-history decision and prior empty probes; scattered empty repair months count as validated coverage, not a continuous displayed gap. Pending repair keys are cached in memory on history replacement, including initial load, and reused by scroll admission and pagination. No derived repair queue is persisted.
+
+Background warning exits preserve earlier failures: losing submission eligibility reports failure, or partial failure if another warning was already delivered, when an earlier kind failed. With no earlier failure the exit remains skipped. Notification ledger rules are unchanged.
+
 ## Screenshots
 
 <p align="center">
