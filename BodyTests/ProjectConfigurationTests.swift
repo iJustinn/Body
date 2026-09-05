@@ -404,6 +404,40 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("already-submitted requests are not recalled"))
     }
 
+    func testEffortValidationDocumentationStaysInSync() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        XCTAssertTrue(readme.contains("revalidate after 24 hours"))
+        XCTAssertTrue(readme.contains("overlapping effort reads reuse compatible validation"))
+        XCTAssertTrue(testPlan.contains("overlaps expired gathers in both score/absence orders"))
+        XCTAssertTrue(readme.contains("without renewing Training Load summary, series, or watch seed freshness"))
+        XCTAssertTrue(testPlan.contains("RP-03 Phase 4b effort validation"))
+        XCTAssertTrue(testPlan.contains("WorkoutEffortValidationTests"))
+    }
+
+    func testRecordValidationDocumentationStaysInSync() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        XCTAssertTrue(readme.contains("Record-input validation is separate from workout display fallback"))
+        XCTAssertTrue(readme.contains("cannot advance baseline coverage"))
+        XCTAssertTrue(testPlan.contains("RP-03 Phase 4c record validation"))
+        XCTAssertTrue(testPlan.contains("persist/reload"))
+        XCTAssertTrue(readme.contains("Visible workout months revalidate after five minutes"))
+        XCTAssertTrue(readme.contains("Unchanged record ledgers do not advance the publication revision"))
+        XCTAssertTrue(readme.contains("Previously loaded empty months display immediately"))
+        XCTAssertTrue(testPlan.contains("unchanged publication and an empty month fold preserve the repair revision"))
+        XCTAssertTrue(readme.contains("Each cursor is persisted with its repaired payload"))
+        XCTAssertTrue(testPlan.contains("RP-03 Phase 4c historical coverage"))
+    }
+
+    func testTrendReconciliationDocumentationStaysInSync() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        XCTAssertTrue(readme.contains("Historical trend reconciliation admits successful leaves independently"))
+        XCTAssertTrue(readme.contains("concurrent intraday inputs and frozen observations remain live"))
+        XCTAssertTrue(testPlan.contains("RP-03 Phase 4d trend reconciliation"))
+    }
+
     func testIntradayRepairDocumentationStaysInSync() throws {
         let readme = try BodyTestSupport.sourceText(at: "README.md")
         let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")

@@ -1,5 +1,7 @@
 # Body
 
+RP-03 Phase 4 review corrections: overlapping effort reads reuse compatible validation already admitted by a peer without reporting a false failure or overwriting its score or confirmed absence. Unchanged record ledgers do not advance the publication revision or interrupt historical repair. Previously loaded empty months display immediately while stale data revalidates in the background; unknown, cleared, and empty disk-only months retain the loading path.
+
 <p align="center">
   <img src="Body/Assets.xcassets/BodyIcon01.imageset/BodyIcon01.png" alt="Body app icon" width="120">
 </p>
@@ -7,6 +9,12 @@
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Readiness, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
 Current app version: **1.1.0 (build 8)**
+
+Record-input validation is separate from workout display fallback. A failed associated-distance read preserves the existing record contribution and cannot advance baseline coverage. Successful empty reads remove the obsolete distance/rate values; successful month membership removes only absent workouts in that month. Unrelated effort or heart-data failures do not invalidate record inputs.
+
+Visible workout months revalidate after five minutes on resume or navigation. Validation is separate from `generatedAt`; missing metadata, changed permission/calendar context, and clock rollback mean stale. Historical record and ring repair revisit one old month per eligible pass on the background pool, at least five minutes apart; a completed cycle waits 24 hours. Each cursor is persisted with its repaired payload. Failed or superseded reads do not advance it, and repair completion depends on app activity.
+
+Historical trend reconciliation admits successful leaves independently. A failed comparison or incomplete sleep-vital hydration cannot discard an unrelated primary repair. Changed leaf revisions reject older results, rolling series stay within their documented window, and concurrent intraday inputs and frozen observations remain live. This does not shorten the initial three-bucket publish or change query budgets.
 
 All RefreshOptimizationPlan-03 phases use build 8. Explicit source, grouping, and sleep-parsing edits retain user-initiated refresh scope: authorization prompting when needed, the recent chart months, and scoped workout-effort reconciliation. Rejected dashboard commits release their trend anchor without clearing a newer refresh's anchor.
 
@@ -26,7 +34,7 @@ Archive repair remains reachable after ordinary pagination reaches the history s
 
 Background warning exits preserve earlier failures: losing submission eligibility reports failure, or partial failure if another warning was already delivered, when an earlier kind failed. With no earlier failure the exit remains skipped. Notification ledger rules are unchanged.
 
-Intraday repair: explicit Heart Rate, HRV, Respiratory Rate, and Blood Oxygen pulls reconcile the full retained sample window; passive reads keep the 48 hour overlap. Successful empty reads clear only their authoritative series on disk, while failed or unqueried series preserve compatible cached data. Memoized hydration and older lazy reads cannot resurrect a newly repaired deletion. Per-series revisions preserve unrelated concurrent loads; stripping incompatible samples also drops their write authority. Hourly Steps and Active Energy reads retain their existing full-window behavior. Effort and historical coverage policies remain the subsequent Phase 4 steps.
+Intraday repair: explicit Heart Rate, HRV, Respiratory Rate, and Blood Oxygen pulls reconcile the full retained sample window; passive reads keep the 48 hour overlap. Successful empty reads clear only their authoritative series on disk, while failed or unqueried series preserve compatible cached data. Memoized hydration and older lazy reads cannot resurrect a newly repaired deletion. Per-series revisions preserve unrelated concurrent loads; stripping incompatible samples also drops their write authority. Hourly Steps and Active Energy reads retain their existing full-window behavior. Effort validation: cached scores and confirmed absences revalidate after 24 hours, with missing timestamps or clock rollback treated as stale. Failed checks retain display values without renewing Training Load summary, series, or watch seed freshness. Explicit Training Load and month pulls retain their repair scope. Visible-month validation, bounded historical record/ring repair, and per-leaf trend reconciliation are described above.
 
 ## Screenshots
 
