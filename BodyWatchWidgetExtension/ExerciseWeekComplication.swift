@@ -17,6 +17,9 @@ struct ExerciseWeekComplication: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "BodyWatchExerciseWeek", provider: WatchMetricProvider()) { entry in
             ExerciseWeekComplicationView(entry: entry)
+                // Tapping the complication opens the Training Load detail page,
+                // which carries this same weekly workout chart.
+                .widgetURL(WatchMetricDeepLink.url(forKind: WatchMetricKindKey.trainingLoad))
         }
         .configurationDisplayName(String(localized: "Weekly Workout Time"))
         .description(String(localized: "This week's daily workout minutes."))

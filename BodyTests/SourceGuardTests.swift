@@ -4756,6 +4756,11 @@ final class SourceGuardTests: XCTestCase {
         // an older phone build, which carries no `workoutMinutes` metric.
         XCTAssertTrue(complicationTimelineSource.contains("?? snapshot.metric(forKind: WatchMetricKindKey.exerciseMinutes)"))
 
+        // Tapping the complication opens the Training Load detail page, which
+        // carries this same weekly chart — there is no Weekly Workout Time card
+        // in the watch app for it to open instead.
+        XCTAssertTrue(watchSource.contains("WatchMetricDeepLink.url(forKind: WatchMetricKindKey.trainingLoad)"))
+
         // A widget type that is never registered in its bundle compiles and
         // ships, but never appears in the gallery — the silent failure this
         // pair of assertions exists to catch.
