@@ -67,7 +67,7 @@ struct BodyExerciseWeekWidget: Widget {
                 if entry.isPro {
                     ExerciseWeekWidgetView(points: entry.points)
                 } else {
-                    ExerciseWeekLockedView()
+                    BodyAccessoryLockedView()
                 }
             }
             .containerBackground(.clear, for: .widget)
@@ -151,25 +151,5 @@ private struct ExerciseWeekWidgetView: View {
         guard weekMax > 0 else { return 3 }
         let normalized = value / weekMax
         return max(height * CGFloat(normalized), 3)
-    }
-}
-
-// MARK: - Locked view
-
-/// Compact locked state sized for the accessory container (~72pt tall), too
-/// small for the shared `BodyWidgetLockedView` (~87pt). No yellow: lock
-/// screen widgets render in vibrant mode, which flattens tinted colors.
-private struct ExerciseWeekLockedView: View {
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundStyle(.secondary)
-
-            Text(String(localized: "Body Pro", table: "BodyShared"))
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundStyle(.primary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }

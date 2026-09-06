@@ -15,5 +15,6 @@ struct BodyWidgetExtensionBundle: WidgetBundle {
         BodyWorkoutTypeBreakdownWidget()  // medium + large — workout type
         BodyWorkoutCalendarWidget()       // large — workout calendar
         BodyExerciseWeekWidget()          // lock screen — weekly exercise minutes
+        BodySleepStagesLockScreenWidget() // lock screen — sleep stages
     }
 }

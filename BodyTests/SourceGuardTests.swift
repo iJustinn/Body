@@ -4852,6 +4852,56 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertLessThan(sleepStagesIndex, readinessIndex)
     }
 
+    func testSleepStagesLockScreenWidgetMirrorsTheWatchComplication() throws {
+        let widgetSource = try BodyTestSupport.sourceText(at: "BodyWidgetExtension/SleepStagesLockScreenWidget.swift")
+        let complicationSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/SleepStagesComplication.swift")
+        let bundle = try BodyTestSupport.sourceText(at: "BodyWidgetExtension/BodyWidgetExtensionBundle.swift")
+
+        // Rectangular-slot only, like Weekly Workout Time: a full-width stage
+        // bar has nowhere to lay out in a circular or inline slot.
+        XCTAssertEqual(widgetSource.occurrenceCount(of: ".supportedFamilies([.accessoryRectangular])"), 1)
+
+        // Pro-gated, like every other iPhone widget — unlike the watch
+        // complication, which is deliberately free.
+        XCTAssertTrue(widgetSource.contains("BodyProEntitlement.isUnlocked"))
+
+        // Same App Group snapshot and same stale-night sanitization as the
+        // medium Sleep Stages widget, so the two never disagree about which
+        // night they are drawing.
+        XCTAssertTrue(widgetSource.contains("HealthWidgetSnapshotStore.load()"))
+        XCTAssertTrue(widgetSource.contains("SleepStagesEntryBuilder.resolve("))
+
+        // The layout is a port of the watch complication: the shared header
+        // format key, the one-bar ZStack hypnogram clipped at the same corner
+        // radius, and the bed/wake time row. Losing any of these silently
+        // turns the widget into something other than "the watch chart".
+        for shared in [
+            "M ASLEEP",
+            "hoursAndMinutes(from:",
+            "barCornerRadius: CGFloat = 3",
+            "ZStack(alignment: .leading)",
+            "clipShape(RoundedRectangle(cornerRadius: Self.barCornerRadius, style: .continuous))",
+            ".dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)"
+        ] {
+            XCTAssertTrue(widgetSource.contains(shared), shared)
+            XCTAssertTrue(complicationSource.contains(shared), shared)
+        }
+
+        // Lock Screen widgets render vibrant, which collapses the four stage
+        // colors onto one luminance ramp (Awake and Core land within a few
+        // percent of each other). The explicit per-stage opacities are what
+        // keep the bar readable there; the real palette is only used where the
+        // system actually renders full color.
+        XCTAssertTrue(widgetSource.contains("widgetRenderingMode"))
+        XCTAssertTrue(widgetSource.contains("renderingMode != .fullColor"))
+        XCTAssertTrue(widgetSource.contains("return stage.color"))
+
+        // A widget type that is never registered in its bundle compiles and
+        // ships, but never appears in the gallery — the silent failure this
+        // assertion exists to catch.
+        XCTAssertTrue(bundle.contains("BodySleepStagesLockScreenWidget()"))
+    }
+
 
     private func text(at relativePath: String) throws -> String {
         try BodyTestSupport.sourceText(at: relativePath)
