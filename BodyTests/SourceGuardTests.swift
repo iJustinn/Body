@@ -1655,6 +1655,63 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(source.contains("rangeEntries.flatMap { [$0.lowValue, $0.highValue] }"))
     }
 
+    /// The Body Radar hero morphs the way the sleep vitals plot does: its dots
+    /// are laid over the plot as ordinary SwiftUI views keyed by their night,
+    /// not drawn as mark annotations. Charts rebuilds annotation content on
+    /// every render, so a dot snapped to its new band and color instead of
+    /// travelling there, and a night entering or leaving the three-week window
+    /// popped rather than fading. These look like a roundabout way to plot a
+    /// point; they are the animation.
+    func testBodyRadarChartDrawsItsNightsAsMorphingOverlayDots() throws {
+        let source = try BodyTestSupport.sourceText(at: "Body/Views/Health/Charts/BodyRadarChart.swift")
+        let chartStart = try XCTUnwrap(source.range(of: "struct BodyRadarChart: View {")?.lowerBound)
+        let chartEnd = try XCTUnwrap(
+            source.range(of: "struct BodyRadarSelectionAnnotation: View", range: chartStart..<source.endIndex)?.lowerBound
+        )
+        let chartBlock = String(source[chartStart..<chartEnd])
+
+        // The dots live in an overlay over the plot, positioned through the
+        // chart's own proxy so they keep landing in their night's slot.
+        XCTAssertTrue(chartBlock.contains(".chartOverlay { chartProxy in"))
+        XCTAssertTrue(chartBlock.contains("if let plotFrame = chartProxy.plotFrame {"))
+        XCTAssertTrue(chartBlock.contains("chartProxy.position(forX: slotCenter(for: point))"))
+        XCTAssertTrue(chartBlock.contains("chartProxy.position(forY: point.plotValue(majorCeiling: majorCeiling))"))
+        XCTAssertTrue(chartBlock.contains(".position(x: plotRect.minX + x, y: plotRect.minY + y)"))
+        // One ForEach keyed by the night itself, so a dot keeps its view across a
+        // refresh and glides instead of being replaced.
+        XCTAssertEqual(chartBlock.occurrenceCount(of: "ForEach(points)"), 1)
+        XCTAssertTrue(chartBlock.contains("BodyRadarNightDot(point: point)"))
+        // Nights that fall out of, or enter, the three-week window fade.
+        XCTAssertTrue(chartBlock.contains(".transition(.opacity)"))
+        // The scrub reads the plot underneath the dots.
+        XCTAssertTrue(chartBlock.contains(".allowsHitTesting(false)"))
+        // Drawing them as mark annotations again is exactly the regression.
+        XCTAssertFalse(chartBlock.contains(".annotation(position: .overlay"))
+        XCTAssertFalse(chartBlock.contains("PointMark("))
+        XCTAssertTrue(
+            chartBlock.contains("reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0),")
+        )
+        XCTAssertTrue(chartBlock.contains("value: nights"))
+    }
+
+    /// Body Radar's card preview keeps the three slots equal — they are fixed
+    /// thresholds, not an occupancy split — so its ring is placed by where the
+    /// night's evidence lands inside its own slot in all three of them. Without
+    /// that the outer two collapse to their middle and the ring holds three
+    /// fixed heights instead of gliding.
+    func testBodyRadarPreviewRingIsPlacedWithinEveryRegion() throws {
+        let source = try bodyHomeViewText()
+
+        XCTAssertTrue(source.contains("placesRingsWithinRegions: dotEqualRegions"))
+        XCTAssertTrue(
+            source.contains("init(size: CGSize, occupied: Set<SleepVitalRegion>, placesRingsWithinRegions: Bool = false)")
+        )
+        XCTAssertTrue(source.contains("guard placesRingsWithinRegions || region == .typical else {"))
+        XCTAssertTrue(source.contains("let bandFraction = (Self.slotCeiling(for: region) - clamped) * 3"))
+        // Body Radar is the one caller that asks for it.
+        XCTAssertTrue(source.contains("dotPreviewEqualRegions: true,"))
+    }
+
     func testVitalsCardDotsPreviewKeepsSkeletonWhileTheNightIsPending() throws {
         let source = try bodyHomeViewText()
         let previewStart = try XCTUnwrap(source.range(of: "private var dotsPreview: some View")?.lowerBound)
@@ -3232,7 +3289,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.0 (build 8)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.0 (build 9)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 5)**"))
@@ -3367,6 +3425,10 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 9)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle build number to 9."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle build number to 8."))
         XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 7)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.0 build 7."))
         XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 6)"))

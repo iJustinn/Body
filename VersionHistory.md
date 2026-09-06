@@ -1,5 +1,10 @@
 # Version History
 
+## 1.1.0 (build 9)
+
+- **Body Radar's chart and card preview now morph.** On the detail page each night's dot travels to its new band and cross-fades color instead of snapping, a night that could not be scored keeps its faded ring on the floor and rises into its band once it scores, and the morning freeze slides the three-week window a slot left while the night that drops out fades away and the new one fades in. On the Summary card the ring glides between the three slots and also moves within a slot as the night's evidence changes, since Body Radar's slots are fixed thresholds and stay equal height. Reduce Motion still lands every change instantly.
+- Updated the app, widget, watch, and test bundle build number to 9. The marketing version remains 1.1.0.
+
 ## 1.1.0 (build 8)
 
 - Reserved for the RefreshOptimizationPlan-03 data-path refinement. Implementation and verification status for each phase is tracked in `docs/RefreshOptimizationPlan-03.md`; this entry does not imply that later phases are complete.

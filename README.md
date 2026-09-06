@@ -14,7 +14,7 @@ RP-03 Phase 4 review corrections: overlapping effort reads reuse compatible vali
 
 Body is a privacy-focused iOS health visualization app built with SwiftUI. It turns Apple Health workouts, Activity Rings, Readiness, sleep, energy, body measurements, daylight, steps, and vitals into a local-first app and widget experience.
 
-Current app version: **1.1.0 (build 8)**
+Current app version: **1.1.0 (build 9)**
 
 Record-input validation is separate from workout display fallback. A failed associated-distance read preserves the existing record contribution and cannot advance baseline coverage. Successful empty reads remove the obsolete distance/rate values; successful month membership removes only absent workouts in that month. Unrelated effort or heart-data failures do not invalidate record inputs.
 
