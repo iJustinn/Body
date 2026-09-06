@@ -3223,26 +3223,11 @@ actor HealthKitFetchEngine {
         let minutes = workout.duration / 60
         guard minutes > 0 else { return .success(nil) }
 
-        let totalStepsOutcome: QueryOutcome<Double> = await trackedHealthQuery(cancelledValue: .failure) { resume in
-            let query = HKStatisticsQuery(
-                quantityType: stepType,
-                quantitySamplePredicate: HKQuery.predicateForObjects(from: workout),
-                options: .cumulativeSum
-            ) { _, statistics, error in
-                guard let statistics else {
-                    Self.logTrendQueryFailure(HKQuantityTypeIdentifier.stepCount.rawValue, error: error)
-                    resume(.failure)
-                    return
-                }
-                resume(.success(statistics.sumQuantity()?.doubleValue(for: .count())))
-            }
-            healthStore.execute(query)
-        }
-
-        switch totalStepsOutcome {
+        switch await workoutCumulativeQuantity(for: workout, quantityType: stepType) {
         case .failure:
             return .failure
-        case .success(let totalSteps):
+        case .success(let quantity):
+            let totalSteps = quantity?.doubleValue(for: .count())
             guard let totalSteps, totalSteps > 0 else { return .success(nil) }
             return .success(totalSteps / minutes)
         }
@@ -3308,25 +3293,39 @@ actor HealthKitFetchEngine {
             return .success(nil)
         }
 
+        switch await workoutCumulativeQuantity(for: workout, quantityType: distanceType) {
+        case .failure:
+            return .failure
+        case .success(let quantity):
+            let meters = quantity?.doubleValue(for: .meter())
+            guard let meters, meters > 0 else { return .success(nil) }
+            return .success(meters)
+        }
+    }
+
+    /// A workout association may have no readable steps/distance at all. Native
+    /// HKStatisticsQuery reports HKError.errorNoData for that successful absence.
+    /// Normalize only here, never for general statistics or authorization state.
+    private func workoutCumulativeQuantity(for workout: HKWorkout,
+        quantityType: HKQuantityType) async -> QueryOutcome<HKQuantity> {
         let semaphore = HealthKitQueryPool.current.semaphore
         await semaphore.acquire()
         defer { semaphore.release() }
         guard !Task.isCancelled else { return .failure }
         BodyRefreshProfile.shared.enterQuery()
         defer { BodyRefreshProfile.shared.exitQuery() }
-        let outcome = await healthStore.cumulativeQuantity(.init(quantityType: distanceType,
+        let outcome = await healthStore.cumulativeQuantity(.init(quantityType: quantityType,
             predicate: HKQuery.predicateForObjects(from: workout), options: .cumulativeSum))
         guard !Task.isCancelled else { return .failure }
         switch outcome {
         case .failure(let error):
-            Self.logTrendQueryFailure(identifier.rawValue, error: error)
+            if let error = error as? HKError, error.code == .errorNoData { return .success(nil) }
+            Self.logTrendQueryFailure(quantityType.identifier, error: error)
             return .failure
         case .cancelled:
             return .failure
         case .success(let quantity):
-            let meters = quantity?.doubleValue(for: .meter())
-            guard let meters, meters > 0 else { return .success(nil) }
-            return .success(meters)
+            return .success(quantity)
         }
     }
 
