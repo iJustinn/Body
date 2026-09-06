@@ -144,7 +144,7 @@ final class BodyWorkoutDetailCacheStore {
     /// hand back may have changed wholesale, or the workouts themselves are
     /// gone: the authorization pass that presented the permission sheet, a
     /// Workouts permission toggle, the eager clear when the app enters the
-    /// background, and Clear Cache.
+    /// background, Clear Cache, and journal-driven workout invalidation.
     func clearAll() {
         routeCache.removeAll()
         routePresenceCache.removeAll()

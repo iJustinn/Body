@@ -12659,6 +12659,22 @@
         }
       }
     },
+    "Some cached workout changes could not be removed. Try clearing the cache again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some cached workout changes could not be removed. Try clearing the cache again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分缓存的体能训练变更无法移除。请尝试再次清除缓存。"
+          }
+        }
+      }
+    },
     "Sort by" : {
       "localizations" : {
         "en" : {

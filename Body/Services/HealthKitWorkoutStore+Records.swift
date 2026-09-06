@@ -97,6 +97,7 @@ extension HealthKitWorkoutStore {
     /// finalize an empty baseline.
     func scheduleRecordBaselineBackfillIfNeeded() {
         guard recordBackfillTask == nil,
+              !hasWorkoutJournalWork,
               !isClearingLocalCache,
               permissionSelection.includes(.workouts),
               authorizationState == .authorized else {

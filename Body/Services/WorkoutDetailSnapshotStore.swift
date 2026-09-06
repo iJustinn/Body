@@ -78,6 +78,22 @@ enum WorkoutDetailSnapshotStore {
         remove(fileURL)
     }
 
+    /// Journal invalidation needs a durable receipt, unlike best-effort eviction.
+    static func invalidateForJournal(ids: Set<UUID>?, directoryURL: URL? = defaultDirectoryURL) -> Bool {
+        guard let directoryURL else { return false }
+        do {
+            if let ids {
+                for id in ids {
+                    let file = fileURL(for: id, in: directoryURL)
+                    if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+                }
+            } else if FileManager.default.fileExists(atPath: directoryURL.path) {
+                try FileManager.default.removeItem(at: directoryURL)
+            }
+            return true
+        } catch { return false }
+    }
+
     /// Drops cached details for workouts that are no longer in the user's
     /// history, plus any file whose name isn't a workout UUID at all. Among the
     /// remaining files (not in `keeping`), only the `retainingRecentLimit` most
