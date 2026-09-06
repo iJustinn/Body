@@ -1,5 +1,11 @@
 # Body
 
+Workout-associated cumulative steps and distance treat only HealthKit's typed `errorNoData` as an absent value, not zero. Real query failures and cancellation still preserve cached values and block validation; general statistics and permission handling are unchanged.
+
+RP-03 journal repair retries use durable per-month backoff of 5 minutes, 30 minutes, 2 hours, then at most once per 6 hours on subsequent foreground opportunities. Failed or interrupted attempts never clear dirty obligations; other eligible months can proceed. Workout journal lifecycle is enabled in ordinary Debug and Release builds following explicit user approval and iPad repair acceptance; no local compilation override is needed.
+
+RP-03 Phase 5 saves each workout anchor with canonical membership and pending repair intervals atomically; interrupted bootstrap retains the prior generation. The foreground lifecycle repairs months, effort/detail caches, records and dependent dashboard inputs after publication, checkpointing durable work across relaunch. Existing query-derived refreshes, effort validation, and explicit repair remain authoritative; an empty journal delta never certifies score freshness. Physical mutation/relaunch and dependent repair were verified on iPadPro, and the user confirmed correct Home, records and refresh behavior before approving activation. The remaining matched performance baseline is not claimed complete or used to claim a speedup. The opt-in physical mutation harness and its exact-workout cleanup receipt are documented in `TestPlan.md`; ordinary test runs never create a HealthKit workout. Phases 6 and 7 remain deferred.
+
 RP-03 Phase 4 review corrections: overlapping effort reads reuse compatible validation already admitted by a peer without reporting a false failure or overwriting its score or confirmed absence. Unchanged record ledgers do not advance the publication revision or interrupt historical repair. Previously loaded empty months display immediately while stale data revalidates in the background; unknown, cleared, and empty disk-only months retain the loading path.
 
 <p align="center">

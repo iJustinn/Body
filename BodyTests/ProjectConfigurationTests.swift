@@ -415,6 +415,35 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("WorkoutEffortValidationTests"))
     }
 
+    func testWorkoutJournalDocumentationRetainsApprovedActivationAndRepairContract() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        XCTAssertTrue(readme.contains("Workout journal lifecycle is enabled in ordinary Debug and Release builds"))
+        XCTAssertTrue(readme.contains("Physical mutation/relaunch and dependent repair"))
+        XCTAssertTrue(testPlan.contains("WorkoutChangeJournalTests"))
+        XCTAssertTrue(testPlan.contains("Production journal lifecycle is enabled"))
+        XCTAssertTrue(testPlan.contains("WorkoutJournalReconcilerTests"))
+        let app = try BodyTestSupport.sourceText(at: "Body/BodyApp.swift")
+        let store = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        XCTAssertFalse(app.contains("WorkoutJournalReconciler("))
+        XCTAssertTrue(WorkoutChangeJournalStore.lifecycleEnabled)
+        XCTAssertTrue(store.contains("workoutJournalFile: URL? = WorkoutChangeJournalStore.lifecycleEnabled"))
+        XCTAssertTrue(store.contains("scheduleWorkoutJournalIfNeeded()"))
+        XCTAssertTrue(store.contains("await clearWorkoutJournal()"))
+        XCTAssertTrue(store.contains("forcesFullTrendWindow: true"))
+        XCTAssertTrue(testPlan.contains("WorkoutJournalLifecycleTests"))
+        XCTAssertTrue(testPlan.contains("WorkoutJournalDeviceValidationTests"))
+        XCTAssertTrue(testPlan.contains("approved-workout.archive"))
+        XCTAssertTrue(testPlan.contains("BODY_APPROVED_WORKOUT_MUTATION=RP03_ONE_WORKOUT"))
+        XCTAssertTrue(testPlan.contains("durable retry state"))
+        XCTAssertTrue(testPlan.contains("WorkoutCumulativeNoDataTests"))
+        XCTAssertTrue(testPlan.contains("BODY_APPROVED_WORKOUT_NODATA_PROBE=1"))
+        XCTAssertTrue(readme.contains("general statistics and permission handling are unchanged"))
+        XCTAssertTrue(readme.contains("Failed or interrupted attempts never clear dirty obligations"))
+        XCTAssertFalse(app.contains("BODY_WORKOUT_JOURNAL_DEVICE_VALIDATION"))
+        XCTAssertTrue(app.contains("State(initialValue: HealthKitWorkoutStore())"))
+    }
+
     func testRecordValidationDocumentationStaysInSync() throws {
         let readme = try BodyTestSupport.sourceText(at: "README.md")
         let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
