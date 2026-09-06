@@ -1240,6 +1240,12 @@ final class SourceGuardTests: XCTestCase {
         let heroSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyReadinessStarHero.swift")
         XCTAssertTrue(heroSource.contains("struct BodyReadinessHeroWarningBadge"))
         XCTAssertTrue(heroSource.contains(".anchorPreference(key: BodyReadinessHeroBadgeAnchorKey.self, value: .bounds)"))
+        // The badge's id is both its ForEach identity and its anchor key, and it shares
+        // Home's one ScrollView with the card it points at, so it has to stay out of
+        // that card's scroll namespace. Un-prefixed, `scrollTo` answered with the badge
+        // at the top of the page and the page never moved.
+        XCTAssertTrue(heroSource.contains(#"static let scrollIDPrefix = "hero-badge-""#))
+        XCTAssertTrue(heroSource.contains("Self.scrollIDPrefix + card.rawValue"))
 
         let detailSource = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
         let cardsStart = try XCTUnwrap(detailSource.range(of: "private var metricDetailCards: some View")?.lowerBound)

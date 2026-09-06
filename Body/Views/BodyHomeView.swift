@@ -710,7 +710,13 @@ struct BodyHomeView: View {
             // `BodyHomeCardKind.id` is its raw value, which is what the grid's
             // ForEach publishes — an explicit `.id()` on the card would give it a
             // second identity and is exactly what the flat-ForEach drag reorder
-            // cannot survive.
+            // cannot survive. (Measured: the ForEach id resolves fine from in here,
+            // custom `Layout` and all.) What this does need is for nothing else in
+            // Home's one ScrollView to answer to the same name, which is why the
+            // hero's own badges carry `BodyReadinessHeroWarningBadge.scrollIDPrefix`
+            // and the trend cards carry theirs. While the badges went un-prefixed
+            // the scroll landed on the badge at the top of the page instead, so it
+            // sat at offset 0 and nothing moved.
             proxy.scrollTo(card.id, anchor: .center)
         }
 

@@ -31,8 +31,17 @@ struct BodyReadinessHeroWarningBadge: Identifiable, Equatable {
     /// cards fall back to their own localized title.
     let accessibilityLabel: String
 
+    /// Namespaces the badge away from the scroll id of the very card it points at.
+    /// Both live in Home's one ScrollView, so while this was the bare raw value the
+    /// badge answered to the card's name too, and it sits near the top of the page
+    /// where centering it is already satisfied at offset 0: `scrollTo` resolved to
+    /// the badge and the page never moved, while the glow, which matches on the card
+    /// rather than on the id, lit the right card off-screen below. Same reason
+    /// `BodyHomeTrendCard.Model` carries one; that comment has the longer story.
+    static let scrollIDPrefix = "hero-badge-"
+
     var id: String {
-        card.rawValue
+        Self.scrollIDPrefix + card.rawValue
     }
 
     /// The badges for the cards currently in the Home grid that are showing a
