@@ -59,6 +59,7 @@ struct BodySettingsView: View {
     @State private var showingHowToUseBrowser = false
     @State private var showingPrivacyBrowser = false
     @State private var showingOnboarding = false
+    @State private var showingProfile = false
 
     private let howToUseURLString = "https://docs.ijustinz.com/body/how-to-use"
     private let privacyPolicyURLString = "https://docs.ijustinz.com/body/privacy"
@@ -92,6 +93,11 @@ struct BodySettingsView: View {
             }
             .sheet(item: $activeSheet) { sheet in
                 settingsSheet(for: sheet)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showingProfile) {
+                BodyProfileView()
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }
@@ -144,8 +150,8 @@ struct BodySettingsView: View {
     }
 
     private var profileEntryCard: some View {
-        NavigationLink {
-            BodyProfileView()
+        Button {
+            showingProfile = true
         } label: {
             HStack(spacing: 15) {
                 Group {
@@ -5254,7 +5260,9 @@ private struct SafariView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) { }
 }
 
-private struct BodySettingsAboutSheetScaffold<Content: View>: View {
+/// The shared settings-sheet chrome: navigation title over the tinted glass
+/// backdrop. Not private, the profile sheet lives in its own file.
+struct BodySettingsAboutSheetScaffold<Content: View>: View {
     let title: LocalizedStringKey
     private let content: Content
 

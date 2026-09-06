@@ -8,7 +8,8 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-/// The pushed profile page: an avatar photo and a name, both stored on device only.
+/// The profile sheet: an avatar photo and a name, both stored on device only.
+/// Wears the shared settings-sheet chrome so it matches every other one.
 struct BodyProfileView: View {
     @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
     @AppStorage(BodyAppearancePreference.profileAvatarDataKey) private var profileAvatarData = Data()
@@ -28,7 +29,7 @@ struct BodyProfileView: View {
     private static let fallbackGlowColor = BodyWorkoutShareCardView.defaultRouteColor
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        BodySettingsAboutSheetScaffold(title: "Profile") {
             VStack(spacing: 22) {
                 VStack(spacing: 10) {
                     hero
@@ -38,16 +39,8 @@ struct BodyProfileView: View {
 
                 privacyText
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 14)
-            .padding(.bottom, 34)
             .readableContentColumn()
         }
-        .background {
-            Color.black.ignoresSafeArea()
-        }
-        .navigationTitle("Profile")
-        .navigationBarTitleDisplayMode(.inline)
         // Latest-wins and cancellable: the picker can be re-opened before a slow
         // cloud photo finishes loading, and only the current pick may open the crop.
         .task(id: photoItem) { await loadPickedPhoto() }
@@ -77,36 +70,32 @@ struct BodyProfileView: View {
 
     // Tap the avatar for a menu to choose, change, or delete the profile photo.
     private var hero: some View {
-        ZStack {
-            BodyProConfetti()
-
-            Menu {
-                Button {
-                    showingPhotoPicker = true
-                } label: {
-                    // `LocalizedStringKey` explicitly: a ternary of string literals
-                    // would otherwise pick Label's non-localizing `StringProtocol` init.
-                    Label(
-                        avatarImage == nil
-                            ? LocalizedStringKey("Choose Photo")
-                            : LocalizedStringKey("Change Photo"),
-                        systemImage: "photo"
-                    )
-                }
-
-                if avatarImage != nil {
-                    Button(role: .destructive) {
-                        profileAvatarData = Data()
-                        playHaptic()
-                    } label: {
-                        Label("Delete Photo", systemImage: "trash")
-                    }
-                }
+        Menu {
+            Button {
+                showingPhotoPicker = true
             } label: {
-                heroAvatar
+                // `LocalizedStringKey` explicitly: a ternary of string literals
+                // would otherwise pick Label's non-localizing `StringProtocol` init.
+                Label(
+                    avatarImage == nil
+                        ? LocalizedStringKey("Choose Photo")
+                        : LocalizedStringKey("Change Photo"),
+                    systemImage: "photo"
+                )
             }
-            .buttonStyle(.plain)
+
+            if avatarImage != nil {
+                Button(role: .destructive) {
+                    profileAvatarData = Data()
+                    playHaptic()
+                } label: {
+                    Label("Delete Photo", systemImage: "trash")
+                }
+            }
+        } label: {
+            heroAvatar
         }
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
         .frame(height: 168)
         .padding(.top, 6)
