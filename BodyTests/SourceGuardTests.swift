@@ -846,11 +846,17 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(storeSource.contains("func workoutRoutePresence(for workout: WorkoutSummary) async -> BodyWorkoutRoutePresence"))
         XCTAssertTrue(storeSource.contains("func cachedWorkoutRoute(for workout: WorkoutSummary) -> WorkoutRoute?"))
         // The clear gates live in `BodyWorkoutDetailCacheStore` now: the store calls
-        // `clearAll()` at the four wholesale gates (authorization, the Workouts
-        // permission toggle, the eager background clear, Clear Cache), and only
+        // `clearAll()` at five wholesale gates (authorization, the Workouts
+        // permission toggle, eager background clear, Clear Cache, journal repair), and only
         // `clearAll()` drops the presence cache — the two permission-scoped clears
         // must leave it alone, since neither toggle changes whether a route exists.
-        XCTAssertEqual(storeSource.occurrenceCount(of: "detailCaches.clearAll()"), 4)
+        XCTAssertEqual(storeSource.occurrenceCount(of: "detailCaches.clearAll()"), 5)
+        let journalStart = try XCTUnwrap(storeSource.range(of: "func repairWorkoutJournal(")?.lowerBound)
+        let journalEnd = try XCTUnwrap(storeSource.range(of: "func persistWorkoutJournalMonth(")?.lowerBound)
+        let journalRepair = String(storeSource[journalStart..<journalEnd])
+        XCTAssertTrue(journalRepair.contains("bypassesPersistedDetailSeeding = true"))
+        XCTAssertTrue(journalRepair.contains("cacheEpoch &+= 1\n            detailCaches.clearAll()"))
+        XCTAssertTrue(journalRepair.contains("WorkoutDetailSnapshotStore.invalidateForJournal(ids: ids)"))
         let cacheStoreSource = try BodyTestSupport.sourceText(at: "Body/Services/BodyWorkoutDetailCacheStore.swift")
         XCTAssertEqual(cacheStoreSource.occurrenceCount(of: "routePresenceCache.removeAll()"), 1)
         let clearAllStart = try XCTUnwrap(cacheStoreSource.range(of: "func clearAll() {")?.lowerBound)
@@ -3990,11 +3996,11 @@ final class SourceGuardTests: XCTestCase {
         // Cleared at every gate the sibling detail caches are: the authorization
         // gate, both permission toggles that can change what it holds (Workouts and
         // Heart), Clear Cache, and the eager clear when the app enters the
-        // background. Four of those five go through `clearAll()`, the Heart toggle
+        // background, plus journal repair. Five go through `clearAll()`, the Heart toggle
         // through the scoped clear; `BodyWorkoutDetailCacheStoreTests` pins the
         // subsets each one drops.
         XCTAssertEqual(cacheStoreSource.occurrenceCount(of: "heartRateSeriesCache.removeAll()"), 2)
-        XCTAssertEqual(storeSource.occurrenceCount(of: "detailCaches.clearAll()"), 4)
+        XCTAssertEqual(storeSource.occurrenceCount(of: "detailCaches.clearAll()"), 5)
         XCTAssertEqual(storeSource.occurrenceCount(of: "detailCaches.clearHeartScopedCaches()"), 1)
     }
 

@@ -62,6 +62,35 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
     private var stoppedQueriesValue: [HKQuery] = []
     private var leafRequestsValue: [LeafRequest] = []
     private var savedObjectsValue: [HKObject] = []
+    private var workoutChangeOutcomes: [BodyHealthReadOutcome<BodyWorkoutChanges>] = []
+    private var workoutChangeRequestsValue: [BodyWorkoutChangesRequest] = []
+    private var workoutChangeGate: (@Sendable () async -> Void)?
+
+    func pauseWorkoutChanges(using gate: (@Sendable () async -> Void)?) {
+        lock.lock(); defer { lock.unlock() }; workoutChangeGate = gate
+    }
+
+    func scriptWorkoutChanges(_ outcomes: [BodyHealthReadOutcome<BodyWorkoutChanges>]) {
+        lock.lock(); defer { lock.unlock() }
+        workoutChangeOutcomes = outcomes
+    }
+
+    var workoutChangeRequests: [BodyWorkoutChangesRequest] {
+        lock.lock(); defer { lock.unlock() }; return workoutChangeRequestsValue
+    }
+
+    private func takeWorkoutChanges(_ request: BodyWorkoutChangesRequest) -> (BodyHealthReadOutcome<BodyWorkoutChanges>?, (@Sendable () async -> Void)?) {
+        lock.lock(); defer { lock.unlock() }
+        workoutChangeRequestsValue.append(request)
+        return (workoutChangeOutcomes.isEmpty ? nil : workoutChangeOutcomes.removeFirst(), workoutChangeGate)
+    }
+
+    func workoutChanges(_ request: BodyWorkoutChangesRequest) async -> BodyHealthReadOutcome<BodyWorkoutChanges> {
+        let (outcome, gate) = takeWorkoutChanges(request)
+        await gate?()
+        if let outcome { return outcome }
+        return await neverResolving()
+    }
 
     // MARK: - Scripting
 
