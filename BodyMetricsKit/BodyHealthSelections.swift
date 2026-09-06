@@ -913,25 +913,31 @@ enum BodyOnboardingGate {
         return completedVersion.compare(minimumCompletedVersion, options: .numeric) == .orderedAscending
     }
 
-    /// Version whose cache restructure the update page explains.
-    static let updateOnboardingVersion = "1.1.0"
+    /// Marketing version plus build ("1.1.0.9") from which the cache structure
+    /// is current. Any install that finished onboarding on an earlier version
+    /// or build, including 1.1.0 builds before 9, sees the update page once.
+    static let updateOnboardingVersion = "1.1.0.9"
 
     /// Whether the one-time update page (the cache rebuild explainer) is due.
-    /// Only for installs that already finished first-run onboarding on an
-    /// older version: first-run `finish()` stamps the running marketing
-    /// version, so a fresh 1.1.0 install records "1.1.0" and never qualifies,
-    /// while a 1.0.x user qualifies exactly once. This is deliberately not a
-    /// bump of `minimumCompletedVersion`, which would replay the whole
-    /// first-run flow. Keep `MARKETING_VERSION` three-part: "1.1" compares
-    /// below "1.1.0" numerically and would re-present the page forever.
+    /// Only for installs that already finished first-run onboarding, and only
+    /// until the page (or first-run onboarding itself, which stamps the same
+    /// key) has been completed on `updateOnboardingVersion` or later. The
+    /// stored marketing version alone cannot tell a 1.1.0 build 7 upgrader
+    /// from a build 9 fresh install, which is why the stamp carries the build.
+    /// This is deliberately not a bump of `minimumCompletedVersion`, which
+    /// would replay the whole first-run flow.
     static func shouldPresentUpdate(completedVersion: String?, updateCompletedVersion: String?) -> Bool {
-        guard !shouldPresent(completedVersion: completedVersion), let completedVersion else {
-            return false
-        }
-        guard completedVersion.compare(updateOnboardingVersion, options: .numeric) == .orderedAscending else {
+        guard !shouldPresent(completedVersion: completedVersion), let completedVersion, !completedVersion.isEmpty else {
             return false
         }
         return (updateCompletedVersion ?? "").compare(updateOnboardingVersion, options: .numeric) == .orderedAscending
+    }
+
+    /// What the update page records on completion: marketing version plus
+    /// build, "1.1.0.9", so builds of the same version compare too.
+    static func currentAppVersionAndBuild(bundle: Bundle = .main) -> String {
+        let build = (bundle.infoDictionary?["CFBundleVersion"] as? String) ?? "0"
+        return "\(currentAppVersion(bundle: bundle)).\(build)"
     }
 
     /// What to record on completion: the running marketing version.

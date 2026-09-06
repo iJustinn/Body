@@ -14212,13 +14212,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body 1.1 Rebuilds Your Data"
+            "value" : "Data Rebuild Required"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body 1.1 会重建你的数据"
+            "value" : "需要重建数据"
           }
         }
       }

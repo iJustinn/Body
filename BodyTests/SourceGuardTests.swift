@@ -34,14 +34,24 @@ final class SourceGuardTests: XCTestCase {
         // The update page is only for installs that finished onboarding on an
         // older version: nothing recorded means the first-run flow wins, and a
         // fresh 1.1.0 install stamped the current version so it never shows.
+        XCTAssertEqual(BodyOnboardingGate.updateOnboardingVersion, "1.1.0.9")
+        XCTAssertEqual(
+            BodyOnboardingGate.currentAppVersionAndBuild(),
+            "\(BodyOnboardingGate.currentAppVersion()).\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0")"
+        )
         XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: nil, updateCompletedVersion: nil))
         XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "", updateCompletedVersion: nil))
         XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: nil))
         XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: ""))
         XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: "1.0.9"))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: "1.1.0"))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: nil))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.10.0", updateCompletedVersion: nil))
+        // 1.1.0 builds before 9 (TestFlight) qualify too; the stored marketing
+        // version alone is "1.1.0" for them, so only the update stamp decides.
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: nil))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.0.7"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.0.9"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.0.10"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.1.1"))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.10.0", updateCompletedVersion: nil))
         XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "0.9.12", updateCompletedVersion: nil))
 
         let mainTabView = try BodyTestSupport.sourceText(at: "Body/Views/MainTabView.swift")
@@ -67,6 +77,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertEqual(BodySettingsAboutTab.onboarding.title, "Onboarding")
 
         let onboardingView = try BodyTestSupport.sourceText(at: "Body/Views/BodyOnboardingView.swift")
+        XCTAssertTrue(mainTabView.contains("updateOnboardingCompletedVersion = BodyOnboardingGate.currentAppVersionAndBuild()"))
+        XCTAssertTrue(onboardingView.contains("updateOnboardingCompletedVersion = BodyOnboardingGate.currentAppVersionAndBuild()"))
         XCTAssertFalse(onboardingView.lowercased().contains("connected"))
         XCTAssertTrue(onboardingView.contains("interactiveDismissDisabled"))
         // Only the first run loads Health data, it reports progress on the page

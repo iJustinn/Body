@@ -58,13 +58,17 @@ struct MainTabView: View {
         } set: { isPresented in
             if !isPresented {
                 onboardingCompletedVersion = BodyOnboardingGate.currentAppVersion()
+                // A fresh install has nothing to rebuild, so first-run
+                // completion also settles the update page.
+                updateOnboardingCompletedVersion = BodyOnboardingGate.currentAppVersionAndBuild()
             }
         }
     }
 
-    /// Shown once to installs upgrading from a version before the 1.1.0 cache
-    /// restructure; fresh installs stamped the current version at first run,
-    /// so they never see it (`BodyOnboardingGate`).
+    /// Shown once to installs that finished onboarding before 1.1.0 build 9,
+    /// including earlier 1.1.0 builds; fresh installs stamp the running
+    /// version and build at first run, so they never see it
+    /// (`BodyOnboardingGate`).
     private var showsUpdateOnboarding: Bool {
         BodyOnboardingGate.shouldPresentUpdate(
             completedVersion: onboardingCompletedVersion,
@@ -79,7 +83,7 @@ struct MainTabView: View {
             showsUpdateOnboarding
         } set: { isPresented in
             if !isPresented {
-                updateOnboardingCompletedVersion = BodyOnboardingGate.currentAppVersion()
+                updateOnboardingCompletedVersion = BodyOnboardingGate.currentAppVersionAndBuild()
             }
         }
     }

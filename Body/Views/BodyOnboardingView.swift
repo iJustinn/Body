@@ -38,6 +38,7 @@ struct BodyOnboardingView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
+    @AppStorage(BodyAppearancePreference.updateOnboardingCompletedVersionKey) private var updateOnboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
@@ -1093,6 +1094,9 @@ struct BodyOnboardingView: View {
 
     private func finish() {
         onboardingCompletedVersion = BodyOnboardingGate.currentAppVersion()
+        // A fresh install has nothing to rebuild, so first-run completion also
+        // settles the update page (`BodyOnboardingGate.shouldPresentUpdate`).
+        updateOnboardingCompletedVersion = BodyOnboardingGate.currentAppVersionAndBuild()
         dismiss()
     }
 
