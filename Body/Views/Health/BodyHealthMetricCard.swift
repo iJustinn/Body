@@ -739,7 +739,11 @@ struct BodyHealthMetricCardTrendPreview: View {
         GeometryReader { proxy in
             let dots = previewDots
             // An empty occupied set is the even three-way split.
-            let layout = DotPreviewLayout(size: proxy.size, occupied: dotEqualRegions ? [] : occupiedRegions(for: dots))
+            let layout = DotPreviewLayout(
+                size: proxy.size,
+                occupied: dotEqualRegions ? [] : occupiedRegions(for: dots),
+                placesRingsWithinRegions: dotEqualRegions
+            )
 
             ZStack {
                 RoundedRectangle(cornerRadius: layout.cornerRadius(for: .high), style: .continuous)
@@ -809,8 +813,15 @@ struct BodyHealthMetricCardTrendPreview: View {
         private let highHeight: CGFloat
         private let typicalHeight: CGFloat
         private let lowHeight: CGFloat
+        /// Whether a ring is placed by where it lands inside its own region in
+        /// all three of them, rather than resting at the middle of the outer
+        /// two the way a vital does. Only the equal-height layout has the room:
+        /// Body Radar's three slots are fixed thresholds, so its ring glides as
+        /// the night's evidence moves instead of holding three fixed heights.
+        private let placesRingsWithinRegions: Bool
 
-        init(size: CGSize, occupied: Set<SleepVitalRegion>) {
+        init(size: CGSize, occupied: Set<SleepVitalRegion>, placesRingsWithinRegions: Bool = false) {
+            self.placesRingsWithinRegions = placesRingsWithinRegions
             gap = min(max(size.height * Self.gapFraction, 1.5), size.height / 8)
             let available = max(size.height - 2 * gap, 1)
             // Clamping the minimum to a third is what keeps the three heights
@@ -900,21 +911,37 @@ struct BodyHealthMetricCardTrendPreview: View {
 
         /// `markerPosition` maps the typical band to [1/3, 2/3]; that middle
         /// third stretches over the typical region and the outer thirds collapse
-        /// onto the high and low regions, mirroring the drawn shapes.
+        /// onto the high and low regions, mirroring the drawn shapes. A layout
+        /// that places rings within every region stretches all three thirds
+        /// instead, so the outer two read like the middle one.
         func dotY(for position: Double) -> CGFloat {
             let clamped = min(max(position, 0), 1)
             let region = Self.regionSlot(for: clamped)
 
-            guard region == .typical else {
+            guard placesRingsWithinRegions || region == .typical else {
                 return centerY(for: region)
             }
 
             let halfDot = dotDiameter / 2
-            let bandTopY = topY(for: .typical)
-            let bandFraction = (2.0 / 3.0 - clamped) * 3
+            let bandTopY = topY(for: region)
+            let bandHeight = height(for: region)
+            let bandFraction = (Self.slotCeiling(for: region) - clamped) * 3
             let minY = bandTopY + halfDot + 0.5
-            let maxY = bandTopY + typicalHeight - halfDot - 0.5
-            return min(max(bandTopY + typicalHeight * CGFloat(bandFraction), minY), maxY)
+            let maxY = bandTopY + bandHeight - halfDot - 0.5
+            return min(max(bandTopY + bandHeight * CGFloat(bandFraction), minY), maxY)
+        }
+
+        /// The top of a region's own third of the 0…1 scale, the value a ring
+        /// drawn at the very top of that region carries.
+        private static func slotCeiling(for region: SleepVitalRegion) -> Double {
+            switch region {
+            case .high:
+                return 1
+            case .typical:
+                return 2.0 / 3.0
+            case .low:
+                return 1.0 / 3.0
+            }
         }
     }
 

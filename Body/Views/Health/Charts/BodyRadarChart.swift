@@ -142,17 +142,6 @@ struct BodyRadarChart: View {
                     .lineStyle(StrokeStyle(lineWidth: 1.4))
             }
 
-            ForEach(points) { point in
-                PointMark(
-                    x: .value("Date", slotCenter(for: point)),
-                    y: .value("Band Boundary", point.plotValue(majorCeiling: majorCeiling))
-                )
-                .symbolSize(0)
-                .annotation(position: .overlay, spacing: 0) {
-                    BodyRadarNightDot(point: point)
-                }
-            }
-
             if let selectedPoint {
                 RuleMark(x: .value("Selected Date", slotCenter(for: selectedPoint)))
                     .foregroundStyle(Color.clear)
@@ -191,6 +180,33 @@ struct BodyRadarChart: View {
         // The scale is evidence inside a band, not a readable number: the band
         // lines carry the reading on their own.
         .chartYAxis(.hidden)
+        // The nights are laid over the plot rather than drawn as mark
+        // annotations. Charts rebuilds annotation content on every render, so a
+        // dot snapped to its new band and color instead of travelling there;
+        // as ordinary SwiftUI views keyed by their own night they glide and
+        // cross-fade the way the sleep vitals plot's dots do. It is also what
+        // makes the three-week window shift read as motion: every night keeps
+        // its view across a refresh, so the dots slide a slot left while the
+        // night that fell out of the window fades and the new one fades in.
+        .chartOverlay { chartProxy in
+            GeometryReader { geo in
+                if let plotFrame = chartProxy.plotFrame {
+                    let plotRect = geo[plotFrame]
+
+                    ForEach(points) { point in
+                        if let x = chartProxy.position(forX: slotCenter(for: point)),
+                           let y = chartProxy.position(forY: point.plotValue(majorCeiling: majorCeiling)) {
+                            BodyRadarNightDot(point: point)
+                                .position(x: plotRect.minX + x, y: plotRect.minY + y)
+                                .transition(.opacity)
+                        }
+                    }
+                }
+            }
+            // The scrub reads the plot underneath, so the dots must not take the
+            // touch that drives it.
+            .allowsHitTesting(false)
+        }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
         .bodyFloatingCalloutReporter(
