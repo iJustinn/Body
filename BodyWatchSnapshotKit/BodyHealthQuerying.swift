@@ -101,6 +101,22 @@ struct BodyDatedQuantity {
     let quantity: HKQuantity
 }
 
+struct BodyWorkoutChangesRequest: Sendable, Equatable {
+    let lowerBound: Date
+    let anchor: Data?
+    let limit: Int
+}
+
+struct BodyWorkoutChanges {
+    let workouts: [HKWorkout]
+    let deletedIDs: [UUID]
+    let anchor: Data
+}
+
+enum BodyWorkoutAnchorError: Error {
+    case invalidArchive, invalidRequest, invalidResponse
+}
+
 /// Everything Body asks of `HKHealthStore`, including scriptable leaf reads.
 protocol BodyHealthQuerying: AnyObject, Sendable {
     // Callback passthroughs: the engine-internal query sites own their own
@@ -116,6 +132,7 @@ protocol BodyHealthQuerying: AnyObject, Sendable {
     // Leaf reads: the scriptable surface. Cancelling the awaiting task yields
     // `.cancelled` and stops the query.
     func samples(_ request: BodySampleRequest) async -> BodyHealthReadOutcome<[HKSample]>
+    func workoutChanges(_ request: BodyWorkoutChangesRequest) async -> BodyHealthReadOutcome<BodyWorkoutChanges>
     func sources(for sampleType: HKSampleType) async -> BodyHealthReadOutcome<[HKSource]>
     func statistics(_ request: BodyStatisticsRequest) async -> BodyHealthReadOutcome<HKStatistics>
     func cumulativeQuantity(_ request: BodyStatisticsRequest) async -> BodyHealthReadOutcome<HKQuantity?>
@@ -152,6 +169,45 @@ protocol BodyHealthQuerying: AnyObject, Sendable {
 }
 
 extension BodyHealthQuerying {
+    /// Bounded, one-shot workout delta. No observer/update handler is installed.
+    func workoutChanges(_ request: BodyWorkoutChangesRequest) async -> BodyHealthReadOutcome<BodyWorkoutChanges> {
+        guard (1...500).contains(request.limit), request.lowerBound.timeIntervalSince1970.isFinite else {
+            return .failure(BodyWorkoutAnchorError.invalidRequest)
+        }
+        let anchor: HKQueryAnchor?
+        do {
+            if let bytes = request.anchor {
+                guard let decoded = try NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: bytes) else {
+                    return .failure(BodyWorkoutAnchorError.invalidArchive)
+                }
+                anchor = decoded
+            } else { anchor = nil }
+        } catch { return .failure(BodyWorkoutAnchorError.invalidArchive) }
+        let box = BodyQueryResumeBox<BodyHealthReadOutcome<BodyWorkoutChanges>>(stop: { [self] in self.stop($0) })
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                box.install(continuation: continuation, cancelledValue: .cancelled) { resume in
+                    let query = HKAnchoredObjectQuery(type: HKObjectType.workoutType(),
+                        predicate: HKQuery.predicateForSamples(withStart: request.lowerBound, end: nil, options: .strictStartDate),
+                        anchor: anchor, limit: request.limit) { _, samples, deleted, next, error in
+                        guard error == nil, let samples, let deleted, let next else {
+                            resume(.failure(error)); return
+                        }
+                        guard let workouts = samples as? [HKWorkout] else {
+                            resume(.failure(BodyWorkoutAnchorError.invalidResponse)); return
+                        }
+                        do {
+                            let bytes = try NSKeyedArchiver.archivedData(withRootObject: next, requiringSecureCoding: true)
+                            resume(.success(.init(workouts: workouts, deletedIDs: deleted.map(\.uuid), anchor: bytes)))
+                        } catch { resume(.failure(error)) }
+                    }
+                    self.execute(query)
+                    return query
+                }
+            }
+        } onCancel: { box.cancel(cancelledValue: .cancelled) }
+    }
+
     func dailyQuantities(_ request: BodyStatisticsCollectionRequest,
         aggregation: BodyDailyQuantityAggregation, from start: Date, to end: Date
     ) async -> BodyHealthReadOutcome<[BodyDatedQuantity]> {
