@@ -3,11 +3,13 @@
 Prepared September 6, 2026. Status: exploration and proposal only; no app code changed.
 Code reviewed at `087ea62`, with the existing working tree left intact.
 
+Source clarification: the user confirmed that Body's results and the original CSV use Apple Watch measurements, while Oura's results use Oura's own measurements. A follow-up review of the newly supplied Oura measurements is pending locating that file; the analysis below currently covers the original files only.
+
 ## Recommendation
 
 Make Beta 2 a more trustworthy detector of unusual overnight strain: validate the input night, distinguish incomplete data from a reassuring result, explain combined changes, and evaluate respiratory decreases and short-lived persistence. Keep the current personal robust baseline and morning-result concept.
 
-Do not start by lowering all thresholds to reproduce Oura. The supplied data does not establish that Oura's five selected alerts are illness events, and the two products are demonstrably reading different values. First make exact replay possible; then compare a small number of interpretable candidates.
+Do not start by lowering all thresholds to reproduce Oura. The supplied data does not establish that Oura's five selected alerts are illness events. These are separate devices measuring the same person, so disagreement can reflect their measurement methods, sampling windows, and algorithms. First compare each device's changes against its own history and make exact Body replay possible; then compare a small number of interpretable candidates.
 
 The recommended implementation order is **input/record correctness → explanations → controlled scoring experiments → versioned rollout**. Beta 2 should not ship a new sensitivity setting until the replay and prospective checks below support it.
 
@@ -23,7 +25,7 @@ All originals remain in `~/Downloads`; no raw health export or screenshot was co
 | `IMG_4854.PNG` | Oura: September 3, Major signs; same explanation |
 | `IMG_4853.PNG` | Oura: September 6, Minor signs; respiratory rate **13.5/min, decreased** |
 | `IMG_3448.PNG` | Current Body: latest **No Signs**, August 17–September 6 chart, two pink Minor dots and two dim placeholder dots |
-| `health_data_2026-06-01_to_2026-09-06.csv` | 98 unique, consecutive daily rows; six measurement columns |
+| `health_data_2026-06-01_to_2026-09-06.csv` | Apple Watch data, confirmed by user; 98 unique, consecutive daily rows; six measurement columns |
 
 The screenshot dates are consistent with 2026 and the export; their day labels do not independently display a year. Only explicitly selected Oura dates are treated as firm comparison labels. Gaps and connecting segments in Oura's overview are not a complete daily verdict export.
 
@@ -35,16 +37,16 @@ Counting the 21 evenly spaced Body chart slots suggests Minor on August 23 and A
 | --- | --- | --- | --- | --- |
 | Average heart rate, bpm | 98 | 67.515 | 51.17–106.76 | Daily average; not sleeping heart rate |
 | Resting heart rate, bpm | 98 | 63.00 | 49.99–80.00 | Exploratory proxy only; not sleeping heart rate |
-| Respiratory rate, breaths/min | 97 | 15.31 | 13.50–17.69 | Aggregation window/source not supplied |
-| Sleeping wrist temperature, °C | 85 | 35.73 | 35.37–36.33 | Relevant overnight quantity; source/day alignment still needs confirmation |
+| Respiratory rate, breaths/min | 97 | 15.31 | 13.50–17.69 | Apple Watch; exact aggregation window not supplied |
+| Sleeping wrist temperature, °C | 85 | 35.73 | 35.37–36.33 | Apple Watch overnight quantity; exact wake-day alignment still needs confirmation |
 | HRV SDNN, ms | 98 | 58.875 | 16.43–180.16 | Daily SDNN; no overnight sample counts/windows |
 | Steps | 98 | 5,148 | 457–22,037 | Daily total cannot reconstruct hourly inactivity |
 
 Respiratory rate is absent August 7. Temperature is absent on 13 dates, including September 6. The final row is the current day and must be treated as potentially incomplete: 457 steps, no temperature, SDNN 180.16. This does not establish that SDNN is erroneous; inspect its samples and timing before judging it.
 
-Missing from the export: sleep intervals/duration, sleep-window heart rate and SDNN, sample counts/timestamps, actual selected sources and device identity, hourly step completeness, workout timing, frozen Radar records, and symptom/context labels. CSV blanks remain missing, never zero.
+Missing from the export: sleep intervals/duration, sleep-window heart rate and SDNN, sample counts/timestamps, exact source identifiers/model and selection settings, hourly step completeness, workout timing, frozen Radar records, and symptom/context labels. Device family is confirmed as Apple Watch. CSV blanks remain missing, never zero.
 
-**Direct mismatch:** September 6 respiratory rate is 15.03 in the CSV versus 13.5 in Oura. The CSV's 13.5 occurs July 19. Do not move July's value to September or assume a fixed day offset. Resolve source and aggregation differences first.
+**Cross-device difference:** September 6 respiratory rate is 15.03 from Apple Watch versus 13.5 in Oura. Different devices explain why equality should not be expected; this difference alone is not evidence of a Body ingestion bug. Compare each value with that device's own preceding respiratory baseline. The Apple Watch CSV's 13.5 occurs July 19; that coincidence provides no evidence for shifting dates.
 
 ### Exploratory Beta 1 formula replay
 
@@ -88,6 +90,10 @@ Beta 1 already sums subthreshold contributions: Minor with no individually flagg
 ## Beta 2 design
 
 ### 1. Establish a reproducible input contract
+
+Maintain two independent analysis tracks: Apple Watch inputs → Body/Beta 2 candidates, and Oura measurements → within-Oura deviations compared with Oura's displayed verdicts. Never pool the devices' raw values into a shared baseline. Compare same-night direction, relative magnitude and persistence only after establishing units, measurement definitions and wake-day alignment. An Oura alert with no corresponding Apple Watch deviation is a cross-device disagreement, not automatically a Body algorithm failure.
+
+For the new Oura file, inspect date coverage, missingness, sleep windows, average versus lowest/resting HR, HRV statistic, and whether temperature is absolute or a deviation from Oura's own reference. Keep temperature deviations distinct from Apple Watch absolute wrist temperature, and retain any reference-baseline caveat when analyzing an already normalized Oura field. Do not apply the Apple Watch SDNN floor to an Oura HRV series with a different definition without an explicitly labeled sensitivity experiment.
 
 Add a development-only local export/replay path for the actual nightly inputs. One row/record per wake day should contain:
 
@@ -153,7 +159,7 @@ Update the Beta v1 chip, About text, localization and documentation only when th
 
 ### Stage 1 — explain the current disagreement
 
-Export exact sleep inputs/frozen records, verify device/source/timezone choices, and confirm the inferred Body historical dates by record data or scrubbing. Reconcile September 6's 13.5 vs 15.03 respiratory readings. Capture whether August 29–30 were missing sleep, calibration or incomplete hydration. Obtain optional symptom/context annotations without treating silence as “healthy.”
+Export exact Apple Watch sleep inputs/frozen Body records, verify source settings/timezone choices, and confirm the inferred Body historical dates by record data or scrubbing. Analyze September 6's Oura 13.5 and Apple Watch 15.03 separately against their respective histories rather than trying to reconcile them into one value. Capture whether August 29–30 were missing sleep, calibration or incomplete hydration. Obtain optional symptom/context annotations without treating silence as “healthy.”
 
 Deliverable: a local day-by-day Beta 1 replay report with source and exclusion reasons. No production sensitivity changes yet.
 
@@ -189,9 +195,9 @@ Run focused XCTest using the project's existing `rtk xcodebuild test` workflow, 
 
 ## Open information and decision points
 
-- The CSV's originating app/device and aggregation definitions remain unconfirmed.
+- Device families are confirmed: the original CSV and Body result use Apple Watch; Oura uses its own measurements. Exact export aggregation definitions, source settings and device models remain unconfirmed.
 - Whether August 20–22, September 3 or September 6 coincided with illness, fatigue, travel, alcohol, unusual training or feeling well remains unconfirmed. An optional question was sent during exploration; no response is assumed.
-- Actual Oura underlying nightly values and full daily verdict export are unavailable. Screenshots are comparison observations, not a training dataset.
+- The user reports adding Oura measured data. Its file was not yet visible in Downloads during the initial follow-up inventory; its contents have not been analyzed. A full daily verdict export is also not established. Screenshots remain comparison observations, not a training dataset.
 - Proposed default scope: overnight strain deviations, stable morning results, conservative Major corroboration, and no inactivity scoring until coverage is supported. Respiratory decreases and persistence require the staged evaluation above.
 
 ## External references
