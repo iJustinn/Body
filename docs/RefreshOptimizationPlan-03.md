@@ -218,6 +218,41 @@ The summary/history sleep overlap and summary/series training-load computations 
 
 ## 6. Measurement and verification gates
 
+### Post-activation Home comparison (2026-09-06)
+
+The user requested performance comparison after enabling Phase 5. Existing instrumentation was used unchanged on the same iPadPro, app version 1.1.0 build 8, ordinary Debug build. The user completed three Home pulls without requested layout/source/permission changes, waiting for each refresh to finish. No HealthKit mutation, cache reset, query-budget tuning or production code change was performed for measurement.
+
+| Home pull wall time | September 5 pre-journal reference | September 6 enabled journal |
+| --- | --- | --- |
+| Run 1 | 10.317 s | 18.249 s |
+| Run 2 | 10.031 s | 12.006 s |
+| Run 3 | 10.848 s | 12.405 s |
+| Median | 10.317 s | 12.405 s |
+| Range | 10.031–10.848 s | 12.006–18.249 s |
+
+The observed median is **20.24% slower**, not an improvement. This is a same-device historical comparison, **not controlled attribution to the journal**: effort candidates changed from 249 per reference run to 272/256/272, the Health database and repaired caches have evolved, and thermal/load state was not controlled. All six profiles reported 44 leaves, peak 11 HealthKit queries and pool peaks interactive 10/background 1. The enabled capture contains three workout anchored queries; the journal remained settled (458 members, zero dirty intervals, no full repair) and its file was unchanged at 107 KB. Dashboard files were approximately 1.9 MB main / 1.2 MB day-sample sidecar.
+
+Per-leaf medians increased for training-load summary/trend (5.357 → 6.115 s) and sleep history (4.649 → 5.489 s). Summed effort-pool leaf durations increased from 15.100 → 22.468 s; those durations overlap and are **not wall time**. The available final enabled `WorkoutMonths` interval was 11.684 s within its 12.405-second refresh, showing the workout branch was on that run's completion path. Interval export was incomplete (two reference full-refresh intervals, one enabled interval), so it cannot support whole-pass write-count or early-paint claims. All three wall times in each set come from completed DEBUG profiles. Capture-wide query totals likewise include background activity and are not normalized per-refresh counts.
+
+Evidence: `/private/tmp/body-rp03-ipad-home-pulls-2.trace` and `/private/tmp/body-rp03-perf-enabled-home-pulls-20260906.trace`, with their `os-log` and interval exports. Each enabled Home anchored query started about 18–20 ms after the completed foreground profile; its execute-to-stop log span was 1.889, 2.592 and 2.062 ms. These are native query log spans, not complete journal-owner CPU or I/O measurements. The clean journal scan was outside the measured foreground completion path, so the observed foreground slowdown cannot be directly assigned to that scan. No optimization or causally attributed regression is proposed from this comparison alone.
+
+### Enabled cold and warm observations (2026-09-06)
+
+Three process-cold launches were captured with dashboard freshness older than five minutes, no cache deletion and no validation compilation override. Instruments successfully launched by bundle identifier, capturing the cache loads before the foreground refresh. These are process restarts, not device reboots or guaranteed filesystem-cache-cold starts.
+
+| Existing interval | Run 1 | Run 2 | Run 3 | Median |
+| --- | --- | --- | --- | --- |
+| `RefreshRecentMonths` | 4.466 s | 9.263 s | 8.370 s | 8.370 s |
+| `DashboardSnapshotLoad` | 36.302 ms | 40.129 ms | 39.793 ms | 39.793 ms |
+| `DaySamplesSidecarLoad` | 24.218 ms | 24.561 ms | 24.617 ms | 24.561 ms |
+| `WorkoutMonths` | 2.736 s | 7.002 s | 5.590 s | 5.590 s |
+
+Each cold profile reports 44 leaves, eight effort candidates and peak 11 queries (interactive 10/background 1). Cold refresh range is 4.466–9.263 s. This variance remains visible; no fastest-run selection or claim of improvement over an absent pre-change cold set is made. The 39.793/24.561 ms decode medians are not launch-to-usable times. Evidence: `/private/tmp/body-rp03-perf-enabled-cold{1,2,3}-20260906.trace` and their exports. The first cold-3 log export crashed in the Instruments exporter with signal 11; retry succeeded against the unchanged completed trace. It was not an app crash or a repeated timing run.
+
+Three user-coordinated warm resumes were captured after the 60-second debounce and before dashboard freshness expired. A full pull reset freshness before run two; run three reused that still-valid window. All three completed with zero effort candidates and `total=n/a`, and paired saved envelopes retained their prior dashboard freshness rather than validating vitals during workout-only work. Only the third `WorkoutMonths` interval was present in the available exports (855.41 ms); the first two are missing, so **no three-run warm-duration median is claimed**. Profile leaf/pool accounting can include work outside that single month pass and is not substituted for its missing wall time. Evidence: `/private/tmp/body-rp03-perf-enabled-warm-20260906.trace`, `...-warm23-20260906.trace`, and `...-warm{1,2,3}...dashboard.json` snapshots.
+
+The journal remained unchanged when comparing decoded before/final envelopes, with 458 members and zero dirty/full-repair obligations throughout. The enabled build was left running; no code, build setting, telemetry or HealthKit record was changed for this measurement pass. **Conclusion:** the historical Home comparison is slower and confounded, clean anchor-query overhead is small and occurs after foreground completion, and current cold timings are now recorded. A matched pre/post cold/warm baseline, complete warm wall-time set, and launch-to-first-usable/early-paint evidence remain unavailable. The full §6 acceptance dataset is therefore still incomplete. A causal performance claim would require a controlled same-data/configuration A/B run; no performance implementation is authorized by this report.
+
 ### Current measurement result
 
 No comparable phone runs were captured. Initial sandbox device/simulator inventory failed with CoreDevice/CoreSimulator connection errors; a read-only unsandboxed `devicectl list devices --timeout 15` succeeded and showed both iPhones unavailable. No app was installed, relaunched, or its Health database modified for benchmarking. The available iPad is not substituted for the user's prior phone/database baseline.
