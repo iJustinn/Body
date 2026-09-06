@@ -252,6 +252,14 @@ final class HealthKitWorkoutStore {
     /// "Health data updated" only if it advanced — so a failed refresh, or a
     /// background page-in that lands during one, can't make it falsely confirm.
     private(set) var syncBadgeSuccessCount = 0
+    /// Count of full (vitals) refreshes that ran to completion under the
+    /// deadline. Like the first-load stamp above, and unlike
+    /// `syncBadgeSuccessCount`, this is deliberately NOT gated on
+    /// `hadQueryFailure`/`ranQueries`: a leaf a denied read permission fails
+    /// on every refresh still counts as done, so the cache rebuild page can
+    /// finish for such a user instead of holding them on Try Again forever.
+    /// A thrown, abandoned, or unavailable refresh never advances it.
+    private(set) var fullRefreshCompletionCount = 0
     /// Date of the last refresh that re-fetched the dashboard vitals (not just
     /// workouts or ring history). Carried in the watch snapshot so the watch's
     /// staleness logic isn't reset by workout-only refreshes. Doubles as the
@@ -7282,6 +7290,9 @@ final class HealthKitWorkoutStore {
         if refreshedVitals, !hasCompletedInitialHealthDataLoad {
             hasCompletedInitialHealthDataLoad = true
             HealthDashboardSnapshotStore.saveInitialHealthDataLoadCompleted()
+        }
+        if refreshedVitals {
+            fullRefreshCompletionCount += 1
         }
         if refreshedVitals, !hadQueryFailure {
             lastSuccessfulRefreshDate = date

@@ -4737,6 +4737,7 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
 
 private struct BodyCacheSettingsSheet: View {
     let workoutStore: HealthKitWorkoutStore
+    @State private var showingRebuild = false
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Cache") {
@@ -4745,9 +4746,7 @@ private struct BodyCacheSettingsSheet: View {
 
                 VStack(spacing: 0) {
                     Button {
-                        Task {
-                            await workoutStore.requestAuthorizationAndRefresh()
-                        }
+                        showingRebuild = true
                     } label: {
                         BodySettingsRowLabel(
                             title: "Rebuild Cache",
@@ -4783,6 +4782,12 @@ private struct BodyCacheSettingsSheet: View {
                 }
                 .bodyCardBackground(translucent: true)
             }
+        }
+        .fullScreenCover(isPresented: $showingRebuild) {
+            // The sheet takes the store as a property rather than from the
+            // environment, so hand it to the cover explicitly.
+            BodyCacheRebuildView(entry: .settings)
+                .environment(workoutStore)
         }
     }
 

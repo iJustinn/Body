@@ -14053,6 +14053,176 @@
         }
       }
     },
+    "updateOnboarding.done" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
+        }
+      }
+    },
+    "updateOnboarding.feature.refresh.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The new structure lets Body read less from Apple Health each time it updates."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新的结构让 Body 每次更新时从 Apple 健康读取的内容更少。"
+          }
+        }
+      }
+    },
+    "updateOnboarding.feature.refresh.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faster refreshes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刷新更快"
+          }
+        }
+      }
+    },
+    "updateOnboarding.getStarted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get Started"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始使用"
+          }
+        }
+      }
+    },
+    "updateOnboarding.keepOpen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Please keep Body open and in the foreground until the load finishes. Leaving the app can interrupt it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "载入完成前请保持 Body 打开并停留在前台。离开 App 可能会中断载入。"
+          }
+        }
+      }
+    },
+    "updateOnboarding.rebuild" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rebuild Now"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即重建"
+          }
+        }
+      }
+    },
+    "updateOnboarding.settings.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body reloads the last three months and your dashboard from Apple Health and rewrites the local cache. Your recorded readiness history is kept."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 会从 Apple 健康重新载入最近三个月的数据和你的仪表板，并重写本地缓存。你已记录的恢复状态历史会保留。"
+          }
+        }
+      }
+    },
+    "updateOnboarding.settings.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rebuild Cache"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重建缓存"
+          }
+        }
+      }
+    },
+    "updateOnboarding.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This version stores your health data in a new structure, so Body reloads it from Apple Health once. It takes a moment. Nothing in Apple Health changes, and older workout months keep filling in in the background."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此版本会用新的结构存储你的健康数据，因此 Body 需要从 Apple 健康重新载入一次。这会花一点时间。Apple 健康中的内容不会有任何改变，更早的锻炼月份会在后台继续补齐。"
+          }
+        }
+      }
+    },
+    "updateOnboarding.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 1.1 Rebuilds Your Data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 1.1 会重建你的数据"
+          }
+        }
+      }
+    },
     "Use Body widgets to keep workout and metric context on the Home Screen." : {
       "extractionState" : "manual",
       "localizations" : {

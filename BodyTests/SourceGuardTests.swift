@@ -30,12 +30,38 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(BodyOnboardingGate.shouldPresent(completedVersion: "1.10.0"))
         XCTAssertEqual(BodyOnboardingGate.currentAppVersion(), Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
 
+        XCTAssertTrue(selections.contains(#"static let updateOnboardingCompletedVersionKey = "updateOnboardingCompletedVersion""#))
+        // The update page is only for installs that finished onboarding on an
+        // older version: nothing recorded means the first-run flow wins, and a
+        // fresh 1.1.0 install stamped the current version so it never shows.
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: nil, updateCompletedVersion: nil))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "", updateCompletedVersion: nil))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: nil))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: ""))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: "1.0.9"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: "1.1.0"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: nil))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.10.0", updateCompletedVersion: nil))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "0.9.12", updateCompletedVersion: nil))
+
         let mainTabView = try BodyTestSupport.sourceText(at: "Body/Views/MainTabView.swift")
         XCTAssertTrue(mainTabView.contains("fullScreenCover"))
         XCTAssertTrue(mainTabView.contains("BodyOnboardingView(mode: .firstRun)"))
+        XCTAssertTrue(mainTabView.contains("BodyCacheRebuildView(entry: .update)"))
 
         let settingsView = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
         XCTAssertTrue(settingsView.contains("BodyOnboardingView(mode: .revisit)"))
+        XCTAssertTrue(settingsView.contains("BodyCacheRebuildView(entry: .settings)"))
+
+        // The rebuild reruns the user-initiated refresh; it must not wipe the
+        // frozen readiness, radar, and stress records that HealthKit cannot
+        // regenerate.
+        let cacheRebuildView = try BodyTestSupport.sourceText(at: "Body/Views/BodyCacheRebuildView.swift")
+        XCTAssertFalse(cacheRebuildView.contains("clearLocalCache"))
+        // Done must not depend on every leaf query succeeding: denied read
+        // permissions fail a leaf on every refresh, and the page has no exit.
+        XCTAssertTrue(cacheRebuildView.contains("workoutStore.fullRefreshCompletionCount > completionCount"))
+        XCTAssertFalse(cacheRebuildView.contains("syncBadgeSuccessCount"))
 
         XCTAssertNil(BodySettingsAboutTab.onboarding.sheet)
         XCTAssertEqual(BodySettingsAboutTab.onboarding.title, "Onboarding")
@@ -4179,7 +4205,7 @@ final class SourceGuardTests: XCTestCase {
         let xcstrings = try BodyTestSupport.sourceText(at: "Body/Localizable.xcstrings")
 
         XCTAssertTrue(mainTabSource.contains(".overlay(alignment: .top) {"))
-        XCTAssertTrue(mainTabSource.contains("BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented || showsOnboarding)"))
+        XCTAssertTrue(mainTabSource.contains("BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented || showsOnboarding || showsUpdateOnboarding)"))
 
         XCTAssertTrue(badgeSource.contains("import Accessibility"))
         XCTAssertTrue(badgeSource.contains("if #available(iOS 26.0, *)"))

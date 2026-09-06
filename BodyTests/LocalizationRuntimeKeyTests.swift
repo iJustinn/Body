@@ -586,6 +586,32 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    func testCacheRebuildStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // BodyCacheRebuildView: the update-onboarding entry and the Settings ›
+        // Data › Cache › Rebuild Cache entry share every row and reuse the
+        // catalog's existing "Try Again", "Loading data...", and
+        // "onboarding.close" keys.
+        let keys = [
+            "updateOnboarding.title",
+            "updateOnboarding.subtitle",
+            "updateOnboarding.settings.title",
+            "updateOnboarding.settings.subtitle",
+            "updateOnboarding.feature.refresh.title",
+            "updateOnboarding.feature.refresh.subtitle",
+            "updateOnboarding.rebuild",
+            "updateOnboarding.getStarted",
+            "updateOnboarding.done",
+            "updateOnboarding.keepOpen",
+            "onboarding.close",
+            "Loading data...",
+            "Try Again"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
     func testWorkoutDetailsExplanationKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
