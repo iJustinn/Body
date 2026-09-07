@@ -3891,6 +3891,9 @@ private struct BodyMetricWarningsSettingsSheet: View {
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Warnings") {
             VStack(alignment: .leading, spacing: 12) {
+                BodyMetricWarningReadinessHeroRow(isEnabled: $showsWarningsOnReadinessHero)
+                    .bodyCardBackground(translucent: true)
+
                 BodyMetricWarningNotificationsRow(isEnabled: Binding {
                     metricWarningNotificationsEnabled
                 } set: { isEnabled in
@@ -3919,9 +3922,6 @@ private struct BodyMetricWarningsSettingsSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 4)
                 }
-
-                BodyMetricWarningReadinessHeroRow(isEnabled: $showsWarningsOnReadinessHero)
-                    .bodyCardBackground(translucent: true)
 
                 ForEach(MetricWarningKind.allCases) { kind in
                     VStack(spacing: 0) {
