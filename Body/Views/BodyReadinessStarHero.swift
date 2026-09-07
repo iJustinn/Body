@@ -309,6 +309,19 @@ struct BodyReadinessHeroLabel: View {
         }
     }
 
+    /// The width of one badge's box, and so of the tap target laid over it. Three
+    /// badges have to share the width the headline leaves; one or two can spend it.
+    private var badgeSlotWidth: CGFloat {
+        switch warningBadges.count {
+        case 0, 1:
+            return 44
+        case 2:
+            return 36
+        default:
+            return 28
+        }
+    }
+
     /// The warning signs beside the readiness level, each the same glyph and tint
     /// its own Home card is showing. Publishes its glyphs' bounds so the host can
     /// lay tap targets over them; nothing here is interactive.
@@ -318,12 +331,15 @@ struct BodyReadinessHeroLabel: View {
                 Image(systemName: badge.symbolName)
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(badge.color)
-                    // A fixed box rather than the glyph's own size, so three badges
-                    // cost a predictable width and the tap targets laid over them
-                    // are all the same. Kept tight: at 34 a three-badge row pushed
-                    // "Moderate Readiness" past its scale floor and truncated it on
-                    // a narrow screen. The host gives the targets their height back.
-                    .frame(width: 28, height: 28)
+                    // A fixed box rather than the glyph's own size, so the tap
+                    // targets laid over the badges are all the same. The width
+                    // depends on the count: a full three-badge row has to stay
+                    // tight (at 34 each it pushed "Moderate Readiness" past its
+                    // scale floor and truncated it on a narrow screen), but one
+                    // or two badges have the room to be comfortably tappable and
+                    // still cost no more width than three tight ones. The host
+                    // gives the targets their height back.
+                    .frame(width: badgeSlotWidth, height: 28)
                     .anchorPreference(key: BodyReadinessHeroBadgeAnchorKey.self, value: .bounds) {
                         [badge.id: $0]
                     }

@@ -664,9 +664,16 @@ struct BodyHomeView: View {
                 // fade wrapper, so they go inert with the hero as the page scrolls.
                 .overlayPreferenceValue(BodyReadinessHeroBadgeAnchorKey.self) { anchors in
                     GeometryReader { geometry in
-                        ForEach(badges) { badge in
+                        ForEach(Array(badges.enumerated()), id: \.element.id) { index, badge in
                             if let anchor = anchors[badge.id] {
                                 let frame = geometry[anchor]
+                                // The badge boxes sit flush against each other, so a tap
+                                // between two of them already lands on one. The misses are
+                                // off the ends of the row and off the top and bottom, so
+                                // that is where the target grows: outward only, never over
+                                // a neighbour's target.
+                                let leading: CGFloat = index == 0 ? 10 : 0
+                                let trailing: CGFloat = index == badges.count - 1 ? 10 : 0
                                 Button {
                                     revealHomeCard(badge.card, proxy: proxy)
                                 } label: {
@@ -674,12 +681,13 @@ struct BodyHomeView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel(Text(verbatim: badge.accessibilityLabel))
-                                // Full height, glyph width: the row is narrow so the
-                                // headline keeps its space, but a 28 pt-tall target is
-                                // a mean thing to ask a thumb for. Widening it instead
-                                // would overlap the neighbouring badge's target.
-                                .frame(width: frame.width, height: max(frame.height, 44))
-                                .position(x: frame.midX, y: frame.midY)
+                                // Full height: a 28 pt-tall target is a mean thing to ask
+                                // a thumb for.
+                                .frame(
+                                    width: frame.width + leading + trailing,
+                                    height: max(frame.height, 44)
+                                )
+                                .position(x: frame.midX - leading / 2 + trailing / 2, y: frame.midY)
                             }
                         }
                     }
@@ -1166,9 +1174,15 @@ struct BodyHomeView: View {
         // `stressCurrentScore`'s staleness guard), falling back to the day
         // average so the card still shows a band once any score exists.
         let bandScore = currentScore ?? summary?.averageScore
-        let bandDisplay = bandScore.map { StressBand.band(for: $0) }.map {
-            BodyMetricDisplayValue(title: "Band", value: $0.title, unit: "")
-        }
+        // Always a prominent row, "--" until a band exists, the way the Sleep
+        // card holds its score slot: dropping the row swaps the card between
+        // its regular and prominent layouts, which rebuilds the preview (so it
+        // lands without motion) and pops the value in instead of animating it.
+        let bandDisplay = BodyMetricDisplayValue(
+            title: "Band",
+            value: bandScore.map { StressBand.band(for: $0).title } ?? "--",
+            unit: ""
+        )
 
         return BodyHealthMetricCard.Model(
             kind: .stress,
@@ -1177,7 +1191,7 @@ struct BodyHomeView: View {
             unit: "",
             symbolName: "brain.head.profile.fill",
             symbolColor: Color(red: 0.90, green: 0.35, blue: 0.75),
-            prominentMetrics: bandDisplay.map { [$0] } ?? [],
+            prominentMetrics: [bandDisplay],
             chartPreviewStyle: .line,
             chartPreview: chartPreview,
             previewDayCount: previewDayCount
