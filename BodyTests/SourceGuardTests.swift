@@ -1748,6 +1748,26 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(source.contains("let bandFraction = (Self.slotCeiling(for: region) - clamped) * 3"))
         // Body Radar is the one caller that asks for it.
         XCTAssertTrue(source.contains("dotPreviewEqualRegions: true,"))
+        // Nothing but the ring may move: an empty occupied set is the even
+        // three-way split, so the three slots keep their heights whatever the
+        // night's verdict is.
+        XCTAssertTrue(source.contains("occupied: dotEqualRegions ? [] : occupiedRegions(for: dots)"))
+    }
+
+    /// The plotted previews drop the animation on their first data frame so a
+    /// filling placeholder doesn't climb every bar off the baseline at once. A
+    /// dots preview with fixed-threshold slots has nothing that can lurch — the
+    /// bands hold their heights — so its first frame moves the ring alone and
+    /// must animate. Body Radar freezes its verdict for the rest of the day, so
+    /// the skeleton filling is the only motion its card ever gets.
+    func testFixedSlotDotsPreviewAnimatesItsFirstDataFrame() throws {
+        let source = try bodyHomeViewText()
+
+        XCTAssertTrue(source.contains("private var dotsAnimation: Animation? {"))
+        XCTAssertTrue(source.contains("guard dotEqualRegions else {\n            return refreshAnimation\n        }"))
+        XCTAssertTrue(source.contains("return reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)"))
+        // The suppression itself stays for every other preview.
+        XCTAssertTrue(source.contains("reduceMotion || !hasShownData ? nil : .smooth(duration: 0.45, extraBounce: 0)"))
     }
 
     func testVitalsCardDotsPreviewKeepsSkeletonWhileTheNightIsPending() throws {
@@ -1773,7 +1793,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(previewBlock.contains("let dots = previewDots"))
         XCTAssertTrue(previewBlock.contains("dotColor(for: dot)"))
         XCTAssertTrue(previewBlock.contains("y: layout.dotY(for: dot.position)"))
-        XCTAssertTrue(previewBlock.contains(".animation(refreshAnimation, value: dotEntries)"))
+        XCTAssertTrue(previewBlock.contains(".animation(dotsAnimation, value: dotEntries)"))
         // The three regions resize with the night's occupancy, so each must keep
         // a stable shape identity for SwiftUI to morph rather than replace it:
         // three unconditional RoundedRectangles, no Capsule, no ForEach over
@@ -2792,7 +2812,7 @@ final class SourceGuardTests: XCTestCase {
     }
 
     /// The Body Radar twin of the stress carry above. Radar is derived too, its
-    /// activity mask needs the joined workouts, and its recompute is skipped on
+    /// overnight result is recomputed after the dashboard inputs settle, and its recompute is skipped on
     /// the same dashboard publish — so the full refresh must carry the live
     /// summary forward and re-run it once in the tail, or the card blanks for the
     /// length of every refresh and the coalesced write persists the blank.
@@ -2822,41 +2842,14 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(storeSource.contains("BodyDashboardFetchSelection.load().includes(.bodyRadar)"))
     }
 
-    /// Radar reads the hourly step buckets for its inactive-time signal, and the
-    /// dashboard refresh only carries them forward from cache. The Stress input
-    /// load is what refetches them, and it is gated on Heart plus the Stress
-    /// card — so with Stress hidden or Heart off, Radar needs its own steps-only
-    /// load, skipped whenever the Stress load is going to run.
-    func testBodyRadarStepLoadCoversTheStressLoadGap() throws {
+    /// Overnight-only Radar must not trigger a second intraday step load.
+    func testBodyRadarDoesNotLoadActivityInputs() throws {
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
-        let startStart = try XCTUnwrap(
-            storeSource.range(of: "private func startBodyRadarStepLoadIfNeeded() {")?.lowerBound
-        )
-        let startBlock = String(storeSource[startStart...].prefix(500))
-        let loadStart = try XCTUnwrap(
-            storeSource.range(of: "private func loadBodyRadarStepSamples() async {")?.lowerBound
-        )
-        let loadBlock = String(storeSource[loadStart...].prefix(3_000))
-
-        // Never alongside the Stress load, which already fetches `.steps` over
-        // the same window and recomputes Radar afterwards.
-        XCTAssertTrue(startBlock.contains("stressInputLoadTask == nil"))
-        XCTAssertTrue(startBlock.contains("computesBodyRadar"))
-        XCTAssertTrue(startBlock.contains("permissionSelection.includes(.steps)"))
-        // Same window, epoch/signature guards and refresh-slot wait the Stress
-        // input load applies, then the Radar recompute the load exists for.
-        XCTAssertTrue(loadBlock.contains("HealthKitFetchEngine.intradayDaySampleInterval(calendar: calendar, anchor: nil)"))
-        XCTAssertTrue(loadBlock.contains("await awaitNextRefreshCompletion()"))
-        XCTAssertTrue(loadBlock.contains("guard await awaitRefreshSlotFree() else {"))
-        XCTAssertTrue(loadBlock.contains("Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch)"))
-        XCTAssertTrue(loadBlock.contains("currentDaySampleSignatures() == capturedDaySampleSignatures"))
-        XCTAssertTrue(loadBlock.contains("trends.stepsDaySamples = HealthKitFetchEngine.mergeIntradaySamples("))
-        XCTAssertTrue(loadBlock.contains("await recomputeBodyRadar(on: Date(), calendar: calendar)"))
-        // Fired from both refresh tails, right where the Stress load is.
-        XCTAssertEqual(
-            storeSource.components(separatedBy: "            startBodyRadarStepLoadIfNeeded()\n").count - 1,
-            2
-        )
+        XCTAssertFalse(storeSource.contains("startBodyRadarStepLoadIfNeeded"))
+        XCTAssertFalse(storeSource.contains("loadBodyRadarStepSamples"))
+        XCTAssertFalse(HealthKitWorkoutStore.bodyRadarInputMetricKinds.contains(.steps))
+        XCTAssertFalse(HealthKitWorkoutStore.bodyRadarInputPermissions.contains(.steps))
+        XCTAssertFalse(HealthKitWorkoutStore.bodyRadarInputPermissions.contains(.workouts))
     }
 
     /// The Radar record context signs the source of every kind its scoring
@@ -2895,6 +2888,7 @@ final class SourceGuardTests: XCTestCase {
         }
 
         let base = signature(BodyHealthDataSourceSelection(selectedOptions: [:]))
+        XCTAssertTrue(base.hasSuffix(";radar[2]"))
         for kind in [HealthMetricKind.heartRate, .heartRateVariability, .respiratoryRate, .wristTemperature] {
             let pinned = BodyHealthDataSourceSelection(
                 selectedOptions: [kind: BodyHealthDataSourceOption(id: "com.example.tracker", name: "Tracker")]
@@ -4411,7 +4405,10 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains(".onChange(of: showsLeadingTrailingAwakeSleepStages)"))
         XCTAssertTrue(settingsSource.contains("BodySummaryCardsSettingsSheet("))
         XCTAssertTrue(settingsSource.contains("BodyHomeTrendCardsSettingsSheet("))
-        XCTAssertTrue(settingsSource.contains("ForEach(BodyHomeCardKind.defaultOrder)"))
+        XCTAssertTrue(settingsSource.contains(#"BodySettingsCardSection("Body Computed")"#))
+        XCTAssertTrue(settingsSource.contains(#"BodySettingsCardSection("Direct Readings")"#))
+        XCTAssertTrue(settingsSource.contains("rows(for: BodyHomeCardKind.bodyComputedOrder)"))
+        XCTAssertTrue(settingsSource.contains("rows(for: BodyHomeCardKind.directReadingOrder)"))
         XCTAssertTrue(settingsSource.contains("ForEach(BodyHomeTrendCardKind.defaultOrder)"))
         XCTAssertTrue(settingsSource.contains("BodySummaryCardToggleRow("))
         XCTAssertTrue(settingsSource.contains("BodyHomeTrendCardToggleRow("))
@@ -4421,10 +4418,27 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("if let betaVersionLabel = card.betaVersionLabel"))
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v1")"#), 1)
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v2")"#), 0)
-        XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v3")"#), 1)
+        // The Sleep Score chip has one definition, read by both the Settings toggle
+        // row and the About Sleep Score card on the Sleep detail page.
+        XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v3")"#), 0)
+        XCTAssertTrue(appearanceSource.contains(#"static let sleepScoreVersionLabel: LocalizedStringKey = "v3""#))
+        XCTAssertEqual(settingsSource.occurrenceCount(of: "Text(BodyHomeCardKind.sleepScoreVersionLabel)"), 1)
         // The Readiness AI sheet's toggle row carries the only Beta v2 badge; the
-        // Stress summary-card row carries its own "Beta v1" chip via betaVersionLabel.
+        // Body Radar summary-card row carries its own "Beta v1" chip via betaVersionLabel.
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("Beta v2")"#), 1)
+        // Every metric detail page's About card reads the same chip from the summary
+        // card that owns the metric, so no detail view hardcodes one of its own.
+        let detailSource = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        XCTAssertTrue(detailSource.contains("if let betaVersionLabel = BodyHomeCardKind.betaVersionLabel(for: model.kind)"))
+        XCTAssertFalse(detailSource.contains(#"Text("Beta v2")"#))
+        XCTAssertFalse(detailSource.contains(#"Text("v1")"#))
+        XCTAssertEqual(detailSource.occurrenceCount(of: "Text(BodyHomeCardKind.sleepScoreVersionLabel)"), 1)
+        XCTAssertTrue(appearanceSource.contains("static func betaVersionLabel(for kind: HealthMetricKind) -> LocalizedStringKey?"))
+        // Body Radar draws its glyph white on both surfaces, from one definition.
+        XCTAssertTrue(appearanceSource.contains("var iconTintColor: Color"))
+        XCTAssertTrue(appearanceSource.contains("self == .bodyRadar ? .white : tintColor"))
+        XCTAssertTrue(settingsSource.contains("BodySettingsIconTile(iconName: card.iconName, color: card.iconTintColor)"))
+        XCTAssertTrue(homeSource.contains("symbolColor: BodyHomeCardKind.bodyRadar.iconTintColor"))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.defaultTrendRangeKey)"))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey)"))
         XCTAssertTrue(homeSource.contains("@AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey)"))

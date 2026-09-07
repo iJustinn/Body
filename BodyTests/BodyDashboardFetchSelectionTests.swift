@@ -40,8 +40,7 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
         .activeEnergy
     ]
     private static let bodyRadarDependencyKinds: Set<HealthMetricKind> = [
-        .sleep,
-        .steps
+        .sleep
     ]
     private static let vitalsMetricKinds: Set<HealthMetricKind> = [.sleep]
 
@@ -105,9 +104,9 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
         }
     }
 
-    /// Reproduces the OLD (pre-input-tier) `includes` semantics: a flat union
-    /// with no full/input distinction. Stress used to expand into the full set
-    /// of its dependencies exactly as basics/readiness/vitals do.
+    /// Preserves the pre-input-tier flat-union shape with the current dependency
+    /// contract (Radar Beta 2 removed steps). Explicit layout tests below pin
+    /// that contract independently of these fixture constants.
     private func legacyUnion(_ toggles: Toggles) -> Set<HealthMetricKind> {
         let direct = toggles.directKinds
         var union = direct
@@ -188,6 +187,37 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
     }
 
     // MARK: - Targeted cases
+
+    func testRadarOnlyRequestsSleepWithoutActivityInputs() {
+        let fetch = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: [.bodyRadar]),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [])
+        )
+
+        XCTAssertEqual(Set(HealthMetricKind.allCases.filter(fetch.includes)), [.bodyRadar, .sleep])
+        XCTAssertTrue(fetch.includesFullPayload(.bodyRadar))
+        XCTAssertTrue(fetch.isInputOnly(.sleep))
+        XCTAssertFalse(fetch.includes(.stress))
+        XCTAssertFalse(fetch.includes(.steps))
+        XCTAssertFalse(fetch.isInputOnly(.steps))
+        XCTAssertFalse(fetch.includesFullPayload(.steps))
+    }
+
+    func testRadarStillAllowsStepsRequestedByStressOrTheirOwnCard() {
+        let withStress = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: [.bodyRadar, .stress]),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [])
+        )
+        XCTAssertTrue(withStress.includes(.steps))
+        XCTAssertTrue(withStress.isInputOnly(.steps))
+
+        let withSteps = BodyDashboardFetchSelection(
+            summaryCards: BodySummaryCardSelection(selectedCards: [.bodyRadar, .steps]),
+            trendCards: BodyHomeTrendCardSelection(selectedCards: [])
+        )
+        XCTAssertTrue(withSteps.includesFullPayload(.steps))
+        XCTAssertFalse(withSteps.isInputOnly(.steps))
+    }
 
     /// Stress alone renders no other card, so all five of its dependencies are
     /// fetched only as scoring inputs — none render a card payload.

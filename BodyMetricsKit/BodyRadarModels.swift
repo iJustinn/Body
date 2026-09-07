@@ -2,18 +2,18 @@
 //  BodyRadarModels.swift
 //  Body
 //
-//  Body Radar (Beta v1): the overnight signal set, the nightly verdict, and the
+//  Body Radar (Beta v2): the overnight signal set, the nightly verdict, and the
 //  rolling summary the card and detail page read. Pure value types with no UI
 //  dependency so the watch targets can compile the same sources.
 //
 
 import Foundation
 
-/// The verdict for one night. `calibrating` and `missingSleep` are the two
-/// states that carry no evidence.
+/// Unscored states distinguish baseline learning, absent sleep and sparse vitals.
 enum BodyRadarState: String, Codable, CaseIterable {
     case calibrating
     case missingSleep
+    case insufficientData
     case noSigns
     case minorSigns
     case majorSigns
@@ -22,7 +22,7 @@ enum BodyRadarState: String, Codable, CaseIterable {
     /// from a placeholder without matching every case.
     var isScored: Bool {
         switch self {
-        case .calibrating, .missingSleep:
+        case .calibrating, .missingSleep, .insufficientData:
             return false
         case .noSigns, .minorSigns, .majorSigns:
             return true
@@ -47,6 +47,12 @@ enum BodyRadarState: String, Codable, CaseIterable {
             return String(
                 localized: "bodyRadar.state.noSigns",
                 defaultValue: "No Signs",
+                table: "BodyMetricsKit"
+            )
+        case .insufficientData:
+            return String(
+                localized: "bodyRadar.state.insufficientData",
+                defaultValue: "Insufficient Data",
                 table: "BodyMetricsKit"
             )
         case .minorSigns:
@@ -96,13 +102,18 @@ enum BodyRadarRegion: String, Codable, CaseIterable {
     }
 }
 
-/// The five overnight signals. Declaration order is the display order.
+/// Declaration order is the display order. Inactivity remains decodable for
+/// legacy records, but Beta 2 scores only the four overnight physiological signals.
 enum BodyRadarSignalKind: String, Codable, CaseIterable, Identifiable {
     case sleepingHeartRate
     case respiratoryRate
     case wristTemperature
     case heartRateVariability
     case inactiveTime
+
+    static let scoringKinds: [Self] = [
+        .sleepingHeartRate, .respiratoryRate, .wristTemperature, .heartRateVariability
+    ]
 
     var id: String {
         rawValue
@@ -226,6 +237,9 @@ struct BodyRadarNight: Codable, Equatable, Identifiable {
     var state: BodyRadarState
     var evidence: Double
     var signals: [BodyRadarSignal]
+    /// Absent in Beta 1 payloads. Old results can be decoded, but never reused
+    /// as a verdict from the current algorithm.
+    var algorithmVersion: Int?
 
     var id: Date {
         date
@@ -236,6 +250,31 @@ struct BodyRadarNight: Codable, Equatable, Identifiable {
         self.state = state
         self.evidence = evidence
         self.signals = signals
+        self.algorithmVersion = BodyRadarCalculator.algorithmVersion
+    }
+
+    var isCurrentAlgorithm: Bool {
+        algorithmVersion == BodyRadarCalculator.algorithmVersion
+    }
+
+    /// A combination can cross the Minor threshold without an individual
+    /// signal crossing its callout threshold. Never describe that as typical.
+    var unflaggedExplanation: String {
+        if !state.isScored {
+            return state.title
+        }
+        if state == .minorSigns || state == .majorSigns {
+            return String(
+                localized: "bodyRadar.combinedChanges",
+                defaultValue: "Several small changes suggest strain",
+                table: "BodyMetricsKit"
+            )
+        }
+        return String(
+            localized: "bodyRadar.allTypical",
+            defaultValue: "All typical",
+            table: "BodyMetricsKit"
+        )
     }
 
     var flaggedSignals: [BodyRadarSignal] {

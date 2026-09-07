@@ -2972,14 +2972,38 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
     func testVitalsHomeCardKindConfiguration() {
         XCTAssertEqual(BodyHomeCardKind.vitals.healthMetricKind, .vitals)
-        // Readiness carries the "v1" chip; Stress carries "Beta v1" instead (both
-        // still count as isBeta via betaVersionLabel).
+        // Readiness and Stress carry the "v1" chip; Body Radar carries "Beta v2"
+        // instead (all still count as isBeta via betaVersionLabel).
         XCTAssertFalse(BodyHomeCardKind.vitals.isBeta)
         XCTAssertFalse(BodyHomeCardKind.cardioFitness.isBeta)
         XCTAssertTrue(BodyHomeCardKind.readiness.isBeta)
         XCTAssertTrue(BodyHomeCardKind.bodyRadar.isBeta)
-        XCTAssertEqual(BodyHomeCardKind.bodyRadar.betaVersionLabel, "Beta v1")
+        XCTAssertEqual(BodyHomeCardKind.bodyRadar.betaVersionLabel, "Beta v2")
         XCTAssertFalse(BodyHomeCardKind.starEligible.contains(.vitals))
+    }
+
+    /// A metric detail page's About card reads its chip from the summary card that
+    /// owns the metric, so the two surfaces can never disagree.
+    func testAboutCardVersionLabelsMatchTheSummaryCardChips() {
+        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .readiness), "v1")
+        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .stress), "v1")
+        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .bodyRadar), "Beta v2")
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .vitals))
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .sleep))
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .cardioFitness))
+        // Metrics with no summary card of their own carry no chip.
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .bodyMass))
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .bodyFatPercentage))
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .bodyMassIndex))
+
+        for kind in HealthMetricKind.allCases {
+            let card = BodyHomeCardKind.allCases.first { $0.healthMetricKind == kind }
+            XCTAssertEqual(
+                BodyHomeCardKind.betaVersionLabel(for: kind),
+                card?.betaVersionLabel,
+                "\(kind.rawValue) About card chip drifted from its summary card row"
+            )
+        }
     }
 
     func testDashboardFetchSelectionIncludesSleepForVitalsOnlySelection() {

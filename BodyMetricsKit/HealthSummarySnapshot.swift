@@ -48,7 +48,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
         case .bodyRadar:
             return HealthMetricDetailHelpText(
                 title: String(localized: "bodyRadar.detail.helpTitle", defaultValue: "About Body Radar", table: "BodyMetricsKit"),
-                body: String(localized: "bodyRadar.detail.help", defaultValue: "Body Radar looks for overnight changes that often come with the early stages of illness. It compares last night's sleeping heart rate, respiratory rate, skin temperature, heart rate variability, and yesterday's inactive time with your own typical range, learned from about eight weeks of your own sleep data. It takes about two weeks of nights to calibrate.\nThe result is scored once each morning and stays fixed for the rest of the day. Levels are absolute, so if your device does not record skin temperature or respiratory rate there are fewer signals to corroborate each other and Major signs are less likely to appear.\nIt is not a medical device and does not diagnose conditions.", table: "BodyMetricsKit")
+                body: String(localized: "bodyRadar.detail.help", defaultValue: "Body Radar looks for signs of overnight strain by comparing sleeping heart rate, respiratory rate, skin temperature, and heart rate variability with your personal range, learned from up to eight weeks of sleep data. At least two signals need about two weeks of baseline data and seven observations in the last fourteen nights.\nMissing Sleep means there is no qualifying night. Insufficient Data means too few overnight readings are available; Calibrating means more baseline or recent data is needed. Unscored nights can update when more data arrives. A scored result stays fixed for the rest of the day. Several small changes can add up to Minor signs even when no individual signal stands out. Major signs require at least two individually unusual signals.\nIt is not a medical device and does not diagnose conditions.", table: "BodyMetricsKit")
             )
         case .sleep:
             return HealthMetricDetailHelpText(
@@ -505,6 +505,11 @@ struct HealthSummarySnapshot: Codable, Equatable {
         // `stressCurrentScore` is transient — see its declaration.
         stressCurrentScore = nil
         bodyRadar = (try? container.decodeIfPresent(BodyRadarSummary.self, forKey: .bodyRadar))
+        // A cold launch must not label the previous algorithm's cached verdict
+        // Beta 2 while the next refresh rebuilds its derived records.
+        if bodyRadar?.latest?.isCurrentAlgorithm == false {
+            bodyRadar = nil
+        }
         if let warnings = (try? container.decodeIfPresent([MetricWarningEvent].self, forKey: .metricWarnings)) {
             metricWarnings = warnings
         } else {
@@ -1023,12 +1028,8 @@ struct HealthDashboardSnapshot: Codable, Equatable {
     /// scored once, at `wake + 10 min` (or 10:00 local without a wake time), and
     /// never re-scored for the rest of the day.
     ///
-    /// `workouts` is passed explicitly, as with `recalculatingStress` — the
-    /// snapshot holds no workout months, and the inactive-time signal is masked
-    /// out on any day that carries one.
     func recalculatingBodyRadar(
         on date: Date = Date(),
-        workouts: [WorkoutSummary] = [],
         calendar: Calendar = .bodyGregorian,
         now: Date = Date(),
         wakeTime: Date? = nil,
@@ -1048,8 +1049,6 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         let result = BodyRadarCalculator.summary(
             sleepHistory: next.trends.sleepHistory,
             currentDaySleep: next.summary.sleep,
-            hourlySteps: next.trends.stepsDaySamples.points,
-            workoutDays: Set(workouts.map { calendar.startOfDay(for: $0.startDate) }),
             recorded: next.trends.recordedBodyRadar,
             today: scoreDay,
             now: now,

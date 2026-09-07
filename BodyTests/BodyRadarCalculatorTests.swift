@@ -76,8 +76,7 @@ final class BodyRadarCalculatorTests: XCTestCase {
         }
     }
 
-    /// A single-session night that ends at 07:00 on `day`, so `wakeCycleEnd` and
-    /// the inactive-time window have an anchor.
+    /// A single-session night ending at 07:00, with a known wake-cycle boundary.
     private func nightStages(on day: Date, asleepHours: Double = 8) -> SleepStageSnapshot {
         let end = date(day, hour: 7)
         return SleepStageSnapshot(
@@ -92,30 +91,15 @@ final class BodyRadarCalculatorTests: XCTestCase {
         )
     }
 
-    /// Hourly step points from 08:00 to 21:00 on `day`; the first `activeHours`
-    /// of them carry 1000 steps, the rest carry none.
-    private func stepPoints(on day: Date, activeHours: Int) -> [HealthTrendDataPoint] {
-        (8...21).map { hour in
-            HealthTrendDataPoint(
-                date: date(day, hour: hour, minute: 30),
-                value: hour - 8 < activeHours ? 1_000 : 0
-            )
-        }
-    }
-
     private func night(
         on scoringDay: Date,
         history: [SleepDaySummary],
-        currentDaySleep: SleepSummary? = nil,
-        hourlySteps: [HealthTrendDataPoint] = [],
-        workoutDays: Set<Date> = []
+        currentDaySleep: SleepSummary? = nil
     ) -> BodyRadarNight {
         BodyRadarCalculator.night(
             on: scoringDay,
             sleepHistory: SleepHistorySnapshot(days: history),
             currentDaySleep: currentDaySleep,
-            hourlySteps: hourlySteps,
-            workoutDays: workoutDays,
             today: scoringDay,
             calendar: calendar
         )
@@ -274,61 +258,174 @@ final class BodyRadarCalculatorTests: XCTestCase {
         XCTAssertTrue(tonight.signals.isEmpty)
     }
 
-    // MARK: - Inactive time
-
-    func testInactiveTimeUsesThePreviousDayAndFlagsAQuietDay() {
-        let scoringDay = day(2026, 9, 4)
-        let previousDay = offsetDay(scoringDay, -1)
-        var history = flatHistory(
-            before: scoringDay,
-            offsets: Array(1...21),
-            stagesFor: { self.nightStages(on: $0) }
-        )
-        history.append(vitalsNight(on: scoringDay, stages: nightStages(on: scoringDay)))
-
-        var steps: [HealthTrendDataPoint] = []
-        for offset in 1...21 {
-            let dayStart = offsetDay(scoringDay, -offset)
-            steps += stepPoints(on: dayStart, activeHours: dayStart == previousDay ? 0 : 10)
-        }
-
-        let tonight = night(on: scoringDay, history: history, hourlySteps: steps)
-        let inactive = signal(.inactiveTime, in: tonight)
-
-        XCTAssertNotNil(inactive)
-        // 14 inactive hours against a 4-hour median, floor spread 1.0, so the
-        // deviation saturates at the cap.
-        XCTAssertEqual(inactive?.deviation ?? 0, VitalsCalculator.deviationCap, accuracy: 0.001)
-        XCTAssertEqual(inactive?.flagged, true)
-    }
-
-    func testWorkoutDayMasksInactiveTime() {
-        let scoringDay = day(2026, 9, 4)
-        let previousDay = offsetDay(scoringDay, -1)
-        var history = flatHistory(
-            before: scoringDay,
-            offsets: Array(1...21),
-            stagesFor: { self.nightStages(on: $0) }
-        )
-        history.append(vitalsNight(on: scoringDay, stages: nightStages(on: scoringDay)))
-
-        var steps: [HealthTrendDataPoint] = []
-        for offset in 1...21 {
-            let dayStart = offsetDay(scoringDay, -offset)
-            steps += stepPoints(on: dayStart, activeHours: dayStart == previousDay ? 0 : 10)
-        }
-
-        let tonight = night(
-            on: scoringDay,
-            history: history,
-            hourlySteps: steps,
-            workoutDays: [previousDay]
-        )
-
-        XCTAssertNil(signal(.inactiveTime, in: tonight))
+    func testLegacyInactivityCannotContributeEvidence() {
+        let inactive = BodyRadarSignal(kind: .inactiveTime, deviation: 3, flagged: true)
+        XCTAssertEqual(BodyRadarCalculator.contribution(of: inactive), 0)
+        XCTAssertFalse(BodyRadarSignalKind.scoringKinds.contains(.inactiveTime))
     }
 
     // MARK: - Freezing
+
+    func testOneCurrentSignalIsInsufficientDespiteCalibratedHistory() {
+        let scoringDay = day(2026, 9, 4)
+        var history = flatHistory(before: scoringDay, offsets: Array(1...20))
+        history.append(vitalsNight(on: scoringDay, respiratoryRate: nil, temperature: nil, heartRateVariability: nil))
+
+        let result = night(on: scoringDay, history: history)
+        XCTAssertEqual(result.state, .insufficientData)
+        XCTAssertFalse(result.state.isScored)
+        XCTAssertEqual(result.evidence, 0)
+    }
+
+    func testEachSignalNeedsRecentHistoryInsteadOfPooledCoverage() {
+        let scoringDay = day(2026, 9, 4)
+        var history = flatHistory(before: scoringDay, offsets: Array(20...39))
+        // HR and HRV each have only four recent observations, even though the
+        // union has eight nights. Neither channel is ready to score.
+        for offset in 1...8 {
+            history.append(vitalsNight(
+                on: offsetDay(scoringDay, -offset),
+                heartRate: offset.isMultiple(of: 2) ? 55 : nil,
+                respiratoryRate: nil,
+                temperature: nil,
+                heartRateVariability: offset.isMultiple(of: 2) ? nil : 60
+            ))
+        }
+        history.append(vitalsNight(on: scoringDay))
+        XCTAssertEqual(night(on: scoringDay, history: history).state, .calibrating)
+    }
+
+    func testTwoRecentChannelsCanScoreWithoutOtherSensors() {
+        let scoringDay = day(2026, 9, 4)
+        var history = flatHistory(before: scoringDay, offsets: Array(1...20), respiratoryRate: nil, temperature: nil)
+        history.append(vitalsNight(on: scoringDay, respiratoryRate: nil, temperature: nil))
+        let result = night(on: scoringDay, history: history)
+        XCTAssertEqual(result.state, .noSigns)
+        XCTAssertEqual(result.signals.map(\.kind), [.sleepingHeartRate, .heartRateVariability])
+    }
+
+    func testNonFiniteCurrentSignalsDoNotCreateReassuringVerdict() {
+        let scoringDay = day(2026, 9, 4)
+        var history = flatHistory(before: scoringDay, offsets: Array(1...20))
+        history.append(vitalsNight(on: scoringDay, respiratoryRate: .nan, temperature: .infinity, heartRateVariability: nil))
+        XCTAssertEqual(night(on: scoringDay, history: history).state, .insufficientData)
+    }
+
+    func testCombinedMinorChangesAreNotDescribedAsAllTypical() {
+        let scoringDay = day(2026, 9, 4)
+        var history = flatHistory(before: scoringDay, offsets: Array(1...20))
+        // All four at 0.9 typical bands: evidence 1.8, no individual flags.
+        history.append(vitalsNight(on: scoringDay, heartRate: 60.4, respiratoryRate: 15.08,
+                                   temperature: 36.36, heartRateVariability: 51))
+        let result = night(on: scoringDay, history: history)
+        XCTAssertEqual(result.state, .minorSigns)
+        XCTAssertTrue(result.flaggedSignals.isEmpty)
+        XCTAssertNotEqual(result.unflaggedExplanation,
+                          BodyRadarNight(date: scoringDay, state: .noSigns).unflaggedExplanation)
+    }
+
+    func testUnavailableCurrentNightDoesNotShowYesterdaysVerdict() {
+        let scoringDay = day(2026, 9, 4)
+        var history = flatHistory(before: scoringDay, offsets: Array(1...20))
+        history.append(vitalsNight(on: scoringDay, respiratoryRate: nil, temperature: nil, heartRateVariability: nil))
+        let result = summary(history: history, recorded: [scoredNight(on: offsetDay(scoringDay, -1))],
+                             today: scoringDay, now: date(scoringDay, hour: 12), wakeTime: nil)
+        XCTAssertEqual(result.summary.latest?.date, scoringDay)
+        XCTAssertEqual(result.summary.state, .insufficientData)
+        XCTAssertEqual(result.summary.recentNights.last?.state, .insufficientData)
+        XCTAssertFalse(result.recorded.contains { $0.date == scoringDay })
+    }
+
+    func testAllUnscoredStatesRemainRetryableAfterWake() {
+        let scoringDay = day(2026, 9, 4)
+        for state in BodyRadarState.allCases where !state.isScored {
+            let first = BodyRadarCalculator.freezing(
+                records: [], night: BodyRadarNight(date: scoringDay, state: state),
+                now: date(scoringDay, hour: 12), wakeTime: nil, scoringDay: scoringDay, calendar: calendar
+            )
+            XCTAssertTrue(first.isEmpty)
+            let retry = BodyRadarCalculator.freezing(
+                records: first, night: scoredNight(on: scoringDay),
+                now: date(scoringDay, hour: 13), wakeTime: nil, scoringDay: scoringDay, calendar: calendar
+            )
+            XCTAssertEqual(retry.count, 1)
+            XCTAssertEqual(retry.first?.state, .minorSigns)
+        }
+    }
+
+    func testLateVitalsFillAnInsufficientNightThenRemainFrozen() {
+        let scoringDay = day(2026, 9, 4)
+        let baseline = flatHistory(before: scoringDay, offsets: Array(1...20))
+        let sparse = baseline + [vitalsNight(on: scoringDay, respiratoryRate: nil,
+                                             temperature: nil, heartRateVariability: nil)]
+        let initial = summary(history: sparse, recorded: [], today: scoringDay,
+                              now: date(scoringDay, hour: 8), wakeTime: date(scoringDay, hour: 7))
+        XCTAssertEqual(initial.summary.state, .insufficientData)
+
+        let hydrated = baseline + [vitalsNight(on: scoringDay, temperature: 36.6)]
+        let filled = summary(history: hydrated, recorded: initial.recorded, today: scoringDay,
+                             now: date(scoringDay, hour: 9), wakeTime: date(scoringDay, hour: 7))
+        XCTAssertEqual(filled.summary.state, .minorSigns)
+        let later = summary(history: baseline + [vitalsNight(on: scoringDay)], recorded: filled.recorded,
+                            today: scoringDay, now: date(scoringDay, hour: 12), wakeTime: date(scoringDay, hour: 7))
+        XCTAssertEqual(later.summary.latest, filled.summary.latest)
+    }
+
+    func testBeta2KeepsDirectionalThresholdsAndDoesNotAmplifyMissingSensors() {
+        let scoringDay = day(2026, 9, 4)
+        let baseline = flatHistory(before: scoringDay, offsets: Array(1...20))
+        let full = night(on: scoringDay, history: baseline + [vitalsNight(
+            on: scoringDay, heartRate: 63, respiratoryRate: 15.5, temperature: 36.6, heartRateVariability: 45
+        )])
+        let reduced = night(on: scoringDay, history: baseline + [vitalsNight(
+            on: scoringDay, heartRate: 63, respiratoryRate: nil, temperature: nil, heartRateVariability: 45
+        )])
+        XCTAssertLessThan(reduced.evidence, full.evidence)
+        let lowerRespiration = night(on: scoringDay, history: baseline + [vitalsNight(
+            on: scoringDay, respiratoryRate: 11, heartRateVariability: 90
+        )])
+        XCTAssertEqual(lowerRespiration.state, .noSigns)
+        XCTAssertEqual(lowerRespiration.evidence, 0)
+    }
+
+    func testColdCacheDiscardsLegacyRadarWithoutDiscardingSleep() throws {
+        var snapshot = HealthSummarySnapshot.empty
+        snapshot.sleep = SleepSummary(duration: 8 * 3_600)
+        var legacy = scoredNight(on: day(2026, 9, 4))
+        legacy.algorithmVersion = nil
+        snapshot.bodyRadar = BodyRadarSummary(latest: legacy, recentNights: [legacy])
+        let decoded = try JSONDecoder().decode(HealthSummarySnapshot.self, from: JSONEncoder().encode(snapshot))
+        XCTAssertNil(decoded.bodyRadar)
+        XCTAssertEqual(decoded.sleep.duration, snapshot.sleep.duration)
+    }
+
+    func testLegacyRecordsDecodeButAreRecomputedUnderBeta2() throws {
+        let scoringDay = day(2026, 9, 4)
+        let data = try JSONEncoder().encode(scoredNight(on: scoringDay))
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "algorithmVersion")
+        let legacy = try JSONDecoder().decode(BodyRadarNight.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(legacy.algorithmVersion)
+        XCTAssertFalse(legacy.isCurrentAlgorithm)
+
+        var history = flatHistory(before: scoringDay, offsets: Array(1...20))
+        history.append(vitalsNight(on: scoringDay))
+        let result = summary(history: history, recorded: [legacy], today: scoringDay,
+                             now: date(scoringDay, hour: 12), wakeTime: nil)
+        XCTAssertEqual(result.summary.state, .noSigns)
+        XCTAssertTrue(result.recorded.allSatisfy(\.isCurrentAlgorithm))
+    }
+
+    func testLegacyUnscoredRecordCannotBlockLateVitals() {
+        let scoringDay = day(2026, 9, 4)
+        let result = BodyRadarCalculator.freezing(
+            records: [BodyRadarNight(date: scoringDay, state: .calibrating)],
+            night: scoredNight(on: scoringDay), now: date(scoringDay, hour: 12),
+            wakeTime: nil, scoringDay: scoringDay, calendar: calendar
+        )
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result.first?.state, .minorSigns)
+    }
 
     private func scoredNight(on day: Date, evidence: Double = 1.0) -> BodyRadarNight {
         BodyRadarNight(date: day, state: .minorSigns, evidence: evidence, signals: [])
@@ -484,8 +581,6 @@ final class BodyRadarCalculatorTests: XCTestCase {
         BodyRadarCalculator.summary(
             sleepHistory: SleepHistorySnapshot(days: history),
             currentDaySleep: nil,
-            hourlySteps: [],
-            workoutDays: [],
             recorded: recorded,
             today: today,
             now: now,

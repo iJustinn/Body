@@ -1,9 +1,30 @@
 # Body Radar — Beta 2 refinement plan
 
-Prepared September 6, 2026. Status: exploration and proposal only; no app code changed.
+Prepared September 6, 2026; implementation scope updated September 7, 2026. Status: selected Beta 2 scope implemented; focused verification passed.
 Code reviewed at `087ea62`, with the existing working tree left intact.
 
-Source clarification: the user confirmed that Body's results and the original CSV use Apple Watch measurements, while Oura's results use Oura's own measurements. A follow-up review of the newly supplied Oura measurements is pending locating that file; the analysis below currently covers the original files only.
+Source clarification: Body and the original CSV use Apple Watch measurements; Oura uses its own measurements. The Oura export will take several days to arrive. Per the September 7 decision, proceed with Beta 2 now and reserve Oura-based evaluation for Beta 3.
+
+**Next iteration:** [BodyRadarBeta3Plan.md](BodyRadarBeta3Plan.md) is the active handoff, with the implemented baseline, pending data, case-by-case investigation, deferred experiments, known limits, code map and regression command. This file preserves the Beta 1 investigation and Beta 2 decisions.
+
+## Selected Beta 2 scope — September 7
+
+This decision supersedes the broader experimental proposal below:
+
+- Ship the four physiological signals with the existing weights, directions, dead zone and Minor/Major gates. Do not ship candidates A/B/C yet.
+- Require two baseline-backed, recently observed channels. Report Calibrating when fewer than two channels have a baseline and recent history, and Insufficient Data when those histories exist but fewer than two current readings are usable.
+- Never persist an unscored night. Show today's unavailable state explicitly instead of yesterday's verdict; retry on subsequent sleep refreshes. Keep sufficiently supported scored mornings frozen.
+- Remove inactivity scoring and the separate Radar step fetch; step/workout permissions no longer form Radar's input contract.
+- Review follow-up: dashboard dependency expansion also excludes steps for a Radar-only layout. Explicit layout tests verify this independently of the mirrored union fixture, while preserving step fetches requested by Stress or a Steps card.
+- Explain a Minor combination without calling its inputs “All typical.” Preserve signed arrows and existing chart thresholds.
+- Version nightly records and the source context. Decode legacy records for compatibility, discard legacy cached Radar summaries on cold launch, and recompute supported history without clearing other health data.
+- Update Beta v2 labels, English/Chinese copy and focused regression coverage.
+
+**Verification (September 7):** 46 focused XCTest cases passed on iPhone 17 Pro / iOS 26.5 Simulator, with zero failures or skips. This includes all Radar calculator/chart tests, Radar localization and chip checks, and the selected source/context/refresh guards. The test build compiled the app and its watch/widget dependencies. `git diff --check` passed. No device-data accuracy claim is made by these behavioral tests.
+
+**Explicit Beta 3 work:** exact-device replay/export with per-query provenance and sample coverage, Oura measurement analysis, candidates A/B/C, and prospective threshold evaluation. The current sleep snapshot does not expose per-sensor hydration completion/wear coverage. Beta 2 therefore uses the observable two-channel sufficiency gate, not a claim that every possible sensor query completed. A third/fourth sensor arriving after a scored morning freezes will not rewrite that morning. No new timing delay or HealthKit query fan-out is introduced.
+
+The proxy analysis below remains exploratory and does not validate illness detection.
 
 ## Recommendation
 
@@ -71,7 +92,7 @@ Reproduction specification: parse dates as calendar days; for scoring day D, sel
 
 CSV SHA-256: `51bb971dd7612af0c5370d2b8c57fdcc1efbe21db9f3da908d1a129347e50f6a`.
 
-## Current Beta 1 behavior
+## Beta 1 behavior at the original review
 
 Primary code: `BodyMetricsKit/BodyRadarCalculator.swift`, `BodyRadarModels.swift`, `VitalsSnapshot.swift`, `ReadinessScoreCalculator.swift`; integration in `HealthSummarySnapshot.swift` and `Body/Services/HealthKitWorkoutStore.swift`; presentation in `BodyRadarChart.swift` and Home/detail views.
 
@@ -87,7 +108,7 @@ Primary code: `BodyMetricsKit/BodyRadarCalculator.swift`, `BodyRadarModels.swift
 
 Beta 1 already sums subthreshold contributions: Minor with no individually flagged vital is possible. Its limitation is specifically the **Major flag-count gate**, plus absent temporal evidence and one-way respiration—not a complete lack of multimetric scoring.
 
-## Beta 2 design
+## Original refinement proposal — unselected items deferred to Beta 3
 
 ### 1. Establish a reproducible input contract
 
@@ -191,13 +212,13 @@ Extend existing `BodyRadarCalculatorTests` and relevant chart/context/Codable te
 - Old Codable payloads load; algorithm changes invalidate only Radar records; rollback is deterministic.
 - Calendar/DST/travel boundaries preserve one canonical wake-day result; muted placeholders and combined explanations are accessible and never say “All typical” for a strain verdict.
 
-Run focused XCTest using the project's existing `rtk xcodebuild test` workflow, then the strongest relevant build gate. Include chart tests if evidence/state mapping changes and source/context guards if integration changes. No app build was run for this documentation-only exploration.
+Run focused XCTest using the project's existing `rtk xcodebuild test` workflow, then the strongest relevant build gate. Include chart tests if evidence/state mapping changes and source/context guards if integration changes. No app build was run during the initial September 6 documentation-only exploration. Implementation verification is recorded in the selected Beta 2 scope above.
 
 ## Open information and decision points
 
 - Device families are confirmed: the original CSV and Body result use Apple Watch; Oura uses its own measurements. Exact export aggregation definitions, source settings and device models remain unconfirmed.
 - Whether August 20–22, September 3 or September 6 coincided with illness, fatigue, travel, alcohol, unusual training or feeling well remains unconfirmed. An optional question was sent during exploration; no response is assumed.
-- The user reports adding Oura measured data. Its file was not yet visible in Downloads during the initial follow-up inventory; its contents have not been analyzed. A full daily verdict export is also not established. Screenshots remain comparison observations, not a training dataset.
+- The Oura measurement export is pending and will be evaluated for Beta 3. A full daily verdict export is also not established. Screenshots remain comparison observations, not a training dataset.
 - Proposed default scope: overnight strain deviations, stable morning results, conservative Major corroboration, and no inactivity scoring until coverage is supported. Respiratory decreases and persistence require the staged evaluation above.
 
 ## External references

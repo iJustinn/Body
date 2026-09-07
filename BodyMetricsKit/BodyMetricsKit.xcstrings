@@ -1426,19 +1426,53 @@
         }
       }
     },
+    "bodyRadar.allTypical" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All typical"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各项均在典型范围内"
+          }
+        }
+      }
+    },
+    "bodyRadar.combinedChanges" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Several small changes suggest strain"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多项小幅变化提示身体承受压力"
+          }
+        }
+      }
+    },
     "bodyRadar.detail.help" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body Radar looks for overnight changes that often come with the early stages of illness. It compares last night's sleeping heart rate, respiratory rate, skin temperature, heart rate variability, and yesterday's inactive time with your own typical range, learned from about eight weeks of your own sleep data. It takes about two weeks of nights to calibrate.\nThe result is scored once each morning and stays fixed for the rest of the day. Levels are absolute, so if your device does not record skin temperature or respiratory rate there are fewer signals to corroborate each other and Major signs are less likely to appear.\nIt is not a medical device and does not diagnose conditions."
+            "value" : "Body Radar looks for signs of overnight strain by comparing sleeping heart rate, respiratory rate, skin temperature, and heart rate variability with your personal range, learned from up to eight weeks of sleep data. At least two signals need about two weeks of baseline data and seven observations in the last fourteen nights.\nMissing Sleep means there is no qualifying night. Insufficient Data means too few overnight readings are available; Calibrating means more baseline or recent data is needed. Unscored nights can update when more data arrives. A scored result stays fixed for the rest of the day. Several small changes can add up to Minor signs even when no individual signal stands out. Major signs require at least two individually unusual signals.\nIt is not a medical device and does not diagnose conditions."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "身体雷达关注夜间可能预示疾病早期阶段的变化。它将昨晚的睡眠心率、呼吸频率、皮肤温度、心率变异性以及昨天的静止时间，与根据你约八周睡眠数据学习到的个人典型范围进行比较。校准大约需要两周的夜间数据。\n结果每天早晨评估一次，当天不再改变。等级是绝对的，因此如果你的设备不记录皮肤温度或呼吸频率，可相互印证的信号会更少，出现明显迹象的可能性也更低。\n这不是医疗设备，不能诊断疾病。"
+            "value" : "身体雷达将睡眠心率、呼吸频率、皮肤温度和心率变异性与根据最多八周睡眠数据学习到的个人范围进行比较，以发现夜间身体承受压力的迹象。至少需要两项信号，每项约两周的基线数据，以及最近十四晚中的七次观测。\n“缺少睡眠”表示没有符合条件的夜间睡眠。“数据不足”表示可用的夜间读数太少；“校准中”表示需要更多基线或近期数据。未评分的夜晚可在更多数据到达后更新。已评分的结果在当天保持不变。即使没有单项信号明显异常，多项小幅变化也可能累积为轻微迹象。明显迹象需要至少两项信号各自出现明显异常。\n这不是医疗设备，不能诊断疾病。"
           }
         }
       }
@@ -1694,6 +1728,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "校准中"
+          }
+        }
+      }
+    },
+    "bodyRadar.state.insufficientData" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Insufficient Data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数据不足"
           }
         }
       }

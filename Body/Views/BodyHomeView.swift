@@ -1215,8 +1215,8 @@ struct BodyHomeView: View {
             // White rather than the card kind's gray: the dotted-person glyph reads
             // as washed out at this size in the kind's own tint. The dots preview
             // takes its color from each ring's own band, so this only moves the icon
-            // and the tile behind it.
-            symbolColor: .white,
+            // and the tile behind it. Settings reads the same property.
+            symbolColor: BodyHomeCardKind.bodyRadar.iconTintColor,
             chartPreviewStyle: .dots,
             previewDotEntries: Self.bodyRadarDotEntries(for: summary),
             // Same three slots as Vitals, read top to bottom as Major / Minor /
@@ -1244,7 +1244,7 @@ struct BodyHomeView: View {
         }
 
         switch summary.state {
-        case .calibrating, .missingSleep:
+        case .calibrating, .missingSleep, .insufficientData:
             return summary.state.title
         case .noSigns:
             return String(localized: "Typical")

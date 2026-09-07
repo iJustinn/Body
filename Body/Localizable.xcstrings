@@ -2259,6 +2259,23 @@
         }
       }
     },
+    "Body Computed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body Computed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body算法"
+          }
+        }
+      }
+    },
     "Body couldn't save the effort rating to Apple Health. Make sure Body is allowed to update Workouts in Settings › Health › Data Access & Devices." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4283,6 +4300,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "昏暗"
+          }
+        }
+      }
+    },
+    "Direct Readings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Direct Readings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直接读取"
           }
         }
       }
@@ -12458,6 +12492,23 @@
         }
       }
     },
+    "Sleep duration, stages, and consistency" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep duration, stages, and consistency"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠时长、阶段与规律性"
+          }
+        }
+      }
+    },
     "Sleep duration trend" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12488,23 +12539,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "睡眠评分"
-          }
-        }
-      }
-    },
-    "Sleep score and duration" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sleep score and duration"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "睡眠评分与时长"
           }
         }
       }

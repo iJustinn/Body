@@ -832,6 +832,9 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let metricsKitKeys = [
             "bodyRadar.state.calibrating",
             "bodyRadar.state.missingSleep",
+            "bodyRadar.state.insufficientData",
+            "bodyRadar.combinedChanges",
+            "bodyRadar.allTypical",
             "bodyRadar.state.noSigns",
             "bodyRadar.state.minorSigns",
             "bodyRadar.state.majorSigns",
@@ -862,6 +865,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "bodyRadar.card.allTypical",
             "bodyRadar.detail.recentNights",
             "bodyRadar.chart.bandsDescription",
+            "Beta v2",
             "bodyRadar.state.noData"
         ]
 

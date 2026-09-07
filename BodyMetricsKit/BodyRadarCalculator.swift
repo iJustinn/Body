@@ -2,7 +2,7 @@
 //  BodyRadarCalculator.swift
 //  Body
 //
-//  Body Radar (Beta v1) engine: grades five overnight signals against the same
+//  Body Radar (Beta v2) engine: grades four overnight signals against the same
 //  56-day robust baseline the Vitals page uses, sums directional evidence, and
 //  freezes one verdict per day the way the readiness morning record is frozen.
 //
@@ -13,9 +13,10 @@
 import Foundation
 
 enum BodyRadarCalculator {
+    static let algorithmVersion = 2
+
     enum Tuning {
-        /// Signal weights. Temperature leads because it is the least ambiguous
-        /// overnight illness marker; inactive time is a weak corroborator.
+        /// Fixed signal weights; inactivity is retained only for legacy decoding.
         static func weight(for kind: BodyRadarSignalKind) -> Double {
             switch kind {
             case .wristTemperature:
@@ -23,7 +24,7 @@ enum BodyRadarCalculator {
             case .respiratoryRate, .sleepingHeartRate, .heartRateVariability:
                 return 1.0
             case .inactiveTime:
-                return 0.5
+                return 0
             }
         }
 
@@ -40,17 +41,10 @@ enum BodyRadarCalculator {
         /// Robust-spread floor for overnight SDNN, matching
         /// `StressScoreCalculator.Tuning.hrvSpreadFloor`.
         static let heartRateVariabilityFloor = 5.0
-        /// Robust-spread floor for daily inactive hours.
-        static let inactiveHoursFloor = 1.0
-        /// An hour with fewer steps than this counts as inactive, matching the
-        /// stress engine's activity mask.
-        static let inactiveStepsPerHour = 200.0
-        /// Inactive hours are counted between wake and this local hour.
-        static let inactiveWindowEndHour = 22
-
-        /// Recency gate: Oura's "7 of the last 14 nights" rule.
+        /// Each scored signal needs recent observations as well as a baseline.
         static let recencyWindowDayCount = 14
         static let recencyMinimumNightCount = 7
+        static let minimumSignalCount = 2
         /// Shortest sleep that may be read as a night rather than a nap.
         static let minimumNightSleepDuration: TimeInterval = 3 * 3_600
 
@@ -72,8 +66,6 @@ enum BodyRadarCalculator {
     static func summary(
         sleepHistory: SleepHistorySnapshot,
         currentDaySleep: SleepSummary?,
-        hourlySteps: [HealthTrendDataPoint],
-        workoutDays: Set<Date>,
         recorded: [BodyRadarNight],
         today: Date,
         now: Date,
@@ -84,8 +76,6 @@ enum BodyRadarCalculator {
         let context = Context(
             sleepHistory: sleepHistory,
             currentDaySleep: currentDaySleep,
-            hourlySteps: hourlySteps,
-            workoutDays: workoutDays,
             today: today,
             calendar: calendar
         )
@@ -106,11 +96,13 @@ enum BodyRadarCalculator {
         )
 
         let yesterday = calendar.date(byAdding: .day, value: -1, to: scoringDay) ?? scoringDay
+        // An unavailable current night must not inherit yesterday's reassurance.
+        // A scored night awaiting its freeze time may still show yesterday.
         let latest = recordsByDay[scoringDay]
-            ?? recordsByDay[yesterday]
+            ?? (tonight.state.isScored ? recordsByDay[yesterday] : nil)
             ?? BodyRadarNight(
                 date: scoringDay,
-                state: tonight.state == .missingSleep ? .missingSleep : .calibrating
+                state: tonight.state.isScored ? .calibrating : tonight.state
             )
 
         // Past nights prefer the frozen record and fall back to a deterministic
@@ -127,7 +119,7 @@ enum BodyRadarCalculator {
             }
             if let record = recordsByDay[day] {
                 recent.append(record)
-            } else if day < scoringDay {
+            } else if day < scoringDay || !tonight.state.isScored {
                 // Unscored days stay in, so the chart keeps a slot for every
                 // night and can show where data or a verdict was missing.
                 let night = context.night(on: day)
@@ -150,16 +142,12 @@ enum BodyRadarCalculator {
         on date: Date,
         sleepHistory: SleepHistorySnapshot,
         currentDaySleep: SleepSummary?,
-        hourlySteps: [HealthTrendDataPoint],
-        workoutDays: Set<Date>,
         today: Date,
         calendar: Calendar = .bodyGregorian
     ) -> BodyRadarNight {
         Context(
             sleepHistory: sleepHistory,
             currentDaySleep: currentDaySleep,
-            hourlySteps: hourlySteps,
-            workoutDays: workoutDays,
             today: today,
             calendar: calendar
         )
@@ -172,8 +160,8 @@ enum BodyRadarCalculator {
     /// record: the window opens at `wakeTime + 10 min` (or 10:00 local when wake
     /// is unknown) and closes at the end of the scoring day. A record that
     /// already exists for the day is kept verbatim, so a later refresh with
-    /// changed vitals cannot rewrite the morning's answer. Missing sleep is
-    /// never frozen, so a late sleep sync can still fill the day in.
+    /// changed vitals cannot rewrite the morning's answer. Unscored nights are
+    /// never frozen, so late sleep or vital sync can still fill the day in.
     static func freezing(
         records: [BodyRadarNight],
         night: BodyRadarNight,
@@ -183,7 +171,8 @@ enum BodyRadarCalculator {
         calendar: Calendar = .bodyGregorian
     ) -> [BodyRadarNight] {
         let scoringDay = calendar.startOfDay(for: scoringDay)
-        guard night.state != .missingSleep else {
+        let records = records.filter { $0.isCurrentAlgorithm && $0.state.isScored }
+        guard night.isCurrentAlgorithm, night.state.isScored else {
             return capped(records, calendar: calendar)
         }
         guard !records.contains(where: { calendar.startOfDay(for: $0.date) == scoringDay }) else {
@@ -251,8 +240,6 @@ enum BodyRadarCalculator {
         init(
             sleepHistory: SleepHistorySnapshot,
             currentDaySleep: SleepSummary?,
-            hourlySteps: [HealthTrendDataPoint],
-            workoutDays: Set<Date>,
             today: Date,
             calendar: Calendar
         ) {
@@ -279,28 +266,12 @@ enum BodyRadarCalculator {
                     continue
                 }
                 nights.insert(day)
-                for kind in BodyRadarSignalKind.allCases {
+                for kind in BodyRadarSignalKind.scoringKinds {
                     guard let value = Context.value(of: kind, in: summary), value.isFinite else {
                         continue
                     }
                     valuesByDayByKind[kind, default: [:]][day] = value
                 }
-            }
-
-            // Inactive hours for day D describe the day *before* the night is
-            // read, so they are filed under D + 1 and line up with the other
-            // signals without a separate lookup rule.
-            let inactiveByDay = Context.inactiveHours(
-                hourlySteps: hourlySteps,
-                summariesByDay: summariesByDay,
-                workoutDays: Set(workoutDays.map { calendar.startOfDay(for: $0) }),
-                calendar: calendar
-            )
-            for (day, hours) in inactiveByDay {
-                guard let filedDay = calendar.date(byAdding: .day, value: 1, to: day) else {
-                    continue
-                }
-                valuesByDayByKind[.inactiveTime, default: [:]][filedDay] = hours
             }
 
             self.nightDays = nights
@@ -331,9 +302,9 @@ enum BodyRadarCalculator {
                 to: day
             ) ?? day
 
-            let signals = BodyRadarSignalKind.allCases.compactMap { kind -> BodyRadarSignal? in
+            var calibratedSignalCount = 0
+            let signals = BodyRadarSignalKind.scoringKinds.compactMap { kind -> BodyRadarSignal? in
                 guard let series = series[kind],
-                      let value = series.valuesByDay[day],
                       let baseline = VitalsCalculator.windowedBaseline(
                           series: series,
                           scoringDay: day,
@@ -343,14 +314,24 @@ enum BodyRadarCalculator {
                     return nil
                 }
 
+                guard hasRecentNights(in: series, endingOn: day) else {
+                    return nil
+                }
+                calibratedSignalCount += 1
+                guard let value = series.valuesByDay[day] else {
+                    return nil
+                }
                 let deviation = VitalsCalculator.normalizedDeviation(value: value, baseline: baseline)
                 var signal = BodyRadarSignal(kind: kind, deviation: deviation, flagged: false)
                 signal.flagged = signal.directionalDeviation > Tuning.flagThreshold
                 return signal
             }
 
-            guard !signals.isEmpty, hasRecentNights(endingOn: day) else {
+            guard calibratedSignalCount >= Tuning.minimumSignalCount else {
                 return BodyRadarNight(date: day, state: .calibrating)
+            }
+            guard signals.count >= Tuning.minimumSignalCount else {
+                return BodyRadarNight(date: day, state: .insufficientData)
             }
 
             let evidence = signals.reduce(0) { $0 + BodyRadarCalculator.contribution(of: $1) }
@@ -364,28 +345,17 @@ enum BodyRadarCalculator {
             )
         }
 
-        /// Oura's recency rule: enough of the last 14 days carried a night with
-        /// at least one overnight vital.
-        private func hasRecentNights(endingOn day: Date) -> Bool {
+        /// Count this channel's observations, not the union of unrelated sensors.
+        private func hasRecentNights(in series: VitalsCalculator.VitalSeries, endingOn day: Date) -> Bool {
             guard let windowStart = calendar.date(
                 byAdding: .day,
                 value: -(Tuning.recencyWindowDayCount - 1),
                 to: day
             ) else {
-                return true
+                return false
             }
-
-            var days: Set<Date> = []
-            for kind in BodyRadarSignalKind.allCases where kind != .inactiveTime {
-                guard let series = series[kind] else {
-                    continue
-                }
-                for candidate in series.days where candidate >= windowStart && candidate <= day {
-                    days.insert(candidate)
-                }
-            }
-
-            return days.count >= Tuning.recencyMinimumNightCount
+            return series.days.filter { $0 >= windowStart && $0 <= day }.count
+                >= Tuning.recencyMinimumNightCount
         }
 
         /// A nap or a partial night must not be read as a night. Summaries that
@@ -426,67 +396,8 @@ enum BodyRadarCalculator {
             case .heartRateVariability:
                 return Tuning.heartRateVariabilityFloor
             case .inactiveTime:
-                return Tuning.inactiveHoursFloor
+                return 1 // Legacy kind; never enters a Beta 2 series.
             }
-        }
-
-        /// Whole clock hours between that day's wake and 22:00 local that carried
-        /// fewer than `inactiveStepsPerHour` steps. Days with a workout are
-        /// masked so a rest day does not read as illness, and a day with no step
-        /// samples at all is skipped rather than counted as fully inactive.
-        private static func inactiveHours(
-            hourlySteps: [HealthTrendDataPoint],
-            summariesByDay: [Date: SleepSummary],
-            workoutDays: Set<Date>,
-            calendar: Calendar
-        ) -> [Date: Double] {
-            guard !hourlySteps.isEmpty else {
-                return [:]
-            }
-
-            var stepsByHour: [Date: Double] = [:]
-            var sampledDays: Set<Date> = []
-            for point in hourlySteps where point.value.isFinite {
-                guard let hourStart = calendar.dateInterval(of: .hour, for: point.date)?.start else {
-                    continue
-                }
-                stepsByHour[hourStart, default: 0] += point.value
-                sampledDays.insert(calendar.startOfDay(for: point.date))
-            }
-
-            var hoursByDay: [Date: Double] = [:]
-            for (day, summary) in summariesByDay {
-                guard sampledDays.contains(day), !workoutDays.contains(day) else {
-                    continue
-                }
-                guard let wake = summary.stageSnapshot.wakeCycleEnd,
-                      calendar.isDate(wake, inSameDayAs: day),
-                      let windowEnd = calendar.date(
-                          bySettingHour: Tuning.inactiveWindowEndHour,
-                          minute: 0,
-                          second: 0,
-                          of: day
-                      ),
-                      let firstHour = calendar.dateInterval(of: .hour, for: wake)?.end else {
-                    continue
-                }
-
-                var hour = firstHour
-                var inactive = 0.0
-                while hour < windowEnd {
-                    if (stepsByHour[hour] ?? 0) < Tuning.inactiveStepsPerHour {
-                        inactive += 1
-                    }
-                    guard let next = calendar.date(byAdding: .hour, value: 1, to: hour), next > hour else {
-                        break
-                    }
-                    hour = next
-                }
-
-                hoursByDay[day] = inactive
-            }
-
-            return hoursByDay
         }
     }
 }

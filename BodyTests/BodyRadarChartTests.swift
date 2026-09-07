@@ -7,6 +7,17 @@ import XCTest
 @testable import Body
 
 final class BodyRadarChartTests: XCTestCase {
+    func testUnavailableNightStaysInMutedPlaceholderBand() {
+        for state in BodyRadarState.allCases where !state.isScored {
+            let night = BodyRadarNight(date: Date(timeIntervalSince1970: 0), state: state)
+            let point = BodyRadarChartPoint(night: night)
+            XCTAssertFalse(point.isScored)
+            XCTAssertEqual(point.bandPosition(majorCeiling: 5), 0)
+            XCTAssertEqual(night.region, .none)
+            XCTAssertEqual(night.unflaggedExplanation, state.title)
+        }
+    }
+
     private func night(day: Int) -> BodyRadarNight {
         var components = DateComponents()
         components.year = 2026

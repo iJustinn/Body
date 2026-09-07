@@ -1532,31 +1532,41 @@ private struct BodySummaryCardsSettingsSheet: View {
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Summary Cards") {
-            VStack(spacing: 0) {
-                ForEach(BodyHomeCardKind.defaultOrder) { card in
-                    BodySummaryCardToggleRow(
-                        card: card,
-                        isEnabled: Binding {
-                            selection.includes(card)
-                        } set: { isEnabled in
-                            selection = selection.setting(card, isEnabled: isEnabled)
-                        }
-                    )
+            VStack(alignment: .leading, spacing: 20) {
+                BodySettingsCardSection("Body Computed") {
+                    // The score is Body's own grading of a night; the Sleep card it
+                    // grades is a direct reading and sits in the other section.
+                    BodySleepScoreToggleRow(isEnabled: $showSleepScore)
 
-                    if card == .sleep {
-                        Divider()
-                            .padding(.leading, 76)
+                    Divider()
+                        .padding(.leading, 76)
 
-                        BodySleepScoreToggleRow(isEnabled: $showSleepScore)
-                    }
+                    rows(for: BodyHomeCardKind.bodyComputedOrder)
+                }
 
-                    if card.id != BodyHomeCardKind.defaultOrder.last?.id {
-                        Divider()
-                            .padding(.leading, 76)
-                    }
+                BodySettingsCardSection("Direct Readings") {
+                    rows(for: BodyHomeCardKind.directReadingOrder)
                 }
             }
-            .bodyCardBackground(translucent: true)
+        }
+    }
+
+    @ViewBuilder
+    private func rows(for cards: [BodyHomeCardKind]) -> some View {
+        ForEach(cards) { card in
+            BodySummaryCardToggleRow(
+                card: card,
+                isEnabled: Binding {
+                    selection.includes(card)
+                } set: { isEnabled in
+                    selection = selection.setting(card, isEnabled: isEnabled)
+                }
+            )
+
+            if card.id != cards.last?.id {
+                Divider()
+                    .padding(.leading, 76)
+            }
         }
     }
 }
@@ -2887,7 +2897,7 @@ private struct BodySleepScoreToggleRow: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
 
-                    Text("v3")
+                    Text(BodyHomeCardKind.sleepScoreVersionLabel)
                         .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(.blue)
                         .padding(.horizontal, 7)
@@ -3696,7 +3706,7 @@ private struct BodySummaryCardToggleRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            BodySettingsIconTile(iconName: card.iconName, color: card.tintColor)
+            BodySettingsIconTile(iconName: card.iconName, color: card.iconTintColor)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {

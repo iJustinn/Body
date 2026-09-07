@@ -480,10 +480,6 @@ final class HealthKitWorkoutStore {
     /// don't stack heartbeat-series scans.
     @ObservationIgnored
     private var stressInputLoadTask: Task<Void, Never>?
-    /// The in-flight Radar-gated hourly step load, so overlapping refreshes
-    /// don't stack step-bucket refetches.
-    @ObservationIgnored
-    private var bodyRadarStepLoadTask: Task<Void, Never>?
     /// The in-flight phase-2 full-window trend load, so overlapping refreshes
     /// don't stack year-long trend refetches.
     @ObservationIgnored
@@ -3210,104 +3206,6 @@ final class HealthKitWorkoutStore {
         await recomputeBodyRadar(on: Date(), calendar: calendar)
     }
 
-    /// The Radar-gated twin of `startStressInputLoadIfNeeded`. Body Radar reads
-    /// the hourly step buckets for its inactive-time signal, but the dashboard
-    /// refresh only carries `stepsDaySamples` forward from cache — the Stress
-    /// input load is what keeps them current, and that is gated on Heart plus
-    /// the Stress card. With Stress hidden or Heart off, Radar would silently
-    /// lose the signal, so load the step buckets on their own.
-    ///
-    /// Skipped whenever the Stress load is going to run: it already fetches
-    /// `.steps` over the same window and recomputes Radar afterwards. Its own
-    /// task rather than the Stress one, so the Stress detail page (which awaits
-    /// `stressInputLoadTask`) never inherits a load that fetched no HR.
-    private func startBodyRadarStepLoadIfNeeded() {
-        guard bodyRadarStepLoadTask == nil,
-              stressInputLoadTask == nil,
-              computesBodyRadar,
-              permissionSelection.includes(.steps) else {
-            return
-        }
-
-        bodyRadarStepLoadTask = Task { [weak self] in
-            await self?.loadBodyRadarStepSamples()
-            self?.bodyRadarStepLoadTask = nil
-        }
-    }
-
-    /// Steps-only slice of `loadStressInputSamples`, with the same window,
-    /// incremental fetch, refresh-slot wait and epoch/signature guards.
-    private func loadBodyRadarStepSamples() async {
-        let epoch = cacheEpoch
-        await hydratePersistedDaySamplesIfNeeded()
-        await awaitNextRefreshCompletion()
-        guard !Task.isCancelled,
-              permissionSelection.includes(.steps),
-              HKHealthStore.isHealthDataAvailable() else {
-            return
-        }
-
-        do {
-            // Background fill: never worth a permission sheet.
-            guard try await requestHealthKitAuthorization(allowPrompt: false) else {
-                return
-            }
-        } catch {
-            return
-        }
-
-        let calendar = Calendar.bodyGregorian
-        let interval = HealthKitFetchEngine.intradayDaySampleInterval(calendar: calendar, anchor: nil)
-        let capturedDaySampleSignatures = currentDaySampleSignatures()
-        let capturedDaySampleRevisions = daySampleRevisions
-        // Hourly cumulative buckets overlap on their own day and the merge has
-        // no bucket dedupe, so restart at that day's midnight.
-        let fetchStart = max(
-            interval.start,
-            calendar.startOfDay(
-                for: HealthKitFetchEngine.incrementalFetchStart(
-                    after: healthTrends.stepsDaySamples,
-                    windowStart: interval.start
-                )
-            )
-        )
-        guard fetchStart < interval.end else {
-            return
-        }
-        // A `nil` result is a failed query, not an empty day: keep the cached
-        // series rather than merging an empty one over it.
-        guard let samples = await withBackgroundQueryPool({
-            await engine.fetchIntradayDaySamples(
-                for: .steps,
-                calendar: calendar,
-                startDate: fetchStart,
-                endDate: interval.end
-            )
-        }) else {
-            return
-        }
-
-        guard await awaitRefreshSlotFree() else {
-            return
-        }
-        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
-              currentDaySampleSignatures() == capturedDaySampleSignatures else {
-            return
-        }
-
-        var trends = healthTrends
-        trends.stepsDaySamples = HealthKitFetchEngine.mergeIntradaySamples(
-            existing: trends.stepsDaySamples,
-            incoming: samples,
-            windowStart: interval.start,
-            refetchStart: fetchStart
-        )
-        guard !publishDaySamples(from: trends, successfulSeries: [.stepsDaySamples],
-                                 capturedRevisions: capturedDaySampleRevisions).isEmpty else { return }
-        persistDaySampleSidecar()
-        await recomputeBodyRadar(on: Date(), calendar: calendar)
-    }
-
     /// Phase 2 of the two-phase trend window (RefreshOptimizationPlan-02 P0-A).
     /// The refresh publishes a snapshot whose windowed leaves were queried over
     /// the user's own chart range and merged with the cached year; this refetches
@@ -5422,7 +5320,6 @@ final class HealthKitWorkoutStore {
             await recomputeBodyRadar(on: date, calendar: calendar, persists: false)
             publishWatchSnapshot()
             startStressInputLoadIfNeeded()
-            startBodyRadarStepLoadIfNeeded()
             // Phase 2 of the two-phase trend window, and only when phase 1
             // actually fetched a short one. Fired, never awaited: it parks on
             // this refresh finishing before it queries anything.
@@ -5564,7 +5461,6 @@ final class HealthKitWorkoutStore {
             await recomputeBodyRadar(on: refreshDate, calendar: calendar)
             publishWatchSnapshot()
             startStressInputLoadIfNeeded()
-            startBodyRadarStepLoadIfNeeded()
             // Phase 2 of the two-phase trend window, same rule as
             // `refreshRecentMonths`: only when phase 1 fetched a short one.
             if fetchedPartialTrendWindow {
@@ -6565,8 +6461,7 @@ final class HealthKitWorkoutStore {
     /// different inputs.
     nonisolated static let bodyRadarInputMetricKinds: Set<HealthMetricKind> = [
         .bodyRadar,
-        .sleep,
-        .steps
+        .sleep
     ]
 
     /// The metric kinds whose SOURCE selection the Radar record context signs.
@@ -6588,11 +6483,9 @@ final class HealthKitWorkoutStore {
     /// and re-accumulate.
     nonisolated static let bodyRadarInputPermissions: Set<BodyHealthPermission> = [
         .sleep,
-        .steps,
         .heart,
         .respiratory,
-        .wristTemperature,
-        .workouts
+        .wristTemperature
     ]
 
     /// The intraday day-sample series Stress scores from. The dashboard refresh
@@ -6660,9 +6553,8 @@ final class HealthKitWorkoutStore {
         let recordedReadinessContext = readinessRecordContextSignature()
         let recordedStressContext = stressRecordContextSignature()
         let stressWorkouts = stressWindowWorkouts(through: anchorDate, calendar: calendar)
-        // Radar reuses the readiness freeze pair (`wakeTime` / `now`) above and
-        // the stress window's workouts: its inactive-time signal is masked on any
-        // day carrying one, over the same ~34-day span the step cache reaches.
+        // Radar reuses the readiness freeze pair (`wakeTime` / `now`) above;
+        // its scoring inputs come only from overnight sleep vitals.
         let computesBodyRadar = recomputesBodyRadar && self.computesBodyRadar
         let recordedBodyRadarContext = bodyRadarRecordContextSignature()
         let filteredSnapshot = await Task.detached(priority: .userInitiated) {
@@ -6693,7 +6585,6 @@ final class HealthKitWorkoutStore {
             if computesBodyRadar {
                 filtered = filtered.recalculatingBodyRadar(
                     on: anchorDate,
-                    workouts: stressWorkouts,
                     calendar: calendar,
                     now: now,
                     wakeTime: wakeTime,
@@ -7003,13 +6894,8 @@ final class HealthKitWorkoutStore {
         }
     }
 
-    /// The Body Radar twin of `recomputeStress`, run at the same points and for
-    /// the same reason: the dashboard recompute happens before the workouts its
-    /// inactive-time mask needs are available, and the step day samples the
-    /// signal reads land with the post-refresh input load.
-    ///
-    /// Its own permission guard (`.sleep`, not `.heart`) and its own selection
-    /// gate, so a layout without the card pays nothing.
+    /// Refresh the overnight-only Radar result after sleep inputs settle. Its
+    /// own Sleep permission and card-selection gates avoid work for hidden cards.
     private func recomputeBodyRadar(on date: Date, calendar: Calendar, persists: Bool = true) async {
         guard computesBodyRadar else {
             return
@@ -7030,12 +6916,10 @@ final class HealthKitWorkoutStore {
             now: now,
             calendar: calendar
         )
-        let workouts = stressWindowWorkouts(through: date, calendar: calendar)
         let recordedBodyRadarContext = bodyRadarRecordContextSignature()
         let recomputed = await Task.detached(priority: .userInitiated) {
             captured.recalculatingBodyRadar(
                 on: date,
-                workouts: workouts,
                 calendar: calendar,
                 now: now,
                 wakeTime: wakeTime,
@@ -7874,7 +7758,7 @@ final class HealthKitWorkoutStore {
             .joined(separator: ",")
         let awakeFlags = "a[\(showsSubMinuteAwakeStages ? "1" : "0")];l[\(showsLeadingTrailingAwakeStages ? "1" : "0")]"
         return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];\(awakeFlags)"
-            + customSourceGroupsSignatureSuffix
+            + customSourceGroupsSignatureSuffix + ";radar[\(BodyRadarCalculator.algorithmVersion)]"
     }
 
     private func bodyRadarRecordContextSignature() -> String {

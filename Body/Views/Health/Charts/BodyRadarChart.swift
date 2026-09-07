@@ -334,7 +334,7 @@ struct BodyRadarSelectionAnnotation: View {
 
             if point.isScored {
                 if point.night.flaggedSignals.isEmpty {
-                    Text(String(localized: "bodyRadar.card.allTypical", defaultValue: "All typical"))
+                    Text(point.night.unflaggedExplanation)
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundColor(.secondary)
                 } else {

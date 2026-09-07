@@ -1142,9 +1142,22 @@ struct BodyHealthMetricDetailView: View {
     private var helpTextCard: some View {
         if let helpText = model.helpText {
             VStack(alignment: .leading, spacing: 10) {
-                Text(helpText.title)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
+                HStack(spacing: 8) {
+                    Text(helpText.title)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+
+                    // Same chip the metric's row carries in Settings > Metrics >
+                    // Summary Cards, read from the one source so the two agree.
+                    if let betaVersionLabel = BodyHomeCardKind.betaVersionLabel(for: model.kind) {
+                        Text(betaVersionLabel)
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.blue.opacity(0.14), in: Capsule())
+                    }
+                }
 
                 Text(helpText.body)
                     .font(.system(.body, design: .rounded))
@@ -3137,9 +3150,19 @@ struct BodyHealthMetricDetailView: View {
 
     private var aboutSleepScoreCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("About Sleep Score")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
+            HStack(spacing: 8) {
+                Text("About Sleep Score")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                // Same chip the Sleep Score toggle carries in Settings.
+                Text(BodyHomeCardKind.sleepScoreVersionLabel)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.blue.opacity(0.14), in: Capsule())
+            }
 
             Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero.")
                 .font(.system(.body, design: .rounded))

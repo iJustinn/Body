@@ -411,6 +411,25 @@ struct BodyHealthMetricCardTrendPreview: View {
         reduceMotion || !hasShownData ? nil : .smooth(duration: 0.45, extraBounce: 0)
     }
 
+    /// The dots preview's own first data frame, which `refreshAnimation` would
+    /// swallow. That suppression exists because a preview whose shapes are sized
+    /// by the data lurches when the placeholder fills: bars climb off the
+    /// baseline, and the dots preview's three regions resize to the occupancy the
+    /// rings land in. A preview whose slots are fixed thresholds has none of
+    /// that — the bands hold their heights whatever the reading is, so the only
+    /// thing the first frame moves is the ring, gliding out of the skeleton into
+    /// the slot the verdict put it in. Body Radar is that case, and it freezes
+    /// its verdict for the rest of the day, so the skeleton filling is the one
+    /// motion its card ever gets; suppressing it left the ring simply appearing
+    /// in its band.
+    private var dotsAnimation: Animation? {
+        guard dotEqualRegions else {
+            return refreshAnimation
+        }
+
+        return reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)
+    }
+
     /// True once any preview style has something real to draw.
     private var hasData: Bool {
         switch style {
@@ -782,11 +801,11 @@ struct BodyHealthMetricCardTrendPreview: View {
             // previews (0.24 × 0.58 ≈ 0.14, the levels preview's empty rows),
             // so neither empty preview reads as a skeleton about to fill.
             .opacity(phase == .unavailable ? 0.58 : 1)
-            .animation(refreshAnimation, value: dotEntries)
+            .animation(dotsAnimation, value: dotEntries)
             // A refresh that lands with nothing takes the skeleton rings away
             // without touching `dotEntries`, so that change needs its own key
             // or the rings pop out instead of fading.
-            .animation(refreshAnimation, value: phase)
+            .animation(dotsAnimation, value: phase)
         }
     }
 

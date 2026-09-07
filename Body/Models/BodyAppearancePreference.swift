@@ -981,13 +981,10 @@ struct BodyDashboardFetchSelection: Equatable {
         .steps,
         .activeEnergy
     ]
-    /// Body Radar reads the overnight vitals carried on the sleep history plus
-    /// the hourly step buckets its inactive-time signal is masked from. Its own
-    /// set for the same reason the stress one is: the metrics overlap but are
-    /// not the same, and neither should pull the other's data.
+    /// Beta 2 reads only the overnight vitals carried on sleep history. Keep
+    /// this separate from Stress so Radar alone never requests activity inputs.
     private static let bodyRadarDependencyKinds: Set<HealthMetricKind> = [
-        .sleep,
-        .steps
+        .sleep
     ]
     private static let vitalsMetricKinds: Set<HealthMetricKind> = [.sleep]
 
@@ -1416,7 +1413,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         case .steps:
             return String(localized: "Step count total")
         case .sleep:
-            return String(localized: "Sleep score and duration")
+            return String(localized: "Sleep duration, stages, and consistency")
         case .basics:
             return String(localized: "Weight, body fat, and BMI")
         case .heartRate:
@@ -1440,15 +1437,15 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Per-kind beta chip label — Readiness keeps the original "v1" chip, Stress
-    /// and Body Radar show "Beta v1" instead, and every other card carries no
-    /// chip at all.
+    /// Per-kind beta chip label — Readiness and Stress carry the "v1" chip, Body
+    /// Radar shows "Beta v2" instead, and every other card carries no chip at
+    /// all.
     var betaVersionLabel: LocalizedStringKey? {
         switch self {
-        case .readiness:
+        case .readiness, .stress:
             return "v1"
-        case .stress, .bodyRadar:
-            return "Beta v1"
+        case .bodyRadar:
+            return "Beta v2"
         case .vitals,
              .cardioFitness,
              .activityRings,
@@ -1473,6 +1470,55 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     var isBeta: Bool {
         betaVersionLabel != nil
     }
+
+    /// The chip a metric detail page's About card carries, resolved from the summary
+    /// card that owns the metric so the About card and the Summary Cards settings row
+    /// can never drift apart. Metrics with no summary card carry no chip.
+    static func betaVersionLabel(for kind: HealthMetricKind) -> LocalizedStringKey? {
+        allCases.first { $0.healthMetricKind == kind }?.betaVersionLabel
+    }
+
+    /// The Sleep Score's own chip, versioned separately from the Sleep card (which
+    /// carries none). It rides beside the Sleep Score toggle in Settings and on the
+    /// About Sleep Score card.
+    static let sleepScoreVersionLabel: LocalizedStringKey = "v3"
+
+    /// True for cards whose headline number Body derives itself (a score, ratio, or
+    /// baseline comparison) rather than reading it straight out of HealthKit.
+    /// Splits the Summary Cards settings sheet into its two sections. Sleep is a
+    /// direct reading; only its score is Body's own, and that toggle sits in the
+    /// computed section on its own.
+    var isBodyComputed: Bool {
+        switch self {
+        case .readiness,
+             .stress,
+             .bodyRadar,
+             .trainingLoad,
+             .vitals:
+            return true
+        case .activityRings,
+             .exerciseMinutes,
+             .wristTemperature,
+             .timeInDaylight,
+             .steps,
+             .sleep,
+             .basics,
+             .heartRate,
+             .restingHeartRate,
+             .heartRateVariability,
+             .oxygenSaturation,
+             .respiratoryRate,
+             .activeEnergy,
+             .restingEnergy,
+             .cardioFitness:
+            return false
+        }
+    }
+
+    /// `defaultOrder` split by `isBodyComputed`, preserving the default ordering.
+    static let bodyComputedOrder: [BodyHomeCardKind] = defaultOrder.filter(\.isBodyComputed)
+
+    static let directReadingOrder: [BodyHomeCardKind] = defaultOrder.filter { !$0.isBodyComputed }
 
     var iconName: String {
         switch self {
@@ -1553,6 +1599,13 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         case .vitals:
             return Color(red: 0.25, green: 0.62, blue: 1.00)
         }
+    }
+
+    /// The color the glyph itself takes, on the Summary card and in Settings. Body
+    /// Radar's dotted-person glyph reads as washed out at that size in the kind's own
+    /// gray, so it draws white instead; every other card uses its tint.
+    var iconTintColor: Color {
+        self == .bodyRadar ? .white : tintColor
     }
 
     static func storedOrder(from rawValue: String) -> [BodyHomeCardKind] {
