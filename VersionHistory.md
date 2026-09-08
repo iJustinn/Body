@@ -1,5 +1,15 @@
 # Version History
 
+## 1.1.1 (build 1)
+
+- Opened the 1.1.1 line. No behavior changes yet; the entries below describe 1.1.0.
+- Updated the app, widget, watch, and test bundle version to 1.1.1 build 1.
+
+## 1.1.0 (build 11)
+
+- **Settings > Appearance > Background now offers four more built-in presets.** Rose, Violet, Neutral, and Light join the app default and iJustin, each mixing three neighboring shades of one of the app icon's colors the way the existing profiles do. Built-in names are localized, so they read in the app's language, and the custom profile allowance is now four on top of the six built-ins instead of a shared cap.
+- Updated the app, widget, watch, and test bundle build number to 11.
+
 ## 1.1.0 (build 10)
 
 - **The dots on a heart rate warning chart are now thinned to a legible set.** A watch writes heart rate every few seconds, so a High Heart Rate episode's window could hold hundreds of readings whose rings piled into a solid band. The line still runs through every reading, and the chart still scrubs to any of them, but the dots are now spread evenly across the window, and wherever a slot holds a past-threshold reading that one keeps the dot, so the readings the warning is about are never the ones summarized away. Charts with few readings, like a typical Low Heart Rate episode, are unchanged.
