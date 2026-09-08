@@ -143,6 +143,21 @@ struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
         )
     }
 
+    // Three neighboring shades around each icon's color, following the ohmybody mix.
+    static let rose = shaded(id: "rose", name: "Rose", colorsRawValue: "FFC0DF,F09CC4,D87FAC")
+    static let violet = shaded(id: "violet", name: "Violet", colorsRawValue: "8044AA,601A8F,480C70")
+    static let neutral = shaded(id: "neutral", name: "Neutral", colorsRawValue: "AAAAAA,929292,7A7A7A")
+    static let light = shaded(id: "light", name: "Light", colorsRawValue: "FFFFFF,EFEFEF,DFDFDF")
+
+    private static func shaded(id: String, name: String, colorsRawValue: String) -> BodyHomeBackgroundProfile {
+        BodyHomeBackgroundProfile(
+            id: id,
+            colorsRawValue: colorsRawValue,
+            separatorsRawValue: BodyHomeBackground.rawValue(fromSeparators: [1.0 / 3.0, 2.0 / 3.0]),
+            name: name
+        )
+    }
+
     static func custom(name: String, colors: [Color], separators: [Double]) -> BodyHomeBackgroundProfile {
         BodyHomeBackgroundProfile(
             id: UUID().uuidString,
@@ -155,7 +170,7 @@ struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
     }
 
     var isBuiltIn: Bool {
-        id == Self.appDefaultID || id == Self.iJustinID
+        BodyHomeBackgroundProfileStore.builtInProfiles.contains { $0.id == id }
     }
 
     var colors: [Color] {
@@ -179,7 +194,8 @@ struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
     }
 
     func displayName(defaultName: String) -> String {
-        Self.sanitizedName(name ?? "") ?? defaultName
+        guard let name = Self.sanitizedName(name ?? "") else { return defaultName }
+        return isBuiltIn ? String(localized: String.LocalizationValue(name)) : name
     }
 
     func renamed(_ name: String) -> BodyHomeBackgroundProfile {
@@ -218,9 +234,9 @@ struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
 }
 
 enum BodyHomeBackgroundProfileStore {
-    static let builtInProfiles: [BodyHomeBackgroundProfile] = [.appDefault, .iJustin]
-    static let maximumProfileCount = 6
-    static var maximumCustomProfileCount: Int { maximumProfileCount - builtInProfiles.count }
+    static let builtInProfiles: [BodyHomeBackgroundProfile] = [.appDefault, .rose, .violet, .neutral, .light, .iJustin]
+    static let maximumCustomProfileCount = 4
+    static var maximumProfileCount: Int { builtInProfiles.count + maximumCustomProfileCount }
 
     static func allProfiles(from rawValue: String) -> [BodyHomeBackgroundProfile] {
         builtInProfiles + customProfiles(from: rawValue)

@@ -57,14 +57,17 @@ final class ProjectConfigurationTests: XCTestCase {
             )
         }
 
-        let rawValue = BodyHomeBackgroundProfileStore.rawValue(from: profiles)
+        let rawValue = BodyHomeBackgroundProfileStore.rawValue(from: BodyHomeBackgroundProfileStore.builtInProfiles + profiles)
         let customProfiles = BodyHomeBackgroundProfileStore.customProfiles(from: rawValue)
         let allProfiles = BodyHomeBackgroundProfileStore.allProfiles(from: rawValue)
 
         XCTAssertEqual(customProfiles.count, 4)
-        XCTAssertEqual(allProfiles.count, 6)
+        XCTAssertEqual(allProfiles.count, 10)
+        XCTAssertTrue(allProfiles.prefix(6).allSatisfy(\.isBuiltIn))
+        XCTAssertEqual(allProfiles.dropFirst().prefix(4).compactMap(\.name), ["Rose", "Violet", "Neutral", "Light"])
+        XCTAssertFalse(customProfiles.contains(where: \.isBuiltIn))
         XCTAssertEqual(allProfiles.first?.id, BodyHomeBackgroundProfile.appDefaultID)
-        XCTAssertEqual(allProfiles[1].id, BodyHomeBackgroundProfile.iJustinID)
+        XCTAssertEqual(allProfiles[5].id, BodyHomeBackgroundProfile.iJustinID)
         XCTAssertFalse(customProfiles.contains { $0.id == BodyHomeBackgroundProfile.appDefaultID })
         XCTAssertFalse(customProfiles.contains { $0.id == BodyHomeBackgroundProfile.iJustinID })
     }
