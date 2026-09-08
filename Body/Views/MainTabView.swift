@@ -41,6 +41,7 @@ struct MainTabView: View {
     @State private var summaryReselectCount = 0
     @State private var isFirstLaunchOverlayPresented = false
     @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
+    @AppStorage(BodyAppearancePreference.updateOnboardingCompletedVersionKey) private var updateOnboardingCompletedVersion = ""
 
     /// Shown until onboarding has been completed on 1.0.0 or later
     /// (`BodyOnboardingGate`); pre-release installs recorded nothing, so they
@@ -57,6 +58,32 @@ struct MainTabView: View {
         } set: { isPresented in
             if !isPresented {
                 onboardingCompletedVersion = BodyOnboardingGate.currentAppVersion()
+                // A fresh install has nothing to rebuild, so first-run
+                // completion also settles the update page.
+                updateOnboardingCompletedVersion = BodyOnboardingGate.currentAppVersionAndBuild()
+            }
+        }
+    }
+
+    /// Shown once to installs that finished onboarding before 1.1.0 build 9,
+    /// including earlier 1.1.0 builds; fresh installs stamp the running
+    /// version and build at first run, so they never see it
+    /// (`BodyOnboardingGate`).
+    private var showsUpdateOnboarding: Bool {
+        BodyOnboardingGate.shouldPresentUpdate(
+            completedVersion: onboardingCompletedVersion,
+            updateCompletedVersion: updateOnboardingCompletedVersion
+        )
+    }
+
+    /// Same shape as `isOnboardingPresented`: dismissing the cover records the
+    /// running version, so the page is one-shot.
+    private var isUpdateOnboardingPresented: Binding<Bool> {
+        Binding {
+            showsUpdateOnboarding
+        } set: { isPresented in
+            if !isPresented {
+                updateOnboardingCompletedVersion = BodyOnboardingGate.currentAppVersionAndBuild()
             }
         }
     }
@@ -78,15 +105,18 @@ struct MainTabView: View {
     var body: some View {
         content
             .environment(\.summaryReselectCount, summaryReselectCount)
-            .accessibilityHidden(isFirstLaunchOverlayPresented || showsOnboarding)
+            .accessibilityHidden(isFirstLaunchOverlayPresented || showsOnboarding || showsUpdateOnboarding)
             .overlay(alignment: .top) {
-                BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented || showsOnboarding)
+                BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented || showsOnboarding || showsUpdateOnboarding)
             }
             .overlay {
                 BodyFirstLaunchLoadOverlay(onPresentationChange: { isFirstLaunchOverlayPresented = $0 })
             }
             .fullScreenCover(isPresented: isOnboardingPresented) {
                 BodyOnboardingView(mode: .firstRun)
+            }
+            .fullScreenCover(isPresented: isUpdateOnboardingPresented) {
+                BodyCacheRebuildView(entry: .update)
             }
     }
 
@@ -127,7 +157,7 @@ struct MainTabView: View {
 
 #Preview {
     MainTabView()
-        .environmentObject(HealthKitWorkoutStore())
+        .environment(HealthKitWorkoutStore())
 }
 
 private struct SummaryReselectCountKey: EnvironmentKey {

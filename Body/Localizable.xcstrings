@@ -874,6 +874,22 @@
         }
       }
     },
+    "1 source" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 个来源"
+          }
+        }
+      }
+    },
     "2D" : {
       "localizations" : {
         "en" : {
@@ -1416,6 +1432,22 @@
         }
       }
     },
+    "Add warning signs next to the readiness level" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add warning signs next to the readiness level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在恢复状态等级旁添加警告标志"
+          }
+        }
+      }
+    },
     "Adjust Photo" : {
       "localizations" : {
         "en" : {
@@ -1560,23 +1592,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "今天任一读数低于 %lld%%"
-          }
-        }
-      }
-    },
-    "App Default" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "App Default"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "App 默认"
           }
         }
       }
@@ -1979,6 +1994,22 @@
         }
       }
     },
+    "Band Boundary" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Band Boundary"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "区间边界"
+          }
+        }
+      }
+    },
     "Bar Chart" : {
       "localizations" : {
         "en" : {
@@ -2224,6 +2255,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body 可以读取以下已开启的健康数据权限。"
+          }
+        }
+      }
+    },
+    "Body Computed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body Computed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body算法"
           }
         }
       }
@@ -2481,6 +2529,40 @@
         }
       }
     },
+    "Body Radar" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body Radar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "身体雷达"
+          }
+        }
+      }
+    },
+    "Body Radar nights" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body Radar nights"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "身体雷达夜间记录"
+          }
+        }
+      }
+    },
     "Body reads Apple Health data locally to power the app and widgets." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2642,6 +2724,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body 预测：正在计算…"
+          }
+        }
+      }
+    },
+    "bodyRadar.card.allTypical" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All typical"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "均在正常范围"
+          }
+        }
+      }
+    },
+    "bodyRadar.chart.bandsDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Three stacked bands, tinted red for Major on top, pink for Minor in the middle, and plain for No signs at the bottom."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "三条堆叠色带，顶部红色为明显迹象，中间粉色为轻微迹象，底部无色为无迹象。"
+          }
+        }
+      }
+    },
+    "bodyRadar.detail.recentNights" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last 21 Nights"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近 21 晚"
+          }
+        }
+      }
+    },
+    "bodyRadar.state.noData" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无数据"
           }
         }
       }
@@ -2811,6 +2961,22 @@
         }
       }
     },
+    "Calculating scores..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculating scores..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在计算评分…"
+          }
+        }
+      }
+    },
     "Calculating…" : {
       "localizations" : {
         "en" : {
@@ -2943,6 +3109,24 @@
         }
       }
     },
+    "chart.dayCount.short" : {
+      "comment" : "Short day-count chip, like 7d",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lldd"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld天"
+          }
+        }
+      }
+    },
     "chart.legendRange" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2956,6 +3140,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "范围"
+          }
+        }
+      }
+    },
+    "Checking Health access..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking Health access..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查健康权限…"
           }
         }
       }
@@ -3289,6 +3489,23 @@
         }
       }
     },
+    "Could not crop the photo. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not crop the photo. Try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法裁剪照片，请重试。"
+          }
+        }
+      }
+    },
     "Couldn't Change Icon" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3336,6 +3553,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法创建视频"
+          }
+        }
+      }
+    },
+    "Couldn't Crop Photo" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Crop Photo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法裁剪照片"
           }
         }
       }
@@ -4066,6 +4300,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "昏暗"
+          }
+        }
+      }
+    },
+    "Direct Readings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Direct Readings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直接读取"
           }
         }
       }
@@ -5108,6 +5359,22 @@
         }
       }
     },
+    "Finishing up..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finishing up..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "即将完成…"
+          }
+        }
+      }
+    },
     "Fitness Band" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5652,22 +5919,6 @@
         }
       }
     },
-    "How many activity bars the card shows." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "How many activity bars the card shows."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "卡片显示的活动条形数量。"
-          }
-        }
-      }
-    },
     "Hour-by-hour chart for a chosen day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5749,6 +6000,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你停下后第一分钟内心率下降的幅度。下降越多通常说明心血管适能越好，而你自己的常见范围比任何单次读数都更有参考价值。"
+          }
+        }
+      }
+    },
+    "How many activity bars the card shows." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How many activity bars the card shows."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卡片显示的活动条形数量。"
           }
         }
       }
@@ -6882,6 +7149,23 @@
         }
       }
     },
+    "Month Picker" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Month Picker"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月份选择器"
+          }
+        }
+      }
+    },
     "Month Swipe" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7834,6 +8118,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关"
+          }
+        }
+      }
+    },
+    "ohmybody" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
           }
         }
       }
@@ -9432,6 +9733,40 @@
         }
       }
     },
+    "Overnight signals that may point to illness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overnight signals that may point to illness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可能提示疾病的夜间信号"
+          }
+        }
+      }
+    },
+    "Overnight signs of strain" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overnight signs of strain"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "夜间压力迹象"
+          }
+        }
+      }
+    },
     "Overnight vitals vs your typical range" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9580,18 +9915,18 @@
         }
       }
     },
-    "Pick at least two sources to merge into this one." : {
+    "Pick one or more sources to include in this one." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pick at least two sources to merge into this one."
+            "value" : "Pick one or more sources to include in this one."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "至少选择两个来源，合并为这一个来源。"
+            "value" : "选择一个或多个来源，合并为此来源。"
           }
         }
       }
@@ -11112,6 +11447,22 @@
         }
       }
     },
+    "Saving workout effort..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saving workout effort..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在保存运动强度…"
+          }
+        }
+      }
+    },
     "Scale" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11456,6 +11807,23 @@
         }
       }
     },
+    "settings.workouts.others" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Others"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "其他"
+          }
+        }
+      }
+    },
     "Share" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11570,6 +11938,23 @@
         }
       }
     },
+    "Short Month Names" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Short Month Names"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "简短月份名"
+          }
+        }
+      }
+    },
     "Show All Trends" : {
       "localizations" : {
         "en" : {
@@ -11653,22 +12038,6 @@
         }
       }
     },
-    "Show Weekdays" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Weekdays"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "显示星期"
-          }
-        }
-      }
-    },
     "Show effort on workout details" : {
       "localizations" : {
         "en" : {
@@ -11733,6 +12102,23 @@
         }
       }
     },
+    "Show months as SEP, OCT, NOV" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show months as SEP, OCT, NOV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以 SEP、OCT、NOV 的形式显示月份"
+          }
+        }
+      }
+    },
     "Show Nickname" : {
       "localizations" : {
         "en" : {
@@ -11745,6 +12131,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示昵称"
+          }
+        }
+      }
+    },
+    "Show on Readiness" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show on Readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在恢复状态上显示"
           }
         }
       }
@@ -11809,6 +12211,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "今天，为自己而动。"
+          }
+        }
+      }
+    },
+    "Show Weekdays" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Weekdays"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示星期"
           }
         }
       }
@@ -12074,6 +12492,23 @@
         }
       }
     },
+    "Sleep duration, stages, and consistency" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep duration, stages, and consistency"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠时长、阶段与规律性"
+          }
+        }
+      }
+    },
     "Sleep duration trend" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12104,23 +12539,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "睡眠评分"
-          }
-        }
-      }
-    },
-    "Sleep score and duration" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sleep score and duration"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "睡眠评分与时长"
           }
         }
       }
@@ -12271,6 +12689,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "积少成多，日拱一卒。"
+          }
+        }
+      }
+    },
+    "Some cached workout changes could not be removed. Try clearing the cache again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some cached workout changes could not be removed. Try clearing the cache again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分缓存的体能训练变更无法移除。请尝试再次清除缓存。"
           }
         }
       }
@@ -13653,6 +14087,176 @@
         }
       }
     },
+    "updateOnboarding.done" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
+        }
+      }
+    },
+    "updateOnboarding.feature.refresh.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The new structure lets Body read less from Apple Health each time it updates."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新的结构让 Body 每次更新时从 Apple 健康读取的内容更少。"
+          }
+        }
+      }
+    },
+    "updateOnboarding.feature.refresh.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faster refreshes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刷新更快"
+          }
+        }
+      }
+    },
+    "updateOnboarding.getStarted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get Started"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始使用"
+          }
+        }
+      }
+    },
+    "updateOnboarding.keepOpen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Please keep Body open and in the foreground until the load finishes. Leaving the app can interrupt it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "载入完成前请保持 Body 打开并停留在前台。离开 App 可能会中断载入。"
+          }
+        }
+      }
+    },
+    "updateOnboarding.rebuild" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rebuild Now"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即重建"
+          }
+        }
+      }
+    },
+    "updateOnboarding.settings.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body reloads the last three months and your dashboard from Apple Health and rewrites the local cache. Your recorded readiness history is kept."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 会从 Apple 健康重新载入最近三个月的数据和你的仪表板，并重写本地缓存。你已记录的恢复状态历史会保留。"
+          }
+        }
+      }
+    },
+    "updateOnboarding.settings.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rebuild Cache"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重建缓存"
+          }
+        }
+      }
+    },
+    "updateOnboarding.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This version stores your health data in a new structure, so Body reloads it from Apple Health once. It takes a moment. Nothing in Apple Health changes, and older workout months keep filling in in the background."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此版本会用新的结构存储你的健康数据，因此 Body 需要从 Apple 健康重新载入一次。这会花一点时间。Apple 健康中的内容不会有任何改变，更早的锻炼月份会在后台继续补齐。"
+          }
+        }
+      }
+    },
+    "updateOnboarding.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Data Rebuild Required"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要重建数据"
+          }
+        }
+      }
+    },
     "Use Body widgets to keep workout and metric context on the Home Screen." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14016,18 +14620,18 @@
         }
       }
     },
-    "Warnings appear on the Home card and the metric's detail page." : {
+    "Warnings appear on the Home card, the readiness score, and the metric's detail page." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Warnings appear on the Home card and the metric's detail page."
+            "value" : "Warnings appear on the Home card, the readiness score, and the metric's detail page."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "警告会显示在主页卡片和该指标的详情页上。"
+            "value" : "警告会显示在主页卡片、恢复状态评分和该指标的详情页上。"
           }
         }
       }
@@ -14228,6 +14832,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "开启后，在运动日历或类型分布图上向左或向右滑动即可切换到下一个月或上一个月，效果与月份选择器相同。关闭后，图表将忽略横向滑动。"
+          }
+        }
+      }
+    },
+    "When on, the month carousel at the top of the Workouts page and the month picker beside the search bar show months in their short uppercase form, such as SEP instead of September. This option is only available when the app runs in English." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When on, the month carousel at the top of the Workouts page and the month picker beside the search bar show months in their short uppercase form, such as SEP instead of September. This option is only available when the app runs in English."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后，健身记录页顶部的月份轮播和搜索栏旁的月份选择器会以大写简短形式显示月份，例如 SEP 而非 September。此选项仅在应用以英文运行时可用。"
           }
         }
       }

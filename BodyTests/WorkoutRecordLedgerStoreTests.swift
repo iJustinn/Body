@@ -106,6 +106,27 @@ final class WorkoutRecordLedgerStoreTests: XCTestCase {
         XCTAssertNil(WorkoutRecordLedgerStore.load(directoryURL: directoryURL))
     }
 
+    /// A file that carries the same id twice must load, not trap: the old
+    /// `Dictionary(uniqueKeysWithValues:)` decode crashed on a duplicate.
+    func testDuplicateIdInStoredContributionsLoadsWithTheLastEntryWinning() throws {
+        let single = workout()
+        let stored = ledger([single])
+        XCTAssertTrue(WorkoutRecordLedgerStore.save(stored, directoryURL: directoryURL))
+
+        var object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [String: Any]
+        )
+        var contributions = try XCTUnwrap(object["contributions"] as? [[String: Any]])
+        let duplicate = try XCTUnwrap(contributions.first)
+        contributions.append(duplicate)
+        object["contributions"] = contributions
+        try JSONSerialization.data(withJSONObject: object).write(to: fileURL)
+
+        let loaded = try XCTUnwrap(WorkoutRecordLedgerStore.load(directoryURL: directoryURL))
+        XCTAssertEqual(loaded.contributions.count, 1)
+        XCTAssertEqual(loaded.contributions, stored.contributions)
+    }
+
     func testLoadReturnsNilWhenNothingIsStored() {
         XCTAssertNil(WorkoutRecordLedgerStore.load(directoryURL: directoryURL))
     }

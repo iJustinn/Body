@@ -533,3 +533,36 @@ private extension String {
             .joined(separator: " ")
     }
 }
+
+/// Keeps the raw string of a workout type that this build does not know about.
+/// Decoding an unrecognized value yields `.other` so the app keeps working, and
+/// re-encoding writes the original string back, so a cache written by a newer
+/// build (or by a future HealthKit activity) is never flattened to "other" on a
+/// round trip. Known types encode exactly as before, so the save-if-changed byte
+/// compare still sees identical files.
+@propertyWrapper
+struct BodyWorkoutTypeStorage: Codable, Hashable {
+    var wrappedValue: BodyWorkoutType
+    private let unknownRawValue: String?
+
+    init(wrappedValue: BodyWorkoutType) {
+        self.wrappedValue = wrappedValue
+        self.unknownRawValue = nil
+    }
+
+    init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        if let known = BodyWorkoutType(rawValue: rawValue) {
+            wrappedValue = known
+            unknownRawValue = nil
+        } else {
+            wrappedValue = .other
+            unknownRawValue = rawValue
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(unknownRawValue ?? wrappedValue.rawValue)
+    }
+}

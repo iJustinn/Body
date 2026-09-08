@@ -257,10 +257,12 @@ extension HealthKitFetchEngine {
         // drop every aged entry it holds.
         await hydratePersistedEffortLedgerIfNeeded()
         effortLevelsByWorkoutID[workoutID] = clampedScore
+        effortResultRevisions[workoutID, default: 0] &+= 1
         confirmedNoEffortWorkoutIDs.remove(workoutID)
         effortWorkoutDatesByID[workoutID] = WorkoutEffortDateRange(
             startDate: workout.startDate,
-            endDate: workout.endDate
+            endDate: workout.endDate,
+            validatedAt: now
         )
         persistEffortLedger()
 
@@ -304,7 +306,7 @@ extension HealthKitFetchEngine {
     // genuinely absent workout (`nil` without error); route/splits propagate
     // that error rather than caching a false empty.
     func fetchWorkout(id: UUID) async throws -> HKWorkout? {
-        try await trackedThrowingHealthQuery { (resume: @escaping (Result<HKWorkout?, Error>) -> Void) in
+        try await trackedThrowingHealthQuery { (resume: @escaping @Sendable (Result<HKWorkout?, Error>) -> Void) in
             let query = HKSampleQuery(
                 sampleType: HKObjectType.workoutType(),
                 predicate: HKQuery.predicateForObject(with: id),
@@ -345,21 +347,25 @@ extension HealthKitFetchEngine {
     }
 
     /// Best-effort deletion of Body's previous effort samples, so repeated edits
-    /// don't accumulate. Failures are ignored — the new sample's later timestamp
-    /// still makes Body's read prefer it.
+    /// don't accumulate. Failures are logged and swallowed: the new sample's later
+    /// timestamp still makes Body's read prefer it.
     private func deleteEffortSamples(_ samples: [HKSample]) async {
         guard !samples.isEmpty else {
             return
         }
 
-        try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            healthStore.delete(samples as [HKObject]) { _, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                healthStore.delete(samples as [HKObject]) { _, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume()
+                    }
                 }
             }
+        } catch {
+            workoutEffortWriteLogger.error("effort write: delete failed \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public)")
         }
     }
 }

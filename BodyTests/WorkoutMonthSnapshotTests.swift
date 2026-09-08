@@ -343,6 +343,35 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertNil(presentation.heroDistanceValue)
     }
 
+    /// A paused workout records an `endDate` later than `startDate + duration`.
+    /// The time range must end at the recorded end, not at the elapsed-time
+    /// approximation, so the share card matches the Fitness app.
+    func testWorkoutDetailTimeRangeUsesRecordedEndDateForPausedWorkouts() throws {
+        let calendar = Calendar.bodyGregorian
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let startDate = try XCTUnwrap(calendar.date(
+            from: DateComponents(timeZone: timeZone, year: 2026, month: 5, day: 11, hour: 15, minute: 57, second: 21)
+        ))
+        // 1 hour of moving time, but the session sat paused until 6:57 PM.
+        let endDate = startDate.addingTimeInterval(3 * 60 * 60)
+        let workout = WorkoutSummary(
+            type: .strengthTraining,
+            startDate: startDate,
+            duration: 3_600,
+            endDate: endDate
+        )
+
+        let presentation = WorkoutDetailPresentation(
+            workout: workout,
+            calendar: calendar,
+            locale: Locale(identifier: "en_US_POSIX"),
+            timeZone: timeZone,
+            unitPreference: .metric
+        )
+
+        XCTAssertEqual(presentation.timeRangeText, "3:57\u{202F}PM-6:57\u{202F}PM")
+    }
+
     func testWorkoutEffortPresentationMapsScoresToAppleStyleBars() throws {
         let locale = Locale(identifier: "en_US_POSIX")
 
@@ -2534,6 +2563,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         // A selection saved before the new categories existed: Workouts + Heart on.
         defaults.set("workouts,heart,sleep", forKey: BodyAppearancePreference.healthPermissionSelectionKey)
 
+        BodyHealthPermissionSelection.migrateIfNeeded(defaults: defaults)
         let migrated = BodyHealthPermissionSelection.load(defaults: defaults)
         XCTAssertTrue(migrated.includes(.workoutMetrics))
         XCTAssertTrue(migrated.includes(.dateOfBirth))
@@ -2546,6 +2576,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             .setting(.workoutMetrics, isEnabled: false)
             .setting(.dateOfBirth, isEnabled: false)
             .save(defaults: defaults)
+        BodyHealthPermissionSelection.migrateIfNeeded(defaults: defaults)
         let reloaded = BodyHealthPermissionSelection.load(defaults: defaults)
         XCTAssertFalse(reloaded.includes(.workoutMetrics))
         XCTAssertFalse(reloaded.includes(.dateOfBirth))
@@ -2559,6 +2590,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         // Everything off ("none"): neither new toggle is added, but the flag is set.
         defaults.set("none", forKey: BodyAppearancePreference.healthPermissionSelectionKey)
 
+        BodyHealthPermissionSelection.migrateIfNeeded(defaults: defaults)
         let migrated = BodyHealthPermissionSelection.load(defaults: defaults)
         XCTAssertFalse(migrated.includes(.workoutMetrics))
         XCTAssertFalse(migrated.includes(.dateOfBirth))
@@ -2699,7 +2731,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         let movedDown = BodyHomeCardKind.reordered(order, moving: .sleep, to: .basics)
         XCTAssertEqual(
             Array(movedDown.prefix(9)),
-            [.vitals, .trainingLoad, .basics, .sleep, .heartRate, .heartRateVariability, .readiness, .stress, .activeEnergy]
+            [.vitals, .trainingLoad, .basics, .sleep, .heartRate, .heartRateVariability, .readiness, .stress, .bodyRadar]
         )
         XCTAssertEqual(movedDown.last, .activityRings)
         XCTAssertEqual(Set(movedDown), Set(order))
@@ -2940,12 +2972,38 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
     func testVitalsHomeCardKindConfiguration() {
         XCTAssertEqual(BodyHomeCardKind.vitals.healthMetricKind, .vitals)
-        // Readiness carries the "v1" chip; Stress carries "Beta v1" instead (both
-        // still count as isBeta via betaVersionLabel).
+        // Readiness and Stress carry the "v1" chip; Body Radar carries "Beta v2"
+        // instead (all still count as isBeta via betaVersionLabel).
         XCTAssertFalse(BodyHomeCardKind.vitals.isBeta)
         XCTAssertFalse(BodyHomeCardKind.cardioFitness.isBeta)
         XCTAssertTrue(BodyHomeCardKind.readiness.isBeta)
+        XCTAssertTrue(BodyHomeCardKind.bodyRadar.isBeta)
+        XCTAssertEqual(BodyHomeCardKind.bodyRadar.betaVersionLabel, "Beta v2")
         XCTAssertFalse(BodyHomeCardKind.starEligible.contains(.vitals))
+    }
+
+    /// A metric detail page's About card reads its chip from the summary card that
+    /// owns the metric, so the two surfaces can never disagree.
+    func testAboutCardVersionLabelsMatchTheSummaryCardChips() {
+        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .readiness), "v1")
+        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .stress), "v1")
+        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .bodyRadar), "Beta v2")
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .vitals))
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .sleep))
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .cardioFitness))
+        // Metrics with no summary card of their own carry no chip.
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .bodyMass))
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .bodyFatPercentage))
+        XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .bodyMassIndex))
+
+        for kind in HealthMetricKind.allCases {
+            let card = BodyHomeCardKind.allCases.first { $0.healthMetricKind == kind }
+            XCTAssertEqual(
+                BodyHomeCardKind.betaVersionLabel(for: kind),
+                card?.betaVersionLabel,
+                "\(kind.rawValue) About card chip drifted from its summary card row"
+            )
+        }
     }
 
     func testDashboardFetchSelectionIncludesSleepForVitalsOnlySelection() {
@@ -3403,6 +3461,17 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         XCTAssertEqual(basics.nearestDate(to: selectedDate), bodyFatDate)
         XCTAssertNil(BasicsTrendSummary.empty.nearestDate(to: selectedDate))
+
+        let bodyMassIndexDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 20)))
+        let bodyMassIndexOnly = BasicsTrendSummary(
+            weight: .empty,
+            bodyFat: .empty,
+            bodyMassIndex: HealthTrendSeries(points: [
+                HealthTrendDataPoint(date: bodyMassIndexDate, value: 22.1)
+            ])
+        )
+
+        XCTAssertEqual(bodyMassIndexOnly.nearestDate(to: selectedDate), bodyMassIndexDate)
     }
 
     func testBasicsTrendSummaryRequiresUserSelectionDateForChartSelection() throws {
@@ -3537,6 +3606,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             [
                 .readiness,
                 .stress,
+                .bodyRadar,
                 .sleep,
                 .basics,
                 .heartRate,
@@ -3952,6 +4022,44 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(score.category(for: .pressure)?.valueDescription, "72 ms")
         XCTAssertEqual(snapshot.duration(for: .rem), 1.6 * 60 * 60, accuracy: 0.01)
         XCTAssertEqual(snapshot.duration(for: .deep), 1.2 * 60 * 60, accuracy: 0.01)
+    }
+
+    /// The temperature category carries the raw Celsius reading instead of a
+    /// pre-formatted string so the sheet can render it in the viewer's unit.
+    func testSleepScoreTemperatureCategoryCarriesCelsiusInsteadOfFormattedText() throws {
+        let startDate = try XCTUnwrap(Calendar.bodyGregorian.date(
+            from: DateComponents(year: 2026, month: 5, day: 11, hour: 2)
+        ))
+        let snapshot = SleepStageSnapshot(
+            date: Calendar.bodyGregorian.startOfDay(for: startDate),
+            segments: [
+                SleepStageSegment(
+                    stage: .core,
+                    startDate: startDate,
+                    endDate: startDate.addingTimeInterval(8 * 60 * 60)
+                )
+            ]
+        )
+        let summary = SleepSummary(
+            duration: 8 * 60 * 60,
+            stageSnapshot: snapshot,
+            vitals: SleepVitalsSummary(
+                heartRate: 55,
+                heartRateVariability: 72,
+                respiratoryRate: 14,
+                oxygenSaturation: 98,
+                wristTemperatureCelsius: 36.4
+            )
+        )
+        let score = try XCTUnwrap(summary.score)
+        let temperature = try XCTUnwrap(score.category(for: .temperature))
+
+        XCTAssertEqual(temperature.temperatureCelsius, 36.4)
+        XCTAssertNil(temperature.valueDescription)
+        // Every other category keeps its own formatted string and no Celsius.
+        for category in score.categories where category.kind != .temperature {
+            XCTAssertNil(category.temperatureCelsius)
+        }
     }
 
     func testSleepScoreNormalizesToAvailableContributors() throws {
@@ -4515,6 +4623,81 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(napped.points, plain.points)
         XCTAssertEqual(napped.points, 15)
         XCTAssertEqual(napped.valueDescription, plain.valueDescription)
+    }
+
+    // MARK: - Naps excluded from continuity
+
+    /// An 8h main sleep session (23:00–07:00) with a 40-minute interior awake
+    /// segment: merged-asleep is 7h20m, so efficiency is `1 - 40/480 → 92%`.
+    /// `includeNap` appends a 72-minute afternoon nap 7h after wake, outside
+    /// the night; `pinInterval` controls whether `mainSessionInterval` is
+    /// stamped at all (false models a legacy, interval-less cache).
+    private func continuityNight(includeNap: Bool, pinInterval: Bool = true) throws -> SleepDaySummary {
+        let calendar = Calendar.bodyGregorian
+        let dayDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20)))
+        let bed = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 6, day: 19, hour: 23)
+        ))
+        let wake = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 6, day: 20, hour: 7)
+        ))
+        let awakeStart = bed.addingTimeInterval(4 * 60 * 60)
+        let awakeEnd = awakeStart.addingTimeInterval(40 * 60)
+
+        var segments: [SleepStageSegment] = [
+            SleepStageSegment(stage: .core, startDate: bed, endDate: awakeStart),
+            SleepStageSegment(stage: .awake, startDate: awakeStart, endDate: awakeEnd),
+            SleepStageSegment(stage: .core, startDate: awakeEnd, endDate: wake)
+        ]
+
+        if includeNap {
+            let napStart = wake.addingTimeInterval(7 * 60 * 60)
+            segments.append(SleepStageSegment(
+                stage: .core,
+                startDate: napStart,
+                endDate: napStart.addingTimeInterval(72 * 60)
+            ))
+        }
+
+        var snapshot = SleepStageSnapshot(date: dayDate, segments: segments)
+        if pinInterval {
+            snapshot.mainSessionInterval = DateInterval(start: bed, end: wake)
+        }
+
+        return SleepDaySummary(
+            date: dayDate,
+            summary: SleepSummary(
+                duration: wake.timeIntervalSince(bed) - 40 * 60,
+                stageSnapshot: snapshot
+            )
+        )
+    }
+
+    func testContinuityIgnoresAfternoonNap() throws {
+        let plain = try continuityNight(includeNap: false)
+        let napped = try continuityNight(includeNap: true)
+
+        let plainContinuity = try XCTUnwrap(
+            SleepScoreSummary(sleep: plain.summary, on: plain.date)?.category(for: .continuity)
+        )
+        let nappedContinuity = try XCTUnwrap(
+            SleepScoreSummary(sleep: napped.summary, on: napped.date)?.category(for: .continuity)
+        )
+
+        XCTAssertEqual(plainContinuity.valueDescription, "92%")
+        XCTAssertEqual(nappedContinuity.valueDescription, "92%")
+        XCTAssertEqual(nappedContinuity.points, plainContinuity.points)
+    }
+
+    func testContinuityUsesMainSessionEfficiencyWithoutInterval() throws {
+        // No `mainSessionInterval` (legacy cache / nap-free fixture): `mainSession`
+        // returns `self`, so the whole-day snapshot is scored; it still reads 92%
+        // since there is no nap to inflate the denominator.
+        let legacy = try continuityNight(includeNap: false, pinInterval: false)
+        let continuity = try XCTUnwrap(
+            SleepScoreSummary(sleep: legacy.summary, on: legacy.date)?.category(for: .continuity)
+        )
+        XCTAssertEqual(continuity.valueDescription, "92%")
     }
 
     func testSleepScoreCommentSummarizesScoreBand() {
@@ -5376,8 +5559,9 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(ActivityRingMetric(value: nil, goal: 10).headProgress, 0)
         XCTAssertEqual(ActivityRingMetric(value: 0, goal: 10).headProgress, 0)
         XCTAssertEqual(ActivityRingMetric(value: 8, goal: 10).headProgress, 0.8, accuracy: 0.001)
-        XCTAssertEqual(ActivityRingMetric(value: 10, goal: 10).headProgress, 0, accuracy: 0.001)
+        XCTAssertEqual(ActivityRingMetric(value: 10, goal: 10).headProgress, 1, accuracy: 0.001)
         XCTAssertEqual(ActivityRingMetric(value: 13.4, goal: 10).headProgress, 0.34, accuracy: 0.001)
+        XCTAssertEqual(ActivityRingMetric(value: 20, goal: 10).headProgress, 1, accuracy: 0.001)
     }
 
     func testActivityRingMetricShowsFullStartMarkerOnlyAtZeroProgress() {
@@ -5465,13 +5649,12 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             exercise: ActivityRingMetric(value: 12, goal: 30),
             stand: ActivityRingMetric(value: 4, goal: 12)
         )
-        let existingHistory = ActivityRingHistorySnapshot(
+        // A loaded-but-empty March alongside a populated April: March must stay in
+        // the loaded set without inserting placeholder months before April.
+        let mergedHistory = ActivityRingHistorySnapshot(
             days: [ActivityRingDaySummary(date: april2, summary: aprilSummary)],
-            loadedMonthKeys: [aprilKey]
+            loadedMonthKeys: [marchKey, aprilKey]
         )
-        let emptyMarchHistory = ActivityRingHistorySnapshot(days: [], loadedMonthKeys: [marchKey])
-
-        let mergedHistory = existingHistory.merging(emptyMarchHistory, calendar: calendar)
         let months = mergedHistory.calendarMonths(calendar: calendar, date: currentDate)
 
         XCTAssertEqual(mergedHistory.loadedMonthKeySet(calendar: calendar), [marchKey, aprilKey])
@@ -5575,7 +5758,8 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
                 ActivityRingDaySummary(date: march2, summary: summary),
                 ActivityRingDaySummary(date: march3, summary: summary)
             ],
-            loadedMonthKeys: [januaryKey, februaryKey, marchKey]
+            loadedMonthKeys: [januaryKey, februaryKey, marchKey],
+            validatedMonthKeys: [] // Deliberately unproven legacy coverage.
         )
 
         let repairedHistory = corruptedHistory.removingLikelyBoundaryTruncatedLoadedMonths(
@@ -6243,5 +6427,239 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
             on: night.date,
             calendar: try fixedCalendar(scoringZone)
         ))
+    }
+
+    // MARK: - M-24: permission strips must not regroup workouts by time zone
+
+    /// `removingWorkoutMetrics(calendar:)` must map each day's workouts in
+    /// place rather than regrouping them by `dateKey` through `calendar`. A
+    /// near-midnight workout built under one time zone and stripped under a
+    /// different, far-behind zone would, under the old `.make(...)`-based
+    /// implementation, get reassigned to a `dateKey` computed from the new
+    /// calendar's rendering of its `startDate`. Asia/Tokyo (UTC+9) is 17 hours
+    /// ahead of America/Los_Angeles (UTC-8 in January), so a workout logged
+    /// just after midnight on January 1st in Tokyo renders as December 31st in
+    /// Los Angeles, which falls outside the snapshot's January day range and
+    /// is silently dropped by the old grouping. Confirms the fix by asserting
+    /// the workout survives under its original `dateKey`.
+    func testRemovingWorkoutMetricsKeepsNearMidnightWorkoutUnderOriginalDateKeyAcrossTimeZoneChange() throws {
+        var tokyoCalendar = Calendar(identifier: .gregorian)
+        tokyoCalendar.firstWeekday = 1
+        tokyoCalendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+
+        let startDate = try XCTUnwrap(
+            tokyoCalendar.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 0, minute: 15))
+        )
+
+        let workout = WorkoutSummary(
+            id: UUID(),
+            type: .running,
+            startDate: startDate,
+            duration: 1_800,
+            activeEnergyKilocalories: 200,
+            distanceMeters: 3_000,
+            sourceName: "Tests"
+        )
+
+        let originalSnapshot = WorkoutMonthSnapshot.make(
+            month: 1,
+            year: 2026,
+            workouts: [workout],
+            calendar: tokyoCalendar
+        )
+
+        let originalDay = try XCTUnwrap(originalSnapshot.days.first { !$0.workouts.isEmpty })
+        XCTAssertEqual(originalDay.dateKey, "2026-01-01")
+
+        var losAngelesCalendar = Calendar(identifier: .gregorian)
+        losAngelesCalendar.firstWeekday = 1
+        losAngelesCalendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+
+        // Sanity check that this fixture actually crosses the month boundary
+        // under the stripping calendar, which is what the old implementation
+        // would have used to (mis)regroup the workout and drop it.
+        let renderedInLosAngeles = losAngelesCalendar.dateComponents([.year, .month, .day], from: startDate)
+        XCTAssertEqual(renderedInLosAngeles.month, 12)
+
+        let strippedSnapshot = originalSnapshot.removingWorkoutMetrics(calendar: losAngelesCalendar)
+
+        let strippedDay = try XCTUnwrap(strippedSnapshot.days.first { $0.dateKey == "2026-01-01" })
+        XCTAssertEqual(strippedDay.workouts.count, 1)
+        XCTAssertEqual(strippedDay.workouts.first?.id, workout.id)
+        XCTAssertEqual(strippedSnapshot.workoutCount, 1)
+    }
+
+    // MARK: - M-10 / A5: workout day resolved through the time-zone ledger
+
+    /// Los Angeles calendar, workout recorded just after midnight in Tokyo: the
+    /// resolved zone puts it on the 16th, the grouping calendar's own zone would
+    /// put it on the 15th.
+    func testWorkoutDayResolvesThroughTheSuppliedTimeZone() throws {
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.firstWeekday = 1
+        losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let startDate = try XCTUnwrap(tokyo.date(
+            from: DateComponents(year: 2026, month: 6, day: 16, hour: 0, minute: 30)
+        ))
+        let workout = travelWorkout(startDate: startDate)
+
+        XCTAssertEqual(losAngeles.dateComponents([.day], from: startDate).day, 15)
+
+        let resolved = WorkoutMonthSnapshot.make(
+            month: 6,
+            year: 2026,
+            workouts: [workout],
+            calendar: losAngeles,
+            timeZoneIdentifier: { _ in "Asia/Tokyo" }
+        )
+
+        XCTAssertEqual(resolved.day(16)?.workoutCount, 1)
+        XCTAssertEqual(resolved.day(15)?.workoutCount, 0)
+        XCTAssertEqual(resolved.workoutCount, 1)
+    }
+
+    /// A resolved zone that would push the workout into the neighbouring month
+    /// is refused: `make` only keeps keys inside the month it is building, so
+    /// honouring it would drop the workout from this month without adding it to
+    /// the next one.
+    func testResolvedZoneThatLeavesTheMonthFallsBackToTheCalendarDay() throws {
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.firstWeekday = 1
+        losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let startDate = try XCTUnwrap(tokyo.date(
+            from: DateComponents(year: 2026, month: 7, day: 1, hour: 0, minute: 30)
+        ))
+        let workout = travelWorkout(startDate: startDate)
+
+        XCTAssertEqual(losAngeles.dateComponents([.month, .day], from: startDate).day, 30)
+
+        let resolved = WorkoutMonthSnapshot.make(
+            month: 6,
+            year: 2026,
+            workouts: [workout],
+            calendar: losAngeles,
+            timeZoneIdentifier: { _ in "Asia/Tokyo" }
+        )
+
+        XCTAssertEqual(resolved.day(30)?.workoutCount, 1)
+        XCTAssertEqual(resolved.workoutCount, 1)
+    }
+
+    func testNilTimeZoneResolverKeepsTheCalendarZoneGrouping() throws {
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.firstWeekday = 1
+        losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let startDate = try XCTUnwrap(tokyo.date(
+            from: DateComponents(year: 2026, month: 6, day: 16, hour: 0, minute: 30)
+        ))
+        let workouts = [travelWorkout(startDate: startDate)]
+
+        let unresolved = WorkoutMonthSnapshot.make(month: 6, year: 2026, workouts: workouts, calendar: losAngeles)
+        let nilResolver = WorkoutMonthSnapshot.make(
+            month: 6,
+            year: 2026,
+            workouts: workouts,
+            calendar: losAngeles,
+            timeZoneIdentifier: { _ in nil }
+        )
+
+        XCTAssertEqual(unresolved.day(15)?.workoutCount, 1)
+        XCTAssertEqual(
+            nilResolver.days.map(\.dateKey),
+            unresolved.days.map(\.dateKey)
+        )
+        XCTAssertEqual(
+            nilResolver.days.map { $0.workouts.map(\.id) },
+            unresolved.days.map { $0.workouts.map(\.id) }
+        )
+    }
+
+    /// A resolver naming a zone the system does not know is ignored the same way
+    /// `nil` is, rather than being allowed to move (or drop) the workout.
+    func testUnknownTimeZoneIdentifierFallsBackToTheCalendarDay() throws {
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.firstWeekday = 1
+        losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let startDate = try XCTUnwrap(tokyo.date(
+            from: DateComponents(year: 2026, month: 6, day: 16, hour: 0, minute: 30)
+        ))
+
+        let resolved = WorkoutMonthSnapshot.make(
+            month: 6,
+            year: 2026,
+            workouts: [travelWorkout(startDate: startDate)],
+            calendar: losAngeles,
+            timeZoneIdentifier: { _ in "Not/AZone" }
+        )
+
+        XCTAssertEqual(resolved.day(15)?.workoutCount, 1)
+        XCTAssertNil(resolved.day(15)?.timeZoneIdentifier)
+    }
+
+    /// The day carries the zone that won for it, so the rows under a day title can
+    /// print their date and time in the zone the title means. The "removing"
+    /// mappers rebuild every day in place and must carry it through, or stripping
+    /// a permission would silently re-day the rows.
+    func testResolvedDayCarriesItsZoneAndTheMappersPreserveIt() throws {
+        var losAngeles = Calendar(identifier: .gregorian)
+        losAngeles.firstWeekday = 1
+        losAngeles.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let startDate = try XCTUnwrap(tokyo.date(
+            from: DateComponents(year: 2026, month: 6, day: 16, hour: 0, minute: 30)
+        ))
+
+        let resolved = WorkoutMonthSnapshot.make(
+            month: 6,
+            year: 2026,
+            workouts: [travelWorkout(startDate: startDate)],
+            calendar: losAngeles,
+            timeZoneIdentifier: { _ in "Asia/Tokyo" }
+        )
+
+        XCTAssertEqual(resolved.day(16)?.timeZoneIdentifier, "Asia/Tokyo")
+        // A day the resolver never spoke for stays unzoned.
+        XCTAssertNil(resolved.day(15)?.timeZoneIdentifier)
+        XCTAssertEqual(resolved.removingWorkoutMetrics().day(16)?.timeZoneIdentifier, "Asia/Tokyo")
+        XCTAssertEqual(resolved.removingHeartRateRecovery().day(16)?.timeZoneIdentifier, "Asia/Tokyo")
+
+        // Old snapshots (and every caller that passes no resolver) decode and
+        // build with no zone, which the rows read as "use the current zone".
+        let encoded = try JSONEncoder().encode(resolved)
+        let decoded = try JSONDecoder().decode(WorkoutMonthSnapshot.self, from: encoded)
+        XCTAssertEqual(decoded.day(16)?.timeZoneIdentifier, "Asia/Tokyo")
+        XCTAssertNil(
+            WorkoutMonthSnapshot.make(month: 6, year: 2026, workouts: [], calendar: losAngeles).day(16)?.timeZoneIdentifier
+        )
+    }
+
+    private func travelWorkout(startDate: Date) -> WorkoutSummary {
+        WorkoutSummary(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000777") ?? UUID(),
+            type: .running,
+            startDate: startDate,
+            duration: 1_800,
+            activeEnergyKilocalories: 200,
+            distanceMeters: 4_000,
+            sourceName: "Tests"
+        )
+    }
+
+    // MARK: - L-23: `bodyGregorian` caching
+
+    func testBodyGregorianUsesSundayFirstWeekdayAndCurrentTimeZone() {
+        let calendar = Calendar.bodyGregorian
+
+        XCTAssertEqual(calendar.firstWeekday, 1)
+        XCTAssertEqual(calendar.timeZone, TimeZone.current)
     }
 }

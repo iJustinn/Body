@@ -233,6 +233,87 @@ enum MetricThresholdWarning {
         return DateInterval(start: start, end: end)
     }
 
+    /// Roughly how many dots the warning chart's plot width fits without the
+    /// rings piling on top of each other.
+    static let chartPointMarkLimit = 36
+
+    /// The readings the chart draws a dot on. A watch writes heart rate every
+    /// few seconds, so an episode's window can hold hundreds of readings and
+    /// their rings stack into a solid band. The line still runs through every
+    /// reading; the dots are thinned to evenly spaced slots across the window,
+    /// and a slot holding a past-threshold reading keeps that one, so the
+    /// readings the warning is about are never the ones summarized away.
+    static func chartPointMarks(
+        for points: [HealthTrendDataPoint],
+        in window: DateInterval,
+        of event: MetricWarningEvent,
+        limit: Int = chartPointMarkLimit
+    ) -> [HealthTrendDataPoint] {
+        guard points.count > limit, limit > 0, window.duration > 0 else {
+            return points
+        }
+
+        let slotWidth = window.duration / Double(limit)
+        var marks: [HealthTrendDataPoint] = []
+        marks.reserveCapacity(limit + 1)
+
+        var openSlot: Int?
+        var candidate: HealthTrendDataPoint?
+
+        for point in points.sorted(by: { $0.date < $1.date }) {
+            let elapsed = point.date.timeIntervalSince(window.start)
+            let slot = min(limit - 1, max(0, Int(elapsed / slotWidth)))
+
+            guard slot == openSlot, let current = candidate else {
+                if let candidate {
+                    marks.append(candidate)
+                }
+                openSlot = slot
+                candidate = point
+                continue
+            }
+
+            let center = window.start.addingTimeInterval((Double(slot) + 0.5) * slotWidth)
+            candidate = preferredMark(current, over: point, slotCenter: center, of: event)
+        }
+
+        if let candidate {
+            marks.append(candidate)
+        }
+
+        return marks
+    }
+
+    /// Which of two readings in the same slot gets the dot: a past-threshold
+    /// reading over an ordinary one, the more extreme of two past-threshold
+    /// ones, and otherwise the reading nearest the slot's center, so the dots
+    /// stay evenly spaced along the line.
+    private static func preferredMark(
+        _ lhs: HealthTrendDataPoint,
+        over rhs: HealthTrendDataPoint,
+        slotCenter: Date,
+        of event: MetricWarningEvent
+    ) -> HealthTrendDataPoint {
+        let isPastThreshold: (Double) -> Bool = { value in
+            event.kind.isAbove ? value > event.threshold : value < event.threshold
+        }
+        let lhsIsPastThreshold = isPastThreshold(lhs.value)
+
+        guard lhsIsPastThreshold == isPastThreshold(rhs.value) else {
+            return lhsIsPastThreshold ? lhs : rhs
+        }
+
+        if lhsIsPastThreshold {
+            if event.kind.isAbove {
+                return lhs.value >= rhs.value ? lhs : rhs
+            }
+            return lhs.value <= rhs.value ? lhs : rhs
+        }
+
+        let lhsDistance = abs(lhs.date.timeIntervalSince(slotCenter))
+        return lhsDistance <= abs(rhs.date.timeIntervalSince(slotCenter)) ? lhs : rhs
+    }
+
     private struct Pair: Hashable {
         var date: Date
         var value: Double

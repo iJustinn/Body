@@ -99,10 +99,7 @@ enum WorkoutRoute3DProjection {
     /// altitudes read off the result stay index-aligned with the points it returns
     /// (it re-filters the already-filtered input harmlessly).
     private static func filteredCoordinates(_ coordinates: [RouteCoordinate]) -> [RouteCoordinate] {
-        coordinates.filter {
-            $0.latitude.isFinite && $0.longitude.isFinite &&
-            abs($0.latitude) <= 90 && abs($0.longitude) <= 180
-        }
+        coordinates.drawable
     }
 
     /// Deck + relief per fix, or `nil` when too few fixes carry a usable altitude. A

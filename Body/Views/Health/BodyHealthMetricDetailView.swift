@@ -29,6 +29,9 @@ struct BodyHealthMetricDetailModel {
     /// empty-state split and the time-in-band breakdown both read it directly
     /// rather than re-parsing `value`.
     let stress: StressDaySummary?
+    /// The frozen nights behind the Body Radar page: the band chart and the
+    /// signal rows both read them, so nothing is re-derived from `value`.
+    let bodyRadar: BodyRadarSummary?
     /// Live training-load ratio behind `value`, unformatted — the About your interval
     /// card marks the band it falls in while nothing is scrubbed.
     let trainingLoadValue: Double?
@@ -76,6 +79,7 @@ struct BodyHealthMetricDetailModel {
         secondaryValueFormatter: ((Double) -> String)?,
         readiness: ReadinessSummary? = nil,
         stress: StressDaySummary? = nil,
+        bodyRadar: BodyRadarSummary? = nil,
         trainingLoadValue: Double? = nil,
         cardioFitnessValue: Double? = nil,
         cardioFitnessProfile: CardioFitnessProfile? = nil,
@@ -105,6 +109,7 @@ struct BodyHealthMetricDetailModel {
         self.sleepHistorySecondary = sleepHistorySecondary
         self.readiness = readiness
         self.stress = stress
+        self.bodyRadar = bodyRadar
         self.trainingLoadValue = trainingLoadValue
         self.cardioFitnessValue = cardioFitnessValue
         self.cardioFitnessProfile = cardioFitnessProfile
@@ -235,7 +240,7 @@ enum BodyMetricActivityAverages {
             }
 
             let sampleAverage = average(in: workoutInterval, from: heartRateSeries)
-                ?? average(in: workoutInterval, from: workout.heartRateSamples ?? [])
+                ?? average(in: workoutInterval, from: workout.heartRateSamples)
             let fallbackAverage = workout.averageHeartRateBeatsPerMinute
                 .flatMap { $0.isFinite ? $0 : nil }
             guard let average = sampleAverage ?? fallbackAverage else {
@@ -393,7 +398,7 @@ enum BodyMetricDetailDatePicker {
 }
 
 struct BodyHealthMetricDetailView: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.workoutColorPalette) private var workoutColorPalette
@@ -426,14 +431,22 @@ struct BodyHealthMetricDetailView: View {
     @State private var showsDataSourcePicker = false
     @State private var showsAddMeasurementSheet = false
     @State private var showsReadinessImpactExplanation = false
-    @State private var activeReadinessTrendValue: Double?
-    @State private var activeTrainingLoadTrendValue: Double?
-    @State private var activeCardioFitnessTrendValue: Double?
+    /// Scrubbed trend value, in an observable box rather than three `@State`
+    /// properties: only the small reader around the About card reads it, so a
+    /// scrub frame no longer re-evaluates the whole page body.
+    @State private var activeTrendValues = BodyActiveTrendValueState()
+    /// One anchor for every chart on the page, captured when it opens. Each
+    /// chart used to default to its own `Date()`, so a slow render could grid
+    /// two charts against different "today"s; a stable anchor also lets the
+    /// per-range point caches hit across renders.
+    @State private var chartAnchorDate = Date()
     /// 220 − age, for the high heart rate warning's zone-3 default threshold.
     @State private var resolvedMaxHeartRate: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
     @StateObject private var sleepConsistencyCache = BodySleepConsistencyChartCache()
+    @StateObject private var workoutIndex = BodyCachedWorkoutIndex()
+    @StateObject private var rangePointsCache = BodyTrendRangePointsCache()
 
     init(
         model: BodyHealthMetricDetailModel,
@@ -513,6 +526,10 @@ struct BodyHealthMetricDetailView: View {
         // and reopens the detail. Re-running here pulls the full window (an empty
         // cache has no incremental anchor). The flip also re-runs this on a lapse,
         // which is what clears the line in place.
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            // The page can sit open across midnight; re-anchor so "today" moves.
+            chartAnchorDate = Date()
+        }
         .task(id: isBodyProUnlocked) {
             await workoutStore.loadIntradayMetricSamplesIfNeeded(model.kind)
         }
@@ -590,7 +607,7 @@ struct BodyHealthMetricDetailView: View {
         }
         .sheet(isPresented: $showsDataSourcePicker) {
             BodyHealthDataSourcePickerSheet(kind: model.kind, accentColor: model.symbolColor)
-                .environmentObject(workoutStore)
+                .environment(workoutStore)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -600,7 +617,7 @@ struct BodyHealthMetricDetailView: View {
                 initialWeightKilograms: workoutStore.healthSummary.bodyMass.value,
                 initialBodyFatPercent: workoutStore.healthSummary.bodyFatPercentage.value
             )
-            .environmentObject(workoutStore)
+            .environment(workoutStore)
         }
     }
 
@@ -721,7 +738,8 @@ struct BodyHealthMetricDetailView: View {
              .wristTemperature,
              .timeInDaylight,
              .cardioFitness,
-             .vitals:
+             .vitals,
+             .bodyRadar:
             return false
         }
     }
@@ -748,25 +766,25 @@ struct BodyHealthMetricDetailView: View {
         return DateInterval(start: dayStart, end: nextDayStart)
     }
 
-    private var activeReadinessStatus: ReadinessStatus? {
+    private func readinessStatus(forActiveTrendValue activeValue: Double?) -> ReadinessStatus? {
         guard model.kind == .readiness else {
             return nil
         }
 
-        if let activeReadinessTrendValue, activeReadinessTrendValue.isFinite {
-            return ReadinessStatus.status(for: Int(activeReadinessTrendValue.rounded()))
+        if let activeValue, activeValue.isFinite {
+            return ReadinessStatus.status(for: Int(activeValue.rounded()))
         }
 
         return model.readiness?.status
     }
 
-    private var activeTrainingLoadInterval: TrainingLoadInterval? {
+    private func trainingLoadInterval(forActiveTrendValue activeValue: Double?) -> TrainingLoadInterval? {
         guard model.kind == .trainingLoad else {
             return nil
         }
 
-        if let activeTrainingLoadTrendValue, activeTrainingLoadTrendValue.isFinite {
-            return TrainingLoadInterval.interval(for: activeTrainingLoadTrendValue)
+        if let activeValue, activeValue.isFinite {
+            return TrainingLoadInterval.interval(for: activeValue)
         }
 
         return TrainingLoadInterval.interval(for: model.trainingLoadValue)
@@ -799,14 +817,14 @@ struct BodyHealthMetricDetailView: View {
         return [cutoffs.p20, cutoffs.p50, cutoffs.p75]
     }
 
-    private var activeCardioFitnessLevel: CardioFitnessLevel? {
+    private func cardioFitnessLevel(forActiveTrendValue activeValue: Double?) -> CardioFitnessLevel? {
         guard model.kind == .cardioFitness else {
             return nil
         }
 
-        if let activeCardioFitnessTrendValue, activeCardioFitnessTrendValue.isFinite {
+        if let activeValue, activeValue.isFinite {
             return CardioFitnessLevel.level(
-                for: activeCardioFitnessTrendValue,
+                for: activeValue,
                 profile: model.cardioFitnessProfile
             )
         }
@@ -820,13 +838,14 @@ struct BodyHealthMetricDetailView: View {
     /// Scrub report-out channel for the metrics whose About card marks the band the
     /// touched point falls in; other metrics don't track it.
     private var activeTrendValueBinding: Binding<Double?>? {
+        let values = activeTrendValues
         switch model.kind {
         case .readiness:
-            return $activeReadinessTrendValue
+            return Binding { values.readiness } set: { values.readiness = $0 }
         case .trainingLoad:
-            return $activeTrainingLoadTrendValue
+            return Binding { values.trainingLoad } set: { values.trainingLoad = $0 }
         case .cardioFitness:
-            return $activeCardioFitnessTrendValue
+            return Binding { values.cardioFitness } set: { values.cardioFitness = $0 }
         default:
             return nil
         }
@@ -1123,9 +1142,22 @@ struct BodyHealthMetricDetailView: View {
     private var helpTextCard: some View {
         if let helpText = model.helpText {
             VStack(alignment: .leading, spacing: 10) {
-                Text(helpText.title)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
+                HStack(spacing: 8) {
+                    Text(helpText.title)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+
+                    // Same chip the metric's row carries in Settings > Metrics >
+                    // Summary Cards, read from the one source so the two agree.
+                    if let betaVersionLabel = BodyHomeCardKind.betaVersionLabel(for: model.kind) {
+                        Text(betaVersionLabel)
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.blue.opacity(0.14), in: Capsule())
+                    }
+                }
 
                 Text(helpText.body)
                     .font(.system(.body, design: .rounded))
@@ -1462,22 +1494,31 @@ struct BodyHealthMetricDetailView: View {
     // at the bottom-left.
     private var metricHero: some View {
         VStack(alignment: .leading, spacing: 14) {
-            BodyHealthTrendRangeSelector(
-                // Bind to the effective (clamped) range, not the raw selection, so a
-                // locked pill can't appear selected while the chart renders Week.
-                selectedRange: Binding(
-                    get: { selectedTrendRange },
-                    set: { selectedTrendRangeSelection = $0 }
-                ),
-                appearance: .onGradient,
-                isProUnlocked: isBodyProUnlocked,
-                onLockedRangeTap: { showBodyProPaywall = true }
-            )
-            .sheet(isPresented: $showBodyProPaywall) {
-                NavigationStack { BodyProView() }
+            // Body Radar only ever holds the last three weeks of frozen nights, so the
+            // range pills would toggle between identical charts.
+            if !isBodyRadarDetail {
+                BodyHealthTrendRangeSelector(
+                    // Bind to the effective (clamped) range, not the raw selection, so a
+                    // locked pill can't appear selected while the chart renders Week.
+                    selectedRange: Binding(
+                        get: { selectedTrendRange },
+                        set: { selectedTrendRangeSelection = $0 }
+                    ),
+                    appearance: .onGradient,
+                    isProUnlocked: isBodyProUnlocked,
+                    onLockedRangeTap: { showBodyProPaywall = true }
+                )
+                .sheet(isPresented: $showBodyProPaywall) {
+                    NavigationStack { BodyProView() }
+                }
             }
 
-            if vitalsNeedsMoreSleepData {
+            if isBodyRadarDetail {
+                BodyRadarChart(
+                    nights: model.bodyRadar?.recentNights ?? [],
+                    floatingCallout: floatingCallout
+                )
+            } else if vitalsNeedsMoreSleepData {
                 // The calibration notice replaces the outlier hero: without a
                 // baseline the typical band and axes would chart nothing real.
                 Text("Vitals needs about two weeks of sleep data to learn your typical ranges.")
@@ -1536,6 +1577,9 @@ struct BodyHealthMetricDetailView: View {
             }
             helpTextCard
             dataSourceFooter
+        } else if isBodyRadarDetail {
+            helpTextCard
+            dataSourceFooter
         } else {
             if isBasicsDetail {
                 basicsRangeCard
@@ -1555,14 +1599,22 @@ struct BodyHealthMetricDetailView: View {
                 basicsMetricTrendCard(for: .bodyMass)
                 basicsMetricTrendCard(for: .bodyFatPercentage)
             }
+            // Each About card reads the scrubbed value inside its own reader, so
+            // a scrub frame re-evaluates only the card, not this page body.
             if model.kind == .readiness, let readiness = model.readiness {
-                readinessWhyCard(for: readiness, activeStatus: activeReadinessStatus)
+                BodyActiveTrendValueReader(state: activeTrendValues, value: \.readiness) { activeValue in
+                    readinessWhyCard(for: readiness, activeStatus: readinessStatus(forActiveTrendValue: activeValue))
+                }
             }
             if model.kind == .trainingLoad {
-                trainingLoadIntervalCard(activeInterval: activeTrainingLoadInterval)
+                BodyActiveTrendValueReader(state: activeTrendValues, value: \.trainingLoad) { activeValue in
+                    trainingLoadIntervalCard(activeInterval: trainingLoadInterval(forActiveTrendValue: activeValue))
+                }
             }
             if model.kind == .cardioFitness {
-                cardioFitnessLevelCard(activeLevel: activeCardioFitnessLevel)
+                BodyActiveTrendValueReader(state: activeTrendValues, value: \.cardioFitness) { activeValue in
+                    cardioFitnessLevelCard(activeLevel: cardioFitnessLevel(forActiveTrendValue: activeValue))
+                }
             }
             helpTextCard
             dataSourceFooter
@@ -1583,6 +1635,9 @@ struct BodyHealthMetricDetailView: View {
             // The headline follows the chart: it reads the visible range, not the
             // single latest night the home card shows.
             BodyMetricStatusValueText(text: vitalsHeroStatusText, fontSize: 40)
+        } else if isBodyRadarDetail {
+            // A verdict, not a number: the same word treatment Vitals uses.
+            BodyMetricStatusValueText(text: model.value, fontSize: 40)
         } else if !model.value.isEmpty {
             heroBigValue(model.value, unit: model.unit)
         } else if let firstMetric = model.headerMetrics.first {
@@ -1611,7 +1666,21 @@ struct BodyHealthMetricDetailView: View {
     // the hero's value row.
     @ViewBuilder
     private var heroValueTrailing: some View {
-        if model.kind == .basics {
+        if isBodyRadarDetail {
+            // A verdict has no average to show, so the slot names the window the
+            // chart covers instead.
+            Text(
+                String(
+                    localized: "bodyRadar.detail.recentNights",
+                    defaultValue: "Last 21 Nights"
+                )
+            )
+            .font(.system(.subheadline, design: .rounded))
+            .fontWeight(.semibold)
+            .foregroundColor(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+        } else if model.kind == .basics {
             BodyBasicsTrendLegend(
                 weightColor: model.symbolColor,
                 bodyFatColor: basicsBodyFatColor,
@@ -1674,7 +1743,19 @@ struct BodyHealthMetricDetailView: View {
                     BodyValueFormat.numberText($0, decimals: 1) + "%"
                 },
                 immersive: immersive,
-                floatingCallout: immersive ? floatingCallout : nil
+                floatingCallout: immersive ? floatingCallout : nil,
+                weightPointsByRange: rangePointsCache.points(
+                    for: basicsTrend.weight,
+                    style: .basicsLine,
+                    date: chartAnchorDate,
+                    slot: .weight
+                ),
+                bodyFatPointsByRange: rangePointsCache.points(
+                    for: basicsTrend.bodyFat,
+                    style: .basicsLine,
+                    date: chartAnchorDate,
+                    slot: .bodyFat
+                )
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend,
@@ -1692,7 +1773,19 @@ struct BodyHealthMetricDetailView: View {
                 showsAverageLineOverlay: true,
                 immersive: immersive,
                 yDomain: metricRangeYDomain,
-                floatingCallout: immersive ? floatingCallout : nil
+                floatingCallout: immersive ? floatingCallout : nil,
+                primaryPointsByRange: rangePointsCache.rangePoints(
+                    for: sourceRangeComparisonTrend.primary.series,
+                    style: .bars,
+                    date: chartAnchorDate,
+                    slot: .primary
+                ),
+                secondaryPointsByRange: rangePointsCache.rangePoints(
+                    for: sourceRangeComparisonTrend.secondary.series,
+                    style: .bars,
+                    date: chartAnchorDate,
+                    slot: .secondary
+                )
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
@@ -1708,7 +1801,20 @@ struct BodyHealthMetricDetailView: View {
                 // Range switches must UPDATE the comparison charts so they
                 // morph between ranges; metric/variant changes still reset them.
                 chartIdentity: "\(model.kind.rawValue)-source-range-comparison",
-                floatingCallout: immersive ? floatingCallout : nil
+                floatingCallout: immersive ? floatingCallout : nil,
+                date: chartAnchorDate,
+                primaryPointsByRange: rangePointsCache.rangePoints(
+                    for: sourceRangeComparisonTrend.primary.series,
+                    style: .sourceComparison,
+                    date: chartAnchorDate,
+                    slot: .primary
+                ),
+                secondaryPointsByRange: rangePointsCache.rangePoints(
+                    for: sourceRangeComparisonTrend.secondary.series,
+                    style: .sourceComparison,
+                    date: chartAnchorDate,
+                    slot: .secondary
+                )
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if usesRangeTrendChart, let metricRangeSeries = model.rangeSeries {
@@ -1722,7 +1828,13 @@ struct BodyHealthMetricDetailView: View {
                 showsAverageLineOverlay: model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .stress,
                 immersive: immersive,
                 yDomain: metricRangeYDomain,
-                floatingCallout: immersive ? floatingCallout : nil
+                floatingCallout: immersive ? floatingCallout : nil,
+                primaryPointsByRange: rangePointsCache.rangePoints(
+                    for: metricRangeSeries,
+                    style: .bars,
+                    date: chartAnchorDate,
+                    slot: .primary
+                )
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceComparisonTrend = model.sourceComparisonTrend {
@@ -1735,7 +1847,20 @@ struct BodyHealthMetricDetailView: View {
                 valueFormatter: model.valueFormatter,
                 immersive: immersive,
                 chartIdentity: "\(model.kind.rawValue)-source-comparison",
-                floatingCallout: immersive ? floatingCallout : nil
+                floatingCallout: immersive ? floatingCallout : nil,
+                date: chartAnchorDate,
+                primaryPointsByRange: rangePointsCache.points(
+                    for: sourceComparisonTrend.primary.series,
+                    style: .sourceComparison,
+                    date: chartAnchorDate,
+                    slot: .primary
+                ),
+                secondaryPointsByRange: rangePointsCache.points(
+                    for: sourceComparisonTrend.secondary.series,
+                    style: .sourceComparison,
+                    date: chartAnchorDate,
+                    slot: .secondary
+                )
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
@@ -1749,7 +1874,20 @@ struct BodyHealthMetricDetailView: View {
                 isSleepDetail: isSleepDetail,
                 immersive: immersive,
                 chartIdentity: "\(model.kind.rawValue)-source-line-comparison",
-                floatingCallout: immersive ? floatingCallout : nil
+                floatingCallout: immersive ? floatingCallout : nil,
+                date: chartAnchorDate,
+                primaryPointsByRange: rangePointsCache.points(
+                    for: sourceLineComparisonTrend.primary.series,
+                    style: .line,
+                    date: chartAnchorDate,
+                    slot: .primary
+                ),
+                secondaryPointsByRange: rangePointsCache.points(
+                    for: sourceLineComparisonTrend.secondary.series,
+                    style: .line,
+                    date: chartAnchorDate,
+                    slot: .secondary
+                )
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else if model.kind == .vitals {
@@ -1759,7 +1897,12 @@ struct BodyHealthMetricDetailView: View {
                 nights: vitalsSnapshot.nights,
                 selectedRange: selectedTrendRange,
                 immersive: immersive,
-                floatingCallout: immersive ? floatingCallout : nil
+                floatingCallout: immersive ? floatingCallout : nil,
+                date: chartAnchorDate,
+                rangeBuckets: rangePointsCache.vitalsRangeBuckets(
+                    nights: vitalsSnapshot.nights,
+                    date: chartAnchorDate
+                )
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         } else {
@@ -1791,7 +1934,15 @@ struct BodyHealthMetricDetailView: View {
                 hidesYAxisLabels: model.kind == .cardioFitness,
                 // Range switches must UPDATE the chart so it morphs between
                 // ranges; metric changes still reset it.
-                chartIdentity: "\(model.kind.rawValue)"
+                chartIdentity: "\(model.kind.rawValue)",
+                pointsByRange: rangePointsCache.points(
+                    for: model.series,
+                    style: model.chartStyle == .bar
+                        ? .bars
+                        : (model.kind.usesSparseTrendReadings ? .sparseLine : .line),
+                    date: chartAnchorDate,
+                    slot: .primary
+                )
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         }
@@ -1805,7 +1956,8 @@ struct BodyHealthMetricDetailView: View {
         if model.kind == .trainingLoad {
             BodyTrainingLoadIntervalBreakdownChart(
                 series: model.series,
-                selectedRange: selectedTrendRange
+                selectedRange: selectedTrendRange,
+                date: chartAnchorDate
             )
             .padding(.top, 4)
         }
@@ -1813,7 +1965,8 @@ struct BodyHealthMetricDetailView: View {
         if model.kind == .readiness {
             BodyReadinessStatusBreakdownChart(
                 series: model.series,
-                selectedRange: selectedTrendRange
+                selectedRange: selectedTrendRange,
+                date: chartAnchorDate
             )
             .padding(.top, 4)
         }
@@ -1822,7 +1975,8 @@ struct BodyHealthMetricDetailView: View {
             BodyCardioFitnessLevelBreakdownChart(
                 series: model.series,
                 selectedRange: selectedTrendRange,
-                profile: model.cardioFitnessProfile
+                profile: model.cardioFitnessProfile,
+                date: chartAnchorDate
             )
             .padding(.top, 4)
         }
@@ -1893,7 +2047,13 @@ struct BodyHealthMetricDetailView: View {
                 series: bodyMassIndexTrend,
                 selectedRange: selectedTrendRange,
                 color: basicsBodyMassIndexColor,
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) }
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) },
+                pointsByRange: rangePointsCache.points(
+                    for: bodyMassIndexTrend,
+                    style: .line,
+                    date: chartAnchorDate,
+                    slot: .bodyMassIndex
+                )
             )
             .frame(height: BodyHealthDetailChartLayout.standardHeight)
         }
@@ -1907,8 +2067,10 @@ struct BodyHealthMetricDetailView: View {
             return nil
         }
 
-        let baselineCelsius = wristTemperatureBaseline(from: workoutStore.healthTrends.wristTemperature)
-        guard baselineCelsius.isFinite, baselineCelsius != 0 else {
+        guard let baselineCelsius = trendComputationCache.wristTemperatureBaseline(
+            from: workoutStore.healthTrends.wristTemperature,
+            date: chartAnchorDate
+        ) else {
             return nil
         }
 
@@ -2102,7 +2264,9 @@ struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var metricWarningCards: some View {
-        ForEach(selectedMetricWarnings, id: \.kind) { event in
+        let warnings = selectedMetricWarnings
+
+        ForEach(warnings, id: \.kind) { event in
             let window = MetricThresholdWarning.chartWindow(for: event, clampedTo: selectedMetricDayInterval)
 
             BodyMetricWarningCard(
@@ -2122,7 +2286,10 @@ struct BodyHealthMetricDetailView: View {
         }
         // Warnings appear and disappear as the day picker moves, so the cards fade
         // with the day chart instead of popping the page layout.
-        .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: selectedMetricWarnings)
+        // Keyed on the kinds rather than the events: the samples inside an event
+        // churn on every refresh tick, which restarted the animation while the
+        // set of cards was unchanged.
+        .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: warnings.map(\.kind))
     }
 
     @ViewBuilder
@@ -2469,23 +2636,22 @@ struct BodyHealthMetricDetailView: View {
     }
 
     /// De-duplicated flatten of every cached month snapshot's workouts, shared by
-    /// `workouts(on:)` and today's wake-cycle window.
+    /// `workouts(on:)` and today's wake-cycle window. Memoized on the store's
+    /// snapshot generation, so a progressive-refresh tick that leaves the
+    /// workouts alone costs nothing.
     private var allCachedWorkouts: [WorkoutSummary] {
-        var workoutsByID: [UUID: WorkoutSummary] = [:]
-        for snapshot in workoutStore.monthSnapshots.values {
-            for workout in snapshot.days.flatMap(\.workouts) {
-                workoutsByID[workout.id] = workout
-            }
-        }
-        return Array(workoutsByID.values)
+        workoutIndex.allWorkouts(
+            in: workoutStore.monthSnapshots,
+            generation: workoutStore.monthSnapshotsGeneration
+        )
     }
 
     private func workouts(on dayInterval: DateInterval) -> [WorkoutSummary] {
-        allCachedWorkouts.filter { workout in
-            let workoutEndDate = workout.startDate.addingTimeInterval(workout.duration)
-            return workout.startDate < dayInterval.end && workoutEndDate > dayInterval.start
-        }
-        .sorted { $0.startDate < $1.startDate }
+        workoutIndex.workouts(
+            on: dayInterval,
+            in: workoutStore.monthSnapshots,
+            generation: workoutStore.monthSnapshotsGeneration
+        )
     }
 
     private func dateTile(for date: Date, picker: BodyMetricDetailDatePicker) -> some View {
@@ -2984,9 +3150,19 @@ struct BodyHealthMetricDetailView: View {
 
     private var aboutSleepScoreCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("About Sleep Score")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
+            HStack(spacing: 8) {
+                Text("About Sleep Score")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                // Same chip the Sleep Score toggle carries in Settings.
+                Text(BodyHomeCardKind.sleepScoreVersionLabel)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.blue.opacity(0.14), in: Capsule())
+            }
 
             Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero.")
                 .font(.system(.body, design: .rounded))
@@ -3003,6 +3179,10 @@ struct BodyHealthMetricDetailView: View {
 
     private var isVitalsDetail: Bool {
         model.kind == .vitals
+    }
+
+    private var isBodyRadarDetail: Bool {
+        model.kind == .bodyRadar
     }
 
     /// Every assessable night in the sleep history, graded against each vital's
@@ -3424,5 +3604,250 @@ final class BodySleepConsistencyChartCache: ObservableObject {
         let model = SleepConsistencyChartModel.make(entries: entries, calendar: calendar)
         cached = (key, model)
         return model
+    }
+}
+
+/// Scrub report-out for the metrics whose About card marks the band the touched
+/// point falls in. An observable box read only by `BodyActiveTrendValueReader`,
+/// so a scrub frame invalidates that one card instead of the whole detail page.
+@Observable
+final class BodyActiveTrendValueState {
+    var readiness: Double?
+    var trainingLoad: Double?
+    var cardioFitness: Double?
+}
+
+/// Reads one scrubbed value inside its own body, so the observation stays off
+/// the page body. `content` builds the About card from the value.
+struct BodyActiveTrendValueReader<Content: View>: View {
+    let state: BodyActiveTrendValueState
+    let value: KeyPath<BodyActiveTrendValueState, Double?>
+    @ViewBuilder let content: (Double?) -> Content
+
+    var body: some View {
+        content(state[keyPath: value])
+    }
+}
+
+/// Memoizes the flatten of every cached month snapshot's workouts and the day
+/// slices taken from it. `monthSnapshots` holds every month the user has
+/// scrolled through, so the de-duplicating flatten is O(all cached workouts)
+/// and the detail view takes several day slices per render.
+@MainActor
+final class BodyCachedWorkoutIndex: ObservableObject {
+    /// Small enough that a day picker sweep never grows the cache unbounded,
+    /// and large enough that one render's repeated slices all hit.
+    private static let sliceCacheLimit = 8
+
+    private var generation: Int?
+    private var sortedWorkouts: [WorkoutSummary] = []
+    private var slices: [DateInterval: [WorkoutSummary]] = [:]
+
+    func allWorkouts(
+        in monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot],
+        generation: Int
+    ) -> [WorkoutSummary] {
+        refreshIfNeeded(monthSnapshots: monthSnapshots, generation: generation)
+        return sortedWorkouts
+    }
+
+    func workouts(
+        on dayInterval: DateInterval,
+        in monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot],
+        generation: Int
+    ) -> [WorkoutSummary] {
+        refreshIfNeeded(monthSnapshots: monthSnapshots, generation: generation)
+
+        if let slice = slices[dayInterval] {
+            return slice
+        }
+
+        if slices.count >= Self.sliceCacheLimit {
+            slices.removeAll(keepingCapacity: true)
+        }
+
+        // `effectiveEndDate`, not `startDate + duration`: a paused workout's
+        // wall-clock end runs past its accumulated duration, and the day
+        // context and the warning exclusions must agree on which day it lands.
+        let slice = sortedWorkouts.filter { workout in
+            workout.startDate < dayInterval.end && workout.effectiveEndDate > dayInterval.start
+        }
+        slices[dayInterval] = slice
+        return slice
+    }
+
+    private func refreshIfNeeded(
+        monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot],
+        generation: Int
+    ) {
+        guard self.generation != generation else {
+            return
+        }
+
+        var workoutsByID: [UUID: WorkoutSummary] = [:]
+        for snapshot in monthSnapshots.values {
+            for workout in snapshot.days.flatMap(\.workouts) {
+                workoutsByID[workout.id] = workout
+            }
+        }
+        sortedWorkouts = workoutsByID.values.sorted { $0.startDate < $1.startDate }
+        slices.removeAll(keepingCapacity: true)
+        self.generation = generation
+    }
+}
+
+/// Memoizes every trend chart's per-range calendar points. Each morphing chart
+/// derives points for ALL ranges (off-range dates stay resident as invisible
+/// placeholder marks), which is the most expensive part of building the chart,
+/// and the detail view rebuilds its charts on every progressive-refresh tick,
+/// day selection and scroll.
+@MainActor
+final class BodyTrendRangePointsCache: ObservableObject {
+    /// Which per-range derivation the consumer needs. Each case maps to the
+    /// chart's own builder, so the cached points are byte-for-byte what the
+    /// chart would have computed inline.
+    enum Style: Hashable {
+        case bars
+        case line
+        case sparseLine
+        /// Weight and body fat, which share a Basics-specific point cap.
+        case basicsLine
+        /// The paired-bar aggregation the source-comparison charts use.
+        case sourceComparison
+    }
+
+    /// One slot per consumer, so two charts on the same page never evict each
+    /// other. Only one chart branch renders per metric, so the roles are enough.
+    enum Slot: Hashable {
+        case primary
+        case secondary
+        case weight
+        case bodyFat
+        case bodyMassIndex
+    }
+
+    private struct Key: Equatable {
+        let style: Style
+        let date: Date
+        let series: HealthTrendSeries
+    }
+
+    private struct RangeKey: Equatable {
+        let style: Style
+        let date: Date
+        let series: HealthTrendRangeSeries
+    }
+
+    private struct VitalsKey: Equatable {
+        let date: Date
+        let nights: [VitalsNightAssessment]
+    }
+
+    private var entriesBySlot: [Slot: (key: Key, points: [BodyHealthTrendRange: [HealthTrendCalendarPoint]])] = [:]
+    private var rangeEntriesBySlot: [Slot: (key: RangeKey, points: [BodyHealthTrendRange: [HealthTrendRangeCalendarPoint]])] = [:]
+    private var vitalsEntry: (key: VitalsKey, buckets: BodyVitalsOutlierRangeBuckets)?
+
+    // `series ==` is the identity check; Array's COW fast path keeps the common
+    // unchanged-render case O(1), since the series is usually the same buffer
+    // as last render rather than a re-diffed copy.
+    func points(
+        for series: HealthTrendSeries,
+        style: Style,
+        date: Date,
+        calendar: Calendar = .bodyGregorian,
+        slot: Slot
+    ) -> [BodyHealthTrendRange: [HealthTrendCalendarPoint]] {
+        let key = Key(style: style, date: date, series: series)
+        if let entry = entriesBySlot[slot], entry.key == key {
+            return entry.points
+        }
+
+        let points: [BodyHealthTrendRange: [HealthTrendCalendarPoint]]
+        switch style {
+        case .bars:
+            points = BodyHealthMetricTrendChart.makePointsByRange(
+                series: series,
+                chartStyle: .bar,
+                usesSparseReadings: false,
+                calendar: calendar,
+                date: date
+            )
+        case .line:
+            points = BodyHealthMetricTrendChart.makePointsByRange(
+                series: series,
+                chartStyle: .line,
+                usesSparseReadings: false,
+                calendar: calendar,
+                date: date
+            )
+        case .sparseLine:
+            points = BodyHealthMetricTrendChart.makePointsByRange(
+                series: series,
+                chartStyle: .line,
+                usesSparseReadings: true,
+                calendar: calendar,
+                date: date
+            )
+        case .basicsLine:
+            points = BodyBasicsTrendChart.makePointsByRange(for: series, calendar: calendar, date: date)
+        case .sourceComparison:
+            points = BodyHealthSourceComparisonBarChart.makePointsByRange(
+                for: series,
+                calendar: calendar,
+                date: date
+            )
+        }
+        entriesBySlot[slot] = (key, points)
+        return points
+    }
+
+    func rangePoints(
+        for series: HealthTrendRangeSeries,
+        style: Style,
+        date: Date,
+        calendar: Calendar = .bodyGregorian,
+        slot: Slot
+    ) -> [BodyHealthTrendRange: [HealthTrendRangeCalendarPoint]] {
+        let key = RangeKey(style: style, date: date, series: series)
+        if let entry = rangeEntriesBySlot[slot], entry.key == key {
+            return entry.points
+        }
+
+        let points: [BodyHealthTrendRange: [HealthTrendRangeCalendarPoint]]
+        switch style {
+        case .sourceComparison:
+            points = BodyHealthSourceComparisonRangeChart.makePointsByRange(
+                for: series,
+                calendar: calendar,
+                date: date
+            )
+        default:
+            points = BodyHeartRateRangeTrendChart.makePointsByRange(
+                for: series,
+                calendar: calendar,
+                date: date
+            )
+        }
+        rangeEntriesBySlot[slot] = (key, points)
+        return points
+    }
+
+    func vitalsRangeBuckets(
+        nights: [VitalsNightAssessment],
+        date: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> BodyVitalsOutlierRangeBuckets {
+        let key = VitalsKey(date: date, nights: nights)
+        if let vitalsEntry, vitalsEntry.key == key {
+            return vitalsEntry.buckets
+        }
+
+        let buckets = BodyVitalsOutlierTrendChart.makeRangeBuckets(
+            nights: nights,
+            calendar: calendar,
+            date: date
+        )
+        vitalsEntry = (key, buckets)
+        return buckets
     }
 }

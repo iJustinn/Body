@@ -5,7 +5,7 @@
 //  Best-effort "City, Region" label for a workout route, used by the detail map
 //  hero. Stateless and failure-tolerant: any error or `CLGeocoder` throttle just
 //  yields `nil` and the map renders without a label. Callers cache the result
-//  (see `HealthKitWorkoutStore.routeCache`) so a route is geocoded at most once
+//  (see `BodyWorkoutDetailCacheStore.routeCache`) so a route is geocoded at most once
 //  per session.
 //
 

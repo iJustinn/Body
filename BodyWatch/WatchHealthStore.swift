@@ -117,22 +117,40 @@ actor WatchHealthStore {
         // every source, so keep the value already on screen.
         guard case .run(let sourcePredicate) = source else { return nil }
 
+        // Live readings only: a sample older than this kind's freshness limit
+        // is stale sensor data (watch off-wrist, sensor off) and must not
+        // masquerade as current — returning nil keeps the value the iPhone
+        // pushed. The window is per-kind (HR ages fast, HRV slowly) so the
+        // accepted sample matches what `WatchMetricsModel.isStale` considers
+        // fresh and can't wedge the live-read loop.
+        let windowStart = Date().addingTimeInterval(-freshnessLimit)
+        let predicate = BodyHealthSourceResolver.combinedPredicate(
+            startDate: windowStart,
+            endDate: nil,
+            sourcePredicate: sourcePredicate
+        )
+
+        if identifier == .heartRate {
+            // The watch stores workout heart rate as `HKQuantitySeries`
+            // samples, so a plain `HKSampleQuery` (below) returns one
+            // aggregated entry per series blob instead of the newest beat.
+            // A discrete-most-recent statistics query resolves the series at
+            // datum granularity, so it is used here to get the actual latest
+            // reading during a workout.
+            let outcome = await BodyHealthQuantityFetch.mostRecentQuantity(
+                store: store,
+                quantityType: type,
+                predicate: predicate
+            )
+            guard case .success(let result) = outcome, let result else { return nil }
+            return (result.quantity.doubleValue(for: unit), result.endDate)
+        }
+
         return await withCheckedContinuation { continuation in
             let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
-            // Live readings only: a sample older than this kind's freshness limit
-            // is stale sensor data (watch off-wrist, sensor off) and must not
-            // masquerade as current — returning nil keeps the value the iPhone
-            // pushed. The window is per-kind (HR ages fast, HRV slowly) so the
-            // accepted sample matches what `WatchMetricsModel.isStale` considers
-            // fresh and can't wedge the live-read loop.
-            let windowStart = Date().addingTimeInterval(-freshnessLimit)
             let query = HKSampleQuery(
                 sampleType: type,
-                predicate: BodyHealthSourceResolver.combinedPredicate(
-                    startDate: windowStart,
-                    endDate: nil,
-                    sourcePredicate: sourcePredicate
-                ),
+                predicate: predicate,
                 limit: 1,
                 sortDescriptors: [sort]
             ) { _, samples, _ in

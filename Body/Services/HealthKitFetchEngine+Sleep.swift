@@ -13,7 +13,7 @@ import HealthKit
 // file with internal access so this extension can reach them.
 extension HealthKitFetchEngine {
     func fetchSleepSummary(calendar: Calendar) async -> QueryOutcome<SleepSummary> {
-        Self.timeZoneLedger.recordCurrentZone()
+        timeZoneLedger.recordCurrentZone()
         guard permissionSelection.includes(.sleep) else {
             return .success(nil)
         }
@@ -92,7 +92,7 @@ extension HealthKitFetchEngine {
         maxDays: Int? = nil,
         cachedSleepHistory: SleepHistorySnapshot? = nil
     ) async -> SleepHistoryFetchResult {
-        Self.timeZoneLedger.recordCurrentZone()
+        timeZoneLedger.recordCurrentZone()
         guard permissionSelection.includes(.sleep) else {
             return .empty
         }
@@ -174,12 +174,16 @@ extension HealthKitFetchEngine {
         showsSubMinuteAwakeStages: Bool,
         showsLeadingTrailingAwakeStages: Bool
     ) -> [SleepDayGrouping] {
-        BodySleepFetch.sleepDayGroupings(
+        // One reading of the ledger for the whole grouping: the closure below is
+        // called once per night, and each call used to re-read and re-decode the
+        // stored records.
+        let resolver = timeZoneLedger.snapshot()
+        return BodySleepFetch.sleepDayGroupings(
             from: sleepSamples,
             calendar: calendar,
             showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
             showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages,
-            timeZoneIdentifier: { Self.timeZoneLedger.zoneIdentifier(on: $0) }
+            timeZoneIdentifier: { resolver.zoneIdentifier(on: $0) }
         )
     }
 
@@ -372,7 +376,7 @@ extension HealthKitFetchEngine {
         unit: HKUnit,
         sourceKind: HealthMetricKind?,
         intervals: [DateInterval],
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> QueryOutcome<[Double?]> {
         switch await fetchVitalSamples(
             for: identifier,
@@ -396,7 +400,7 @@ extension HealthKitFetchEngine {
         unit: HKUnit,
         sourceKind: HealthMetricKind?,
         intervals: [DateInterval],
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> QueryOutcome<[SleepVitalWindowSample]> {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
             return .success(nil)

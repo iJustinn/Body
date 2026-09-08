@@ -626,13 +626,8 @@ final class StressScoreCalculatorTests: XCTestCase {
     /// The baselines are per-series work, not per-day work: `dailySeries` must go through
     /// the shared context instead of rebuilding it inside the day loop.
     func testDailySeriesUsesCachedBaselineContext() throws {
-        let source = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("BodyMetricsKit/StressScoreCalculator.swift"),
-            encoding: .utf8
-        )
+        try BodyTestSupport.requireProjectRoot()
+        let source = try BodyTestSupport.sourceText(at: "BodyMetricsKit/StressScoreCalculator.swift")
         let summariesStart = try XCTUnwrap(source.range(of: "static func daySummaries(")?.lowerBound)
         let seriesStart = try XCTUnwrap(source.range(of: "static func dailySeries(")?.lowerBound)
         let baselinesMark = try XCTUnwrap(source.range(of: "// MARK: - Baselines")?.lowerBound)
@@ -915,5 +910,40 @@ final class StressScoreCalculatorTests: XCTestCase {
         let high = StressScoreCalculator.baselineShareRange(around: 0.99)
         XCTAssertEqual(high.lowerBound, 0.95, accuracy: 0.0001)
         XCTAssertEqual(high.upperBound, 1, accuracy: 0.0001)
+    }
+
+    // MARK: - Golden day
+
+    /// Pins the current tuning constants on purpose: a full 96-window day
+    /// with four quarters of distinct heart rate (rest, low, medium, high),
+    /// run once and its output recorded literally. A future tuning change
+    /// that moves this is a signal to re-review, not a bug in the test; if
+    /// the tuning changes intentionally, re-run and re-pin.
+    func testGoldenDayScoreAndBandSplit() throws {
+        let scoringDay = day(2024, 5, 15)
+        var samples: [HealthTrendDataPoint] = []
+        samples += heartRateSamples(dayStart: scoringDay, windowRange: 0..<24, value: 65)
+        samples += heartRateSamples(dayStart: scoringDay, windowRange: 24..<48, value: 74)
+        samples += heartRateSamples(dayStart: scoringDay, windowRange: 48..<72, value: 78)
+        samples += heartRateSamples(dayStart: scoringDay, windowRange: 72..<96, value: 85)
+
+        let input = StressDayInput(date: scoringDay, heartRateSamples: samples)
+        let windows = StressScoreCalculator.windows(
+            for: input,
+            baselines: makeBaselines(scoringDay: scoringDay, sdnnDayCount: 0),
+            calendar: calendar,
+            now: day(2024, 5, 20)
+        )
+        let summary = StressScoreCalculator.daySummary(windows: windows, date: scoringDay)
+
+        // Recorded on 2026-09-02 against the shipped tuning: 65 bpm scores as
+        // rest, 74 as low, and both 78 and 85 clear the high threshold, so the
+        // medium band is empty and high carries two quarters of the day.
+        XCTAssertEqual(summary.averageScore, 56)
+        XCTAssertEqual(summary.scoredWindowCount, 96)
+        XCTAssertEqual(summary.minutesByBand[.rest], 360)
+        XCTAssertEqual(summary.minutesByBand[.low], 360)
+        XCTAssertNil(summary.minutesByBand[.medium])
+        XCTAssertEqual(summary.minutesByBand[.high], 720)
     }
 }

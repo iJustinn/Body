@@ -58,8 +58,13 @@ enum WatchComputeSeedStore {
     /// CHANGED — the caller bumps the compute generation on that signal, so an
     /// identical republish (the phone re-sends the same seed on every
     /// settings-only publish) doesn't discard an in-flight compute.
+    ///
+    /// `decoded` is the seed the intake ALREADY decoded from these exact bytes.
+    /// Passing it primes the decode memo below, so the compute's next `load()`
+    /// hits instead of repeating the zlib decompress plus JSON parse the intake
+    /// just did (M-34).
     @discardableResult
-    static func save(_ data: Data, fileURL: URL? = seedFileURL) -> Bool {
+    static func save(_ data: Data, decoded: WatchComputeSeed? = nil, fileURL: URL? = seedFileURL) -> Bool {
         guard let fileURL else {
             logger.error("Save skipped: seed file URL unavailable.")
             return false
@@ -75,6 +80,12 @@ enum WatchComputeSeedStore {
                 withIntermediateDirectories: true
             )
             try data.write(to: fileURL, options: [.atomic])
+            if let decoded {
+                decodeMemoLock.lock()
+                memoizedSeedData = data
+                memoizedSeed = decoded
+                decodeMemoLock.unlock()
+            }
             return true
         } catch {
             logger.error("Seed file write failed: \(error.localizedDescription, privacy: .public)")

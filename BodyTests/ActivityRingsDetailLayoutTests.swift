@@ -194,12 +194,12 @@ final class ActivityRingsDetailLayoutTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let today = Date()
         let store = HealthKitWorkoutStore(
-            initialSnapshot: WorkoutMonthSnapshot.make(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(
                 month: calendar.component(.month, from: today),
                 year: calendar.component(.year, from: today),
                 workouts: [],
                 calendar: calendar
-            ),
+            )],
             initialHealthDashboardSnapshot: snapshot,
             initialSummaryContextSignature: nil,
             initialPermissionSelection: BodyHealthPermissionSelection.defaultValue
@@ -207,7 +207,7 @@ final class ActivityRingsDetailLayoutTests: XCTestCase {
 
         let root = NavigationStack {
             BodyActivityRingsDetailView()
-                .environmentObject(store)
+                .environment(store)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: Self.tabBarInset)

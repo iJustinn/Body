@@ -34,6 +34,23 @@
         }
       }
     },
+    "%lldH %lldM ASLEEP": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lldH %2$lldM ASLEEP"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "睡眠 %1$lld 小时 %2$lld 分"
+          }
+        }
+      }
+    },
     "Active Energy": {
       "extractionState": "manual",
       "localizations": {

@@ -22,7 +22,10 @@ import HealthKit
 /// Whether a watch-side read may run, and with which source filter. `.skip`
 /// covers both "the phone hid this category" and "the selected source is
 /// unresolvable here" — in both cases the caller keeps what it already has.
-enum WatchSourceRead {
+/// `@unchecked Sendable`: the only payload is an `NSPredicate` built at the
+/// resolution site and never mutated afterwards, so it is read-only across the
+/// task-group hop in `reads(for:...)`.
+enum WatchSourceRead: @unchecked Sendable {
     case skip
     case run(NSPredicate?)
 }
@@ -42,7 +45,7 @@ enum WatchSourceResolver {
         expectedSourceIDsByKind: [String: [String]]?,
         customGroups: [BodyCustomHealthSourceGroup],
         permission: BodyHealthPermissionSelection,
-        store: HKHealthStore
+        store: any BodyHealthQuerying
     ) async -> WatchSourceRead {
         guard permission.includes(BodyHealthSourceResolver.permission(forSourceKind: kind)) else {
             return .skip
@@ -111,27 +114,39 @@ enum WatchSourceResolver {
         }
     }
 
-    /// Batch form for the compute's input kinds.
+    /// Batch form for the compute's input kinds. Fans the per-kind resolution
+    /// out concurrently instead of awaiting one kind at a time, the same
+    /// reasoning as the phone's `fetchHealthDataSourceOptions`: each kind's
+    /// `read(for:...)` is its own round trip of `HKSourceQuery`s.
     static func reads(
         for kinds: [HealthMetricKind],
         selection: BodyHealthDataSourceSelection?,
         expectedSourceIDsByKind: [String: [String]]?,
         customGroups: [BodyCustomHealthSourceGroup],
         permission: BodyHealthPermissionSelection,
-        store: HKHealthStore
+        store: any BodyHealthQuerying
     ) async -> [HealthMetricKind: WatchSourceRead] {
-        var reads: [HealthMetricKind: WatchSourceRead] = [:]
-        for kind in kinds {
-            reads[kind] = await read(
-                for: kind,
-                selection: selection,
-                expectedSourceIDsByKind: expectedSourceIDsByKind,
-                customGroups: customGroups,
-                permission: permission,
-                store: store
-            )
+        await withTaskGroup(of: (HealthMetricKind, WatchSourceRead).self) { group in
+            for kind in kinds {
+                group.addTask {
+                    let result = await read(
+                        for: kind,
+                        selection: selection,
+                        expectedSourceIDsByKind: expectedSourceIDsByKind,
+                        customGroups: customGroups,
+                        permission: permission,
+                        store: store
+                    )
+                    return (kind, result)
+                }
+            }
+
+            var reads: [HealthMetricKind: WatchSourceRead] = [:]
+            for await (kind, result) in group {
+                reads[kind] = result
+            }
+            return reads
         }
-        return reads
     }
 
     /// The All-Sources validation described in `read(for:...)`: unfiltered only
@@ -142,7 +157,7 @@ enum WatchSourceResolver {
         for kind: HealthMetricKind,
         expectedSourceIDs: [String]?,
         customGroups: [BodyCustomHealthSourceGroup],
-        store: HKHealthStore
+        store: any BodyHealthQuerying
     ) async -> WatchSourceRead {
         guard let expectedSourceIDs, !expectedSourceIDs.isEmpty else {
             return .run(nil)

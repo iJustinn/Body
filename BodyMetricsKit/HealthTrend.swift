@@ -135,6 +135,18 @@ struct HealthTrendSnapshot: Codable, Equatable {
     /// authoritative (see `recalculatingReadiness`). Persisted with the records,
     /// so a context change is still detected after a failed refresh or relaunch.
     var recordedReadinessContext: String
+    /// Per-night frozen Body Radar records, keyed by `startOfDay` of the wake
+    /// day. Frozen once each morning on the readiness freeze rule and never
+    /// re-scored that day, so the card cannot change its answer under the user
+    /// after a nap or a late sync. Carried forward across refreshes (see
+    /// `HealthKitFetchEngine.fetchHealthTrends`) because Body Radar is derived,
+    /// never fetched, and the records outlive the sleep-history cache.
+    var recordedBodyRadar: [BodyRadarNight]
+    /// Signature of the Body Radar input context under which `recordedBodyRadar`
+    /// was captured. Its own field rather than the readiness or stress one: the
+    /// three metrics read different inputs, so a change to one must not drop the
+    /// others' records (see `recalculatingBodyRadar`).
+    var recordedBodyRadarContext: String
 
     static let empty = HealthTrendSnapshot(
         sleep: .empty,
@@ -191,7 +203,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         stressBackfillScannedThrough: nil,
         stressBackfillComplete: false,
         recordedReadiness: [],
-        recordedReadinessContext: ""
+        recordedReadinessContext: "",
+        recordedBodyRadar: [],
+        recordedBodyRadarContext: ""
     )
 
     var isEmpty: Bool {
@@ -245,7 +259,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
             stepsDaySamples.isEmpty &&
             stepsDaySamplesSecondary.isEmpty &&
             recordedStressDays.isEmpty &&
-            recordedReadiness.isEmpty
+            recordedReadiness.isEmpty &&
+            recordedBodyRadar.isEmpty
     }
 
     init(
@@ -303,7 +318,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         stressBackfillScannedThrough: Date? = nil,
         stressBackfillComplete: Bool = false,
         recordedReadiness: [RecordedReadinessEntry] = [],
-        recordedReadinessContext: String = ""
+        recordedReadinessContext: String = "",
+        recordedBodyRadar: [BodyRadarNight] = [],
+        recordedBodyRadarContext: String = ""
     ) {
         self.sleep = sleep
         self.sleepSecondary = sleepSecondary
@@ -360,6 +377,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.stressBackfillComplete = stressBackfillComplete
         self.recordedReadiness = recordedReadiness
         self.recordedReadinessContext = recordedReadinessContext
+        self.recordedBodyRadar = recordedBodyRadar
+        self.recordedBodyRadarContext = recordedBodyRadarContext
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -418,11 +437,16 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case stressBackfillComplete
         case recordedReadiness
         case recordedReadinessContext
+        case recordedBodyRadar
+        case recordedBodyRadarContext
     }
 
+    /// Decodes tolerantly: a missing series key is treated as an empty series rather than a
+    /// decoding failure. Rejecting the whole file for one absent key would throw away
+    /// `recordedStressDays` and `recordedReadiness`, which cannot be re-derived from HealthKit.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        sleep = try container.decode(HealthTrendSeries.self, forKey: .sleep)
+        sleep = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .sleep) ?? .empty
         sleepSecondary = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .sleepSecondary) ?? .empty
         readiness = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .readiness) ?? .empty
         heartRate = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .heartRate) ?? .empty
@@ -431,14 +455,14 @@ struct HealthTrendSnapshot: Codable, Equatable {
             HealthTrendRangeSeries.self,
             forKey: .heartRateRangesSecondary
         ) ?? .empty
-        restingHeartRate = try container.decode(HealthTrendSeries.self, forKey: .restingHeartRate)
+        restingHeartRate = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .restingHeartRate) ?? .empty
         restingHeartRateSecondary = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .restingHeartRateSecondary
         ) ?? .empty
-        bodyMass = try container.decode(HealthTrendSeries.self, forKey: .bodyMass)
-        bodyFatPercentage = try container.decode(HealthTrendSeries.self, forKey: .bodyFatPercentage)
-        heartRateVariability = try container.decode(HealthTrendSeries.self, forKey: .heartRateVariability)
+        bodyMass = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyMass) ?? .empty
+        bodyFatPercentage = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyFatPercentage) ?? .empty
+        heartRateVariability = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .heartRateVariability) ?? .empty
         heartRateVariabilityRanges = try container.decodeIfPresent(
             HealthTrendRangeSeries.self,
             forKey: .heartRateVariabilityRanges
@@ -447,12 +471,12 @@ struct HealthTrendSnapshot: Codable, Equatable {
             HealthTrendRangeSeries.self,
             forKey: .heartRateVariabilityRangesSecondary
         ) ?? .empty
-        respiratoryRate = try container.decode(HealthTrendSeries.self, forKey: .respiratoryRate)
+        respiratoryRate = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .respiratoryRate) ?? .empty
         respiratoryRateRanges = try container.decodeIfPresent(
             HealthTrendRangeSeries.self,
             forKey: .respiratoryRateRanges
         ) ?? .empty
-        oxygenSaturation = try container.decode(HealthTrendSeries.self, forKey: .oxygenSaturation)
+        oxygenSaturation = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .oxygenSaturation) ?? .empty
         oxygenSaturationRanges = try container.decodeIfPresent(
             HealthTrendRangeSeries.self,
             forKey: .oxygenSaturationRanges
@@ -461,13 +485,13 @@ struct HealthTrendSnapshot: Codable, Equatable {
             HealthTrendRangeSeries.self,
             forKey: .oxygenSaturationRangesSecondary
         ) ?? .empty
-        bodyMassIndex = try container.decode(HealthTrendSeries.self, forKey: .bodyMassIndex)
-        activeEnergy = try container.decode(HealthTrendSeries.self, forKey: .activeEnergy)
+        bodyMassIndex = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyMassIndex) ?? .empty
+        activeEnergy = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .activeEnergy) ?? .empty
         activeEnergySecondary = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .activeEnergySecondary
         ) ?? .empty
-        restingEnergy = try container.decode(HealthTrendSeries.self, forKey: .restingEnergy)
+        restingEnergy = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .restingEnergy) ?? .empty
         restingEnergySecondary = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .restingEnergySecondary
@@ -570,6 +594,14 @@ struct HealthTrendSnapshot: Codable, Equatable {
             String.self,
             forKey: .recordedReadinessContext
         ) ?? ""
+        recordedBodyRadar = try container.decodeIfPresent(
+            [BodyRadarNight].self,
+            forKey: .recordedBodyRadar
+        ) ?? []
+        recordedBodyRadarContext = try container.decodeIfPresent(
+            String.self,
+            forKey: .recordedBodyRadarContext
+        ) ?? ""
     }
 
     func series(for kind: HealthMetricKind) -> HealthTrendSeries {
@@ -614,7 +646,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             return steps
         case .cardioFitness:
             return cardioFitness
-        case .vitals:
+        case .vitals, .bodyRadar:
             return .empty
         }
     }
@@ -647,7 +679,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .timeInDaylight,
              .vitals,
              .cardioFitness,
-             .stress:
+             .stress,
+             .bodyRadar:
             return .empty
         }
     }
@@ -679,7 +712,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .timeInDaylight,
              .steps,
              .vitals,
-             .cardioFitness:
+             .cardioFitness,
+             .bodyRadar:
             return .empty
         }
     }
@@ -709,7 +743,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .steps,
              .vitals,
              .cardioFitness,
-             .stress:
+             .stress,
+             .bodyRadar:
             return .empty
         }
     }
@@ -743,7 +778,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .timeInDaylight,
              .vitals,
              .cardioFitness,
-             .stress:
+             .stress,
+             .bodyRadar:
             return .empty
         }
     }
@@ -776,7 +812,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .timeInDaylight,
              .vitals,
              .cardioFitness,
-             .stress:
+             .stress,
+             .bodyRadar:
             return .empty
         }
     }
@@ -792,6 +829,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.stressRanges = refreshed.stressRanges
             next.recordedStressDays = refreshed.recordedStressDays
             next.recordedStressContext = refreshed.recordedStressContext
+        case .bodyRadar:
+            next.recordedBodyRadar = refreshed.recordedBodyRadar
+            next.recordedBodyRadarContext = refreshed.recordedBodyRadarContext
         case .sleep:
             next.sleep = refreshed.sleep
             next.sleepSecondary = refreshed.sleepSecondary
@@ -904,6 +944,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.sleepSecondary = .empty
             filtered.sleepHistory = .empty
             filtered.sleepHistorySecondary = .empty
+            // Body Radar is scored end to end from the overnight signals, so the
+            // frozen nights go with the history they were scored from.
+            filtered.recordedBodyRadar = []
         }
         if !selection.includes(.heart) {
             filtered.heartRate = .empty
@@ -1095,7 +1138,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
              .timeInDaylight,
              .vitals,
              .cardioFitness,
-             .stress:
+             .stress,
+             .bodyRadar:
             break
         }
         return stripped
@@ -1165,6 +1209,8 @@ struct HealthTrendDaySampleSignatures: Equatable {
     /// sidecar stamped under the other setting even when the source signatures
     /// still match (H6b).
     var combinesHealthDataSourcesByName: Bool
+    var primaryMetricScopes: [String: String]? = nil
+    var secondaryMetricScopes: [String: String]? = nil
 }
 
 /// Sidecar payload holding the lazily loaded intraday sample series, persisted
@@ -1172,10 +1218,10 @@ struct HealthTrendDaySampleSignatures: Equatable {
 /// small summary + daily-trend payload on the main thread.
 struct HealthTrendDaySampleSnapshot: Codable, Equatable {
     /// Current sidecar schema. A `nil` `schemaVersion` marks a legacy sidecar
-    /// written before the source/permission stamps existed. Bumped 1→2 when the
-    /// combine-sources flag joined the stamps (H6b); a v1 sidecar predates it and
-    /// is dropped one-time on hydration (`scopedForHydration` accepts v2 only).
-    static let currentSchemaVersion = 2
+    /// written before the source/permission stamps existed. Version 3 adds
+    /// per-metric effective-source provenance; older sidecars fail closed once
+    /// and are rebuilt by the existing lazy-load and refresh paths.
+    static let currentSchemaVersion = 3
 
     var heartRateDaySamples: HealthTrendSeries
     var heartRateDaySamplesSecondary: HealthTrendSeries
@@ -1205,6 +1251,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
     /// The combine-sources-by-name flag the samples were captured under. `nil` on
     /// a legacy/v1 sidecar (which fails closed on hydration anyway).
     var combinesHealthDataSourcesByName: Bool?
+    var primaryMetricScopes: [String: String]?
+    var secondaryMetricScopes: [String: String]?
 
     init(trends: HealthTrendSnapshot, signatures: HealthTrendDaySampleSignatures? = nil) {
         heartRateDaySamples = trends.heartRateDaySamples
@@ -1226,6 +1274,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         secondarySelectionSignature = signatures?.secondarySelectionSignature
         permissionSignature = signatures?.permissionSignature
         combinesHealthDataSourcesByName = signatures?.combinesHealthDataSourcesByName
+        primaryMetricScopes = signatures?.primaryMetricScopes
+        secondaryMetricScopes = signatures?.secondaryMetricScopes
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1248,6 +1298,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         case secondarySelectionSignature
         case permissionSignature
         case combinesHealthDataSourcesByName
+        case primaryMetricScopes
+        case secondaryMetricScopes
     }
 
     // Every field decodes with `decodeIfPresent` + a default so a legacy sidecar
@@ -1308,6 +1360,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         combinesHealthDataSourcesByName = try container.decodeIfPresent(
             Bool.self, forKey: .combinesHealthDataSourcesByName
         )
+        primaryMetricScopes = try container.decodeIfPresent([String: String].self, forKey: .primaryMetricScopes)
+        secondaryMetricScopes = try container.decodeIfPresent([String: String].self, forKey: .secondaryMetricScopes)
     }
 
     var isEmpty: Bool {
@@ -1342,16 +1396,47 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         return stripped
     }
 
+    /// Fail closed per metric, preserving unrelated compatible raw series.
+    /// Shared by live cache invalidation and cold sidecar hydration.
+    func scopedByMetricSignatures(
+        capturedPrimary: [String: String]?, capturedSecondary: [String: String]?,
+        currentPrimary: [String: String], currentSecondary: [String: String]
+    ) -> HealthTrendDaySampleSnapshot {
+        var next = self
+        func matches(_ kind: HealthMetricKind, secondary: Bool = false) -> Bool {
+            let captured = secondary ? capturedSecondary : capturedPrimary
+            let current = secondary ? currentSecondary : currentPrimary
+            return captured?[kind.rawValue] != nil && captured?[kind.rawValue] == current[kind.rawValue]
+        }
+        if !matches(.heartRate) { next.heartRateDaySamples = .empty }
+        if !matches(.heartRate, secondary: true) { next.heartRateDaySamplesSecondary = .empty }
+        if !matches(.restingHeartRate) { next.restingHeartRateDaySamples = .empty }
+        if !matches(.restingHeartRate, secondary: true) { next.restingHeartRateDaySamplesSecondary = .empty }
+        if !matches(.heartRateVariability) {
+            next.heartRateVariabilityDaySamples = .empty
+            next.heartbeatRMSSDDaySamples = .empty
+        }
+        if !matches(.heartRateVariability, secondary: true) { next.heartRateVariabilityDaySamplesSecondary = .empty }
+        if !matches(.respiratoryRate) { next.respiratoryRateDaySamples = .empty }
+        if !matches(.oxygenSaturation) { next.oxygenSaturationDaySamples = .empty }
+        if !matches(.oxygenSaturation, secondary: true) { next.oxygenSaturationDaySamplesSecondary = .empty }
+        if !matches(.activeEnergy) { next.activeEnergyDaySamples = .empty }
+        if !matches(.activeEnergy, secondary: true) { next.activeEnergyDaySamplesSecondary = .empty }
+        if !matches(.steps) { next.stepsDaySamples = .empty }
+        if !matches(.steps, secondary: true) { next.stepsDaySamplesSecondary = .empty }
+        return next
+    }
+
     /// Returns a copy safe to merge into the live trends during sidecar
     /// hydration: intraday series whose source scope no longer matches the
     /// current selection are dropped per-scope, and series whose permission is
     /// currently off are stripped (mirrors `HealthTrendSnapshot.filtered(by:)`).
     ///
-    /// Only a current-schema (v2) sidecar carries the full source + combine
+    /// Only a current-schema (v3) sidecar carries the full source + combine
     /// stamps, so acceptance gates on `schemaVersion == currentSchemaVersion`
-    /// EXACTLY: a legacy (`nil`), v1, or unknown-future sidecar fails closed for
+    /// EXACTLY: a legacy (`nil`), older, or unknown-future sidecar fails closed for
     /// BOTH scopes and is dropped one-time (the next stamped save re-writes it as
-    /// v2, self-healing). A scope matches only when its selection signature AND
+    /// v3, self-healing). Without per-metric scopes, a scope matches only when its selection signature AND
     /// the combine-sources flag both match (H6b).
     ///
     /// `comparisonDisabledKinds` is a LIVE gate, like `permission` and unlike the
@@ -1366,7 +1451,9 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         currentSecondarySignature: String,
         currentCombinesByName: Bool,
         permission: BodyHealthPermissionSelection,
-        comparisonDisabledKinds: Set<HealthMetricKind>
+        comparisonDisabledKinds: Set<HealthMetricKind>,
+        currentPrimaryMetricScopes: [String: String]? = nil,
+        currentSecondaryMetricScopes: [String: String]? = nil
     ) -> HealthTrendDaySampleSnapshot {
         var scoped = self
 
@@ -1379,7 +1466,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             && combineMatches
             && secondarySelectionSignature == currentSecondarySignature
 
-        if !primaryScopeMatches {
+        let usesMetricScopes = currentPrimaryMetricScopes != nil && currentSecondaryMetricScopes != nil
+        if !usesMetricScopes, !primaryScopeMatches {
             scoped.heartRateDaySamples = .empty
             scoped.restingHeartRateDaySamples = .empty
             scoped.heartRateVariabilityDaySamples = .empty
@@ -1389,13 +1477,22 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             scoped.activeEnergyDaySamples = .empty
             scoped.stepsDaySamples = .empty
         }
-        if !secondaryScopeMatches {
+        if !usesMetricScopes, !secondaryScopeMatches {
             scoped.heartRateDaySamplesSecondary = .empty
             scoped.restingHeartRateDaySamplesSecondary = .empty
             scoped.heartRateVariabilityDaySamplesSecondary = .empty
             scoped.oxygenSaturationDaySamplesSecondary = .empty
             scoped.activeEnergyDaySamplesSecondary = .empty
             scoped.stepsDaySamplesSecondary = .empty
+        }
+
+        if let currentPrimaryMetricScopes, let currentSecondaryMetricScopes {
+            scoped = scoped.scopedByMetricSignatures(
+                capturedPrimary: isCurrentSchema ? primaryMetricScopes : nil,
+                capturedSecondary: isCurrentSchema ? secondaryMetricScopes : nil,
+                currentPrimary: currentPrimaryMetricScopes,
+                currentSecondary: currentSecondaryMetricScopes
+            )
         }
 
         if !permission.includes(.heart) {
@@ -1495,7 +1592,7 @@ struct BasicsTrendSummary: Equatable {
     }
 
     func nearestDate(to date: Date) -> Date? {
-        let dates = weight.points.map(\.date) + bodyFat.points.map(\.date)
+        let dates = weight.points.map(\.date) + bodyFat.points.map(\.date) + bodyMassIndex.points.map(\.date)
         return dates.min { first, second in
             abs(first.timeIntervalSince(date)) < abs(second.timeIntervalSince(date))
         }
@@ -1562,7 +1659,7 @@ struct HealthTrendRangeSeries: Codable, Equatable {
             return nil
         }
 
-        return low...high
+        return min(low, high)...max(low, high)
     }
 
     static let empty = HealthTrendRangeSeries(points: [])
@@ -2171,7 +2268,7 @@ private extension Array where Element == HealthTrendCalendarPoint {
             point.value?.isFinite == true
         }
         guard finitePoints.count > maximumCount else {
-            return self
+            return finitePoints
         }
 
         var buckets = finitePoints.map { point in

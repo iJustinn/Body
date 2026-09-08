@@ -57,51 +57,47 @@ enum HealthWidgetMetric: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    var symbolName: String {
+    /// The app-side metric kind backing this widget metric.
+    var healthMetricKind: HealthMetricKind {
         switch self {
-        case .readiness: return "bolt.heart.fill"
-        case .heartRate, .restingHeartRate: return "heart.fill"
-        case .heartRateVariability: return "waveform.path.ecg"
-        case .respiratoryRate: return "lungs.fill"
-        case .oxygenSaturation: return "drop.fill"
-        case .sleep: return "bed.double.fill"
-        case .wristTemperature: return "thermometer.medium"
-        case .steps: return "figure.walk"
-        case .activeEnergy: return "flame.fill"
-        case .restingEnergy: return "leaf.fill"
-        case .exerciseMinutes: return "figure.run"
-        case .trainingLoad: return "figure.strengthtraining.traditional"
-        case .timeInDaylight: return "sun.max.fill"
-        case .bodyMass: return "scalemass.fill"
-        case .bodyFatPercentage: return "percent"
+        case .readiness: return .readiness
+        case .heartRate: return .heartRate
+        case .restingHeartRate: return .restingHeartRate
+        case .heartRateVariability: return .heartRateVariability
+        case .respiratoryRate: return .respiratoryRate
+        case .oxygenSaturation: return .oxygenSaturation
+        case .sleep: return .sleep
+        case .wristTemperature: return .wristTemperature
+        case .steps: return .steps
+        case .activeEnergy: return .activeEnergy
+        case .restingEnergy: return .restingEnergy
+        case .exerciseMinutes: return .exerciseMinutes
+        case .trainingLoad: return .trainingLoad
+        case .timeInDaylight: return .timeInDaylight
+        case .bodyMass: return .bodyMass
+        case .bodyFatPercentage: return .bodyFatPercentage
         }
+    }
+
+    /// Styling and formatting come from the shared metric table, so a widget
+    /// looks like the Home card it mirrors. Every case has a row; the fallbacks
+    /// below are unreachable and pinned by `HealthMetricPresentationTests`.
+    var presentation: HealthMetricPresentation? {
+        HealthMetricPresentation.presentation(for: healthMetricKind)
+    }
+
+    var symbolName: String {
+        presentation?.symbolName ?? "questionmark.circle"
     }
 
     var tintColor: Color {
-        switch self {
-        case .readiness: return Color(red: 0.12, green: 0.68, blue: 0.55)
-        case .heartRate, .restingHeartRate, .heartRateVariability:
-            return Color(red: 1.00, green: 0.25, blue: 0.45)
-        case .respiratoryRate, .oxygenSaturation, .wristTemperature:
-            return Color(red: 0.00, green: 0.75, blue: 0.85)
-        case .sleep: return Color(red: 0.20, green: 0.72, blue: 1.00)
-        case .steps, .activeEnergy, .exerciseMinutes, .trainingLoad:
-            return Color(red: 1.00, green: 0.38, blue: 0.12)
-        case .restingEnergy: return Color(red: 0.14, green: 0.72, blue: 0.42)
-        case .timeInDaylight: return Color(red: 0.10, green: 0.58, blue: 1.00)
-        case .bodyMass: return Color(red: 0.50, green: 0.34, blue: 1.00)
-        case .bodyFatPercentage: return Color(red: 1.00, green: 0.68, blue: 0.08)
-        }
+        presentation?.tint ?? .secondary
     }
 
     var chartStyle: HealthWidgetChartStyle {
-        switch self {
-        case .steps, .activeEnergy, .restingEnergy, .exerciseMinutes, .timeInDaylight:
-            return .bar
-        case .readiness, .heartRate, .restingHeartRate, .heartRateVariability,
-             .respiratoryRate, .oxygenSaturation, .sleep, .wristTemperature, .trainingLoad,
-             .bodyMass, .bodyFatPercentage:
-            return .line
+        switch presentation?.chartStyle {
+        case .bar: return .bar
+        case .line, nil: return .line
         }
     }
 }
@@ -125,12 +121,6 @@ enum HealthWidgetTrendRange: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    var chartTitle: String {
-        switch self {
-        case .week: return "Last 7 Days"
-        case .month: return "Last 30 Days"
-        }
-    }
 }
 
 // MARK: - Trend data
@@ -388,18 +378,26 @@ struct HealthWidgetSleepStages: Codable, Equatable {
 // MARK: - Snapshot
 
 struct HealthWidgetSnapshot: Codable, Equatable {
+    /// Bumped when the persisted shape changes in a way this build cannot read.
+    /// Optional on decode so a file written before this field existed loads as
+    /// `nil` and is treated as version 1.
+    static let currentSchemaVersion = 1
+
     var generatedDate: Date
     var metricTrends: [HealthWidgetMetricTrend]
     var sleep: HealthWidgetSleepStages
+    var schemaVersion: Int?
 
     init(
         generatedDate: Date = Date(),
         metricTrends: [HealthWidgetMetricTrend] = [],
-        sleep: HealthWidgetSleepStages = .empty
+        sleep: HealthWidgetSleepStages = .empty,
+        schemaVersion: Int? = HealthWidgetSnapshot.currentSchemaVersion
     ) {
         self.generatedDate = generatedDate
         self.metricTrends = metricTrends
         self.sleep = sleep
+        self.schemaVersion = schemaVersion
     }
 
     func trend(for metric: HealthWidgetMetric) -> HealthWidgetMetricTrend? {
@@ -419,8 +417,9 @@ struct HealthWidgetSnapshot: Codable, Equatable {
     /// this with the current `Date()` at entry-build time so widgets never
     /// keep showing yesterday's sleep after midnight. Only blanks the
     /// "current sleep" style displays (`sleep` stages, the `.sleep` metric's
-    /// `displayValues`); the week/month trend series are per-day dated
-    /// history, not stale carry-over, and are left untouched.
+    /// `displayValues`, and the trend series' `latestText` footer label); the
+    /// week/month trend series' plotted points are per-day dated history, not
+    /// stale carry-over, and are left untouched.
     func sanitizingStaleSleep(asOf date: Date, calendar: Calendar = .bodyGregorian) -> HealthWidgetSnapshot {
         guard sleep.isStale(asOf: date, calendar: calendar) else { return self }
         var sanitized = self
@@ -429,6 +428,8 @@ struct HealthWidgetSnapshot: Codable, Equatable {
             sanitized.metricTrends[index].displayValues = sanitized.metricTrends[index].displayValues.map { _ in
                 HealthWidgetDisplayValue(value: "--", unit: "")
             }
+            sanitized.metricTrends[index].week.latestText = "--"
+            sanitized.metricTrends[index].month.latestText = "--"
         }
         return sanitized
     }

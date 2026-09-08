@@ -29,6 +29,7 @@ enum BodyAppearancePreference {
     static let showWorkoutEffortSuggestionsKey = "showWorkoutEffortSuggestions"
     static let autoApplyWorkoutEffortKey = "autoApplyWorkoutEffort"
     static let workoutsChartSwipeSwitchesMonthKey = "workoutsChartSwipeSwitchesMonth"
+    static let workoutsMonthPickerUsesShortMonthKey = "workoutsMonthPickerUsesShortMonth"
     static let showReadinessAICommentKey = "showReadinessAIComment"
     static let workoutRouteStyleKey = "workoutRouteStyle"
     static let drawsWorkoutRouteOnLoadKey = "drawsWorkoutRouteOnLoad"
@@ -49,6 +50,7 @@ enum BodyAppearancePreference {
     static let metricWarningsKey = "metricWarnings"
     static let metricWarningThresholdsKey = "metricWarningThresholds"
     static let metricWarningNotificationsKey = "metricWarningNotificationsEnabled"
+    static let metricWarningsOnReadinessHeroKey = "metricWarningsOnReadinessHero"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthPermissionExpandedMigratedKey = "healthPermissionExpandedMigrated"
     static let healthCardioFitnessMigratedKey = "healthCardioFitnessMigrated"
@@ -60,6 +62,16 @@ enum BodyAppearancePreference {
     /// Marketing version the user last completed (or skipped) onboarding on;
     /// empty until then. See `BodyOnboardingGate`.
     static let onboardingCompletedVersionKey = "onboardingCompletedVersion"
+    /// Marketing version the user last completed the update page (the cache
+    /// rebuild explainer) on; empty until then. See `BodyOnboardingGate`.
+    static let updateOnboardingCompletedVersionKey = "updateOnboardingCompletedVersion"
+
+    /// Whether the app's UI is currently running in English. Short uppercase
+    /// month names only read correctly in English, so the setting that turns
+    /// them on is hidden everywhere else.
+    static var isEnglishUILanguage: Bool {
+        Bundle.main.preferredLocalizations.first?.hasPrefix("en") == true
+    }
 
     static func bodyProIconAssetName(showsBack: Bool) -> String {
         showsBack ? "BodyProIconBack" : "BodyProIcon"
@@ -440,7 +452,20 @@ struct BodyHealthPermissionSelection: Equatable {
         return BodyHealthPermissionSelection(enabledPermissions: permissions)
     }
 
+    /// Reads the saved selection. A pure read: it runs no migration and writes
+    /// nothing, so the many `load()` calls scattered across the app, the watch and
+    /// the widgets can never race each other writing migrated values. Run
+    /// `migrateIfNeeded(defaults:)` once at startup before the first read.
     static func load(defaults: UserDefaults = .standard) -> BodyHealthPermissionSelection {
+        storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.healthPermissionSelectionKey)
+                ?? defaultRawValue
+        )
+    }
+
+    /// Runs the one-time selection migrations and saves the result. Call this once
+    /// per process at startup, before anything calls `load(defaults:)`.
+    static func migrateIfNeeded(defaults: UserDefaults = .standard) {
         let stored = storedValue(
             from: defaults.string(forKey: BodyAppearancePreference.healthPermissionSelectionKey)
                 ?? defaultRawValue
@@ -449,7 +474,7 @@ struct BodyHealthPermissionSelection: Equatable {
         // Chained AFTER the expanded migration on purpose: that one can insert
         // `.workoutMetrics` for a selection that predates the category, and the
         // cardio fitness gate below reads it.
-        return migratingCardioFitnessPermissionIfNeeded(expanded, defaults: defaults)
+        _ = migratingCardioFitnessPermissionIfNeeded(expanded, defaults: defaults)
     }
 
     /// One-time migration for users whose saved selection predates the `.workoutMetrics`
@@ -886,6 +911,33 @@ enum BodyOnboardingGate {
             return true
         }
         return completedVersion.compare(minimumCompletedVersion, options: .numeric) == .orderedAscending
+    }
+
+    /// Marketing version plus build ("1.1.0.9") from which the cache structure
+    /// is current. Any install that finished onboarding on an earlier version
+    /// or build, including 1.1.0 builds before 9, sees the update page once.
+    static let updateOnboardingVersion = "1.1.0.9"
+
+    /// Whether the one-time update page (the cache rebuild explainer) is due.
+    /// Only for installs that already finished first-run onboarding, and only
+    /// until the page (or first-run onboarding itself, which stamps the same
+    /// key) has been completed on `updateOnboardingVersion` or later. The
+    /// stored marketing version alone cannot tell a 1.1.0 build 7 upgrader
+    /// from a build 9 fresh install, which is why the stamp carries the build.
+    /// This is deliberately not a bump of `minimumCompletedVersion`, which
+    /// would replay the whole first-run flow.
+    static func shouldPresentUpdate(completedVersion: String?, updateCompletedVersion: String?) -> Bool {
+        guard !shouldPresent(completedVersion: completedVersion), let completedVersion, !completedVersion.isEmpty else {
+            return false
+        }
+        return (updateCompletedVersion ?? "").compare(updateOnboardingVersion, options: .numeric) == .orderedAscending
+    }
+
+    /// What the update page records on completion: marketing version plus
+    /// build, "1.1.0.9", so builds of the same version compare too.
+    static func currentAppVersionAndBuild(bundle: Bundle = .main) -> String {
+        let build = (bundle.infoDictionary?["CFBundleVersion"] as? String) ?? "0"
+        return "\(currentAppVersion(bundle: bundle)).\(build)"
     }
 
     /// What to record on completion: the running marketing version.

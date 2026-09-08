@@ -10,7 +10,7 @@ import UIKit
 import UserNotifications
 
 struct BodySettingsView: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @Environment(ReadinessCommentGenerator.self) private var readinessComment
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
@@ -27,6 +27,9 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
     @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
+    @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var homeBackgroundColorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var homeBackgroundSeparatorsRawValue = ""
+    @AppStorage(BodyAppearancePreference.homeBackgroundProfilesKey) private var homeBackgroundProfilesRawValue = ""
     @AppStorage(BodyAppearancePreference.workoutColorOverridesKey, store: BodyWorkoutColorStore.sharedDefaults)
     private var workoutColorOverridesRawValue = ""
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
@@ -37,6 +40,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
     @AppStorage(BodyAppearancePreference.workoutsChartSwipeSwitchesMonthKey) private var workoutsChartSwipeSwitchesMonth = true
+    @AppStorage(BodyAppearancePreference.workoutsMonthPickerUsesShortMonthKey) private var workoutsMonthPickerUsesShortMonth = false
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
@@ -55,6 +59,7 @@ struct BodySettingsView: View {
     @State private var showingHowToUseBrowser = false
     @State private var showingPrivacyBrowser = false
     @State private var showingOnboarding = false
+    @State private var showingProfile = false
 
     private let howToUseURLString = "https://docs.ijustinz.com/body/how-to-use"
     private let privacyPolicyURLString = "https://docs.ijustinz.com/body/privacy"
@@ -88,6 +93,11 @@ struct BodySettingsView: View {
             }
             .sheet(item: $activeSheet) { sheet in
                 settingsSheet(for: sheet)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showingProfile) {
+                BodyProfileView()
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }
@@ -140,8 +150,8 @@ struct BodySettingsView: View {
     }
 
     private var profileEntryCard: some View {
-        NavigationLink {
-            BodyProfileView()
+        Button {
+            showingProfile = true
         } label: {
             HStack(spacing: 15) {
                 Group {
@@ -562,10 +572,10 @@ struct BodySettingsView: View {
                 activeSheet = .workoutMonthSwipe
             } label: {
                 BodySettingsRowLabel(
-                    title: "Month Swipe",
-                    value: workoutsChartSwipeSummaryText,
-                    iconName: "arrow.left.arrow.right",
-                    tintColor: .indigo,
+                    title: "settings.workouts.others",
+                    value: nil,
+                    iconName: "ellipsis.circle",
+                    tintColor: .gray,
                     accessory: .chevron
                 )
             }
@@ -602,18 +612,31 @@ struct BodySettingsView: View {
         BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.title ?? String(localized: "None")
     }
 
+    // When the background is on, the row names the matching saved profile so the
+    // choice is readable without opening the sheet.
     private var homeBackgroundSummaryText: String {
-        homeBackgroundEnabled ? String(localized: "On") : String(localized: "Off")
+        guard homeBackgroundEnabled else { return String(localized: "Off") }
+        return homeBackgroundProfileName ?? String(localized: "On")
+    }
+
+    private var homeBackgroundProfileName: String? {
+        let profiles = BodyHomeBackgroundProfileStore.allProfiles(from: homeBackgroundProfilesRawValue)
+        let fingerprint = BodyHomeBackgroundProfile.fingerprint(
+            colorsRawValue: homeBackgroundColorsRawValue,
+            separatorsRawValue: homeBackgroundSeparatorsRawValue
+        )
+        guard let index = profiles.firstIndex(where: { $0.fingerprint == fingerprint }) else { return nil }
+        let profile = profiles[index]
+        let defaultName = profile.id == BodyHomeBackgroundProfile.appDefaultID
+            ? String(localized: "ohmybody")
+            : String(localized: "Saved \(index - BodyHomeBackgroundProfileStore.builtInProfiles.count + 1)")
+        return profile.displayName(defaultName: defaultName)
     }
 
     // The row's summary reflects the card toggle — the sheet's master switch —
     // not the suggestion sub-settings.
     private var workoutEffortSummaryText: String {
         workoutEffortCardEnabled ? String(localized: "On") : String(localized: "Off")
-    }
-
-    private var workoutsChartSwipeSummaryText: String {
-        workoutsChartSwipeSwitchesMonth ? String(localized: "On") : String(localized: "Off")
     }
 
     // The row's summary reflects the card toggle — the sheet's master switch —
@@ -889,7 +912,10 @@ struct BodySettingsView: View {
         case .workoutRouteStyle:
             BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle, drawsRoute: $drawsWorkoutRouteOnLoad)
         case .workoutMonthSwipe:
-            BodyWorkoutMonthSwipeSettingsSheet(isEnabled: $workoutsChartSwipeSwitchesMonth)
+            BodyWorkoutMonthSwipeSettingsSheet(
+                isEnabled: $workoutsChartSwipeSwitchesMonth,
+                usesShortMonthNames: $workoutsMonthPickerUsesShortMonth
+            )
         case .aiReadiness:
             BodyReadinessAISettingsSheet(
                 isEnabled: $showReadinessAIComment,
@@ -1506,31 +1532,41 @@ private struct BodySummaryCardsSettingsSheet: View {
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Summary Cards") {
-            VStack(spacing: 0) {
-                ForEach(BodyHomeCardKind.defaultOrder) { card in
-                    BodySummaryCardToggleRow(
-                        card: card,
-                        isEnabled: Binding {
-                            selection.includes(card)
-                        } set: { isEnabled in
-                            selection = selection.setting(card, isEnabled: isEnabled)
-                        }
-                    )
+            VStack(alignment: .leading, spacing: 20) {
+                BodySettingsCardSection("Body Computed") {
+                    // The score is Body's own grading of a night; the Sleep card it
+                    // grades is a direct reading and sits in the other section.
+                    BodySleepScoreToggleRow(isEnabled: $showSleepScore)
 
-                    if card == .sleep {
-                        Divider()
-                            .padding(.leading, 76)
+                    Divider()
+                        .padding(.leading, 76)
 
-                        BodySleepScoreToggleRow(isEnabled: $showSleepScore)
-                    }
+                    rows(for: BodyHomeCardKind.bodyComputedOrder)
+                }
 
-                    if card.id != BodyHomeCardKind.defaultOrder.last?.id {
-                        Divider()
-                            .padding(.leading, 76)
-                    }
+                BodySettingsCardSection("Direct Readings") {
+                    rows(for: BodyHomeCardKind.directReadingOrder)
                 }
             }
-            .bodyCardBackground(translucent: true)
+        }
+    }
+
+    @ViewBuilder
+    private func rows(for cards: [BodyHomeCardKind]) -> some View {
+        ForEach(cards) { card in
+            BodySummaryCardToggleRow(
+                card: card,
+                isEnabled: Binding {
+                    selection.includes(card)
+                } set: { isEnabled in
+                    selection = selection.setting(card, isEnabled: isEnabled)
+                }
+            )
+
+            if card.id != cards.last?.id {
+                Divider()
+                    .padding(.leading, 76)
+            }
         }
     }
 }
@@ -1695,9 +1731,11 @@ private struct BodyHomeBackgroundSheet: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(profiles.enumerated()), id: \.element.id) { index, profile in
-                    let defaultTitle = profile.id == BodyHomeBackgroundProfile.appDefaultID ? String(localized: "App Default") : String(localized: "Saved \(index)")
+                    let defaultTitle = profile.id == BodyHomeBackgroundProfile.appDefaultID
+                        ? String(localized: "ohmybody")
+                        : String(localized: "Saved \(index - BodyHomeBackgroundProfileStore.builtInProfiles.count + 1)")
                     let title = profile.displayName(defaultName: defaultTitle)
-                    let canEditProfile = profile.id != BodyHomeBackgroundProfile.appDefaultID
+                    let canEditProfile = !profile.isBuiltIn
 
                     BodyHomeBackgroundProfileRow(
                         profile: profile,
@@ -1798,7 +1836,7 @@ private struct BodyHomeBackgroundSheet: View {
     }
 
     private func beginDeletingProfile(_ profile: BodyHomeBackgroundProfile, name: String) {
-        guard profile.id != BodyHomeBackgroundProfile.appDefaultID else { return }
+        guard !profile.isBuiltIn else { return }
         profileBeingDeleted = profile
         deleteProfileName = name
     }
@@ -1815,7 +1853,7 @@ private struct BodyHomeBackgroundSheet: View {
     }
 
     private func beginRenamingProfile(_ profile: BodyHomeBackgroundProfile, defaultName: String) {
-        guard profile.id != BodyHomeBackgroundProfile.appDefaultID else { return }
+        guard !profile.isBuiltIn else { return }
         profileBeingRenamed = profile
         renameProfileName = profile.displayName(defaultName: defaultName)
     }
@@ -2859,7 +2897,7 @@ private struct BodySleepScoreToggleRow: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
 
-                    Text("v3")
+                    Text(BodyHomeCardKind.sleepScoreVersionLabel)
                         .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(.blue)
                         .padding(.horizontal, 7)
@@ -2893,7 +2931,7 @@ private struct BodyWorkoutEffortSettingsSheet: View {
     @Binding var cardEnabled: Bool
     @Binding var isEnabled: Bool
     @Binding var autoApply: Bool
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
     @State private var showsWorkoutEffortWriteDenied = false
     /// Retains the immediate opt-in auto-apply pass so switching Auto-Apply off
     /// (or leaving the sheet) cancels the in-flight batch instead of letting it
@@ -3423,9 +3461,10 @@ private struct BodyEquivalentFoodToggleRow: View {
 
 private struct BodyWorkoutMonthSwipeSettingsSheet: View {
     @Binding var isEnabled: Bool
+    @Binding var usesShortMonthNames: Bool
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Month Swipe") {
+        BodySettingsAboutSheetScaffold(title: "settings.workouts.others") {
             VStack(alignment: .leading, spacing: 12) {
                 BodySettingsCardSection("Workouts Chart") {
                     BodyWorkoutMonthSwipeToggleRow(isEnabled: $isEnabled)
@@ -3437,6 +3476,21 @@ private struct BodyWorkoutMonthSwipeSettingsSheet: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
+
+                // Short uppercase month names only read correctly in English, so
+                // the card is omitted entirely in every other UI language.
+                if BodyAppearancePreference.isEnglishUILanguage {
+                    BodySettingsCardSection("Month Picker") {
+                        BodyWorkoutMonthPickerShortNamesToggleRow(isEnabled: $usesShortMonthNames)
+                    }
+
+                    Text("When on, the month carousel at the top of the Workouts page and the month picker beside the search bar show months in their short uppercase form, such as SEP instead of September. This option is only available when the app runs in English.")
+                        .font(.system(.footnote, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
+                }
             }
         }
     }
@@ -3471,6 +3525,46 @@ private struct BodyWorkoutMonthSwipeToggleRow: View {
             Spacer(minLength: 12)
 
             Toggle("Month Swipe", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct BodyWorkoutMonthPickerShortNamesToggleRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(
+                iconName: "calendar",
+                color: .indigo
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Short Month Names")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Show months as SEP, OCT, NOV")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Short Month Names", isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")
@@ -3612,7 +3706,7 @@ private struct BodySummaryCardToggleRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            BodySettingsIconTile(iconName: card.iconName, color: card.tintColor)
+            BodySettingsIconTile(iconName: card.iconName, color: card.iconTintColor)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
@@ -3792,9 +3886,10 @@ private struct BodyMetricDayViewToggleRow: View {
 private struct BodyMetricWarningsSettingsSheet: View {
     @Binding var selection: BodyMetricWarningSelection
     @Binding var thresholds: BodyMetricWarningThresholds
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
 
     @AppStorage(BodyAppearancePreference.metricWarningNotificationsKey) private var metricWarningNotificationsEnabled = false
+    @AppStorage(BodyAppearancePreference.metricWarningsOnReadinessHeroKey) private var showsWarningsOnReadinessHero = true
 
     /// Needed for the high heart rate default, which tracks zone 3's lower bound.
     @State private var resolvedMaxHeartRate: Double?
@@ -3806,6 +3901,9 @@ private struct BodyMetricWarningsSettingsSheet: View {
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Warnings") {
             VStack(alignment: .leading, spacing: 12) {
+                BodyMetricWarningReadinessHeroRow(isEnabled: $showsWarningsOnReadinessHero)
+                    .bodyCardBackground(translucent: true)
+
                 BodyMetricWarningNotificationsRow(isEnabled: Binding {
                     metricWarningNotificationsEnabled
                 } set: { isEnabled in
@@ -3865,7 +3963,7 @@ private struct BodyMetricWarningsSettingsSheet: View {
                     .bodyCardBackground(translucent: true)
                 }
 
-                Text("Warnings appear on the Home card and the metric's detail page.")
+                Text("Warnings appear on the Home card, the readiness score, and the metric's detail page.")
                     .font(.system(.footnote, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -3952,6 +4050,46 @@ private struct BodyMetricWarningNotificationsRow: View {
     }
 }
 
+/// Toggles the warning badges that sit next to the readiness level on the
+/// Home readiness hero. Off leaves the Home card and detail page warnings
+/// untouched, it only hides the badges on the hero.
+private struct BodyMetricWarningReadinessHeroRow: View {
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: "bolt.heart.fill", color: .yellow)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Show on Readiness")
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text("Add warning signs next to the readiness level")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("Show on Readiness", isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
 private struct BodyMetricWarningToggleRow: View {
     let kind: MetricWarningKind
     let threshold: Int
@@ -4025,6 +4163,7 @@ private struct BodyMetricWarningThresholdRow: View {
 
     @State private var showingPicker = false
     @State private var pickedValue = 0
+    @State private var skipsDismissCommit = false
 
     private var thresholdValues: [Int] {
         Array(stride(
@@ -4075,6 +4214,15 @@ private struct BodyMetricWarningThresholdRow: View {
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .opacity(isEnabled ? 1 : 0.5)
         .disabled(!isEnabled)
+        .onChange(of: showingPicker) { _, isShowing in
+            guard !isShowing else { return }
+            if skipsDismissCommit {
+                skipsDismissCommit = false
+                return
+            }
+            guard pickedValue != threshold else { return }
+            onChange(pickedValue)
+        }
     }
 
     private var picker: some View {
@@ -4088,11 +4236,9 @@ private struct BodyMetricWarningThresholdRow: View {
             .pickerStyle(.wheel)
             .labelsHidden()
             .frame(width: 210, height: 172)
-            .onChange(of: pickedValue) { _, newValue in
-                onChange(newValue)
-            }
 
             Button {
+                skipsDismissCommit = true
                 onChange(nil)
                 showingPicker = false
             } label: {
@@ -4120,14 +4266,16 @@ private struct BodyCustomSourceEditorTarget: Identifiable {
 }
 
 private struct BodySourceSettingsSheet: View {
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
     @State private var updatingSelection: PendingSelection?
     @State private var showBodyProPaywall = false
     @State private var customSourceEditorTarget: BodyCustomSourceEditorTarget?
 
-    // Cached entitlement read (this is a sheet); reactive via the observed `workoutStore`.
+    // Read through the store, not the `BodyProEntitlement` static: `isProUnlocked` also
+    // reads the store's entitlement generation, which is what makes a flip re-run this
+    // body under observation.
     private var isSecondaryLocked: Bool {
-        !BodyProEntitlement.isUnlocked
+        !workoutStore.isProUnlocked
     }
 
     fileprivate enum Role: String, Equatable {
@@ -4230,7 +4378,11 @@ private struct BodySourceSettingsSheet: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
 
-                    Text("\(group.memberIdentityKeys.count) sources")
+                    Text(
+                        group.memberIdentityKeys.count == 1
+                            ? "1 source"
+                            : "\(group.memberIdentityKeys.count) sources"
+                    )
                         .font(.system(.subheadline, design: .rounded))
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)
@@ -4450,7 +4602,7 @@ private struct BodySourceSettingsSheet: View {
 }
 
 private struct BodyHealthPermissionsSettingsSheet: View {
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
     /// Sampled when the sheet appears (and again after a toggle settles) rather
     /// than observed, so the footers stay put instead of flickering through
     /// intermediate values while a refresh publishes.
@@ -4546,7 +4698,7 @@ private struct BodyHealthPermissionToggleRow: View {
 }
 
 private struct BodyHealthSyncStatusSettingsSheet: View {
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Data Refresh") {
@@ -4594,7 +4746,8 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
 }
 
 private struct BodyCacheSettingsSheet: View {
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
+    @State private var showingRebuild = false
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Cache") {
@@ -4603,9 +4756,7 @@ private struct BodyCacheSettingsSheet: View {
 
                 VStack(spacing: 0) {
                     Button {
-                        Task {
-                            await workoutStore.requestAuthorizationAndRefresh()
-                        }
+                        showingRebuild = true
                     } label: {
                         BodySettingsRowLabel(
                             title: "Rebuild Cache",
@@ -4641,6 +4792,12 @@ private struct BodyCacheSettingsSheet: View {
                 }
                 .bodyCardBackground(translucent: true)
             }
+        }
+        .fullScreenCover(isPresented: $showingRebuild) {
+            // The sheet takes the store as a property rather than from the
+            // environment, so hand it to the cover explicitly.
+            BodyCacheRebuildView(entry: .settings)
+                .environment(workoutStore)
         }
     }
 
@@ -5118,7 +5275,9 @@ private struct SafariView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) { }
 }
 
-private struct BodySettingsAboutSheetScaffold<Content: View>: View {
+/// The shared settings-sheet chrome: navigation title over the tinted glass
+/// backdrop. Not private, the profile sheet lives in its own file.
+struct BodySettingsAboutSheetScaffold<Content: View>: View {
     let title: LocalizedStringKey
     private let content: Content
 
@@ -5243,6 +5402,6 @@ private struct BodySettingsInfoCard: View {
 
 #Preview {
     BodySettingsView()
-        .environmentObject(HealthKitWorkoutStore())
+        .environment(HealthKitWorkoutStore())
         .environment(ReadinessCommentGenerator())
 }

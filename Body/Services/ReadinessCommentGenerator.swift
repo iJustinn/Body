@@ -7,6 +7,7 @@
 //  does not exist, so nothing here may move into that folder.
 //
 
+import CryptoKit
 import Foundation
 import UIKit
 
@@ -98,7 +99,7 @@ final class ReadinessCommentGenerator {
             return
         }
 
-        if !forcingGeneration, let cached = ReadinessCommentCache.load(), cached.signature == signature {
+        if !forcingGeneration, let cached = ReadinessCommentCache.load(), cached.signatureDigest == ReadinessCommentCache.digest(for: signature) {
             comment = cached.text
             currentSignature = signature
             return
@@ -129,7 +130,11 @@ final class ReadinessCommentGenerator {
                 self.comment = text
                 self.currentSignature = signature
                 ReadinessCommentCache.save(
-                    ReadinessCommentCache.Record(signature: signature, text: text, generatedAt: Date())
+                    ReadinessCommentCache.Record(
+                        signatureDigest: ReadinessCommentCache.digest(for: signature),
+                        text: text,
+                        generatedAt: Date()
+                    )
                 )
             }
         }
@@ -356,9 +361,16 @@ enum ReadinessCommentCache {
     static let defaultsKey = "readinessAICommentCache"
 
     struct Record: Codable, Equatable {
-        var signature: String
+        var signatureDigest: String
         var text: String
         var generatedAt: Date
+    }
+
+    /// Digests the signature rather than persisting it verbatim: the raw
+    /// signature embeds readiness scores and component values, which have no
+    /// business sitting on disk just to gate a cache hit.
+    static func digest(for signature: String) -> String {
+        SHA256.hash(data: Data(signature.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     static func load() -> Record? {

@@ -27,37 +27,6 @@
 import Foundation
 import HealthKit
 
-/// One latest-sample reading with the sample's own measurement time — the real
-/// watermark the compute stamps onto the metric it feeds (never `Date()`).
-struct WatchDeltaSample {
-    let value: Double
-    let measuredAt: Date
-}
-
-/// Everything one delta run read, in the shape `WatchComputeCoordinator`
-/// splices onto the seed. Every field defaults to the seed-preserving value, so
-/// a permission-off or unresolved-source kind simply never gets written.
-struct WatchComputeDelta {
-    var heartRateSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
-    var restingHeartRateSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
-    var heartRateVariabilitySeries: WatchFetchOutcome<HealthTrendSeries> = .failure
-    var respiratoryRateSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
-    var oxygenSaturationSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
-    var wristTemperatureSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
-    var sleepNights: WatchFetchOutcome<[SleepDaySummary]> = .failure
-    var workouts: WatchFetchOutcome<[WorkoutSummary]> = .failure
-
-    var heartRateSample: WatchDeltaSample?
-    var restingHeartRateSample: WatchDeltaSample?
-    var heartRateVariabilitySample: WatchDeltaSample?
-
-    /// The most recent night assembled this run (the phone's `fetchSleepSummary`
-    /// picks the same one: the grouping with the latest stage date). Whether it
-    /// still counts as TODAY's night is decided by `SleepSummary.asOf` in the
-    /// snapshot builder, exactly as on the phone.
-    var latestNight: SleepSummary?
-}
-
 actor WatchDeltaFetcher {
     private let store = HKHealthStore()
 
@@ -99,34 +68,27 @@ actor WatchDeltaFetcher {
         var delta = WatchComputeDelta()
 
         async let heartRateSeries = dailySeries(
-            .heartRate, unit: Self.beatsPerMinute, aggregation: .average,
-            sourceKind: .heartRate, reads: reads,
+            .heartRate, reads: reads,
             start: windowStart, end: now, calendar: calendar
         )
         async let restingHeartRateSeries = dailySeries(
-            .restingHeartRate, unit: Self.beatsPerMinute, aggregation: .average,
-            sourceKind: .restingHeartRate, reads: reads,
+            .restingHeartRate, reads: reads,
             start: windowStart, end: now, calendar: calendar
         )
         async let heartRateVariabilitySeries = dailySeries(
-            .heartRateVariabilitySDNN, unit: .secondUnit(with: .milli), aggregation: .average,
-            sourceKind: .heartRateVariability, reads: reads,
+            .heartRateVariability, reads: reads,
             start: windowStart, end: now, calendar: calendar
         )
         async let respiratoryRateSeries = dailySeries(
-            .respiratoryRate, unit: Self.beatsPerMinute, aggregation: .average,
-            sourceKind: .respiratoryRate, reads: reads,
+            .respiratoryRate, reads: reads,
             start: windowStart, end: now, calendar: calendar
         )
         async let oxygenSaturationSeries = dailySeries(
-            .oxygenSaturation, unit: .percent(), aggregation: .average,
-            sourceKind: .oxygenSaturation, reads: reads,
-            start: windowStart, end: now, calendar: calendar,
-            valueTransform: BodyHealthQuantityFetch.normalizedPercent
+            .oxygenSaturation, reads: reads,
+            start: windowStart, end: now, calendar: calendar
         )
         async let wristTemperatureSeries = dailySeries(
-            .appleSleepingWristTemperature, unit: .degreeCelsius(), aggregation: .average,
-            sourceKind: .wristTemperature, reads: reads,
+            .wristTemperature, reads: reads,
             start: windowStart, end: now, calendar: calendar
         )
         // Latest-sample summaries: bounded to the daily trend window, matching
@@ -137,18 +99,15 @@ actor WatchDeltaFetcher {
         // `WatchMetricsSnapshot.sanitized(asOf:)` — an absent read here only
         // preserves the seed (see `latestSample`).
         async let heartRateSample = latestSample(
-            .heartRate, unit: Self.beatsPerMinute,
-            sourceKind: .heartRate, reads: reads,
+            .heartRate, reads: reads,
             now: now, calendar: calendar
         )
         async let restingHeartRateSample = latestSample(
-            .restingHeartRate, unit: Self.beatsPerMinute,
-            sourceKind: .restingHeartRate, reads: reads,
+            .restingHeartRate, reads: reads,
             now: now, calendar: calendar
         )
         async let heartRateVariabilitySample = latestSample(
-            .heartRateVariabilitySDNN, unit: .secondUnit(with: .milli),
-            sourceKind: .heartRateVariability, reads: reads,
+            .heartRateVariability, reads: reads,
             now: now, calendar: calendar
         )
         async let sleep = sleepDelta(
@@ -180,23 +139,31 @@ actor WatchDeltaFetcher {
 
     // MARK: - Quantity reads
 
+    /// Kept for `averagedVital` below: the nocturnal-vitals reads are keyed by
+    /// sleep-session interval rather than by metric kind, so they do not go
+    /// through `HealthMetricQueryDescriptor` the way the delta reads do.
     private static let beatsPerMinute = HKUnit.count().unitDivided(by: .minute())
 
+    /// The identifier, unit, source kind, aggregation and value transform all
+    /// come from `HealthMetricQueryDescriptor` — the same table the phone's
+    /// engine queries from — so a spliced watch point is always comparable with
+    /// the phone's series. A kind with no descriptor row, or one whose trend is
+    /// cumulative rather than daily, is not a watch delta kind: `.failure`
+    /// preserves the seed rather than inventing a reading.
     private func dailySeries(
-        _ identifier: HKQuantityTypeIdentifier,
-        unit: HKUnit,
-        aggregation: BodyDailyQuantityAggregation,
-        sourceKind: HealthMetricKind,
+        _ kind: HealthMetricKind,
         reads: [HealthMetricKind: WatchSourceRead],
         start: Date,
         end: Date,
-        calendar: Calendar,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        calendar: Calendar
     ) async -> WatchFetchOutcome<HealthTrendSeries> {
-        guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier),
-              case .run(let resolvedSourcePredicate) = reads[sourceKind] else {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              let aggregation = descriptor.dailyAggregation,
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType),
+              case .run(let resolvedSourcePredicate) = reads[descriptor.sourceKind] else {
             return .failure
         }
+        let unit = descriptor.unit
 
         return await BodyHealthQuantityFetch.dailyQuantitySeries(
             store: store,
@@ -211,31 +178,51 @@ actor WatchDeltaFetcher {
             start: start,
             end: end,
             calendar: calendar,
-            valueTransform: valueTransform
+            valueTransform: descriptor.valueTransform
         )
     }
 
     private func latestSample(
-        _ identifier: HKQuantityTypeIdentifier,
-        unit: HKUnit,
-        sourceKind: HealthMetricKind,
+        _ kind: HealthMetricKind,
         reads: [HealthMetricKind: WatchSourceRead],
         now: Date,
         calendar: Calendar
     ) async -> WatchDeltaSample? {
-        guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier),
-              case .run(let resolvedSourcePredicate) = reads[sourceKind] else {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType),
+              case .run(let resolvedSourcePredicate) = reads[descriptor.sourceKind] else {
             return nil
+        }
+        let unit = descriptor.unit
+
+        let predicate = BodyHealthSourceResolver.combinedPredicate(
+            startDate: BodyHealthTrendRange.recentTrendWindowStart(anchor: now, calendar: calendar),
+            endDate: now,
+            sourcePredicate: resolvedSourcePredicate
+        )
+
+        if descriptor.quantityType == .heartRate {
+            // The watch stores workout heart rate as `HKQuantitySeries`
+            // samples, so a plain `HKSampleQuery` (below) returns one
+            // aggregated entry per series blob instead of the newest beat.
+            // A discrete-most-recent statistics query resolves the series at
+            // datum granularity, so it is used here to get the actual latest
+            // reading during a workout.
+            let outcome = await BodyHealthQuantityFetch.mostRecentQuantity(
+                store: store,
+                quantityType: quantityType,
+                predicate: predicate
+            )
+            guard case .success(let result) = outcome, let result else { return nil }
+            let value = result.quantity.doubleValue(for: unit)
+            guard value.isFinite else { return nil }
+            return WatchDeltaSample(value: value, measuredAt: result.endDate)
         }
 
         let outcome = await BodyHealthQuantityFetch.latestQuantitySample(
             store: store,
             quantityType: quantityType,
-            predicate: BodyHealthSourceResolver.combinedPredicate(
-                startDate: BodyHealthTrendRange.recentTrendWindowStart(anchor: now, calendar: calendar),
-                endDate: now,
-                sourcePredicate: resolvedSourcePredicate
-            )
+            predicate: predicate
         )
         // Both `.failure` and a genuine `.success(nil)` yield nil here: on the
         // watch an absent reading means "this device has no local data", not an
@@ -400,7 +387,7 @@ actor WatchDeltaFetcher {
         sourceKind: HealthMetricKind,
         reads: [HealthMetricKind: WatchSourceRead],
         intervals: [DateInterval],
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) async -> [Double?]? {
         guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier),
               case .run(let resolvedSourcePredicate) = reads[sourceKind] else {

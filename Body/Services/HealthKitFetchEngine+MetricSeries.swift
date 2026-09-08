@@ -239,7 +239,7 @@ extension HealthKitFetchEngine {
         )
 
         var samples: [WorkoutHeartRateSample] = []
-        for try await result in descriptor.results(for: healthStore) {
+        for try await result in healthStore.results(for: descriptor) {
             let beatsPerMinute = result.quantity.doubleValue(for: heartRateUnit)
             guard beatsPerMinute.isFinite, beatsPerMinute > 0 else { continue }
             samples.append(WorkoutHeartRateSample(
@@ -292,7 +292,7 @@ extension HealthKitFetchEngine {
             anchorDate: start,
             intervalComponents: interval
         )
-        let collection = try await descriptor.result(for: healthStore)
+        let collection = try await healthStore.result(for: descriptor)
 
         var buckets: [WorkoutMetricSeriesData.NativeBucket] = []
         collection.enumerateStatistics(from: start, to: end) { statistics, _ in
@@ -384,7 +384,7 @@ extension HealthKitFetchEngine {
             anchorDate: start,
             intervalComponents: interval
         )
-        let collection = try await descriptor.result(for: healthStore)
+        let collection = try await healthStore.result(for: descriptor)
 
         var sums: [Int: Double] = [:]
         collection.enumerateStatistics(from: start, to: end) { statistics, _ in

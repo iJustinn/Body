@@ -10,7 +10,7 @@ import Foundation
 /// more than one notification per kind per day. Day is keyed by a
 /// "yyyy-MM-dd" string rather than a `Date`, so the value is stable across
 /// encode/decode and unambiguous regardless of time-of-day.
-struct MetricWarningNotificationLedger: Codable, Equatable {
+struct MetricWarningNotificationLedger: Equatable {
     static let defaultValue = MetricWarningNotificationLedger(lastNotifiedDayKeys: [:])
 
     /// The Settings/UserDefaults key this ledger round-trips through. Kept

@@ -48,7 +48,9 @@ struct BodyHeartRateRangeTrendChart: View {
         showsAverageLineOverlay: Bool = false,
         immersive: Bool = false,
         yDomain: (([Double]) -> ClosedRange<Double>)? = nil,
-        floatingCallout: BodyChartFloatingCalloutState? = nil
+        floatingCallout: BodyChartFloatingCalloutState? = nil,
+        primaryPointsByRange: [BodyHealthTrendRange: [HealthTrendRangeCalendarPoint]]? = nil,
+        secondaryPointsByRange: [BodyHealthTrendRange: [HealthTrendRangeCalendarPoint]]? = nil
     ) {
         self.title = title
         self.selectedRange = selectedRange
@@ -61,8 +63,15 @@ struct BodyHeartRateRangeTrendChart: View {
         self.primarySourceName = primarySourceName
         self.secondarySourceName = secondarySourceName
 
-        let points = rangeSeries.chartCalendarPoints(to: selectedRange)
-        let secondaryPoints = secondaryRangeSeries?.chartCalendarPoints(to: selectedRange) ?? []
+        // The host passes each range's buckets in from a cache that survives a
+        // re-render; the inline fallback keeps previews and one-off callers
+        // working.
+        let primaryPointsByRange = primaryPointsByRange ?? Self.makePointsByRange(for: rangeSeries)
+        let secondaryPointsByRange = secondaryRangeSeries.map { series in
+            secondaryPointsByRange ?? Self.makePointsByRange(for: series)
+        } ?? [:]
+        let points = primaryPointsByRange[selectedRange] ?? []
+        let secondaryPoints = secondaryPointsByRange[selectedRange] ?? []
         self.secondaryRangePoints = secondaryPoints
         self.finiteRangePoints = points.filter(\.hasValue)
         self.latestPrimaryAveragePointDate = points.last { point in
@@ -84,10 +93,10 @@ struct BodyHeartRateRangeTrendChart: View {
         // fades the rest instead of inserting/removing marks (which Swift
         // Charts pops).
         let otherRanges = BodyHealthTrendRange.allCases.filter { $0 != selectedRange }
-        let otherPrimaryPoints = otherRanges.map { rangeSeries.chartCalendarPoints(to: $0) }
+        let otherPrimaryPoints = otherRanges.map { primaryPointsByRange[$0] ?? [] }
         let otherAverageEntries = zip(
             otherPrimaryPoints,
-            otherRanges.map { secondaryRangeSeries?.chartCalendarPoints(to: $0) ?? [] }
+            otherRanges.map { secondaryPointsByRange[$0] ?? [] }
         ).map { primary, secondary in
             Self.averageEntries(
                 primaryPoints: primary,
@@ -119,6 +128,19 @@ struct BodyHeartRateRangeTrendChart: View {
         let domainDates = rangeSeries.calendarPoints(to: selectedRange).map(\.date)
             + (secondaryRangeSeries?.calendarPoints(to: selectedRange).map(\.date) ?? [])
         self.chartXDomain = bodyHealthDetailChartXDomain(for: domainDates, selectedRange: selectedRange, immersive: immersive)
+    }
+
+    /// Each range's aggregated buckets for `series`.
+    static func makePointsByRange(
+        for series: HealthTrendRangeSeries,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> [BodyHealthTrendRange: [HealthTrendRangeCalendarPoint]] {
+        var pointsByRange: [BodyHealthTrendRange: [HealthTrendRangeCalendarPoint]] = [:]
+        for range in BodyHealthTrendRange.allCases {
+            pointsByRange[range] = series.chartCalendarPoints(to: range, calendar: calendar, date: date)
+        }
+        return pointsByRange
     }
 
     var body: some View {

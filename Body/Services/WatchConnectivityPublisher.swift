@@ -300,6 +300,15 @@ extension WatchConnectivityPublisher: WCSessionDelegate {
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: Error?
     ) {
+        guard activationState == .activated, error == nil else {
+            let nsError = error as NSError?
+            logger.error(
+                "WCSession activation incomplete: state \(activationState.rawValue, privacy: .public) error \(nsError?.domain ?? "none", privacy: .public) \(nsError?.code ?? 0, privacy: .public)"
+            )
+            // `pending` stays queued for the next successful activation.
+            return
+        }
+
         Task { @MainActor in
             if let pending = self.pending {
                 self.pending = nil

@@ -24,7 +24,7 @@ import HealthKit
 /// `HKStatisticsOptions` the collection query runs with and which statistic is
 /// read back out — a pair the watch must match exactly for its spliced points
 /// to be comparable with the phone's.
-enum BodyDailyQuantityAggregation {
+enum BodyDailyQuantityAggregation: Equatable {
     case average
     case latest
 
@@ -53,7 +53,7 @@ enum BodyHealthQuantityFetch {
     /// some write 0…100 directly, so anything at-or-below 1 is scaled up. Shared
     /// so the watch's delta re-query normalizes identically — an unnormalized
     /// SpO₂ point would splice a 0.97 into a series of 97s.
-    static func normalizedPercent(_ value: Double) -> Double {
+    @Sendable static func normalizedPercent(_ value: Double) -> Double {
         value <= 1 ? value * 100 : value
     }
 
@@ -66,32 +66,67 @@ enum BodyHealthQuantityFetch {
     /// Returns the sample itself (not just its value) so callers can stamp
     /// freshness from the sample's real `endDate` instead of inventing one.
     static func latestQuantitySample(
-        store: HKHealthStore,
+        store: any BodyHealthQuerying,
         quantityType: HKQuantityType,
         predicate: NSPredicate?,
         onFailure: ((Error?) -> Void)? = nil
     ) async -> WatchFetchOutcome<HKQuantitySample?> {
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
 
-        return await withCheckedContinuation { continuation in
-            let query = HKSampleQuery(
+        switch await store.samples(
+            BodySampleRequest(
                 sampleType: quantityType,
                 predicate: predicate,
                 limit: 1,
                 sortDescriptors: [sort]
-            ) { _, samples, error in
-                guard let samples else {
-                    onFailure?(error)
-                    continuation.resume(returning: .failure)
-                    return
-                }
+            )
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let samples):
+            return .success(samples.compactMap({ $0 as? HKQuantitySample }).first)
+        }
+    }
 
-                continuation.resume(
-                    returning: .success(samples.compactMap({ $0 as? HKQuantitySample }).first)
-                )
+    /// The newest BEAT of a quantity type matching `predicate`, read via a
+    /// discrete-most-recent statistics query instead of a sample query. Some
+    /// kinds (heart rate during a workout) are stored as `HKQuantitySeries`
+    /// samples, and a plain `HKSampleQuery` returns one aggregated entry per
+    /// series blob rather than the individual readings inside it; a
+    /// statistics query resolves the series at datum granularity in one round
+    /// trip, so this is the "live HR" read `latestQuantitySample` cannot do.
+    ///
+    /// Returns the quantity and its `mostRecentQuantityDateInterval().end`
+    /// (not a sample, since a statistics query has none) so callers can stamp
+    /// freshness the same way `latestQuantitySample` callers do.
+    static func mostRecentQuantity(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<(quantity: HKQuantity, endDate: Date)?> {
+        switch await store.statistics(
+            BodyStatisticsRequest(
+                quantityType: quantityType,
+                predicate: predicate,
+                options: .mostRecent
+            )
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let statistics):
+            guard let quantity = statistics.mostRecentQuantity(),
+                  let endDate = statistics.mostRecentQuantityDateInterval()?.end else {
+                return .success(nil)
             }
 
-            store.execute(query)
+            return .success((quantity: quantity, endDate: endDate))
         }
     }
 
@@ -102,7 +137,7 @@ enum BodyHealthQuantityFetch {
     /// reads use to normalize a 0…1 fraction into a percentage before that
     /// finiteness check.
     static func dailyQuantitySeries(
-        store: HKHealthStore,
+        store: any BodyHealthQuerying,
         quantityType: HKQuantityType,
         predicate: NSPredicate?,
         aggregation: BodyDailyQuantityAggregation,
@@ -110,52 +145,44 @@ enum BodyHealthQuantityFetch {
         start: Date,
         end: Date,
         calendar: Calendar,
-        valueTransform: @escaping (Double) -> Double = { $0 },
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
         onFailure: ((Error?) -> Void)? = nil
     ) async -> WatchFetchOutcome<HealthTrendSeries> {
         let anchor = calendar.startOfDay(for: start)
         var intervalComponents = DateComponents()
         intervalComponents.day = 1
 
-        return await withCheckedContinuation { continuation in
-            let query = HKStatisticsCollectionQuery(
+        switch await store.dailyQuantities(
+            BodyStatisticsCollectionRequest(
                 quantityType: quantityType,
-                quantitySamplePredicate: predicate,
+                predicate: predicate,
                 options: aggregation.statisticsOptions,
                 anchorDate: anchor,
                 intervalComponents: intervalComponents
-            )
-
-            query.initialResultsHandler = { _, statisticsCollection, error in
-                guard let statisticsCollection else {
-                    onFailure?(error)
-                    continuation.resume(returning: .failure)
-                    return
+            ), aggregation: aggregation, from: start, to: end
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let quantities):
+            var points: [HealthTrendDataPoint] = []
+            for dated in quantities {
+                let value = valueTransform(dated.quantity.doubleValue(for: unit))
+                guard value.isFinite else {
+                    continue
                 }
 
-                var points: [HealthTrendDataPoint] = []
-                statisticsCollection.enumerateStatistics(from: start, to: end) { statistics, _ in
-                    guard let quantity = aggregation.quantity(from: statistics) else {
-                        return
-                    }
-
-                    let value = valueTransform(quantity.doubleValue(for: unit))
-                    guard value.isFinite else {
-                        return
-                    }
-
-                    points.append(
-                        HealthTrendDataPoint(
-                            date: calendar.startOfDay(for: statistics.startDate),
-                            value: value
-                        )
+                points.append(
+                    HealthTrendDataPoint(
+                        date: calendar.startOfDay(for: dated.date),
+                        value: value
                     )
-                }
-
-                continuation.resume(returning: .success(HealthTrendSeries(points: points)))
+                )
             }
 
-            store.execute(query)
+            return .success(HealthTrendSeries(points: points))
         }
     }
 
@@ -164,7 +191,7 @@ enum BodyHealthQuantityFetch {
     /// recent sample". A window with no points at all is a genuine absence
     /// (`.success(nil)`), which clears the tile; only a query failure keeps it.
     static func dailyQuantitySummary(
-        store: HKHealthStore,
+        store: any BodyHealthQuerying,
         quantityType: HKQuantityType,
         predicate: NSPredicate?,
         aggregation: BodyDailyQuantityAggregation,
@@ -172,7 +199,7 @@ enum BodyHealthQuantityFetch {
         start: Date,
         end: Date,
         calendar: Calendar,
-        valueTransform: @escaping (Double) -> Double = { $0 },
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
         onFailure: ((Error?) -> Void)? = nil
     ) async -> WatchFetchOutcome<HealthMetricSummary?> {
         let series = await dailyQuantitySeries(

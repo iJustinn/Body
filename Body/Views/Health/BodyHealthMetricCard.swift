@@ -13,6 +13,14 @@ struct BodyHealthMetricCard: View {
             /// 0…1, from `SleepVitalReferenceRange.markerPosition`.
             var position: Double
             var region: SleepVitalRegion
+            /// Ring color when the region's own color does not apply: Body
+            /// Radar reuses the three slots for None / Minor / Major.
+            var tint: Color? = nil
+            /// Wash for the slot the ring sits in, when the verdict colors its
+            /// own band rather than the fixed highlighted one.
+            var bandTint: Color? = nil
+            /// Ring opacity; the "no data" marker is the same ring, faded.
+            var opacity: Double = 1
         }
 
         /// The cardio fitness level the newest reading landed in, for the levels
@@ -38,8 +46,21 @@ struct BodyHealthMetricCard: View {
         let previewCalendarPoints: [HealthTrendCalendarPoint]
         let previewRangeCalendarPoints: [HealthTrendRangeCalendarPoint]
         let previewDotEntries: [DotEntry]
+        /// Which of the three dots-preview slots draws as the colored band.
+        /// Vitals highlights its typical middle band; Body Radar has none and
+        /// lets each ring wash its own slot through `DotEntry.bandTint`.
+        let dotPreviewHighlightedRegion: SleepVitalRegion?
+        /// Whether the three slots always split the height evenly instead of
+        /// growing the occupied ones. Body Radar's bands are fixed thresholds.
+        let dotPreviewEqualRegions: Bool
+        /// Skeleton rings drawn while the dots preview is pending.
+        let dotPreviewPlaceholderCount: Int
         let levelPreviewEntry: LevelEntry?
         let warningSymbolName: String?
+        let warningColor: Color
+        /// Nil keeps the heart-rate wording every badge carried before Body
+        /// Radar borrowed the glyph for its own verdict.
+        let warningAccessibilityLabel: String?
 
         init(
             kind: HealthMetricKind,
@@ -53,9 +74,14 @@ struct BodyHealthMetricCard: View {
             chartPreview: HealthTrendSeries? = nil,
             chartRangePreview: HealthTrendRangeSeries? = nil,
             previewDotEntries: [DotEntry] = [],
+            dotPreviewHighlightedRegion: SleepVitalRegion? = .typical,
+            dotPreviewEqualRegions: Bool = false,
+            dotPreviewPlaceholderCount: Int = VitalKind.allCases.count,
             levelPreviewEntry: LevelEntry? = nil,
             warningSymbolName: String? = nil,
-            previewDayCount: Int = BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width)
+            warningColor: Color = .yellow,
+            warningAccessibilityLabel: String? = nil,
+            previewDayCount: Int = BodyHomeMetricCardPreview.previewDayCount
         ) {
             self.kind = kind
             self.title = title
@@ -66,8 +92,13 @@ struct BodyHealthMetricCard: View {
             self.prominentMetrics = prominentMetrics
             self.chartPreviewStyle = chartPreviewStyle
             self.previewDotEntries = previewDotEntries
+            self.dotPreviewHighlightedRegion = dotPreviewHighlightedRegion
+            self.dotPreviewEqualRegions = dotPreviewEqualRegions
+            self.dotPreviewPlaceholderCount = dotPreviewPlaceholderCount
             self.levelPreviewEntry = levelPreviewEntry
             self.warningSymbolName = warningSymbolName
+            self.warningColor = warningColor
+            self.warningAccessibilityLabel = warningAccessibilityLabel
             // Preview points are derived once per model — the preview view
             // used to regroup the full trend series in chained computed
             // properties on every render of every card.
@@ -98,7 +129,7 @@ struct BodyHealthMetricCard: View {
         /// Cards whose headline is a status word rather than a number: Vitals'
         /// "Typical"/"Below Average" and Stress's band word ("Rest"/"Low"/…).
         var usesWordValue: Bool {
-            kind == .vitals || kind == .stress
+            kind == .vitals || kind == .stress || kind == .bodyRadar
         }
     }
 
@@ -148,6 +179,12 @@ struct BodyHealthMetricCard: View {
     /// separates a pending preview from an unavailable one, so the card takes
     /// it rather than guessing from emptiness.
     var isRefreshing: Bool = false
+    /// The width of the container the card is laid out in, measured by the host
+    /// rather than read from `UIScreen`: under Split View and Stage Manager the
+    /// screen is wider than the page, and the card sized its preview for a screen
+    /// it did not have. Zero (the default outside the Home grid) draws the
+    /// compact preview.
+    var containerWidth: CGFloat = 0
 
     var body: some View {
         cardContent
@@ -222,8 +259,10 @@ struct BodyHealthMetricCard: View {
             if let warningSymbolName = metric.warningSymbolName {
                 Image(systemName: warningSymbolName)
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.yellow)
-                    .accessibilityLabel(Text("Low Heart Rate"))
+                    .foregroundStyle(metric.warningColor)
+                    .accessibilityLabel(
+                        metric.warningAccessibilityLabel.map { Text(verbatim: $0) } ?? Text("Low Heart Rate")
+                    )
                     .transition(.opacity)
             }
         }
@@ -246,10 +285,14 @@ struct BodyHealthMetricCard: View {
                     calendarPoints: metric.previewCalendarPoints,
                     rangeCalendarPoints: metric.previewRangeCalendarPoints,
                     dotEntries: metric.previewDotEntries,
+                    dotHighlightedRegion: metric.dotPreviewHighlightedRegion,
+                    dotEqualRegions: metric.dotPreviewEqualRegions,
+                    dotPlaceholderCount: metric.dotPreviewPlaceholderCount,
                     levelPreviewEntry: metric.levelPreviewEntry,
                     tintColor: metric.symbolColor,
                     style: metric.chartPreviewStyle,
-                    phase: PreviewPhase.resolved(for: metric, isRefreshing: isRefreshing)
+                    phase: PreviewPhase.resolved(for: metric, isRefreshing: isRefreshing),
+                    containerWidth: containerWidth
                 )
             }
 
@@ -264,7 +307,7 @@ struct BodyHealthMetricCard: View {
                 .accessibilityHidden(true)
         }
         .frame(
-            width: BodyHomeMetricCardPreview.previewWidth(for: metric.chartPreviewStyle, screenWidth: UIScreen.main.bounds.width),
+            width: BodyHomeMetricCardPreview.previewWidth(for: metric.chartPreviewStyle, screenWidth: containerWidth),
             alignment: .bottomTrailing
         )
         .padding(.bottom, 4)
@@ -321,31 +364,84 @@ struct BodyHealthMetricCardTrendPreview: View {
     let calendarPoints: [HealthTrendCalendarPoint]
     let rangeCalendarPoints: [HealthTrendRangeCalendarPoint]
     let dotEntries: [BodyHealthMetricCard.Model.DotEntry]
+    let dotHighlightedRegion: SleepVitalRegion?
+    let dotEqualRegions: Bool
+    let dotPlaceholderCount: Int
     let levelPreviewEntry: BodyHealthMetricCard.Model.LevelEntry?
     let tintColor: Color
     let style: BodyHomeMetricCardPreview.Style
     let phase: BodyHealthMetricCard.PreviewPhase
+    /// See `BodyHealthMetricCard.containerWidth`.
+    let containerWidth: CGFloat
+    /// Whether the preview has already drawn real data. Days without a value sit
+    /// on the baseline and skeleton entries rest mid-band, so the first refresh
+    /// that fills a cached or empty preview would otherwise animate every bar,
+    /// point, ring and level up from where the placeholder was. The first data
+    /// frame lands without motion; later refreshes, where values genuinely move,
+    /// keep the refresh animation.
+    @State private var hasShownData = false
 
     init(
         calendarPoints: [HealthTrendCalendarPoint],
         rangeCalendarPoints: [HealthTrendRangeCalendarPoint] = [],
         dotEntries: [BodyHealthMetricCard.Model.DotEntry] = [],
+        dotHighlightedRegion: SleepVitalRegion? = .typical,
+        dotEqualRegions: Bool = false,
+        dotPlaceholderCount: Int = VitalKind.allCases.count,
         levelPreviewEntry: BodyHealthMetricCard.Model.LevelEntry? = nil,
         tintColor: Color,
         style: BodyHomeMetricCardPreview.Style,
-        phase: BodyHealthMetricCard.PreviewPhase = .data
+        phase: BodyHealthMetricCard.PreviewPhase = .data,
+        containerWidth: CGFloat = 0
     ) {
         self.calendarPoints = calendarPoints
         self.rangeCalendarPoints = rangeCalendarPoints
         self.dotEntries = dotEntries
+        self.dotHighlightedRegion = dotHighlightedRegion
+        self.dotEqualRegions = dotEqualRegions
+        self.dotPlaceholderCount = dotPlaceholderCount
         self.levelPreviewEntry = levelPreviewEntry
         self.tintColor = tintColor
         self.style = style
         self.phase = phase
+        self.containerWidth = containerWidth
     }
 
     private var refreshAnimation: Animation? {
-        reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)
+        reduceMotion || !hasShownData ? nil : .smooth(duration: 0.45, extraBounce: 0)
+    }
+
+    /// The dots preview's own first data frame, which `refreshAnimation` would
+    /// swallow. That suppression exists because a preview whose shapes are sized
+    /// by the data lurches when the placeholder fills: bars climb off the
+    /// baseline, and the dots preview's three regions resize to the occupancy the
+    /// rings land in. A preview whose slots are fixed thresholds has none of
+    /// that — the bands hold their heights whatever the reading is, so the only
+    /// thing the first frame moves is the ring, gliding out of the skeleton into
+    /// the slot the verdict put it in. Body Radar is that case, and it freezes
+    /// its verdict for the rest of the day, so the skeleton filling is the one
+    /// motion its card ever gets; suppressing it left the ring simply appearing
+    /// in its band.
+    private var dotsAnimation: Animation? {
+        guard dotEqualRegions else {
+            return refreshAnimation
+        }
+
+        return reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)
+    }
+
+    /// True once any preview style has something real to draw.
+    private var hasData: Bool {
+        switch style {
+        case .line, .bar:
+            return !values.isEmpty
+        case .range:
+            return lastRangeValueIndex != nil
+        case .dots:
+            return phase == .data && !dotEntries.isEmpty
+        case .levels:
+            return phase == .data && levelPreviewEntry != nil
+        }
     }
 
     private struct LinePlotEntry: Identifiable {
@@ -412,14 +508,19 @@ struct BodyHealthMetricCardTrendPreview: View {
         }
         .frame(width: previewWidth, height: previewHeight, alignment: .bottomTrailing)
         .accessibilityHidden(true)
+        .onChange(of: hasData, initial: true) { _, hasData in
+            if hasData {
+                hasShownData = true
+            }
+        }
     }
 
     private var previewWidth: CGFloat {
-        BodyHomeMetricCardPreview.previewWidth(for: style, screenWidth: UIScreen.main.bounds.width)
+        BodyHomeMetricCardPreview.previewWidth(for: style, screenWidth: containerWidth)
     }
 
     private var previewHeight: CGFloat {
-        BodyHomeMetricCardPreview.previewHeight(forScreenWidth: UIScreen.main.bounds.width)
+        BodyHomeMetricCardPreview.previewHeight(forScreenWidth: containerWidth)
     }
 
     private var barPreview: some View {
@@ -603,20 +704,28 @@ struct BodyHealthMetricCardTrendPreview: View {
     private struct PreviewDot: Equatable {
         var position: Double
         var region: SleepVitalRegion?
+        var tint: Color? = nil
+        var bandTint: Color? = nil
+        var opacity: Double = 1
     }
-
-    /// One skeleton ring per vital, so the pending card shows the same number of
-    /// rings the assessed one will.
-    private static let placeholderDotCount = VitalKind.allCases.count
 
     private var previewDots: [PreviewDot] {
         switch phase {
         case .data:
-            return dotEntries.map { PreviewDot(position: $0.position, region: $0.region) }
+            return dotEntries.map {
+                PreviewDot(
+                    position: $0.position,
+                    region: $0.region,
+                    tint: $0.tint,
+                    bandTint: $0.bandTint,
+                    opacity: $0.opacity
+                )
+            }
         case .pending:
+            // One skeleton ring per reading the assessed card will show.
             return Array(
                 repeating: PreviewDot(position: 0.5, region: nil),
-                count: Self.placeholderDotCount
+                count: dotPlaceholderCount
             )
         case .unavailable:
             // No rings at all: the skeleton ones promise readings that are
@@ -648,21 +757,26 @@ struct BodyHealthMetricCardTrendPreview: View {
     private var dotsPreview: some View {
         GeometryReader { proxy in
             let dots = previewDots
-            let layout = DotPreviewLayout(size: proxy.size, occupied: occupiedRegions(for: dots))
+            // An empty occupied set is the even three-way split.
+            let layout = DotPreviewLayout(
+                size: proxy.size,
+                occupied: dotEqualRegions ? [] : occupiedRegions(for: dots),
+                placesRingsWithinRegions: dotEqualRegions
+            )
 
             ZStack {
                 RoundedRectangle(cornerRadius: layout.cornerRadius(for: .high), style: .continuous)
-                    .fill(Color.secondary.opacity(isAwaitingDots ? 0.24 : 0.42))
+                    .fill(regionColor(for: .high, dots: dots))
                     .frame(width: proxy.size.width, height: layout.height(for: .high))
                     .position(x: proxy.size.width / 2, y: layout.centerY(for: .high))
 
                 RoundedRectangle(cornerRadius: layout.cornerRadius(for: .typical), style: .continuous)
-                    .fill(bandColor)
+                    .fill(regionColor(for: .typical, dots: dots))
                     .frame(width: proxy.size.width, height: layout.height(for: .typical))
                     .position(x: proxy.size.width / 2, y: layout.centerY(for: .typical))
 
                 RoundedRectangle(cornerRadius: layout.cornerRadius(for: .low), style: .continuous)
-                    .fill(Color.secondary.opacity(isAwaitingDots ? 0.24 : 0.42))
+                    .fill(regionColor(for: .low, dots: dots))
                     .frame(width: proxy.size.width, height: layout.height(for: .low))
                     .position(x: proxy.size.width / 2, y: layout.centerY(for: .low))
 
@@ -673,6 +787,7 @@ struct BodyHealthMetricCardTrendPreview: View {
                             Circle()
                                 .strokeBorder(dotColor(for: dot), lineWidth: layout.dotStroke)
                         )
+                        .opacity(dot.opacity)
                         .frame(width: layout.dotDiameter, height: layout.dotDiameter)
                         .position(
                             x: dotX(at: index, in: proxy.size, count: dots.count),
@@ -686,11 +801,11 @@ struct BodyHealthMetricCardTrendPreview: View {
             // previews (0.24 × 0.58 ≈ 0.14, the levels preview's empty rows),
             // so neither empty preview reads as a skeleton about to fill.
             .opacity(phase == .unavailable ? 0.58 : 1)
-            .animation(refreshAnimation, value: dotEntries)
+            .animation(dotsAnimation, value: dotEntries)
             // A refresh that lands with nothing takes the skeleton rings away
             // without touching `dotEntries`, so that change needs its own key
             // or the rings pop out instead of fading.
-            .animation(refreshAnimation, value: phase)
+            .animation(dotsAnimation, value: phase)
         }
     }
 
@@ -717,8 +832,15 @@ struct BodyHealthMetricCardTrendPreview: View {
         private let highHeight: CGFloat
         private let typicalHeight: CGFloat
         private let lowHeight: CGFloat
+        /// Whether a ring is placed by where it lands inside its own region in
+        /// all three of them, rather than resting at the middle of the outer
+        /// two the way a vital does. Only the equal-height layout has the room:
+        /// Body Radar's three slots are fixed thresholds, so its ring glides as
+        /// the night's evidence moves instead of holding three fixed heights.
+        private let placesRingsWithinRegions: Bool
 
-        init(size: CGSize, occupied: Set<SleepVitalRegion>) {
+        init(size: CGSize, occupied: Set<SleepVitalRegion>, placesRingsWithinRegions: Bool = false) {
+            self.placesRingsWithinRegions = placesRingsWithinRegions
             gap = min(max(size.height * Self.gapFraction, 1.5), size.height / 8)
             let available = max(size.height - 2 * gap, 1)
             // Clamping the minimum to a third is what keeps the three heights
@@ -808,21 +930,37 @@ struct BodyHealthMetricCardTrendPreview: View {
 
         /// `markerPosition` maps the typical band to [1/3, 2/3]; that middle
         /// third stretches over the typical region and the outer thirds collapse
-        /// onto the high and low regions, mirroring the drawn shapes.
+        /// onto the high and low regions, mirroring the drawn shapes. A layout
+        /// that places rings within every region stretches all three thirds
+        /// instead, so the outer two read like the middle one.
         func dotY(for position: Double) -> CGFloat {
             let clamped = min(max(position, 0), 1)
             let region = Self.regionSlot(for: clamped)
 
-            guard region == .typical else {
+            guard placesRingsWithinRegions || region == .typical else {
                 return centerY(for: region)
             }
 
             let halfDot = dotDiameter / 2
-            let bandTopY = topY(for: .typical)
-            let bandFraction = (2.0 / 3.0 - clamped) * 3
+            let bandTopY = topY(for: region)
+            let bandHeight = height(for: region)
+            let bandFraction = (Self.slotCeiling(for: region) - clamped) * 3
             let minY = bandTopY + halfDot + 0.5
-            let maxY = bandTopY + typicalHeight - halfDot - 0.5
-            return min(max(bandTopY + typicalHeight * CGFloat(bandFraction), minY), maxY)
+            let maxY = bandTopY + bandHeight - halfDot - 0.5
+            return min(max(bandTopY + bandHeight * CGFloat(bandFraction), minY), maxY)
+        }
+
+        /// The top of a region's own third of the 0…1 scale, the value a ring
+        /// drawn at the very top of that region carries.
+        private static func slotCeiling(for region: SleepVitalRegion) -> Double {
+            switch region {
+            case .high:
+                return 1
+            case .typical:
+                return 2.0 / 3.0
+            case .low:
+                return 1.0 / 3.0
+            }
         }
     }
 
@@ -846,7 +984,26 @@ struct BodyHealthMetricCardTrendPreview: View {
         isAwaitingDots ? Color.secondary.opacity(0.24) : Color(red: 0.21, green: 0.30, blue: 0.45)
     }
 
+    /// The highlighted slot takes the band color, a slot whose ring carries a
+    /// band tint takes that wash, and the rest stay muted.
+    private func regionColor(for region: SleepVitalRegion, dots: [PreviewDot]) -> Color {
+        if region == dotHighlightedRegion {
+            return bandColor
+        }
+
+        if !isAwaitingDots,
+           let tint = dots.first(where: { $0.region == region })?.bandTint {
+            return tint.opacity(0.38)
+        }
+
+        return Color.secondary.opacity(isAwaitingDots ? 0.24 : 0.42)
+    }
+
     private func dotColor(for dot: PreviewDot) -> Color {
+        if let tint = dot.tint {
+            return tint
+        }
+
         switch dot.region {
         case .typical:
             return BodyVitalsChartStyle.typicalColor
@@ -1064,8 +1221,27 @@ struct AnimatableVector: VectorArithmetic {
         values.reduce(0) { $0 + $1 * $1 }
     }
 
+    /// Pads the shorter operand so a polyline can interpolate against one with a
+    /// different point count.
+    ///
+    /// An empty vector keeps zero padding: `.zero` IS the empty vector, and
+    /// `VectorArithmetic` requires `.zero + v == v`, so padding it with anything
+    /// else would make insert and remove transitions draw nothing. A non-empty
+    /// vector repeats its last POINT instead of zeros: zero padding used to drag
+    /// the extra vertices to the origin, so growing a preview by a day swept a
+    /// line across the corner of the card. Repeating the last point parks them on
+    /// the final vertex, which is inside the polyline's own bounding box.
     private static func padded(_ values: [Double], to count: Int) -> [Double] {
         guard values.count < count else { return values }
-        return values + Array(repeating: 0, count: count - values.count)
+        guard values.count >= 2 else {
+            return values + Array(repeating: 0, count: count - values.count)
+        }
+
+        var padded = values
+        let lastPoint = Array(values.suffix(2))
+        while padded.count < count {
+            padded.append(lastPoint[padded.count % 2])
+        }
+        return padded
     }
 }

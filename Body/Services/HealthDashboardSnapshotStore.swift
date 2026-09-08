@@ -35,12 +35,8 @@ enum HealthDashboardSnapshotStore {
         defaults.string(forKey: secondarySelectionSignatureKey)
     }
 
-    /// Persisted timestamp of the last successful HealthKit refresh. Loaded at
-    /// launch so the cold-start sync path can route through the same tiered
-    /// TTL as a warm scene-phase resume: < 60 s → skip, < 5 min → current-month
-    /// only, ≥ 5 min → full refresh. Without persistence, every cold start
-    /// looked like "never refreshed before" and always paid the full refresh
-    /// cost even when the on-disk snapshot was seconds old.
+    /// Legacy timestamp helpers. Cold start now trusts only envelope freshness;
+    /// a separate defaults key cannot prove that its dashboard reached disk.
     static func saveLastSuccessfulRefreshDate(_ date: Date, defaults: UserDefaults = .standard) {
         defaults.set(date, forKey: lastSuccessfulRefreshDateKey)
     }
@@ -158,16 +154,14 @@ enum HealthDashboardSnapshotStore {
     /// - `suppressed` records a denied read so the heavy scan stays parked
     ///   until a later cheap read (or the user re-enabling Activity in Body's
     ///   own permission selection) proves access is back.
-    enum ActivityRingBackfillState: Equatable {
+    enum ActivityRingBackfillState: Codable, Equatable {
         case pending(resumeFrom: Date?)
         case completed
         case suppressed(lastProbe: Date)
     }
 
-    /// The resume checkpoint and the suppression stamp live in their own keys
-    /// so `activityRingBackfillCompletedKey` keeps its pre-tri-state meaning:
-    /// an install that already finished the ten-year scan reads back as
-    /// `.completed` and never redoes it.
+    /// Legacy checkpoint keys, retained for cleanup and compatibility tests.
+    /// Production restores only the checkpoint bound to the dashboard envelope.
     static let activityRingBackfillResumeDateKey = "lastHealthDashboardActivityRingBackfillResumeDate"
     static let activityRingBackfillSuppressedDateKey = "lastHealthDashboardActivityRingBackfillSuppressedDate"
 
@@ -237,6 +231,56 @@ enum HealthDashboardSnapshotStore {
             .appendingPathComponent(healthDashboardDaySamplesFileName)
     }
 
+    /// Metadata is meaningful only beside the payload in the same atomic file.
+    /// Legacy UserDefaults checkpoints and timestamps cannot prove that binding.
+    struct PersistenceMetadata: Codable, Equatable {
+        var ringBackfill: ActivityRingBackfillState = .pending(resumeFrom: nil)
+        var secondarySelectionSignature: String?
+        var freshness: Freshness?
+        /// Missing in pre-day-identity envelopes. Progress is restarted once;
+        /// subsequent partial repair checkpoints remain bound to their payload.
+        var ringDayIdentityVersion: Int? = 1
+        var ringBackfillResumeDay: ActivityRingDaySummary.CalendarDay?
+        var ringHistoricalRepair: HistoricalMonthRepairProgress?
+    }
+
+    struct Freshness: Codable, Equatable {
+        let date: Date
+        let contextSignature: String
+    }
+
+    enum FileSaveOutcome: Equatable {
+        case written, unchanged, failed
+        // An unhydrated empty sidecar request preserved existing samples; this
+        // is not acknowledgment that the incoming raw payload reached disk.
+        case preserved
+
+        var isDurable: Bool { self == .written || self == .unchanged }
+    }
+
+    struct SaveOutcome: Equatable {
+        let main: FileSaveOutcome
+        let sidecar: FileSaveOutcome
+        var didWrite: Bool { main == .written || sidecar == .written }
+    }
+
+    /// Failure/pause injection stays below encoding and atomic replacement.
+    /// Production uses the same encode-before-write and byte-dedupe path.
+    struct PersistenceIO {
+        var encoder: () -> JSONEncoder = { makeSnapshotEncoder() }
+        var read: (URL) throws -> Data = { try Data(contentsOf: $0) }
+        var decodeDaySamples: (Data) throws -> HealthTrendDaySampleSnapshot = {
+            try JSONDecoder().decode(HealthTrendDaySampleSnapshot.self, from: $0)
+        }
+        var write: (Data, URL) throws -> Void = { data, url in
+            try BodySnapshotDirectory.prepare(url.deletingLastPathComponent())
+            // Background reads must work while locked after the first unlock.
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+    }
+
+    /// Compatibility entry for legacy payload migration and payload-only tests.
+    /// Live store saves must use `saveWithOutcome` with captured metadata.
     @discardableResult
     static func save(
         _ snapshot: HealthDashboardSnapshot,
@@ -245,12 +289,28 @@ enum HealthDashboardSnapshotStore {
         defaults: UserDefaults = .standard,
         fileURL: URL? = snapshotFileURL
     ) -> Bool {
+        saveWithOutcome(snapshot, daySampleSignatures: daySampleSignatures,
+                        summaryContextSignature: summaryContextSignature,
+                        metadata: PersistenceMetadata(), defaults: defaults, fileURL: fileURL).didWrite
+    }
+
+    @discardableResult
+    static func saveWithOutcome(
+        _ snapshot: HealthDashboardSnapshot,
+        daySampleSignatures: HealthTrendDaySampleSignatures? = nil,
+        summaryContextSignature: String? = nil,
+        metadata: PersistenceMetadata,
+        authoritativeDaySampleSeries: Set<HealthDaySampleSeries> = [],
+        defaults: UserDefaults = .standard,
+        fileURL: URL? = snapshotFileURL,
+        io: PersistenceIO = PersistenceIO()
+    ) -> SaveOutcome {
         let signpostState = BodyPerformanceSignposts.signposter.beginInterval("DashboardSnapshotSave")
         defer { BodyPerformanceSignposts.signposter.endInterval("DashboardSnapshotSave", signpostState) }
 
         guard let fileURL else {
             logger.error("Health dashboard snapshot file save skipped because file URL is unavailable.")
-            return false
+            return SaveOutcome(main: .failed, sidecar: .failed)
         }
 
         let mainSnapshot = HealthDashboardSnapshot(
@@ -258,75 +318,105 @@ enum HealthDashboardSnapshotStore {
             trends: snapshot.trends.strippingDaySamples(),
             activityRingHistory: snapshot.activityRingHistory
         )
-        let data: Data
+        let mainOutcome: FileSaveOutcome
         do {
-            data = try makeSnapshotEncoder().encode(
+            let data = try io.encoder().encode(
                 PersistedDashboardSnapshot(
                     snapshot: mainSnapshot,
-                    summaryContextSignature: summaryContextSignature
+                    summaryContextSignature: summaryContextSignature,
+                    metadata: metadata
                 )
             )
+            mainOutcome = writeIfChanged(data, to: fileURL, existingData: try? io.read(fileURL), io: io)
         } catch {
             logger.error("Health dashboard snapshot encode failed: \(error.localizedDescription, privacy: .public)")
-            return false
+            mainOutcome = .failed
         }
-
-        var didWrite = false
-        if (try? Data(contentsOf: fileURL)) != data {
-            do {
-                try FileManager.default.createDirectory(
-                    at: fileURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try data.write(to: fileURL, options: [.atomic])
-                didWrite = true
-            } catch {
-                logger.error("Health dashboard snapshot file write failed: \(error.localizedDescription, privacy: .public)")
-                return false
-            }
+        if mainOutcome.isDurable {
+            defaults.removeObject(forKey: healthDashboardSnapshotKey)
         }
-        defaults.removeObject(forKey: healthDashboardSnapshotKey)
-
-        if saveDaySamples(
+        let sidecarOutcome = saveDaySamples(
             HealthTrendDaySampleSnapshot(trends: snapshot.trends, signatures: daySampleSignatures),
-            alongside: fileURL
-        ) {
-            didWrite = true
-        }
-        return didWrite
+            alongside: fileURL, authoritativeSeries: authoritativeDaySampleSeries, io: io
+        )
+        return SaveOutcome(main: mainOutcome, sidecar: sidecarOutcome)
     }
 
     private static func saveDaySamples(
         _ daySamples: HealthTrendDaySampleSnapshot,
-        alongside fileURL: URL
-    ) -> Bool {
+        alongside fileURL: URL,
+        authoritativeSeries: Set<HealthDaySampleSeries>,
+        io: PersistenceIO
+    ) -> FileSaveOutcome {
         let sidecarURL = daySamplesFileURL(alongside: fileURL)
         if daySamples.isEmpty, !FileManager.default.fileExists(atPath: sidecarURL.path) {
-            return false
+            return .unchanged
+        }
+
+        var payload = daySamples
+        var preservedUnloadedSeries = false
+        let missingSeries = HealthDaySampleSeries.allCases.filter {
+            !authoritativeSeries.contains($0) && daySamples[keyPath: $0.keyPath].isEmpty
+        }
+        // A fully supplied/authoritative payload needs no preservation decode.
+        // Reuse these bytes for dedupe and this decode for the all-empty guard.
+        var existingData: Data?
+        var existing: HealthTrendDaySampleSnapshot?
+        if !missingSeries.isEmpty {
+            existingData = try? io.read(sidecarURL)
+            existing = existingData.flatMap { try? io.decodeDaySamples($0) }
+        }
+        if let existing {
+            for series in missingSeries
+            where !existing[keyPath: series.keyPath].isEmpty
+                && series.hasCompatibleScope(existing, payload) {
+                payload[keyPath: series.keyPath] = existing[keyPath: series.keyPath]
+                preservedUnloadedSeries = true
+            }
+        }
+        // An all-empty payload over a populated sidecar is only a no-op when
+        // the sidecar's scope already matches the incoming payload exactly
+        // (H-17): schemaVersion and all four selection/permission signatures.
+        // In that case nothing about the selection changed, so keep the file
+        // untouched rather than rewriting it. If any signature differs, the
+        // incoming payload reflects a real scope change (e.g. the user
+        // deselected the only source whose Day View was loaded), and the
+        // empty payload is a legitimate invalidation that must overwrite the
+        // sidecar, matching `strippingDaySamples()`/`truncateDaySamples()`.
+        if authoritativeSeries.isEmpty, daySamples.isEmpty,
+           let existing,
+           !existing.isEmpty,
+           existing.schemaVersion == daySamples.schemaVersion,
+           existing.primarySelectionSignature == daySamples.primarySelectionSignature,
+           existing.secondarySelectionSignature == daySamples.secondarySelectionSignature,
+           existing.primaryMetricScopes == daySamples.primaryMetricScopes,
+           existing.secondaryMetricScopes == daySamples.secondaryMetricScopes,
+           existing.permissionSignature == daySamples.permissionSignature,
+           existing.combinesHealthDataSourcesByName == daySamples.combinesHealthDataSourcesByName {
+            logger.notice("kept the populated day-sample sidecar unchanged; scope signatures already matched")
+            return .preserved
         }
 
         let data: Data
         do {
-            data = try makeSnapshotEncoder().encode(daySamples)
+            data = try io.encoder().encode(payload)
         } catch {
             logger.error("Health dashboard day-sample encode failed: \(error.localizedDescription, privacy: .public)")
-            return false
+            return .failed
         }
+        if missingSeries.isEmpty { existingData = try? io.read(sidecarURL) }
+        let outcome = writeIfChanged(data, to: sidecarURL, existingData: existingData, io: io)
+        return outcome == .unchanged && preservedUnloadedSeries ? .preserved : outcome
+    }
 
-        if let existing = try? Data(contentsOf: sidecarURL), existing == data {
-            return false
-        }
-
+    private static func writeIfChanged(_ data: Data, to fileURL: URL, existingData: Data?, io: PersistenceIO) -> FileSaveOutcome {
+        if existingData == data { return .unchanged }
         do {
-            try FileManager.default.createDirectory(
-                at: sidecarURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try data.write(to: sidecarURL, options: [.atomic])
-            return true
+            try io.write(data, fileURL)
+            return .written
         } catch {
-            logger.error("Health dashboard day-sample file write failed: \(error.localizedDescription, privacy: .public)")
-            return false
+            logger.error("Health dashboard file write failed: \(error.localizedDescription, privacy: .public)")
+            return .failed
         }
     }
 
@@ -364,6 +454,7 @@ enum HealthDashboardSnapshotStore {
     struct LoadedSnapshot {
         let snapshot: HealthDashboardSnapshot
         let summaryContextSignature: String?
+        var metadata: PersistenceMetadata = PersistenceMetadata()
 
         static let empty = LoadedSnapshot(snapshot: .empty, summaryContextSignature: nil)
     }
@@ -450,6 +541,31 @@ enum HealthDashboardSnapshotStore {
             + fileSize(at: snapshotFileURL.map(daySamplesFileURL(alongside:)))
     }
 
+    /// Removes only the day-sample sidecar, leaving the main snapshot file in
+    /// place. Used at the deliberate full-strip sites (a source/combine change
+    /// invalidates every cached intraday series) instead of a normal save,
+    /// which would now merge an empty payload into the still-populated file
+    /// rather than truncate it.
+    @discardableResult
+    static func truncateDaySamples(fileURL: URL? = snapshotFileURL) -> Bool {
+        guard let fileURL else {
+            return false
+        }
+
+        let sidecarURL = daySamplesFileURL(alongside: fileURL)
+        guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
+            return false
+        }
+
+        do {
+            try FileManager.default.removeItem(at: sidecarURL)
+            return true
+        } catch {
+            logger.error("Health dashboard day-sample sidecar truncate failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
     static func delete(
         defaults: UserDefaults = .standard,
         fileURL: URL? = snapshotFileURL
@@ -495,9 +611,17 @@ enum HealthDashboardSnapshotStore {
     private static func decode(_ data: Data) -> LoadedSnapshot? {
         do {
             let persisted = try JSONDecoder().decode(PersistedDashboardSnapshot.self, from: data)
+            // Refuse a file stamped by a schema this build does not know. Version 1 is
+            // still accepted (and is also what a legacy file with no key means) because
+            // the 1 to 2 bump changed no bytes on disk.
+            let version = persisted.snapshot.schemaVersion ?? 1
+            guard version == 1 || version == HealthDashboardSnapshot.currentSchemaVersion else {
+                return nil
+            }
             return LoadedSnapshot(
                 snapshot: persisted.snapshot,
-                summaryContextSignature: persisted.summaryContextSignature
+                summaryContextSignature: persisted.summaryContextSignature,
+                metadata: persisted.envelopeVersion == 1 ? persisted.metadata : PersistenceMetadata()
             )
         } catch {
             logger.error("Health dashboard snapshot decode failed: \(error.localizedDescription, privacy: .public)")
@@ -512,32 +636,42 @@ enum HealthDashboardSnapshotStore {
 /// removes it with the data. `HealthDashboardSnapshot` lives in a package this
 /// store can't extend, so the wrapper merges the extra key into the snapshot's
 /// top-level container on encode and reads it back on decode. An old file simply
-/// lacks the key; the signature decodes as nil. With a nil signature `encodeIfPresent`
-/// omits the key, so the bytes stay identical to the pre-H2a format (the
-/// save-if-changed compare still reports "unchanged").
+/// lacks the metadata; its history survives, but unprovable progress and
+/// freshness restart conservatively. Envelope versioning is independent of the
+/// metrics package's payload schema. Identical envelopes still byte-dedupe.
 private struct PersistedDashboardSnapshot: Codable {
     let snapshot: HealthDashboardSnapshot
     let summaryContextSignature: String?
+    let envelopeVersion: Int?
+    let metadata: HealthDashboardSnapshotStore.PersistenceMetadata
 
     private enum CodingKeys: String, CodingKey {
-        case summaryContextSignature
+        case summaryContextSignature, envelopeVersion, metadata
     }
 
-    init(snapshot: HealthDashboardSnapshot, summaryContextSignature: String?) {
+    init(snapshot: HealthDashboardSnapshot, summaryContextSignature: String?,
+         metadata: HealthDashboardSnapshotStore.PersistenceMetadata) {
         self.snapshot = snapshot
         self.summaryContextSignature = summaryContextSignature
+        self.envelopeVersion = 1
+        self.metadata = metadata
     }
 
     init(from decoder: Decoder) throws {
         snapshot = try HealthDashboardSnapshot(from: decoder)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         summaryContextSignature = try container.decodeIfPresent(String.self, forKey: .summaryContextSignature)
+        envelopeVersion = try? container.decodeIfPresent(Int.self, forKey: .envelopeVersion)
+        metadata = (try? container.decodeIfPresent(HealthDashboardSnapshotStore.PersistenceMetadata.self, forKey: .metadata))
+            ?? HealthDashboardSnapshotStore.PersistenceMetadata()
     }
 
     func encode(to encoder: Encoder) throws {
         try snapshot.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(summaryContextSignature, forKey: .summaryContextSignature)
+        try container.encodeIfPresent(envelopeVersion, forKey: .envelopeVersion)
+        try container.encode(metadata, forKey: .metadata)
     }
 }
 

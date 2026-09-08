@@ -162,6 +162,208 @@ final class BodyHomeCardGridLayoutTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(harness.recorder.frames["d"]).minY, 0, accuracy: 0.5)
     }
 
+    // MARK: - Scroll targeting
+
+    /// The readiness hero's warning badges scroll the page to the card they mirror, by
+    /// `BodyHomeCardKind.id`. Two separate things have to hold for that, and each was a
+    /// live theory for why it did not: the grid cards, which are subviews of a custom
+    /// `Layout` and carry no explicit `.id()`, have to register as `scrollTo` targets at
+    /// all, and nothing else drawn in Home's one ScrollView may answer to the same name.
+    /// This case covers the first; the next covers the second.
+    ///
+    /// Measured on the simulator before the fix: with the badges publishing the bare
+    /// `card.rawValue` the page sat at its resting offset, while the same page with no
+    /// badges scrolled 1035 pt to the card. So the ForEach id does register from inside
+    /// the custom `Layout`, and the collision alone was the bug.
+    func testScrollToReachesACardInsideTheCustomGridLayout() throws {
+        let harness = try makeScrollHarness(badges: [])
+        defer { harness.tearDown() }
+
+        try assertScrollCenters(harness, on: Self.scrollTarget)
+    }
+
+    /// The regression guard for the id collision. Renders the real `BodyReadinessHeroLabel`
+    /// rather than a stand-in row, so deleting `BodyReadinessHeroWarningBadge.scrollIDPrefix`
+    /// from the shipped view turns this red instead of leaving a copy of it green here.
+    func testAHeroBadgeDoesNotShadowItsCardsScrollTarget() throws {
+        let badges = BodyReadinessHeroWarningBadge.badges(
+            visibleCards: [Self.scrollTarget],
+            lookup: [
+                .oxygenSaturation: BodyHealthMetricCard.Model(
+                    kind: .oxygenSaturation,
+                    title: "Blood Oxygen",
+                    value: "--",
+                    unit: "",
+                    symbolName: "lungs.fill",
+                    symbolColor: .blue,
+                    warningSymbolName: "exclamationmark.triangle.fill",
+                    warningColor: .yellow
+                )
+            ]
+        )
+        XCTAssertEqual(badges.count, 1, "The badge under test has to actually render")
+
+        let harness = try makeScrollHarness(badges: badges)
+        defer { harness.tearDown() }
+
+        try assertScrollCenters(harness, on: Self.scrollTarget)
+    }
+
+    // MARK: - Scroll harness
+
+    /// Blood Oxygen is the card the bug was reported on. It sits in the middle band of
+    /// `scrollCards`, which matters: `anchor: .center` cannot be satisfied for a target
+    /// without half a viewport of content below it, and a bottom-clamped scroll would
+    /// fail these tests for a reason unrelated to what they cover.
+    private static let scrollTarget: BodyHomeCardKind = .oxygenSaturation
+
+    private static let scrollViewport = CGSize(width: 390, height: 844)
+
+    private static let scrollCards: [BodyHomeCardKind] = [
+        .sleep, .basics, .heartRate, .heartRateVariability,
+        .oxygenSaturation,
+        .respiratoryRate, .steps, .activeEnergy, .restingEnergy, .restingHeartRate
+    ]
+
+    @MainActor
+    private final class ScrollCommand: ObservableObject {
+        @Published var target: String?
+    }
+
+    /// Home's shape in miniature: one `ScrollViewReader` over one `ScrollView`, whose
+    /// `VStack` holds the hero and then the grid inside `BodyHomeCardGridLayout`.
+    private struct ScrollProbePage: View {
+        @ObservedObject var command: ScrollCommand
+        let badges: [BodyReadinessHeroWarningBadge]
+        let recorder: FrameRecorder
+
+        var body: some View {
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    VStack(spacing: 14) {
+                        BodyReadinessHeroLabel(
+                            readiness: .unavailable,
+                            morningScore: nil,
+                            warningBadges: badges
+                        )
+
+                        BodyHomeCardGridLayout(spacing: BodyHomeCardGridLayoutTests.spacing) {
+                            ForEach(BodyHomeCardGridLayoutTests.scrollCards) { card in
+                                Color.clear
+                                    .frame(height: 240)
+                                    .onGeometryChange(for: CGRect.self) { proxy in
+                                        proxy.frame(in: .named("viewport"))
+                                    } action: { frame in
+                                        recorder.frames[card.id] = frame
+                                    }
+                                    .bodyHomeCardSlots(card.slotCount)
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .coordinateSpace(.named("viewport"))
+                // Deliberately unanimated: these assert whether `scrollTo` resolves the
+                // target, not how it travels, and an animated scroll would still be in
+                // flight when the run loop stops spinning.
+                .onChange(of: command.target) { _, target in
+                    guard let target else { return }
+                    proxy.scrollTo(target, anchor: .center)
+                }
+            }
+        }
+    }
+
+    private struct ScrollHarness {
+        let window: UIWindow
+        let recorder: FrameRecorder
+        let command: ScrollCommand
+
+        func settle() {
+            for _ in 0..<6 {
+                window.layoutIfNeeded()
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            }
+            window.layoutIfNeeded()
+        }
+
+        func tearDown() {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+    }
+
+    private func makeScrollHarness(badges: [BodyReadinessHeroWarningBadge]) throws -> ScrollHarness {
+        let recorder = FrameRecorder()
+        let command = ScrollCommand()
+        let root = ScrollProbePage(command: command, badges: badges, recorder: recorder)
+
+        let harness = ScrollHarness(
+            window: try hostedWindow(root, size: Self.scrollViewport),
+            recorder: recorder,
+            command: command
+        )
+        harness.settle()
+        return harness
+    }
+
+    private func assertScrollCenters(
+        _ harness: ScrollHarness,
+        on card: BodyHomeCardKind,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let scrollView = try XCTUnwrap(
+            Self.firstScrollView(in: harness.window),
+            "No UIScrollView materialized in the hosted hierarchy",
+            file: file,
+            line: line
+        )
+        let restingOffset = scrollView.contentOffset.y
+
+        harness.command.target = card.id
+        harness.settle()
+
+        XCTAssertGreaterThan(
+            scrollView.contentOffset.y,
+            restingOffset,
+            "scrollTo did not move the page: the card is not resolving as a scroll target",
+            file: file,
+            line: line
+        )
+        // UIKit's scroll view spans the whole window and compensates with content insets,
+        // while the SwiftUI `ScrollView` whose coordinate space these frames are measured
+        // in is only the visible band between them. `anchor: .center` centers within that
+        // band, so neither the window's height nor `bounds.height` is the reference.
+        let inset = scrollView.adjustedContentInset
+        let visibleHeight = scrollView.bounds.height - inset.top - inset.bottom
+        let frame = try XCTUnwrap(harness.recorder.frames[card.id], file: file, line: line)
+        XCTAssertEqual(
+            frame.midY,
+            visibleHeight / 2,
+            accuracy: 2,
+            """
+            The card landed off center, so `anchor: .center` did not resolve it. \
+            midY \(frame.midY), bounds \(scrollView.bounds.height), \
+            inset top \(inset.top) bottom \(inset.bottom), offset \(scrollView.contentOffset.y)
+            """,
+            file: file,
+            line: line
+        )
+    }
+
+    private static func firstScrollView(in view: UIView) -> UIScrollView? {
+        if let scrollView = view as? UIScrollView {
+            return scrollView
+        }
+        for subview in view.subviews {
+            if let found = firstScrollView(in: subview) {
+                return found
+            }
+        }
+        return nil
+    }
+
     // MARK: - Harness
 
     private struct Probe: Identifiable, Equatable {
@@ -239,13 +441,16 @@ final class BodyHomeCardGridLayoutTests: XCTestCase {
         return harness
     }
 
-    private func hostedWindow<Content: View>(_ root: Content) throws -> UIWindow {
+    private func hostedWindow<Content: View>(
+        _ root: Content,
+        size: CGSize = CGSize(width: 1024, height: 900)
+    ) throws -> UIWindow {
         let scene = try XCTUnwrap(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
             "BodyTests is app-hosted, so a UIWindowScene must exist"
         )
         let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 1024, height: 900)
+        window.frame = CGRect(origin: .zero, size: size)
         window.rootViewController = UIHostingController(rootView: root)
         window.makeKeyAndVisible()
         return window

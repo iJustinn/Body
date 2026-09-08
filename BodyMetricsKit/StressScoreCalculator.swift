@@ -678,8 +678,8 @@ enum StressScoreCalculator {
     }
 
     /// One aggregate per distinct day. `robustBaseline`'s minimum-count check counts
-    /// values, so feeding it raw samples would let a single dense day satisfy the
-    /// 14-day minimum on its own.
+    /// days, keeping only the latest value per day, so raw samples would collapse to
+    /// that day's last reading; this hands it the day's median instead.
     static func dailyMedians(
         of points: [HealthTrendDataPoint],
         calendar: Calendar = .bodyGregorian
@@ -875,7 +875,7 @@ enum StressRMSSD {
 
             differences.append(current.seconds - previous.seconds)
             insert(current.seconds, into: &accepted)
-            reference = medianValue(of: accepted) ?? reference
+            reference = sortedMedian(accepted) ?? reference
         }
 
         guard differences.count >= minimumSuccessiveDifferenceCount else {
@@ -911,5 +911,21 @@ enum StressRMSSD {
 
     private static func medianValue(of values: [Double]) -> Double? {
         StressScoreCalculator.median(values)
+    }
+
+    /// Median of an array `insert(_:into:)` already keeps sorted and finite, read by
+    /// index. The running reference is recomputed on every accepted interval, so
+    /// re-sorting the whole buffer each time would make the scan quadratic.
+    private static func sortedMedian(_ sorted: [Double]) -> Double? {
+        guard !sorted.isEmpty else {
+            return nil
+        }
+
+        let middle = sorted.count / 2
+        if sorted.count.isMultiple(of: 2) {
+            return (sorted[middle - 1] + sorted[middle]) / 2
+        }
+
+        return sorted[middle]
     }
 }

@@ -6,6 +6,7 @@
 //  sleep samples carry no HealthKit metadata (e.g. Apple Watch).
 //
 
+import HealthKit
 import XCTest
 @testable import Body
 
@@ -103,5 +104,110 @@ final class BodyTimeZoneLedgerTests: XCTestCase {
         dstLedger.recordCurrentZone(now: lateFallBackEvening, zone: try XCTUnwrap(TimeZone(identifier: london)))
 
         XCTAssertEqual(dstLedger.zoneIdentifier(on: fallBackNoon), london)
+    }
+
+    func testRecordsAreSortedByEffectiveDateOnLoad() throws {
+        // A clock rollback (manual date change, NTP correction) can append a
+        // record that is older than the one before it. Storage order would then
+        // make the London record the last one and answer every later day with it.
+        ledger.recordCurrentZone(now: try day(16), zone: try XCTUnwrap(TimeZone(identifier: newYork)))
+        ledger.recordCurrentZone(now: try day(10), zone: try XCTUnwrap(TimeZone(identifier: london)))
+
+        XCTAssertEqual(ledger.loadRecords().map(\.identifier), [london, newYork])
+        XCTAssertEqual(ledger.zoneIdentifier(on: try day(20)), newYork)
+    }
+
+    func testSnapshotDayLookupMatchesTheLedgerOnDSTFallBackDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: newYork))
+        let dstLedger = BodyTimeZoneLedger(defaults: defaults, calendar: calendar)
+
+        let october = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 10, day: 1, hour: 12)
+        ))
+        let lateFallBackEvening = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 11, day: 1, hour: 23, minute: 30)
+        ))
+        let fallBackNoon = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 11, day: 1, hour: 12)
+        ))
+        dstLedger.recordCurrentZone(now: october, zone: try XCTUnwrap(TimeZone(identifier: newYork)))
+        dstLedger.recordCurrentZone(now: lateFallBackEvening, zone: try XCTUnwrap(TimeZone(identifier: london)))
+
+        // Both pinned to London rather than compared with each other: the ledger's
+        // day lookup forwards to the snapshot's, so an equality between the two
+        // would hold whatever either of them answered.
+        XCTAssertEqual(dstLedger.snapshot().zoneIdentifier(on: fallBackNoon), london)
+        XCTAssertEqual(dstLedger.zoneIdentifier(on: fallBackNoon), london)
+    }
+
+    /// The instant lookup's boundary is inclusive (`<=`), so a workout that starts
+    /// in the same second the zone was recorded reads as the new zone.
+    func testInstantLookupIncludesTheRecordsOwnInstant() throws {
+        let change = try day(15)
+        ledger.recordCurrentZone(now: try day(10), zone: try XCTUnwrap(TimeZone(identifier: newYork)))
+        ledger.recordCurrentZone(now: change, zone: try XCTUnwrap(TimeZone(identifier: london)))
+
+        XCTAssertEqual(ledger.snapshot().zoneIdentifier(at: change), london)
+    }
+
+    /// Unknown history stays unknown: before the first record there is no zone to
+    /// name, and the caller falls back to its own calendar rather than to today's
+    /// zone dressed up as history.
+    func testInstantLookupIsNilBeforeTheFirstRecord() throws {
+        ledger.recordCurrentZone(now: try day(10), zone: try XCTUnwrap(TimeZone(identifier: newYork)))
+
+        XCTAssertNil(ledger.snapshot().zoneIdentifier(at: try day(9)))
+    }
+
+    /// The instant lookup is what workouts use: a zone change partway through a
+    /// day splits that day, instead of naming the whole day by the zone in
+    /// effect at its end.
+    func testInstantLookupSplitsTheDayTheZoneChanged() throws {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        func instant(day: Int, hour: Int) throws -> Date {
+            try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 6, day: day, hour: hour)))
+        }
+
+        ledger.recordCurrentZone(now: try instant(day: 10, hour: 12), zone: try XCTUnwrap(TimeZone(identifier: newYork)))
+        ledger.recordCurrentZone(now: try instant(day: 15, hour: 10), zone: try XCTUnwrap(TimeZone(identifier: london)))
+
+        let resolver = ledger.snapshot()
+        XCTAssertEqual(resolver.zoneIdentifier(at: try instant(day: 15, hour: 6)), newYork)
+        XCTAssertEqual(resolver.zoneIdentifier(at: try instant(day: 15, hour: 12)), london)
+        // The day-scoped lookup, by contrast, names the whole day London.
+        XCTAssertEqual(resolver.zoneIdentifier(on: try instant(day: 15, hour: 6)), london)
+
+        // Zone-independent: the answer cannot depend on the calendar the ledger
+        // happens to hold, unlike the day-scoped rule.
+        var tokyo = Calendar(identifier: .gregorian)
+        tokyo.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let tokyoResolver = BodyTimeZoneLedger(defaults: defaults, calendar: tokyo).snapshot()
+        XCTAssertEqual(tokyoResolver.zoneIdentifier(at: try instant(day: 15, hour: 6)), newYork)
+        XCTAssertEqual(tokyoResolver.zoneIdentifier(at: try instant(day: 15, hour: 12)), london)
+    }
+
+    /// The Workouts tab refreshes a month without going through either sleep
+    /// fetch, so `fetchWorkouts` seeds the ledger itself, before its query runs
+    /// (here the query is cancelled and never answers).
+    func testFetchWorkoutsRecordsTheCurrentZone() async throws {
+        let engine = HealthKitFetchEngine(
+            permission: .defaultValue,
+            healthDataSourceSelection: BodyHealthDataSourceSelection(selectedOptions: [:]),
+            secondaryHealthDataSourceSelection: BodyHealthSecondaryDataSourceSelection(selectedOptions: [:]),
+            combinesHealthDataSourcesByName: false,
+            healthStore: FakeHealthStore(),
+            timeZoneLedger: ledger
+        )
+
+        let task = Task {
+            try await engine.fetchWorkouts(month: 6, year: 2026, calendar: .bodyGregorian)
+        }
+        task.cancel()
+        _ = try? await task.value
+
+        XCTAssertEqual(ledger.loadRecords().count, 1)
+        XCTAssertEqual(ledger.loadRecords().first?.identifier, TimeZone.current.identifier)
     }
 }

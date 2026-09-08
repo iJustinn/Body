@@ -77,7 +77,7 @@ extension HealthKitFetchEngine {
         let descriptor = HKActivitySummaryQueryDescriptor(predicate: predicate)
 
         do {
-            guard let summary = try await descriptor.result(for: healthStore).first else {
+            guard let summary = try await healthStore.result(for: descriptor).first else {
                 return .success(nil)
             }
 
@@ -278,7 +278,8 @@ extension HealthKitFetchEngine {
                     // day are left for the finished walk's result to mark.
                     loadedMonthKeys: chunkDays.first.map {
                         Self.activityRingMonthKeySpan(from: $0.date, to: chunkEnd, calendar: calendar)
-                    } ?? []
+                    } ?? [],
+                    validatedMonthKeys: Self.activityRingMonthKeySpan(from: chunkStart, to: chunkEnd, calendar: calendar)
                 ),
                 hadQueryFailure: false,
                 reachedHistoryStart: reachedHistoryStart,
@@ -421,7 +422,11 @@ extension HealthKitFetchEngine {
                             Self.logTrendQueryFailure(context, error: error)
                             // Unlike sample queries, a denied ring read reports an
                             // authorization error instead of coming back empty.
-                            resume(error.map { Self.isAuthorizationDenial($0) ? .denied : .failed } ?? .failed)
+                            // Only a confirmed denial clears cached ring history;
+                            // "not determined" (the user has not been asked yet)
+                            // is treated as a plain failure so a transient read
+                            // never wipes ring history it should not touch.
+                            resume(error.map { Self.isConfirmedDenial($0) ? .denied : .failed } ?? .failed)
                             return
                         }
 
@@ -459,7 +464,11 @@ extension HealthKitFetchEngine {
         calendar: Calendar
     ) async -> ActivityRingOlderHistoryProbe {
         guard permissionSelection.includes(.activityRings) else {
-            return .failed
+            // A Body-side toggle off is a settled answer, not a transient read failure:
+            // there is no older history to page while rings are excluded, and the store
+            // resets `hasMoreActivityRingHistory` on every refresh, so re-enabling the
+            // toggle restores pagination.
+            return .noOlderData
         }
 
         guard
@@ -546,7 +555,8 @@ extension HealthKitFetchEngine {
 
             return ActivityRingDaySummary(
                 date: calendar.startOfDay(for: date),
-                summary: Self.activityRingSummary(from: summary)
+                summary: Self.activityRingSummary(from: summary),
+                calendar: calendar
             )
         }
         .sorted { $0.date < $1.date }

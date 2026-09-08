@@ -11,6 +11,7 @@
 import XCTest
 import SwiftUI
 import CoreGraphics
+import CoreLocation
 import UIKit
 @testable import Body
 
@@ -987,6 +988,80 @@ final class WorkoutShareRenderTests: XCTestCase {
 
         let scale = try XCTUnwrap(BodyWorkoutShareSheet.longExportScale(forHeight: heightPoints))
         XCTAssertLessThanOrEqual(heightPoints * scale, 12_000)
+    }
+
+    // MARK: - Map region
+
+    /// A route that crosses the antimeridian reads as a ~360 degree longitude span if
+    /// the bounds are taken naively, which frames the snapshot on the whole globe. The
+    /// region has to unwrap around the first fix instead, and still contain both ends.
+    func testMapRegionFramesAnAntimeridianCrossingWithoutSpanningTheGlobe() {
+        let coordinates = (0..<21).map { index -> CLLocationCoordinate2D in
+            // 179.90 E to 179.90 W, i.e. 0.2 degrees of ground, across the date line.
+            let longitude = 179.90 + 0.01 * Double(index)
+            return CLLocationCoordinate2D(
+                latitude: -16.50 + 0.002 * Double(index),
+                longitude: longitude > 180 ? longitude - 360 : longitude
+            )
+        }
+        let geometry = WorkoutShareCardGeometry(
+            aspectRatio: .portrait9x16, layout: .classic, arrangement: .stacked
+        )
+        let region = BodyWorkoutShareSheet.mapRegion(
+            for: coordinates, liftFraction: 0, size: geometry.size, band: geometry.mapBand
+        )
+
+        XCTAssertTrue(region.center.latitude.isFinite)
+        XCTAssertTrue(region.center.longitude.isFinite)
+        XCTAssertTrue(region.span.latitudeDelta.isFinite)
+        XCTAssertTrue(region.span.longitudeDelta.isFinite)
+        XCTAssertLessThan(
+            region.span.longitudeDelta, 5,
+            "unwrapping must keep the 0.2 degree route from reading as a near-global span"
+        )
+        XCTAssertLessThan(region.span.latitudeDelta, 5)
+
+        // Both endpoints fall inside the framed region, with longitudes measured in the
+        // same unwrapped frame the region's centre is stated in.
+        func unwrapped(_ longitude: Double) -> Double {
+            var value = longitude
+            while value - region.center.longitude > 180 { value -= 360 }
+            while value - region.center.longitude < -180 { value += 360 }
+            return value
+        }
+        for endpoint in [coordinates[0], coordinates[coordinates.count - 1]] {
+            XCTAssertLessThanOrEqual(
+                abs(endpoint.latitude - region.center.latitude),
+                region.span.latitudeDelta / 2,
+                "endpoint latitude inside the region"
+            )
+            XCTAssertLessThanOrEqual(
+                abs(unwrapped(endpoint.longitude) - region.center.longitude),
+                region.span.longitudeDelta / 2,
+                "endpoint longitude inside the region"
+            )
+        }
+    }
+
+    // MARK: - Scratch cleanup
+
+    /// A retired clip's files can only go once nothing else is reading them: the system
+    /// share panel holds the exported URL, and a save writes from it.
+    func testScratchIsKeptWhileTheShareSheetOrASaveStillNeedsIt() {
+        XCTAssertTrue(
+            BodyWorkoutShareSheet.canRemoveScratch(hasVideoPayload: false, isSavingImage: false)
+        )
+        XCTAssertFalse(
+            BodyWorkoutShareSheet.canRemoveScratch(hasVideoPayload: true, isSavingImage: false),
+            "the activity sheet is still holding the exported file"
+        )
+        XCTAssertFalse(
+            BodyWorkoutShareSheet.canRemoveScratch(hasVideoPayload: false, isSavingImage: true),
+            "a save is still writing the exported file"
+        )
+        XCTAssertFalse(
+            BodyWorkoutShareSheet.canRemoveScratch(hasVideoPayload: true, isSavingImage: true)
+        )
     }
 
     // MARK: - Transparent background

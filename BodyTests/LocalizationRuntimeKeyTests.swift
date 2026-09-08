@@ -7,6 +7,10 @@ import XCTest
 @testable import Body
 
 final class LocalizationRuntimeKeyTests: XCTestCase {
+    override func setUpWithError() throws {
+        try BodyTestSupport.requireProjectRoot()
+    }
+
     func testSleepVitalTitlesResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
@@ -391,14 +395,19 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
     func testWorkoutMonthSwipeKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
-        // Settings › Workouts › Month Swipe: the row title (reused as the
-        // sheet title and its toggle label), the sheet's card-section title, the
-        // toggle subtitle, and the footnote explanation.
+        // Settings › Workouts › Others: the row title (a dotted key, reused as
+        // the sheet title), the two card-section titles, each toggle's title and
+        // subtitle, and both footnote explanations.
         let keys = [
+            "settings.workouts.others",
             "Month Swipe",
             "Workouts Chart",
             "Swipe the chart to change month",
-            "When on, swiping left or right on the workouts calendar or type breakdown switches to the next or previous month, the same as the month picker. When off, the chart ignores horizontal swipes."
+            "When on, swiping left or right on the workouts calendar or type breakdown switches to the next or previous month, the same as the month picker. When off, the chart ignores horizontal swipes.",
+            "Month Picker",
+            "Short Month Names",
+            "Show months as SEP, OCT, NOV",
+            "When on, the month carousel at the top of the Workouts page and the month picker beside the search bar show months in their short uppercase form, such as SEP instead of September. This option is only available when the app runs in English."
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -462,7 +471,9 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Any reading below %lld bpm today",
             "Any reading above %lld bpm today, outside workouts",
             "Any reading below %lld%% today",
-            "Warnings appear on the Home card and the metric's detail page.",
+            "Warnings appear on the Home card, the readiness score, and the metric's detail page.",
+            "Show on Readiness",
+            "Add warning signs next to the readiness level",
             // Threshold picker popover.
             "Use Default",
             "If you were working out, this warning will disappear once the workout is logged.",
@@ -570,6 +581,32 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "onboarding.done.explore.subtitle",
             "onboarding.done.tip3",
             "onboarding.done.tip3.subtitle"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testCacheRebuildStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // BodyCacheRebuildView: the update-onboarding entry and the Settings ›
+        // Data › Cache › Rebuild Cache entry share every row and reuse the
+        // catalog's existing "Try Again", "Loading data...", and
+        // "onboarding.close" keys.
+        let keys = [
+            "updateOnboarding.title",
+            "updateOnboarding.subtitle",
+            "updateOnboarding.settings.title",
+            "updateOnboarding.settings.subtitle",
+            "updateOnboarding.feature.refresh.title",
+            "updateOnboarding.feature.refresh.subtitle",
+            "updateOnboarding.rebuild",
+            "updateOnboarding.getStarted",
+            "updateOnboarding.done",
+            "updateOnboarding.keepOpen",
+            "onboarding.close",
+            "Loading data...",
+            "Try Again"
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -762,6 +799,79 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    /// The floating sync badge's per-stage copy (`RefreshStage.badgeText`) plus
+    /// the completion label, all `LocalizedStringKey` literals in
+    /// BodyHealthSyncBadge that no source-scraping test can see.
+    func testSyncBadgeStageKeysAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "Checking Health access...",
+            "Loading data...",
+            "Calculating scores...",
+            "Saving workout effort...",
+            "Finishing up...",
+            "Health data updated"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testChartDayCountShortKeyResolvesInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        try assertKeysTranslated(["chart.dayCount.short"], in: catalog)
+    }
+
+    /// Body Radar state/region/signal names and detail copy, split across the
+    /// BodyMetricsKit table (BodyRadar model and view code) and the app table
+    /// (Home card + detail page copy owned by Body itself).
+    func testBodyRadarKeysResolveInCatalogs() throws {
+        let metricsKitCatalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+
+        let metricsKitKeys = [
+            "bodyRadar.state.calibrating",
+            "bodyRadar.state.missingSleep",
+            "bodyRadar.state.insufficientData",
+            "bodyRadar.combinedChanges",
+            "bodyRadar.allTypical",
+            "bodyRadar.state.noSigns",
+            "bodyRadar.state.minorSigns",
+            "bodyRadar.state.majorSigns",
+            "bodyRadar.region.none",
+            "bodyRadar.region.minor",
+            "bodyRadar.region.major",
+            "bodyRadar.signal.sleepingHeartRate",
+            "bodyRadar.signal.sleepingHeartRate.short",
+            "bodyRadar.signal.respiratoryRate",
+            "bodyRadar.signal.respiratoryRate.short",
+            "bodyRadar.signal.wristTemperature",
+            "bodyRadar.signal.wristTemperature.short",
+            "bodyRadar.signal.heartRateVariability",
+            "bodyRadar.signal.heartRateVariability.short",
+            "bodyRadar.signal.inactiveTime",
+            "bodyRadar.signal.inactiveTime.short",
+            "bodyRadar.detail.help",
+            "bodyRadar.detail.helpTitle"
+        ]
+
+        try assertKeysTranslated(metricsKitKeys, in: metricsKitCatalog)
+
+        let appCatalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let appKeys = [
+            "Body Radar",
+            "Overnight signs of strain",
+            "bodyRadar.card.allTypical",
+            "bodyRadar.detail.recentNights",
+            "bodyRadar.chart.bandsDescription",
+            "Beta v2",
+            "bodyRadar.state.noData"
+        ]
+
+        try assertKeysTranslated(appKeys, in: appCatalog)
+    }
+
     /// One language's resolved string for `key`, so a test can assert the translation
     /// itself and not merely that the entry exists.
     private func value(of key: String, language: String, in catalog: [String: Any]) throws -> String {
@@ -773,14 +883,10 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
     }
 
     private func loadCatalog(at relativePath: String) throws -> [String: Any] {
-        let data = try Data(contentsOf: projectRoot.appendingPathComponent(relativePath))
-        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any], relativePath)
-        return try XCTUnwrap(root["strings"] as? [String: Any], relativePath)
+        try BodyTestSupport.catalogStrings(at: relativePath)
     }
 
     private var projectRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+        BodyTestSupport.projectRoot
     }
 }

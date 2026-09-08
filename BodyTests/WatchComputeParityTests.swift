@@ -4,32 +4,24 @@
 //
 //  The on-watch realtime compute plan's core proof (Phase 5): the phone path
 //  and the watch path produce IDENTICAL metrics when they see the same data.
-//  Both paths here are built entirely from shared pure code — `WatchComputeMerge`,
-//  `WatchDeltaSplicer`, `WatchComputeSeed`, `TrainingLoadCalculator`,
-//  `ReadinessComputeSupport`, `WatchMetricsSnapshotBuilder`, and
-//  `HealthDashboardSnapshot.filteredWithoutReadinessRecompute`/
-//  `.recalculatingReadiness` — never a BodyWatch-target type.
+//  The watch side runs the REAL `WatchComputeAssembly.assemble` — the same
+//  function `WatchComputeCoordinator` calls after its fetch — so there is no
+//  replica of the assembly order left here to drift.
 //
-//  Where this test CANNOT call the real `WatchComputeCoordinator`/
-//  `WatchDeltaFetcher` and why:
-//  * `BodyWatch/WatchComputeCoordinator.swift` and `WatchDeltaFetcher.swift` are
-//    watchOS-only sources, not linked into the `BodyTests` (iOS) target. This
-//    test's `watchSnapshot(...)` instead replicates the coordinator's exact
-//    assembly order (splice → summary overlay → Training Load slot overwrite →
-//    `filteredWithoutReadinessRecompute` → `recalculatingReadiness` →
-//    `makeSnapshot(seriesRangeOverride:perKindDataAsOf:)`), reading
-//    `BodyWatch/WatchComputeCoordinator.swift` line-for-line to keep the two
-//    in lockstep. If that file's assembly order ever changes, this test's
-//    helper must change with it.
+//  What this test still does NOT exercise, and why:
+//  * The impure half of the coordinator (`WatchComputeSeedStore.load`, the
+//    actor's in-flight coalescing) is watchOS-only and stays out; the window
+//    gate it consults, `WatchComputeAssembly.windowDecision`, is covered by
+//    `WatchComputeAssemblyWindowTests`.
 //  * The real fetch layer (`BodyHealthSourceResolver` source resolution,
 //    `BodyHealthQuantityFetch`/`BodySleepFetch`/`BodyWorkoutFetch` HealthKit
 //    queries, `BodyWorkoutEffortFetcher` effort lookups) is not exercised —
-//    this test hands the assembly line already-resolved fixture data (what a
-//    successful, permission-granted, source-resolved fetch would have
-//    returned). Source-resolution strictness and HealthKit failure paths are
-//    covered by `BodyHealthSourceResolverTests` and `WatchDeltaSplicerTests`;
-//    workouts here carry an explicit `effortLevel` rather than one resolved
-//    from a saved HealthKit sample.
+//    this test hands the assembly a `WatchComputeDelta` built from fixture
+//    data (what a successful, permission-granted, source-resolved fetch would
+//    have returned). Source-resolution strictness and HealthKit failure paths
+//    are covered by `BodyHealthSourceResolverTests` and
+//    `WatchDeltaSplicerTests`; workouts here carry an explicit `effortLevel`
+//    rather than one resolved from a saved HealthKit sample.
 //
 
 import XCTest
@@ -334,17 +326,13 @@ final class WatchComputeParityTests: XCTestCase {
         return snapshot
     }
 
-    // MARK: - Watch path (manual replica of `WatchComputeCoordinator.compute`)
+    // MARK: - Watch path (the real `WatchComputeAssembly`)
 
-    /// Replicates `BodyWatch/WatchComputeCoordinator.swift`'s `compute(...)`
-    /// step for step: splice deltas onto the seed's trends, overlay the
-    /// summary with freshly-"fetched" values, replay Training Load over the
-    /// overwritten daily-load array, `filteredWithoutReadinessRecompute` →
-    /// `recalculatingReadiness` with the watch's deliberate deviations
-    /// (`freezesRecordedReadiness: false`, `recordedReadinessContext: nil`,
-    /// `wakeTime: nil`), then `makeSnapshot(seriesRangeOverride:perKindDataAsOf:)`.
-    /// `delta*` values are sliced straight out of `fixture` (the fixture's own
-    /// truth in `[windowStart, now]`) rather than fetched, per the file header.
+    /// Builds the `WatchComputeDelta` a successful, permission-granted,
+    /// source-resolved fetch would have returned for this fixture and hands it
+    /// to the production `WatchComputeAssembly.assemble` — the same function
+    /// `WatchComputeCoordinator` calls after its own fetch. Nothing about the
+    /// assembly order is reimplemented here.
     ///
     /// `seedSummary`/`seedTrainingLoadStartDay`/`seedTrainingLoadDailyLoads`
     /// are the inputs `makeComputeSeed` would have been called with AT
@@ -360,7 +348,7 @@ final class WatchComputeParityTests: XCTestCase {
         seedTrainingLoadStartDay: Date,
         seedTrainingLoadDailyLoads: [Double],
         dataThrough: Date, now: Date, calendar: Calendar
-    ) -> (snapshot: WatchMetricsSnapshot, dataAsOf: [String: Date], seed: WatchComputeSeed) {
+    ) throws -> (snapshot: WatchMetricsSnapshot, dataAsOf: [String: Date], seed: WatchComputeSeed) {
         let seed = HealthKitWorkoutStore.makeComputeSeed(
             summary: seedSummary,
             trends: fixture.trends,
@@ -374,198 +362,54 @@ final class WatchComputeParityTests: XCTestCase {
             publishedAt: dataThrough
         )
 
-        let windowStart = WatchDeltaSplicer.deltaStart(dataThrough: seed.dataThrough, calendar: calendar)
+        let decision = WatchComputeAssembly.windowDecision(seed: seed, now: now, calendar: calendar)
+        guard case .fetch(let windowStart) = decision else {
+            XCTFail("The fixture's seed must be inside the compute window, got \(decision)")
+            throw XCTSkip("no window")
+        }
         let windowStartDay = calendar.startOfDay(for: windowStart)
 
         func deltaSlice(_ series: HealthTrendSeries) -> WatchFetchOutcome<HealthTrendSeries> {
             .success(HealthTrendSeries(points: series.points.filter { $0.date >= windowStart && $0.date <= now }))
         }
-
-        var trends = seed.trends
-        trends.heartRate = WatchDeltaSplicer.splice(seedSeries: trends.heartRate, delta: deltaSlice(fixture.trends.heartRate), from: windowStart, calendar: calendar)
-        trends.restingHeartRate = WatchDeltaSplicer.splice(seedSeries: trends.restingHeartRate, delta: deltaSlice(fixture.trends.restingHeartRate), from: windowStart, calendar: calendar)
-        trends.heartRateVariability = WatchDeltaSplicer.splice(seedSeries: trends.heartRateVariability, delta: deltaSlice(fixture.trends.heartRateVariability), from: windowStart, calendar: calendar)
-        trends.respiratoryRate = WatchDeltaSplicer.splice(seedSeries: trends.respiratoryRate, delta: deltaSlice(fixture.trends.respiratoryRate), from: windowStart, calendar: calendar)
-        trends.oxygenSaturation = WatchDeltaSplicer.splice(seedSeries: trends.oxygenSaturation, delta: deltaSlice(fixture.trends.oxygenSaturation), from: windowStart, calendar: calendar)
-        trends.wristTemperature = WatchDeltaSplicer.splice(seedSeries: trends.wristTemperature, delta: deltaSlice(fixture.trends.wristTemperature), from: windowStart, calendar: calendar)
+        // `latestQuantitySample` has NO date predicate on the real fetch path —
+        // the absolute newest sample wins regardless of the delta window — so
+        // these read the fixture's global latest point, not a windowed slice.
+        func latestSample(_ series: HealthTrendSeries) -> WatchDeltaSample? {
+            series.points.max(by: { $0.date < $1.date }).map { WatchDeltaSample(value: $0.value, measuredAt: $0.date) }
+        }
 
         let deltaNights = fixture.trends.sleepHistory.days.filter { calendar.startOfDay(for: $0.date) >= windowStartDay }
-        trends.sleepHistory = WatchDeltaSplicer.spliceSleepHistory(seed: trends.sleepHistory, deltaNights: .success(deltaNights), from: windowStart, calendar: calendar)
-        // Derive the delta sleep-DURATION series from the SPLICED history (not a
-        // second independent fetch) — mirrors the coordinator's documented
-        // reasoning: re-deriving wholesale would widen `trends.sleep` (a
-        // readiness source series) beyond the seed's own window.
-        trends.sleep = WatchDeltaSplicer.splice(seedSeries: seed.trends.sleep, delta: .success(trends.sleepHistory.durationSeries), from: windowStart, calendar: calendar)
-
-        var summary = seed.summary
-        // `latestQuantitySample` has NO date predicate on the coordinator's real
-        // path — the absolute newest sample wins regardless of the delta
-        // window — so these read the fixture's global latest point, not a
-        // windowed slice.
-        if let hr = fixture.trends.heartRate.points.max(by: { $0.date < $1.date }) {
-            summary.heartRate = HealthMetricSummary(value: hr.value, measuredAt: hr.date)
-        }
-        if let rhr = fixture.trends.restingHeartRate.points.max(by: { $0.date < $1.date }) {
-            summary.restingHeartRate = HealthMetricSummary(value: rhr.value, measuredAt: rhr.date)
-        }
-        if let hrv = fixture.trends.heartRateVariability.points.max(by: { $0.date < $1.date }) {
-            summary.heartRateVariability = HealthMetricSummary(value: hrv.value, measuredAt: hrv.date)
-        }
+        var delta = WatchComputeDelta()
+        delta.heartRateSeries = deltaSlice(fixture.trends.heartRate)
+        delta.restingHeartRateSeries = deltaSlice(fixture.trends.restingHeartRate)
+        delta.heartRateVariabilitySeries = deltaSlice(fixture.trends.heartRateVariability)
+        delta.respiratoryRateSeries = deltaSlice(fixture.trends.respiratoryRate)
+        delta.oxygenSaturationSeries = deltaSlice(fixture.trends.oxygenSaturation)
+        delta.wristTemperatureSeries = deltaSlice(fixture.trends.wristTemperature)
+        delta.sleepNights = .success(deltaNights)
+        delta.workouts = .success(fixture.workouts.filter { $0.startDate >= windowStart && $0.startDate <= now })
+        delta.heartRateSample = latestSample(fixture.trends.heartRate)
+        delta.restingHeartRateSample = latestSample(fixture.trends.restingHeartRate)
+        delta.heartRateVariabilitySample = latestSample(fixture.trends.heartRateVariability)
         // The night with the latest stage date among the delta nights — the
         // same pick `WatchDeltaFetcher.sleepDelta` makes.
-        let latestNight = deltaNights.max { lhs, rhs in
+        delta.latestNight = deltaNights.max { lhs, rhs in
             (lhs.summary.stageSnapshot.date ?? .distantPast) < (rhs.summary.stageSnapshot.date ?? .distantPast)
         }?.summary
-        if let latestNight {
-            summary.sleep = latestNight
-        }
 
-        let deltaWorkouts = fixture.workouts.filter { $0.startDate >= windowStart && $0.startDate <= now }
-        let trainingLoad = Self.replayTrainingLoad(
-            seed: seed, deltaWorkouts: deltaWorkouts, windowStart: windowStart, now: now, calendar: calendar
-        )
-        if let trainingLoad {
-            let oldestSeededDay = seed.trends.trainingLoad.points.map(\.date).min() ?? calendar.startOfDay(for: windowStart)
-            trends.trainingLoad = HealthTrendSeries(points: trainingLoad.points.filter { $0.date >= oldestSeededDay })
-            summary.trainingLoad = HealthMetricSummary(value: trainingLoad.point(on: calendar.startOfDay(for: now))?.value)
-        }
-
-        let idealSleepDuration = TimeInterval(seed.settings.idealSleepDurationMinutes * 60)
-        let sleepEnd = summary.sleep.stageSnapshot.wakeCycleEnd
-
-        let recomputed = HealthDashboardSnapshot(summary: summary, trends: trends)
-            .filteredWithoutReadinessRecompute(by: permission)
-            .recalculatingReadiness(
-                on: now,
-                idealSleepDuration: idealSleepDuration,
-                calendar: calendar,
-                todaysWorkouts: ReadinessComputeSupport.wakeCycleWorkouts(
-                    from: deltaWorkouts, now: now, sleepEnd: sleepEnd, calendar: calendar
-                ),
-                wakeTime: nil,
-                now: now,
-                // Deliberate deviations, exactly as `WatchComputeCoordinator`
-                // documents them: the watch never freezes a morning record
-                // (phone-authoritative) and never re-keys the seeded records
-                // (nil context ⇒ never dropped).
-                freezesRecordedReadiness: false,
-                recordedReadinessContext: nil
-            )
-
-        let dataAsOf = Self.dataAsOf(
-            heartRateSample: fixture.trends.heartRate.points.max(by: { $0.date < $1.date }).map { ($0.value, $0.date) },
-            restingHeartRateSample: fixture.trends.restingHeartRate.points.max(by: { $0.date < $1.date }).map { ($0.value, $0.date) },
-            heartRateVariabilitySample: fixture.trends.heartRateVariability.points.max(by: { $0.date < $1.date }).map { ($0.value, $0.date) },
-            sleepSummary: recomputed.summary.sleep,
+        let result = try XCTUnwrap(WatchComputeAssembly.assemble(
+            seed: seed,
+            delta: delta,
+            permission: permission,
+            generation: 1,
+            windowStart: windowStart,
             now: now,
-            replayedTrainingLoad: trainingLoad != nil
-        )
-
-        var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
-            summary: recomputed.summary,
-            trends: recomputed.trends,
-            lastRefreshDate: seed.lastVitalsRefreshDate,
-            permissionSelection: permission,
-            temperatureUnitPreference: Self.temperatureUnitPreference(for: seed.settings),
-            idealSleepDuration: idealSleepDuration,
-            showSleepScore: seed.settings.showSleepScore,
-            now: now,
-            seriesRangeOverride: { seed.seriesRanges[$0] },
-            perKindDataAsOf: { dataAsOf[$0] }
-        )
-        snapshot.source = "watch"
-        return (snapshot, dataAsOf, seed)
+            calendar: calendar
+        ))
+        return (result.snapshot, result.dataAsOf, seed)
     }
 
-    /// `WatchComputeCoordinator.trainingLoadSeries` (private to that file),
-    /// reimplemented here: the seeded dense daily-load array (extended to
-    /// `now` with zero-filled rest days), with the delta window's slots
-    /// overwritten from the watch's own workouts, replayed through the shared
-    /// EWA. `nil` exactly when the coordinator's would be: no seeded loads.
-    private static func replayTrainingLoad(
-        seed: WatchComputeSeed, deltaWorkouts: [WorkoutSummary], windowStart: Date, now: Date, calendar: Calendar
-    ) -> HealthTrendSeries? {
-        guard let startDay = seed.trainingLoadStartDay,
-              let loads = seed.trainingLoadDailyLoads,
-              !loads.isEmpty else {
-            return nil
-        }
-
-        var dailyLoads: [(date: Date, load: Double)] = []
-        dailyLoads.reserveCapacity(loads.count + 3)
-        var day = calendar.startOfDay(for: startDay)
-        for load in loads {
-            dailyLoads.append((date: day, load: load))
-            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: day) else { return nil }
-            day = nextDay
-        }
-        let today = calendar.startOfDay(for: now)
-        while day <= today {
-            dailyLoads.append((date: day, load: 0))
-            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: day) else { return nil }
-            day = nextDay
-        }
-
-        let windowStartDay = calendar.startOfDay(for: windowStart)
-        let loadsByDay = deltaWorkouts.reduce(into: [Date: Double]()) { partialResult, workout in
-            guard let load = TrainingLoadCalculator.load(for: workout) else { return }
-            partialResult[calendar.startOfDay(for: workout.startDate), default: 0] += load
-        }
-        for index in dailyLoads.indices where dailyLoads[index].date >= windowStartDay {
-            dailyLoads[index].load = loadsByDay[dailyLoads[index].date] ?? 0
-        }
-
-        return TrainingLoadCalculator.series(fromDailyLoads: dailyLoads)
-    }
-
-    /// `WatchComputeCoordinator.dataAsOf` (private to that file), reimplemented:
-    /// the anti-laundering watermark map — only kinds genuinely re-read this
-    /// run appear. Wrist temperature is deliberately absent (see the file
-    /// header and `testDeltaNewerThanSeedAdoptsFreshDataWithHonestWatermarks`).
-    private static func dataAsOf(
-        heartRateSample: (value: Double, measuredAt: Date)?,
-        restingHeartRateSample: (value: Double, measuredAt: Date)?,
-        heartRateVariabilitySample: (value: Double, measuredAt: Date)?,
-        sleepSummary: SleepSummary,
-        now: Date,
-        replayedTrainingLoad: Bool
-    ) -> [String: Date] {
-        var map: [String: Date] = [:]
-        if let heartRateSample {
-            map[WatchMetricKindKey.heartRate] = heartRateSample.measuredAt
-        }
-        if let restingHeartRateSample {
-            map[WatchMetricKindKey.restingHeartRate] = restingHeartRateSample.measuredAt
-        }
-        if let heartRateVariabilitySample {
-            map[WatchMetricKindKey.heartRateVariability] = heartRateVariabilitySample.measuredAt
-        }
-        if sleepSummary.asOf(now) != nil, let nightEnd = sleepSummary.stageSnapshot.dateInterval?.end {
-            map[WatchMetricKindKey.sleep] = nightEnd
-        }
-        // Coverage semantics, mirroring the coordinator: a replay that ran over
-        // a SUCCESSFUL workout query is stamped with the query's window end
-        // (`now`) even when the window held no workouts — a confirmed rest day
-        // decays the EWA and must be adoptable by the merge.
-        if replayedTrainingLoad {
-            map[WatchMetricKindKey.trainingLoad] = now
-        }
-        // Mirroring the coordinator's all-inputs-fresh rule: readiness is
-        // stamped with the query window's end only when EVERY
-        // permission-eligible input query succeeded. This fixture hands the
-        // watch path fully-successful resolved data by construction, so the
-        // only contingent input here is the Training Load replay.
-        if replayedTrainingLoad {
-            map[WatchMetricKindKey.readiness] = now
-        }
-        return map
-    }
-
-    private static func temperatureUnitPreference(for settings: WatchComputeSettings) -> BodyValueFormat.TemperatureUnitPreference {
-        settings.followsSystemUnits
-            ? BodyValueFormat.TemperatureUnitPreference.systemValue(locale: .current)
-            : BodyValueFormat.TemperatureUnitPreference.storedValue(from: settings.selectedTemperatureUnitRaw)
-    }
 
     /// Reconstructs the `summary`/Training-Load seed inputs as they genuinely
     /// were `asOf` an earlier instant, from the same fixture's underlying
@@ -689,7 +533,7 @@ final class WatchComputeParityTests: XCTestCase {
         let fixture = try makeFixture(anchor: anchor, calendar: calendar)
 
         let phone = phoneSnapshot(fixture: fixture, now: anchor, calendar: calendar)
-        let (watch, _, _) = watchSnapshot(
+        let (watch, _, _) = try watchSnapshot(
             fixture: fixture,
             seedSummary: fixture.summary,
             seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
@@ -741,7 +585,7 @@ final class WatchComputeParityTests: XCTestCase {
         let seededInputs = try seedInputs(from: fixture, asOf: dataThrough, calendar: calendar)
 
         let phone = phoneSnapshot(fixture: fixture, now: now, calendar: calendar)
-        let (watch, _, _) = watchSnapshot(
+        let (watch, _, _) = try watchSnapshot(
             fixture: fixture,
             seedSummary: seededInputs.summary,
             seedTrainingLoadStartDay: seededInputs.trainingLoadStartDay,
@@ -782,7 +626,7 @@ final class WatchComputeParityTests: XCTestCase {
         let fixture = try makeFixture(anchor: now, calendar: calendar)
         let seededInputs = try seedInputs(from: fixture, asOf: dataThrough, calendar: calendar)
 
-        let (watch, dataAsOf, seed) = watchSnapshot(
+        let (watch, dataAsOf, seed) = try watchSnapshot(
             fixture: fixture,
             seedSummary: seededInputs.summary,
             seedTrainingLoadStartDay: seededInputs.trainingLoadStartDay,

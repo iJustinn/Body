@@ -12,9 +12,7 @@ import SwiftUI
 /// Mirrors `BodyProEntitlement`'s suite access so the app, the widget extension, and any
 /// other App Group process read the same values `BodyApp`'s `@AppStorage` writes.
 enum BodyWorkoutColorStore {
-    static var sharedDefaults: UserDefaults? {
-        UserDefaults(suiteName: WorkoutSnapshotStore.appGroupIdentifier)
-    }
+    static let sharedDefaults: UserDefaults? = UserDefaults(suiteName: WorkoutSnapshotStore.appGroupIdentifier)
 
     /// Raw override string at `BodyAppearancePreference.workoutColorOverridesKey`. The app
     /// writes this via `@AppStorage(..., store: BodyWorkoutColorStore.sharedDefaults)`; this

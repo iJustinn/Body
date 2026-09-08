@@ -162,6 +162,37 @@ final class WatchResetTombstoneTests: XCTestCase {
         XCTAssertEqual(hr.displayValue, "62")
     }
 
+    // MARK: - Settings-change branch ordering (M-33)
+
+    /// The settings-change path strips the local provenance and then re-resolves
+    /// the received push against the STRIPPED snapshot. That re-resolve still
+    /// carries the `supersedes` ordering check, so a push that a newer snapshot
+    /// has already overtaken (one that landed while this intake was decoding
+    /// off the main actor) resolves to nil and nothing is applied — the newer
+    /// snapshot keeps its own provenance rather than being rolled back.
+    func testNonSupersedingPushDoesNotResolveOverTheStrippedSnapshot() throws {
+        let current = dataSnapshot(epoch: "A", revision: 9, generatedAt: t2)
+        let stripped = WatchComputeMerge.strippingLocalProvenance(from: current)
+        let older = dataSnapshot(epoch: "A", revision: 8, generatedAt: t1)
+
+        XCTAssertNil(
+            WatchMetricsModel.resolvedSnapshot(
+                applying: older,
+                over: stripped,
+                treatingBlanksAsAuthoritative: true
+            )
+        )
+        // A newer push over the same stripped base still resolves.
+        let newer = dataSnapshot(epoch: "A", revision: 10, generatedAt: t2)
+        XCTAssertNotNil(
+            WatchMetricsModel.resolvedSnapshot(
+                applying: newer,
+                over: stripped,
+                treatingBlanksAsAuthoritative: true
+            )
+        )
+    }
+
     // MARK: - isReset schema tolerance
 
     func testNilIsResetIsOmittedFromEncoding() throws {

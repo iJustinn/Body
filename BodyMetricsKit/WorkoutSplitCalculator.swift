@@ -329,9 +329,16 @@ struct WorkoutSplitsPresentation: Equatable {
         heartRateHeaderText = String(localized: "Avg HR", table: "BodyMetricsKit")
         cadenceHeaderText = String(localized: "Step Cadence", table: "BodyMetricsKit")
 
-        // Bar length tracks pace (seconds per meter): the slowest split fills the bar,
-        // the fastest is shortest.
-        let slowestPace = splits.map { $0.durationSeconds / $0.distanceMeters }.max() ?? 0
+        // Bar length tracks pace (seconds per meter) across the complete splits only:
+        // the slowest complete split fills the bar, the fastest is shortest. A partial
+        // tail is routinely slower than every complete split (a few metres of cool-down
+        // stretched over minutes), so scaling to it would shrink every real split; it is
+        // clamped to a full bar below instead.
+        let slowestPace = completeSplits.map { $0.durationSeconds / $0.distanceMeters }.max() ?? 0
+
+        // `averageHeartRate(in:samples:)` runs once per split and needs ascending
+        // samples, so sort once here rather than inside the loop.
+        let sortedHeartRateSamples = heartRateSamples.sorted { $0.date < $1.date }
 
         rows = splits.map { split in
             let indexText = split.isPartial
@@ -354,12 +361,12 @@ struct WorkoutSplitsPresentation: Equatable {
                     locale: locale
                 )
             }
-            let heartRateText = Self.averageHeartRate(in: split, samples: heartRateSamples)
+            let heartRateText = Self.averageHeartRate(in: split, samples: sortedHeartRateSamples)
                 .map { "\(Int($0.rounded()))" }
             let cadenceText = Self.stepCadence(in: split, samples: stepSamples)
                 .map { "\(Int($0.rounded()))" }
             let barFraction = slowestPace > 0
-                ? (split.durationSeconds / split.distanceMeters) / slowestPace
+                ? min(max((split.durationSeconds / split.distanceMeters) / slowestPace, 0), 1)
                 : 0
             let isFastest = split.id == fastestID
             let isSlowest = split.id == slowestID
@@ -428,17 +435,19 @@ struct WorkoutSplitsPresentation: Equatable {
     /// densely). When the window holds fewer than two samples (sparse cadence or a
     /// short edge split), falls back to the sample nearest the window's midpoint so
     /// every split with any workout HR data still shows a value.
+    ///
+    /// `samples` must already be sorted ascending by `date`; the caller sorts once for
+    /// the whole table rather than once per split.
     private static func averageHeartRate(
         in split: WorkoutSplit,
         samples: [WorkoutHeartRateSample]
     ) -> Double? {
         guard !samples.isEmpty else { return nil }
 
-        let sorted = samples.sorted { $0.date < $1.date }
         var weightedSum = 0.0
         var coveredSeconds = 0.0
 
-        for (sample, next) in zip(sorted, sorted.dropFirst()) {
+        for (sample, next) in zip(samples, samples.dropFirst()) {
             // Clamp each inter-sample segment to the split window and integrate
             // the linearly interpolated BPM across the clamped portion.
             let segmentStart = sample.date.timeIntervalSinceReferenceDate
@@ -464,7 +473,7 @@ struct WorkoutSplitsPresentation: Equatable {
         let midpoint = split.startDate.addingTimeInterval(
             split.endDate.timeIntervalSince(split.startDate) / 2
         )
-        return sorted.min {
+        return samples.min {
             abs($0.date.timeIntervalSince(midpoint)) < abs($1.date.timeIntervalSince(midpoint))
         }?.beatsPerMinute
     }

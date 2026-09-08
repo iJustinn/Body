@@ -1,0 +1,39 @@
+{
+  "configurations" : [
+    {
+      "id" : "E3612E97-32B4-43AB-A3D2-A0EA652A83A3",
+      "name" : "Serial",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : true,
+    "environmentVariableEntries" : [
+      {
+        "key" : "BODY_SRCROOT",
+        "value" : "$(SRCROOT)"
+      }
+    ]
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "selectedTests" : [
+        "ActivityRingsDetailLayoutTests",
+        "BodyHomeCardGridLayoutTests",
+        "BodyUserProfileTests",
+        "WorkoutShareRenderTests",
+        "WorkoutShareSummaryRenderTests",
+        "WorkoutShareVideoTests"
+      ],
+      "target" : {
+        "containerPath" : "container:body.xcodeproj",
+        "identifier" : "710000242E00000100000024",
+        "name" : "BodyTests"
+      }
+    }
+  ],
+  "version" : 1
+}

@@ -97,11 +97,13 @@ struct WatchComplicationView: View {
     /// fillFraction with the recent-range labels.
     private func cornerGaugeModel(_ metric: WatchMetric) -> (fill: Double, min: String, max: String) {
         if let low = metric.levelMin, let high = metric.levelMax, high > low, let value = metric.rawValue {
-            let fill = min(max((value - low) / (high - low), 0), 1)
+            let rawFill = (value - low) / (high - low)
+            let fill = rawFill.isFinite ? min(max(rawFill, 0), 1) : 0
             return (fill, levelLabel(low, kind: metric.kind), levelLabel(high, kind: metric.kind))
         }
         let ends = gaugeEndLabels(metric)
-        return (metric.fillFraction, ends?.min ?? "", ends?.max ?? "")
+        let fallbackFill = metric.fillFraction.isFinite ? min(max(metric.fillFraction, 0), 1) : 0
+        return (fallbackFill, ends?.min ?? "", ends?.max ?? "")
     }
 
     private func levelLabel(_ value: Double, kind: String) -> String {
@@ -119,7 +121,9 @@ struct WatchComplicationView: View {
     private func gaugeEndLabels(_ metric: WatchMetric) -> (min: String, max: String)? {
         guard let low = metric.rangeMin, let high = metric.rangeMax, high > low else { return nil }
         let isTemp = metric.kind == WatchMetricKindKey.wristTemperature
-        let toFahrenheit = isTemp && metric.unit.contains("F")
+        // `usesFahrenheit` is stamped by the builder; the unit-string sniff is
+        // only the fallback for a snapshot from a phone build without it.
+        let toFahrenheit = isTemp && (metric.usesFahrenheit ?? metric.unit.contains("F"))
         func label(_ value: Double) -> String {
             let shown = toFahrenheit ? value * 9 / 5 + 32 : value
             return "\(Int(shown.rounded()))"

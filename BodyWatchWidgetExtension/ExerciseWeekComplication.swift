@@ -17,6 +17,9 @@ struct ExerciseWeekComplication: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "BodyWatchExerciseWeek", provider: WatchMetricProvider()) { entry in
             ExerciseWeekComplicationView(entry: entry)
+                // Tapping the complication opens the Training Load detail page,
+                // which carries this same weekly workout chart.
+                .widgetURL(WatchMetricDeepLink.url(forKind: WatchMetricKindKey.trainingLoad))
         }
         .configurationDisplayName(String(localized: "Weekly Workout Time"))
         .description(String(localized: "This week's daily workout minutes."))
@@ -34,11 +37,9 @@ private struct ExerciseWeekComplicationView: View {
         // Re-windowed to the entry's day (see `weeklyRewound`): the cache is
         // only rewritten when the phone pushes (on-watch compute preserves
         // this metric), so a snapshot from an earlier day must not keep
-        // yesterday as the rightmost bar. Falls back to the legacy
-        // `exerciseMinutes` metric when a stale/older snapshot doesn't carry
-        // `workoutMinutes` yet (version skew across a phone/watch pair).
-        let metric = entry.snapshot.metric(forKind: WatchMetricKindKey.workoutMinutes)
-            ?? entry.snapshot.metric(forKind: WatchMetricKindKey.exerciseMinutes)
+        // yesterday as the rightmost bar. The metric selection (and its
+        // legacy fallback) lives in `WatchComplicationTimeline`.
+        let metric = WatchComplicationTimeline.exerciseWeekMetric(in: entry.snapshot)
         return metric?.weeklyRewound(from: entry.snapshot.generatedAt, to: entry.date)
             ?? Array(repeating: nil, count: 7)
     }

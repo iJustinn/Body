@@ -41,7 +41,8 @@ final class BodyUserProfileTests: XCTestCase {
     }
 
     func testSettingsShowsTheProfileCardAboveAppearance() throws {
-        let settingsSource = try text(at: "Body/Views/BodySettingsView.swift")
+        try BodyTestSupport.requireProjectRoot()
+        let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
         let profileRange = try XCTUnwrap(settingsSource.range(of: "profileEntryCard"))
         let appearanceRange = try XCTUnwrap(settingsSource.range(of: "appearanceSection"))
 
@@ -50,7 +51,8 @@ final class BodyUserProfileTests: XCTestCase {
     }
 
     func testProfilePageKeepsThePickerCropAndZoomAffordances() throws {
-        let profileSource = try text(at: "Body/Views/BodyProfileView.swift")
+        try BodyTestSupport.requireProjectRoot()
+        let profileSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyProfileView.swift")
 
         XCTAssertTrue(profileSource.contains(".photosPicker("))
         XCTAssertTrue(profileSource.contains("fullScreenCover"))
@@ -58,7 +60,8 @@ final class BodyUserProfileTests: XCTestCase {
     }
 
     func testProfileHeroPlaceholderIsWhiteAndGlowFallsBackToBodyBlue() throws {
-        let profileSource = try text(at: "Body/Views/BodyProfileView.swift")
+        try BodyTestSupport.requireProjectRoot()
+        let profileSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyProfileView.swift")
 
         XCTAssertTrue(profileSource.contains("fallbackGlowColor = BodyWorkoutShareCardView.defaultRouteColor"))
         XCTAssertFalse(profileSource.contains("BodyProPalette.gold.opacity(0.14)"))
@@ -147,13 +150,4 @@ final class BodyUserProfileTests: XCTestCase {
         }
     }
 
-    private var projectRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-    }
-
-    private func text(at relativePath: String) throws -> String {
-        try String(contentsOf: projectRoot.appendingPathComponent(relativePath), encoding: .utf8)
-    }
 }

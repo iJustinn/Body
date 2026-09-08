@@ -73,7 +73,7 @@ enum BodyWorkoutChartSwipe {
 }
 
 struct BodyWorkoutsView: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.workoutColorPalette) private var workoutColorPalette
@@ -82,6 +82,16 @@ struct BodyWorkoutsView: View {
     @State private var observedCurrentMonthYear = BodyMonthYear.current()
     @State private var pendingMonthSelection: PendingMonthSelection?
     @State private var monthLoadTasks: [String: Task<Bool, Never>] = [:]
+    /// The pending selection's 15s timeout sleeper. Cancelled when a new
+    /// selection supersedes it and on disappear, so a stale timeout can't fire
+    /// after the view is gone or after the user has already moved on.
+    @State private var monthSelectionTimeoutTask: Task<Void, Never>?
+    /// A cached month shows instantly, then settles for a moment before
+    /// refreshing from HealthKit in the background, so swiping across several
+    /// cached months in a row queues one refresh instead of one per month
+    /// touched along the way. Cancelled when a new selection supersedes it and
+    /// on disappear, matching `monthSelectionTimeoutTask` above.
+    @State private var cachedMonthRefreshTask: Task<Void, Never>?
     @State private var searchText = ""
     @State private var showingFilterSheet = false
     @State private var showingMonthPicker = false
@@ -152,6 +162,15 @@ struct BodyWorkoutsView: View {
         // rather than array, so a pure re-sort leaves this key untouched and the
         // `selectedSortOption` animation below stays in charge of re-order moves.
         let visibleWorkoutIDs = Set(visibleWorkouts.map(\.id))
+        // A row prints its date in the zone its day was resolved in when the month
+        // snapshot was built, so the list and the calendar card above it never name
+        // different days for the same workout after a time-zone change.
+        let timeZoneIdentifiersByWorkoutID = Dictionary(
+            baseSnapshot.days.flatMap { day in
+                day.timeZoneIdentifier.map { identifier in day.workouts.map { ($0.id, identifier) } } ?? []
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         NavigationStack {
             ZStack {
@@ -219,7 +238,8 @@ struct BodyWorkoutsView: View {
                                                     metadataFontSize: 13,
                                                     amountFontSize: 25,
                                                     customName: workoutStore.workoutCustomNames[workout.id],
-                                                    recordStanding: workoutStore.rowRecordStanding(for: workout)
+                                                    recordStanding: workoutStore.rowRecordStanding(for: workout),
+                                                    timeZoneIdentifier: timeZoneIdentifiersByWorkoutID[workout.id]
                                                 )
                                                 .matchedTransitionSource(id: workout.id, in: workoutZoom) {
                                                     $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
@@ -301,21 +321,27 @@ struct BodyWorkoutsView: View {
                 .presentationDetents([.medium, .large])
             }
             .fullScreenCover(item: $monthSummaryShareRequest) { request in
+                // No explicit re-injection: the cover inherits this view's
+                // environment, store included. Summary mode also skips
+                // `WorkoutSharePersonalRecordsReader`, the sheet's one store reader,
+                // because a month summary has no per-workout records to read.
                 BodyWorkoutShareSheet(monthSummary: request.summary)
             }
             .navigationDestination(item: $selectedWorkoutForDetails) { workout in
                 BodyWorkoutDetailSheet(workout: workout)
-                    .environmentObject(workoutStore)
+                    .environment(workoutStore)
                     .navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))
             }
             .sheet(item: $selectedWorkoutListSelection) { selection in
                 BodyWorkoutListSheet(selection: selection)
-                    .environmentObject(workoutStore)
+                    .environment(workoutStore)
                     .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)
             }
-            .task {
+            .task(id: scenePhase) {
+                guard scenePhase == .active else { return }
                 await workoutStore.loadRecentWorkoutMonthsIfNeeded()
+                await workoutStore.loadMonthIfNeeded(month: selectedMonth, year: selectedYear, allowPrompt: false)
                 animateListInIfNeeded()
             }
             .onAppear {
@@ -329,6 +355,18 @@ struct BodyWorkoutsView: View {
                 if scenePhase == .active {
                     advanceToNewMonthIfNeeded()
                 }
+            }
+            .onDisappear {
+                monthSelectionTimeoutTask?.cancel()
+                monthSelectionTimeoutTask = nil
+                cachedMonthRefreshTask?.cancel()
+                cachedMonthRefreshTask = nil
+                // Leave `monthLoadTasks` running: each one wraps the store's
+                // `loadMonthIfNeeded(month:year:)` directly, and that call is
+                // cancellation-aware (it checks `Task.isCancelled` at its await
+                // points), so cancelling here would abort the in-flight
+                // HealthKit load instead of letting it warm the month for when
+                // the user returns.
             }
         }
     }
@@ -714,13 +752,34 @@ struct BodyWorkoutsView: View {
         // slow earlier load land later and yank the page to a month the user has
         // since navigated away from.
         pendingMonthSelection = nil
+        monthSelectionTimeoutTask?.cancel()
+        monthSelectionTimeoutTask = nil
+        cachedMonthRefreshTask?.cancel()
+        cachedMonthRefreshTask = nil
 
         guard selectedMonth != monthYear.month || selectedYear != monthYear.year else {
             return true
         }
 
-        if workoutStore.hasLoadedSnapshot(month: monthYear.month, year: monthYear.year) {
+        if workoutStore.hasFreshSnapshot(month: monthYear.month, year: monthYear.year) {
             applyMonthSelection(monthYear)
+            return true
+        }
+
+        if workoutStore.hasLoadedSnapshot(month: monthYear.month, year: monthYear.year)
+            || workoutStore.hasCachedWorkouts(month: monthYear.month, year: monthYear.year) {
+            // Cached months (seeded at launch, or fetched earlier this session)
+            // show instantly, including known-empty months fetched this session.
+            // HealthKit may still have newer data, so refresh
+            // it in the background after a short settle instead of queuing a
+            // fetch for every month the user swipes past on the way here.
+            applyMonthSelection(monthYear)
+            cachedMonthRefreshTask = Task {
+                try? await Task.sleep(nanoseconds: 400 * 1_000_000)
+                guard !Task.isCancelled else { return }
+                guard selectedMonth == monthYear.month, selectedYear == monthYear.year else { return }
+                _ = await monthLoadTask(for: monthYear).value
+            }
             return true
         }
 
@@ -738,10 +797,12 @@ struct BodyWorkoutsView: View {
         let loadTask = monthLoadTask(for: monthYear)
         Task {
             let didLoad = await loadTask.value
+            guard !Task.isCancelled else { return }
             finishPendingMonthSelection(token: token, didLoad: didLoad)
         }
-        Task {
+        monthSelectionTimeoutTask = Task {
             try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
+            guard !Task.isCancelled else { return }
             finishPendingMonthSelection(token: token, didLoad: nil)
         }
 
@@ -934,7 +995,8 @@ enum BodyWorkoutFilterLogic {
                 WorkoutDaySummary(
                     dateKey: day.dateKey,
                     day: day.day,
-                    workouts: day.workouts.filter { matchingIDs.contains($0.id) }
+                    workouts: day.workouts.filter { matchingIDs.contains($0.id) },
+                    timeZoneIdentifier: day.timeZoneIdentifier
                 )
             }
         )
@@ -1044,6 +1106,9 @@ private struct BodyWorkoutExpenseStyleRow: View {
     /// The workout's strongest record standing, or nil when it holds none. Computed
     /// at the call site — the row is a pure struct with no store access.
     var recordStanding: WorkoutRecordStanding? = nil
+    /// The zone the workout's day was resolved in, so the date printed here is the
+    /// day the calendar card files it under. `nil` reads the current zone.
+    var timeZoneIdentifier: String? = nil
 
     var body: some View {
         HStack(spacing: 16) {
@@ -1123,13 +1188,27 @@ private struct BodyWorkoutExpenseStyleRow: View {
     }
 
     private var formattedCompactDate: String {
-        let day = Calendar.bodyGregorian.component(.day, from: workout.startDate)
-        let month = workout.startDate.formatted(.dateTime.month(.wide))
+        var calendar = Calendar.bodyGregorian
+        var monthStyle = Date.FormatStyle.dateTime.month(.wide)
+        if let rowTimeZone {
+            calendar.timeZone = rowTimeZone
+            monthStyle.timeZone = rowTimeZone
+        }
+        let day = calendar.component(.day, from: workout.startDate)
+        let month = workout.startDate.formatted(monthStyle)
         return "\(month) \(day)"
     }
 
     private var formattedTime: String {
-        workout.startDate.formatted(.dateTime.hour().minute())
+        var style = Date.FormatStyle.dateTime.hour().minute()
+        if let rowTimeZone {
+            style.timeZone = rowTimeZone
+        }
+        return workout.startDate.formatted(style)
+    }
+
+    private var rowTimeZone: TimeZone? {
+        timeZoneIdentifier.flatMap { TimeZone(identifier: $0) }
     }
 
     private var presentation: BodyWorkoutRowPresentation {
@@ -1223,7 +1302,7 @@ struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.workoutEquivalentUsesTotalEnergyKey) private var workoutEquivalentUsesTotalEnergy = false
     @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentEmojiScaleKey) private var workoutEquivalentEmojiScale = 1.0
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     /// Where every detail chart's hold-to-scrub callout is published; the overlay
     /// below draws it above the page's Back/Share chrome.
     @State private var chartCallout = BodyChartFloatingCalloutState()
@@ -1272,7 +1351,7 @@ struct BodyWorkoutDetailSheet: View {
     @State private var metricSeries: WorkoutMetricSeriesData = .empty
     @State private var heartRateRecoveryBPM: Double?
     /// Full-resolution heart-rate samples for this workout, fetched lazily below. The
-    /// list's summary samples are capped at 96 points, so an older workout's chart and
+    /// list's summary samples are a lighter fetch, so an older workout's chart and
     /// zones would otherwise be drawn from a handful of readings. nil until the fetch
     /// lands (or when it fails); swapped in once, the HR chart's line morphing across.
     @State private var detailHeartRateSamples: [WorkoutHeartRateSample]?
@@ -2799,7 +2878,7 @@ enum WorkoutDetailChartPresentations {
         splitData: WorkoutSplitData,
         distanceUnitPreference: BodyValueFormat.DistanceUnitPreference,
         /// The detail page's lazily fetched full-resolution heart rate, when it has
-        /// landed; nil keeps the workout's ≤96-point summary samples.
+        /// landed; nil keeps the workout's lighter summary samples.
         heartRateSamplesOverride: [WorkoutHeartRateSample]? = nil
     ) -> WorkoutSplitsPresentation? {
         let unitMeters = distanceUnitPreference == .miles ? 1_609.344 : 1_000.0
@@ -2814,7 +2893,7 @@ enum WorkoutDetailChartPresentations {
             splits: splits,
             paceStyle: workout.type.paceStyle,
             distanceUnitPreference: distanceUnitPreference,
-            heartRateSamples: heartRateSamplesOverride.flatMap { $0.isEmpty ? nil : $0 } ?? workout.heartRateSamples ?? [],
+            heartRateSamples: heartRateSamplesOverride.flatMap { $0.isEmpty ? nil : $0 } ?? workout.heartRateSamples,
             stepSamples: splitData.stepSamples
         )
     }
@@ -4056,6 +4135,8 @@ struct BodyWorkoutHeartRateChartCard: View {
         if let metrics {
             BodyWorkoutHeartRateChart(
                 metrics: metrics,
+                smoothedSeries: metricsCache.smoothedSeries,
+                scatterFractions: metricsCache.scatterFractions,
                 morphFromSeries: morphProgress < 1 ? morphFromSeries : nil,
                 morphProgress: morphProgress,
                 floatingCallout: floatingCallout
@@ -4094,22 +4175,67 @@ struct BodyWorkoutHeartRateChartCard: View {
     }
 }
 
+/// Downsamples `samples` to at most `maxCount` evenly strided samples, always
+/// keeping the first and last, so the scatter layer's per-frame draw cost stays
+/// bounded on a full-resolution, hours-long workout. Internal (not private) so
+/// it is directly testable.
+func bodyWorkoutHeartRateScatterSamples(
+    _ samples: [WorkoutHeartRateSample],
+    maxCount: Int = 300
+) -> [WorkoutHeartRateSample] {
+    guard maxCount > 1, samples.count > maxCount else {
+        return samples
+    }
+
+    var result: [WorkoutHeartRateSample] = []
+    result.reserveCapacity(maxCount)
+    let strideValue = Double(samples.count - 1) / Double(maxCount - 1)
+    var lastIndex = -1
+    for step in 0..<maxCount {
+        let index = min(samples.count - 1, Int((Double(step) * strideValue).rounded()))
+        guard index != lastIndex else { continue }
+        result.append(samples[index])
+        lastIndex = index
+    }
+    return result
+}
+
 /// Memoizes the HR chart's derived metrics so the O(n log n) sample sort runs once per
 /// distinct sample set rather than on every card body pass. Held via `@State` in the
-/// card, so it persists across the view struct's recreations. Samples are downsampled
-/// (≤96 points), so the equality check is cheap.
+/// card, so it persists across the view struct's recreations. Also caches the
+/// smoothed line series and the scatter layer's unit-fraction positions, both derived
+/// from `metrics` and otherwise recomputed on every `body` pass while a full-resolution
+/// workout's sample set can run to thousands of points.
 private final class HeartRateMetricsCache {
     private var cachedSamples: [WorkoutHeartRateSample]?
     private var cachedMetrics: BodyWorkoutHeartRateChartMetrics?
+    private var cachedSmoothedSeries: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint] = []
+    private var cachedScatterFractions: [(x: Double, y: Double)] = []
 
     func metrics(for samples: [WorkoutHeartRateSample]) -> BodyWorkoutHeartRateChartMetrics? {
         if let cachedSamples, cachedSamples == samples {
             return cachedMetrics
         }
+
         let metrics = samples.isEmpty ? nil : BodyWorkoutHeartRateChartMetrics(samples: samples)
         cachedSamples = samples
         cachedMetrics = metrics
+        cachedSmoothedSeries = metrics?.smoothedSeries ?? []
+        cachedScatterFractions = (metrics.map { m in
+            bodyWorkoutHeartRateScatterSamples(samples).map { (x: m.xFraction(for: $0), y: m.yFraction(for: $0)) }
+        }) ?? []
         return metrics
+    }
+
+    /// The smoothed line series for the samples most recently passed to `metrics(for:)`.
+    var smoothedSeries: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint] {
+        cachedSmoothedSeries
+    }
+
+    /// At most 300 scatter dot positions, as unit fractions of the plot rect, for the
+    /// samples most recently passed to `metrics(for:)`.
+    var scatterFractions: [(x: Double, y: Double)] {
+        cachedScatterFractions
     }
 }
 
@@ -4119,6 +4245,14 @@ private final class HeartRateMetricsCache {
 /// point gets a rule line and a callout published to the sheet's floating layer.
 private struct BodyWorkoutHeartRateChart: View, Animatable {
     let metrics: BodyWorkoutHeartRateChartMetrics
+    /// The smoothed line series, precomputed by the card's `HeartRateMetricsCache` so
+    /// it is not re-derived on every body pass. Defaults to deriving it from `metrics`
+    /// so previews and other callers work unchanged.
+    var smoothedSeries: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint]?
+    /// The scatter layer's dot positions as unit fractions, capped and precomputed by
+    /// the card's cache. Defaults to deriving them from `metrics.samples` so previews
+    /// and other callers work unchanged.
+    var scatterFractions: [(x: Double, y: Double)]?
     /// The outgoing series the line morphs away from, or nil to draw the new line
     /// outright. Its values are resampled onto the new series' x positions, so both
     /// only need to share the workout's time domain.
@@ -4148,9 +4282,9 @@ private struct BodyWorkoutHeartRateChart: View, Animatable {
     private static let xAxisLabelOffset: CGFloat = 18
 
     var body: some View {
-        // Bucketing the samples is O(n); doing it once per body pass keeps the drawing
-        // and the scrub lookup reading the same points.
-        let series = metrics.smoothedSeries
+        // The card's cache precomputes this; falling back here keeps previews and any
+        // other caller correct without a cache of their own.
+        let series = smoothedSeries ?? metrics.smoothedSeries
         // Scrubbing always reads the final series; only the drawn line blends.
         let lineSeries = bodyWorkoutMorphedHeartRateSeries(
             from: morphFromSeries,
@@ -4284,11 +4418,15 @@ private struct BodyWorkoutHeartRateChart: View, Animatable {
 
     private func drawScatterDots(in plotRect: CGRect, context: inout GraphicsContext) {
         let dotRadius: CGFloat = 1.8
-        for sample in metrics.samples {
-            let x = plotRect.minX + plotRect.width * CGFloat(metrics.xFraction(for: sample))
-            let yFraction = metrics.yFraction(for: sample)
-            let y = plotRect.minY + plotRect.height * CGFloat(yFraction)
-            let color = BodyWorkoutChartPalette.color(forFraction: 1 - yFraction)
+        // The card's cache precomputes at most 300 dots; falling back here keeps
+        // previews and any other caller correct without a cache of their own.
+        let fractions = scatterFractions ?? bodyWorkoutHeartRateScatterSamples(metrics.samples).map {
+            (x: metrics.xFraction(for: $0), y: metrics.yFraction(for: $0))
+        }
+        for fraction in fractions {
+            let x = plotRect.minX + plotRect.width * CGFloat(fraction.x)
+            let y = plotRect.minY + plotRect.height * CGFloat(fraction.y)
+            let color = BodyWorkoutChartPalette.color(forFraction: 1 - fraction.y)
             let circleRect = CGRect(
                 x: x - dotRadius,
                 y: y - dotRadius,
@@ -4986,5 +5124,5 @@ extension View {
 
 #Preview {
     BodyWorkoutsView()
-        .environmentObject(HealthKitWorkoutStore())
+        .environment(HealthKitWorkoutStore())
 }

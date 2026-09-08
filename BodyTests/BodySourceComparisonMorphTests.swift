@@ -57,23 +57,43 @@ final class BodySourceComparisonMorphTests: XCTestCase {
         BodyHealthTrendRange.allCases.filter { $0 != selected }
     }
 
+    /// The chart's own per-range bucketing, which the charts now hand to the
+    /// entry builders from a cache instead of recomputing inline.
+    private func barEntries(
+        _ comparison: BodyHealthSourceComparisonTrend,
+        range: BodyHealthTrendRange
+    ) -> [BodyHealthSourceComparisonBarEntry] {
+        BodyHealthSourceComparisonBarChart.barEntries(
+            comparison: comparison,
+            range: range,
+            primaryPoints: comparison.primary.series
+                .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: anchorDate),
+            secondaryPoints: comparison.secondary.series
+                .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: anchorDate)
+        )
+    }
+
+    private func rangeEntries(
+        _ comparison: BodyHealthSourceRangeComparisonTrend,
+        range: BodyHealthTrendRange
+    ) -> [BodyHealthSourceComparisonRangeEntry] {
+        BodyHealthSourceComparisonRangeChart.rangeEntries(
+            comparison: comparison,
+            range: range,
+            primaryPoints: comparison.primary.series
+                .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: anchorDate),
+            secondaryPoints: comparison.secondary.series
+                .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: anchorDate)
+        )
+    }
+
     // MARK: - Paired bar chart
 
     func testUnionBarEntriesKeepEveryRangeBucketExactlyOnce() {
         let comparison = barComparison
-        let current = BodyHealthSourceComparisonBarChart.barEntries(
-            comparison: comparison,
-            range: .recentWeek,
-            calendar: calendar,
-            date: anchorDate
-        )
+        let current = barEntries(comparison, range: .recentWeek)
         let others = otherRanges(than: .recentWeek).map {
-            BodyHealthSourceComparisonBarChart.barEntries(
-                comparison: comparison,
-                range: $0,
-                calendar: calendar,
-                date: anchorDate
-            )
+            barEntries(comparison, range: $0)
         }
         let union = BodyHealthSourceComparisonBarChart.unionBarEntries(
             currentEntries: current,
@@ -95,18 +115,8 @@ final class BodySourceComparisonMorphTests: XCTestCase {
 
     func testUnionBarPlaceholdersKeepTheirOwnRangeGeometry() {
         let comparison = barComparison
-        let current = BodyHealthSourceComparisonBarChart.barEntries(
-            comparison: comparison,
-            range: .recentWeek,
-            calendar: calendar,
-            date: anchorDate
-        )
-        let yearEntries = BodyHealthSourceComparisonBarChart.barEntries(
-            comparison: comparison,
-            range: .recentYear,
-            calendar: calendar,
-            date: anchorDate
-        )
+        let current = barEntries(comparison, range: .recentWeek)
+        let yearEntries = barEntries(comparison, range: .recentYear)
         let union = BodyHealthSourceComparisonBarChart.unionBarEntries(
             currentEntries: current,
             otherRangeEntries: [yearEntries]
@@ -125,18 +135,8 @@ final class BodySourceComparisonMorphTests: XCTestCase {
 
     func testUnionBarEntriesPreferTheCurrentRangeOnSharedIDs() {
         let comparison = barComparison
-        let month = BodyHealthSourceComparisonBarChart.barEntries(
-            comparison: comparison,
-            range: .recentMonth,
-            calendar: calendar,
-            date: anchorDate
-        )
-        let week = BodyHealthSourceComparisonBarChart.barEntries(
-            comparison: comparison,
-            range: .recentWeek,
-            calendar: calendar,
-            date: anchorDate
-        )
+        let month = barEntries(comparison, range: .recentMonth)
+        let week = barEntries(comparison, range: .recentWeek)
         let union = BodyHealthSourceComparisonBarChart.unionBarEntries(
             currentEntries: month,
             otherRangeEntries: [week]
@@ -154,19 +154,9 @@ final class BodySourceComparisonMorphTests: XCTestCase {
 
     func testUnionRangeEntriesKeepEveryRangeBucketExactlyOnce() {
         let comparison = rangeComparison
-        let current = BodyHealthSourceComparisonRangeChart.rangeEntries(
-            comparison: comparison,
-            range: .recentMonth,
-            calendar: calendar,
-            date: anchorDate
-        )
+        let current = rangeEntries(comparison, range: .recentMonth)
         let others = otherRanges(than: .recentMonth).map {
-            BodyHealthSourceComparisonRangeChart.rangeEntries(
-                comparison: comparison,
-                range: $0,
-                calendar: calendar,
-                date: anchorDate
-            )
+            rangeEntries(comparison, range: $0)
         }
         let union = BodyHealthSourceComparisonRangeChart.unionRangeEntries(
             currentEntries: current,
@@ -181,18 +171,8 @@ final class BodySourceComparisonMorphTests: XCTestCase {
 
     func testUnionRangePlaceholdersKeepTheirOwnLowHighAndPairOffset() {
         let comparison = rangeComparison
-        let current = BodyHealthSourceComparisonRangeChart.rangeEntries(
-            comparison: comparison,
-            range: .recentWeek,
-            calendar: calendar,
-            date: anchorDate
-        )
-        let sixMonths = BodyHealthSourceComparisonRangeChart.rangeEntries(
-            comparison: comparison,
-            range: .recentSixMonths,
-            calendar: calendar,
-            date: anchorDate
-        )
+        let current = rangeEntries(comparison, range: .recentWeek)
+        let sixMonths = rangeEntries(comparison, range: .recentSixMonths)
         let union = BodyHealthSourceComparisonRangeChart.unionRangeEntries(
             currentEntries: current,
             otherRangeEntries: [sixMonths]
@@ -307,12 +287,7 @@ final class BodySourceComparisonMorphTests: XCTestCase {
 
     func testRangeEntriesSeparateThePairBySourceRole() {
         let comparison = rangeComparison
-        let entries = BodyHealthSourceComparisonRangeChart.rangeEntries(
-            comparison: comparison,
-            range: .recentWeek,
-            calendar: calendar,
-            date: anchorDate
-        )
+        let entries = rangeEntries(comparison, range: .recentWeek)
         let primary = try? XCTUnwrap(entries.first { $0.sourceRole == .primary })
         let secondary = entries.first { $0.sourceRole == .secondary && $0.date == primary?.date }
 

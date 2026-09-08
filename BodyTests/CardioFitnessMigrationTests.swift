@@ -34,6 +34,7 @@ final class CardioFitnessMigrationTests: XCTestCase {
             forKey: BodyAppearancePreference.healthPermissionSelectionKey
         )
 
+        BodyHealthPermissionSelection.migrateIfNeeded(defaults: defaults)
         let migrated = BodyHealthPermissionSelection.load(defaults: defaults)
 
         XCTAssertTrue(migrated.includes(.cardioFitness))
@@ -49,6 +50,7 @@ final class CardioFitnessMigrationTests: XCTestCase {
 
         defaults.set("workouts,sleep", forKey: BodyAppearancePreference.healthPermissionSelectionKey)
 
+        BodyHealthPermissionSelection.migrateIfNeeded(defaults: defaults)
         let migrated = BodyHealthPermissionSelection.load(defaults: defaults)
 
         XCTAssertTrue(migrated.includes(.workoutMetrics), "the expanded migration runs first")
@@ -63,6 +65,7 @@ final class CardioFitnessMigrationTests: XCTestCase {
         // so the migration must not silently widen their granted data.
         defaults.set("heart,sleep", forKey: BodyAppearancePreference.healthPermissionSelectionKey)
 
+        BodyHealthPermissionSelection.migrateIfNeeded(defaults: defaults)
         let migrated = BodyHealthPermissionSelection.load(defaults: defaults)
 
         XCTAssertFalse(migrated.includes(.cardioFitness))
@@ -80,11 +83,13 @@ final class CardioFitnessMigrationTests: XCTestCase {
             "workouts,workoutMetrics",
             forKey: BodyAppearancePreference.healthPermissionSelectionKey
         )
+        BodyHealthPermissionSelection.migrateIfNeeded(defaults: defaults)
         let migrated = BodyHealthPermissionSelection.load(defaults: defaults)
         XCTAssertTrue(migrated.includes(.cardioFitness))
 
         migrated.setting(.cardioFitness, isEnabled: false).save(defaults: defaults)
 
+        BodyHealthPermissionSelection.migrateIfNeeded(defaults: defaults)
         let reloaded = BodyHealthPermissionSelection.load(defaults: defaults)
         XCTAssertFalse(reloaded.includes(.cardioFitness), "a deliberate opt-out must stick")
     }

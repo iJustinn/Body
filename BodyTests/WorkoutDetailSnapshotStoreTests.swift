@@ -254,11 +254,15 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
         """
         try mismatchedJSON.data(using: .utf8)!.write(to: mismatchedURL)
         XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: mismatchedID, directoryURL: directoryURL))
+        // A schema-mismatched file is removed rather than left to be re-decoded
+        // (and re-fail) on every future load.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mismatchedURL.path))
 
         let corruptID = UUID()
         let corruptURL = directoryURL.appendingPathComponent("\(corruptID.uuidString).json")
         try Data([0xDE, 0xAD, 0xBE, 0xEF]).write(to: corruptURL)
         XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: corruptID, directoryURL: directoryURL))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: corruptURL.path))
 
         XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: UUID(), directoryURL: directoryURL))
     }
@@ -282,6 +286,25 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
         XCTAssertNotEqual(series.seriesVersion, PersistedWorkoutMetricSeries.currentSeriesVersion)
         XCTAssertNil(series.powerWatts)
         XCTAssertNotNil(series.cyclingCadenceRPM)
+    }
+
+    // MARK: - Delete
+
+    func testDeleteRemovesOnlyTheNamedWorkoutAndIgnoresMissingFiles() throws {
+        let deletedID = UUID()
+        let keptID = UUID()
+        XCTAssertTrue(WorkoutDetailSnapshotStore.save(makeSnapshot(workoutID: deletedID), directoryURL: directoryURL))
+        XCTAssertTrue(WorkoutDetailSnapshotStore.save(makeSnapshot(workoutID: keptID), directoryURL: directoryURL))
+
+        WorkoutDetailSnapshotStore.delete(workoutID: deletedID, directoryURL: directoryURL)
+        XCTAssertNil(WorkoutDetailSnapshotStore.load(workoutID: deletedID, directoryURL: directoryURL))
+        XCTAssertNotNil(WorkoutDetailSnapshotStore.load(workoutID: keptID, directoryURL: directoryURL))
+
+        // Deleting a workout with no stored file is a no-op, and repeating a
+        // delete stays one too.
+        WorkoutDetailSnapshotStore.delete(workoutID: deletedID, directoryURL: directoryURL)
+        WorkoutDetailSnapshotStore.delete(workoutID: UUID(), directoryURL: directoryURL)
+        XCTAssertNotNil(WorkoutDetailSnapshotStore.load(workoutID: keptID, directoryURL: directoryURL))
     }
 
     // MARK: - Prune

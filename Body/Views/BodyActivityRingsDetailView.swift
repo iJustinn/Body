@@ -119,6 +119,7 @@ enum BodyHomeBackground {
 
 struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
     static let appDefaultID = "app-default"
+    static let iJustinID = "ijustin"
 
     let id: String
     let colorsRawValue: String
@@ -133,6 +134,30 @@ struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
         )
     }
 
+    static var iJustin: BodyHomeBackgroundProfile {
+        BodyHomeBackgroundProfile(
+            id: iJustinID,
+            colorsRawValue: "0E2FFE,0E2FFE,0E2FFE",
+            separatorsRawValue: BodyHomeBackground.rawValue(fromSeparators: [0.06, 0.94]),
+            name: "iJustin"
+        )
+    }
+
+    // Three neighboring shades around each icon's color, following the ohmybody mix.
+    static let rose = shaded(id: "rose", name: "Rose", colorsRawValue: "FFC0DF,F09CC4,D87FAC")
+    static let violet = shaded(id: "violet", name: "Violet", colorsRawValue: "8044AA,601A8F,480C70")
+    static let neutral = shaded(id: "neutral", name: "Neutral", colorsRawValue: "AAAAAA,929292,7A7A7A")
+    static let light = shaded(id: "light", name: "Light", colorsRawValue: "FFFFFF,EFEFEF,DFDFDF")
+
+    private static func shaded(id: String, name: String, colorsRawValue: String) -> BodyHomeBackgroundProfile {
+        BodyHomeBackgroundProfile(
+            id: id,
+            colorsRawValue: colorsRawValue,
+            separatorsRawValue: BodyHomeBackground.rawValue(fromSeparators: [1.0 / 3.0, 2.0 / 3.0]),
+            name: name
+        )
+    }
+
     static func custom(name: String, colors: [Color], separators: [Double]) -> BodyHomeBackgroundProfile {
         BodyHomeBackgroundProfile(
             id: UUID().uuidString,
@@ -142,6 +167,10 @@ struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
             ),
             name: Self.sanitizedName(name)
         )
+    }
+
+    var isBuiltIn: Bool {
+        BodyHomeBackgroundProfileStore.builtInProfiles.contains { $0.id == id }
     }
 
     var colors: [Color] {
@@ -165,7 +194,8 @@ struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
     }
 
     func displayName(defaultName: String) -> String {
-        Self.sanitizedName(name ?? "") ?? defaultName
+        guard let name = Self.sanitizedName(name ?? "") else { return defaultName }
+        return isBuiltIn ? String(localized: String.LocalizationValue(name)) : name
     }
 
     func renamed(_ name: String) -> BodyHomeBackgroundProfile {
@@ -204,11 +234,12 @@ struct BodyHomeBackgroundProfile: Codable, Equatable, Identifiable {
 }
 
 enum BodyHomeBackgroundProfileStore {
-    static let maximumProfileCount = 5
-    static var maximumCustomProfileCount: Int { maximumProfileCount - 1 }
+    static let builtInProfiles: [BodyHomeBackgroundProfile] = [.appDefault, .rose, .violet, .neutral, .light, .iJustin]
+    static let maximumCustomProfileCount = 4
+    static var maximumProfileCount: Int { builtInProfiles.count + maximumCustomProfileCount }
 
     static func allProfiles(from rawValue: String) -> [BodyHomeBackgroundProfile] {
-        [BodyHomeBackgroundProfile.appDefault] + customProfiles(from: rawValue)
+        builtInProfiles + customProfiles(from: rawValue)
     }
 
     static func customProfiles(from rawValue: String) -> [BodyHomeBackgroundProfile] {
@@ -221,7 +252,7 @@ enum BodyHomeBackgroundProfileStore {
 
         return Array(
             decoded
-                .filter { $0.id != BodyHomeBackgroundProfile.appDefaultID }
+                .filter { !$0.isBuiltIn }
                 .prefix(maximumCustomProfileCount)
         )
     }
@@ -229,7 +260,7 @@ enum BodyHomeBackgroundProfileStore {
     static func rawValue(from profiles: [BodyHomeBackgroundProfile]) -> String {
         let profiles = Array(
             profiles
-                .filter { $0.id != BodyHomeBackgroundProfile.appDefaultID }
+                .filter { !$0.isBuiltIn }
                 .prefix(maximumCustomProfileCount)
         )
 
@@ -338,7 +369,7 @@ private struct BodyActivityRingCompletionStar: View {
 }
 
 struct BodyActivityRingsDetailView: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var calendarMonths: [ActivityRingCalendarMonth] = []
     @State private var scrollPosition = ScrollPosition(idType: String.self, edge: .bottom)
@@ -361,7 +392,7 @@ struct BodyActivityRingsDetailView: View {
     @State private var dayCallout = BodyChartFloatingCalloutState()
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
-    private let calendar = Calendar.bodyGregorian
+    private var calendar: Calendar { .bodyGregorian }
     /// Distance from the content top that counts as "near the top" for
     /// paging in older months.
     private let olderMonthLoadThreshold: CGFloat = 300
@@ -450,7 +481,7 @@ struct BodyActivityRingsDetailView: View {
         .overlay(alignment: .top) {
             // Outside the scroll content so showing/hiding it can't change
             // the content size or perturb anchoring.
-            if isLoadingOlderMonths && workoutStore.hasMoreActivityRingHistory {
+            if isLoadingOlderMonths && workoutStore.canLoadEarlierActivityRings {
                 ProgressView()
                     .padding(10)
                     .background(.ultraThinMaterial, in: Circle())
@@ -492,6 +523,11 @@ struct BodyActivityRingsDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             // The cached months bake in "today" (future-day dimming), so they
             // must be rebuilt when the day rolls over while the screen is up.
+            refreshCalendarMonths()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+            // Rebuild display dates from the stored day labels while this
+            // screen remains active across a time-zone change.
             refreshCalendarMonths()
         }
         .onChange(of: scenePhase) {
@@ -566,7 +602,7 @@ struct BodyActivityRingsDetailView: View {
               !isLoadingOlderMonths,
               hasUserInteracted || isUnderfilled,
               remainingAutomaticLoads > 0,
-              workoutStore.hasMoreActivityRingHistory,
+              workoutStore.canLoadEarlierActivityRings,
               workoutStore.loadingActivityRingMonthKeys.isEmpty
         else {
             return
@@ -695,7 +731,7 @@ struct BodyActivityRingsDetailView: View {
             return ""
         }
 
-        return "\(date.formatted(.dateTime.month(.abbreviated))), \(date.formatted(.dateTime.year()))"
+        return date.formatted(.dateTime.year().month(.abbreviated))
     }
 }
 

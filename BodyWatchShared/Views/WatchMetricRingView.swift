@@ -24,7 +24,7 @@ struct WatchMetricRingView: View {
     /// Fraction of the circle left open at the bottom (centered on 6 o'clock).
     private let gap: Double = 0.25
 
-    private var clampedFill: Double { min(max(fillFraction, 0), 1) }
+    private var clampedFill: Double { fillFraction.isFinite ? min(max(fillFraction, 0), 1) : 0 }
     private var color: Color { Color(tint) }
 
     var body: some View {

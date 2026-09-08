@@ -119,17 +119,13 @@ func bodyChartSelectionDateText(for point: HealthTrendRangeCalendarPoint) -> Str
 // baseline away from the robust median Readiness's vitals component uses.
 // Without this, the card can show "Baseline +0.3 °C" while Readiness shows
 // no wrist-temperature driver (or vice versa) for the same day.
-func wristTemperatureBaselineValue(from finiteValues: [Double]) -> Double {
+private func wristTemperatureBaselineValue(from finiteValues: [Double]) -> Double {
     let sorted = finiteValues.sorted()
     let middle = sorted.count / 2
     if sorted.count.isMultiple(of: 2) {
         return (sorted[middle - 1] + sorted[middle]) / 2
     }
     return sorted[middle]
-}
-
-func wristTemperatureBaseline(from series: HealthTrendSeries) -> Double {
-    wristTemperatureBaselineIfAvailable(from: series) ?? 0
 }
 
 /// The chart-stable baseline median over the recent year, or `nil` when the
@@ -264,6 +260,37 @@ private final class BodyHomeScrollState {
     var offset: CGFloat = 0
 }
 
+/// The card a readiness-hero warning badge last pointed at, glowing for a moment so
+/// the scroll lands somewhere obvious. Its own `@Observable` for the same reason the
+/// scroll offset is: only the grid's glow overlay reads it.
+@Observable
+private final class BodyHomeCardHighlightState {
+    var card: BodyHomeCardKind?
+}
+
+/// The ring a card wears for a moment after a readiness-hero warning badge scrolled to
+/// it. Reads the highlight state itself so only this small overlay re-renders when the
+/// glow moves, not the grid that hosts it.
+private struct BodyHomeCardHighlightGlow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let card: BodyHomeCardKind
+    let highlightState: BodyHomeCardHighlightState
+    let tint: Color
+
+    private var isHighlighted: Bool {
+        highlightState.card == card
+    }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+            .strokeBorder(tint.opacity(isHighlighted ? 0.9 : 0), lineWidth: 2)
+            .shadow(color: tint.opacity(isHighlighted ? 0.7 : 0), radius: 12)
+            .allowsHitTesting(false)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: isHighlighted)
+    }
+}
+
 /// Applies the readiness hero's scroll fade and pin. It reads `scrollState.offset`, so this
 /// small view re-renders as the page scrolls while `BodyHomeView`'s body does not.
 private struct BodyReadinessHeroScrollFade<Content: View>: View {
@@ -314,7 +341,7 @@ enum HomeMetricRoute: Hashable {
 }
 
 struct BodyHomeView: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
@@ -331,6 +358,8 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.metricWarningsOnReadinessHeroKey) private var showsWarningsOnReadinessHero = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.summaryReselectCount) private var summaryReselectCount
     @Environment(\.scenePhase) private var scenePhase
@@ -342,6 +371,13 @@ struct BodyHomeView: View {
     // hero fade wrapper that reads it — not this whole body. (The metric-card models are
     // additionally memoized in BodyHomeTrendComputationCache, keyed on their full input set.)
     @State private var scrollState = BodyHomeScrollState()
+    // Which card a readiness-hero warning badge just scrolled to, held in its own
+    // @Observable for the same reason as the scroll offset: setting it on this view
+    // would rebuild every metric card model twice per tap.
+    @State private var cardHighlightState = BodyHomeCardHighlightState()
+    /// Clears the glow after its moment. Held so a second badge tap replaces the
+    /// first one's countdown instead of racing it.
+    @State private var cardHighlightTask: Task<Void, Never>?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     /// Shared namespace for the card → detail zoom transition (matchedTransitionSource +
     /// `.navigationTransition(.zoom)`). Threaded into `BodyHomeTrendsSection` for trends.
@@ -354,11 +390,47 @@ struct BodyHomeView: View {
     /// box, so per-scrub-frame updates re-render only the callout layer, not this body).
     /// Rendered as the topmost overlay below, above the nav bar's back chevron/title.
     @State private var heroChartCallout = BodyChartFloatingCalloutState()
+    /// The width of the Home content column, measured from the layout rather than
+    /// read off `UIScreen`: under Split View and Stage Manager the screen is wider
+    /// than the page, and the metric cards sized their previews for a screen they
+    /// did not have. Quantized to 8 pt so a resize drag does not rebuild every card
+    /// model per point. Seeded from the foreground scene's width so the cards are
+    /// built in the first body pass, before the readiness hero's appear animations
+    /// start; a cold launch that waited for the measured width rebuilt every card
+    /// model one frame later, on top of the hero's score roll, and stuttered it.
+    /// The measured width still wins (Split View, Stage Manager, rotation). Zero
+    /// only when no scene is connected yet, and the grid renders a placeholder then.
+    @State private var homeContentWidth: CGFloat = BodyHomeView.initialContentWidthEstimate()
+
+    /// Same quantization as the `onGeometryChange` below, applied to the scene width
+    /// capped at the home column's maximum, which is what the layout measures on
+    /// every phone and on a full-width iPad.
+    private static func initialContentWidthEstimate() -> CGFloat {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first
+        guard let width = scene?.coordinateSpace.bounds.width, width > 0 else { return 0 }
+        return (min(width, AppLayout.homeContentWidth) / 8).rounded(.up) * 8
+    }
 
     var body: some View {
-        let metricCardLookup = metricCardsByKind
+        let metricCardLookup = homeContentWidth > 0 ? metricCardsByKind : [:]
+        // Derived once per body: the visible list, the "has trends" check and the
+        // "Show all" affordance used to rebuild the card factory's output up to
+        // three times per pass, on both layout paths.
+        let trendCards = homeTrendCards
 
         return NavigationStack {
+            // The page width comes from a GeometryReader, which always fills what the
+            // navigation host proposes. On iPad (windowed apps, Stage Manager) the
+            // vertical ScrollView reports its content's width as its own, so any width
+            // derived from the scroll view or its ancestors (`containerRelativeFrame`,
+            // `ScrollGeometry.containerSize`, measuring the ZStack) fed back into the
+            // content pin and the page stuck at a stale width: a narrow centered column
+            // in a wide window, overflow in a narrow one.
+            GeometryReader { page in
             ZStack {
                 homeBackground
                     .ignoresSafeArea()
@@ -366,48 +438,60 @@ struct BodyHomeView: View {
                 BodyHomeBackgroundScrollDim(scrollState: scrollState)
                     .ignoresSafeArea()
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 14) {
-                        if let healthDataNotice = workoutStore.healthDataNotice {
-                            BodyHealthNoticeBanner(message: healthDataNotice)
-                        }
-
-                        starMetricHero
-
-                        if horizontalSizeClass == .regular {
-                            HStack(alignment: .top, spacing: 14) {
-                                metricCardsGrid(lookup: metricCardLookup)
-                                    .frame(maxWidth: .infinity, alignment: .top)
-
-                                if hasHomeTrends {
-                                    homeTrendsContent
-                                        .frame(maxWidth: .infinity, alignment: .top)
-                                }
+                ScrollViewReader { scrollProxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 14) {
+                            if let healthDataNotice = workoutStore.healthDataNotice {
+                                BodyHealthNoticeBanner(message: healthDataNotice)
                             }
-                        } else {
-                            metricCardsGrid(lookup: metricCardLookup)
 
-                            homeTrendsSection
+                            starMetricHero(proxy: scrollProxy, lookup: metricCardLookup)
+
+                            if horizontalSizeClass == .regular {
+                                HStack(alignment: .top, spacing: 14) {
+                                    metricCardsGrid(lookup: metricCardLookup)
+                                        .frame(maxWidth: .infinity, alignment: .top)
+
+                                    if !trendCards.visible.isEmpty {
+                                        homeTrendsContent(trendCards)
+                                            .frame(maxWidth: .infinity, alignment: .top)
+                                    }
+                                }
+                            } else {
+                                metricCardsGrid(lookup: metricCardLookup)
+
+                                homeTrendsSection(trendCards)
+                            }
                         }
+                        .padding(.horizontal)
+                        .padding(.top, 10)
+                        .padding(.bottom, 110)
+                        .readableContentColumn(maxWidth: AppLayout.homeContentWidth)
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            // Rounded up to the next 8 pt: the preview sizing reads
+                            // thresholds, so a sub-point difference must not churn
+                            // the memoized card models.
+                            (proxy.size.width / 8).rounded(.up) * 8
+                        } action: { width in
+                            homeContentWidth = width
+                        }
+                        // Pin the content to the page width: a vertical ScrollView becomes
+                        // horizontally pannable as soon as its content reports even a fraction
+                        // of a point wider than the viewport, which let the whole page drift
+                        // sideways under a diagonal drag.
+                        .frame(width: page.size.width)
                     }
-                    .padding(.horizontal)
-                    .padding(.top, 10)
-                    .padding(.bottom, 110)
-                    .readableContentColumn(maxWidth: AppLayout.homeContentWidth)
-                    // Pin the content to the viewport width: a vertical ScrollView becomes
-                    // horizontally pannable as soon as its content reports even a fraction
-                    // of a point wider than the viewport, which let the whole page drift
-                    // sideways under a diagonal drag.
-                    .containerRelativeFrame(.horizontal)
+                    .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+                        Task { await workoutStore.requestAuthorizationAndRefresh() }
+                    }
+                    .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                        geometry.contentOffset.y + geometry.contentInsets.top
+                    } action: { _, offset in
+                        scrollState.offset = max(0, offset)
+                    }
                 }
-                .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
-                    Task { await workoutStore.requestAuthorizationAndRefresh() }
-                }
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    geometry.contentOffset.y + geometry.contentInsets.top
-                } action: { _, offset in
-                    scrollState.offset = max(0, offset)
-                }
+            }
+            .frame(width: page.size.width, height: page.size.height)
             }
             .accessibilityHidden(readinessDetailPresented)
             .navigationDestination(for: HomeMetricRoute.self) { route in
@@ -541,10 +625,18 @@ struct BodyHomeView: View {
     /// The home-page star hero promoted above the grid. Readiness shows its score text
     /// here, over the full-bleed color backdrop supplied by `homeBackground` (which
     /// bleeds behind the status bar). Readiness is the only star-eligible metric.
+    ///
+    /// Takes the card lookup rather than reading `metricCardsByKind` itself: that
+    /// property snapshots the whole summary and trend store to key its memo, and
+    /// `body` has already paid for it once this pass.
     @ViewBuilder
-    private var starMetricHero: some View {
+    private func starMetricHero(
+        proxy: ScrollViewProxy,
+        lookup: [HealthMetricKind: BodyHealthMetricCard.Model]
+    ) -> some View {
         switch starredHomeCard {
         case .readiness:
+            let badges = heroWarningBadges(lookup: lookup)
             // The scroll fade/pin lives in the wrapper (which reads scrollState.offset) so
             // scrolling re-renders only it, not this body. Reading the offset here would
             // rebuild every metric card model on each scroll frame.
@@ -558,13 +650,92 @@ struct BodyHomeView: View {
                         readiness: workoutStore.healthSummary.readiness,
                         morningScore: todaysMorningReadiness,
                         aiComment: heroAIComment,
-                        onRegenerateAIComment: regenerateReadinessComment
+                        onRegenerateAIComment: regenerateReadinessComment,
+                        warningBadges: badges
                     )
                 }
                 .buttonStyle(.plain)
+                // The badges draw inside the button's label — the only place they stay
+                // aligned with the headline — but a nested button there never gets the
+                // tap and a SwiftUI gesture fights this button (the reason the comment's
+                // press-and-hold is a UIKit recognizer). So the tap targets are real
+                // buttons laid over the glyphs from out here, where hit testing, the
+                // button trait and VoiceOver all work normally. They sit inside the
+                // fade wrapper, so they go inert with the hero as the page scrolls.
+                .overlayPreferenceValue(BodyReadinessHeroBadgeAnchorKey.self) { anchors in
+                    GeometryReader { geometry in
+                        ForEach(Array(badges.enumerated()), id: \.element.id) { index, badge in
+                            if let anchor = anchors[badge.id] {
+                                let frame = geometry[anchor]
+                                // The badge boxes sit flush against each other, so a tap
+                                // between two of them already lands on one. The misses are
+                                // off the ends of the row and off the top and bottom, so
+                                // that is where the target grows: outward only, never over
+                                // a neighbour's target.
+                                let leading: CGFloat = index == 0 ? 10 : 0
+                                let trailing: CGFloat = index == badges.count - 1 ? 10 : 0
+                                Button {
+                                    revealHomeCard(badge.card, proxy: proxy)
+                                } label: {
+                                    Color.clear.contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(Text(verbatim: badge.accessibilityLabel))
+                                // Full height: a 28 pt-tall target is a mean thing to ask
+                                // a thumb for.
+                                .frame(
+                                    width: frame.width + leading + trailing,
+                                    height: max(frame.height, 44)
+                                )
+                                .position(x: frame.midX - leading / 2 + trailing / 2, y: frame.midY)
+                            }
+                        }
+                    }
+                }
             }
         default:
             EmptyView()
+        }
+    }
+
+    /// The warning signs the hero mirrors from the grid. Reads the visible card order so
+    /// a card the user turned off contributes nothing, and there is nowhere for a badge
+    /// to point that isn't on screen.
+    private func heroWarningBadges(
+        lookup: [HealthMetricKind: BodyHealthMetricCard.Model]
+    ) -> [BodyReadinessHeroWarningBadge] {
+        guard showsWarningsOnReadinessHero else {
+            return []
+        }
+
+        return BodyReadinessHeroWarningBadge.badges(visibleCards: visibleHomeCards, lookup: lookup)
+    }
+
+    /// Scrolls the grid to a card and glows it for a moment, so a badge tap lands
+    /// somewhere the eye can find.
+    private func revealHomeCard(_ card: BodyHomeCardKind, proxy: ScrollViewProxy) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.45)) {
+            // `BodyHomeCardKind.id` is its raw value, which is what the grid's
+            // ForEach publishes — an explicit `.id()` on the card would give it a
+            // second identity and is exactly what the flat-ForEach drag reorder
+            // cannot survive. (Measured: the ForEach id resolves fine from in here,
+            // custom `Layout` and all.) What this does need is for nothing else in
+            // Home's one ScrollView to answer to the same name, which is why the
+            // hero's own badges carry `BodyReadinessHeroWarningBadge.scrollIDPrefix`
+            // and the trend cards carry theirs. While the badges went un-prefixed
+            // the scroll landed on the badge at the top of the page instead, so it
+            // sat at offset 0 and nothing moved.
+            proxy.scrollTo(card.id, anchor: .center)
+        }
+
+        // Set plainly: the glow scopes its own fade, so an animation here would only
+        // give the change a second, competing curve.
+        cardHighlightTask?.cancel()
+        cardHighlightState.card = card
+        cardHighlightTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.4))
+            guard !Task.isCancelled else { return }
+            cardHighlightState.card = nil
         }
     }
 
@@ -651,14 +822,23 @@ struct BodyHomeView: View {
     /// One flat `ForEach` inside `BodyHomeCardGridLayout` rather than a `ForEach` of rows:
     /// a card keeps the same identity wherever it lands, so the reorder that runs while a
     /// drag is in flight moves the dragged card's view instead of destroying it.
+    @ViewBuilder
     private func metricCardsGrid(lookup: [HealthMetricKind: BodyHealthMetricCard.Model]) -> some View {
-        BodyHomeCardGridLayout(spacing: 14) {
-            ForEach(visibleHomeCards) { card in
-                reorderableHomeCard(for: card, lookup: lookup)
-                    .bodyHomeCardSlots(card.slotCount)
+        if homeContentWidth > 0 {
+            BodyHomeCardGridLayout(spacing: 14) {
+                ForEach(visibleHomeCards) { card in
+                    reorderableHomeCard(for: card, lookup: lookup)
+                        .bodyHomeCardSlots(card.slotCount)
+                }
             }
+            .animation(.spring(response: 0.25, dampingFraction: 0.85), value: homeCardOrder)
+        } else {
+            // The width lands in the same layout pass that measures it, so this
+            // placeholder holds the column open for one pass rather than showing.
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 132)
         }
-        .animation(.spring(response: 0.25, dampingFraction: 0.85), value: homeCardOrder)
     }
 
     private var summaryCardSelection: BodySummaryCardSelection {
@@ -677,18 +857,14 @@ struct BodyHomeView: View {
         BodyHomeTrendCardSelection.storedValue(from: homeTrendCardSelectionRawValue)
     }
 
-    private var hasHomeTrends: Bool {
-        !visibleHomeTrendCards.isEmpty
-    }
-
     /// The trends list without the leading section divider, shared by the iPhone
     /// (stacked below the metrics) and iPad (right-hand column) layouts.
     @ViewBuilder
-    private var homeTrendsContent: some View {
-        if hasHomeTrends {
+    private func homeTrendsContent(_ cards: HomeTrendCards) -> some View {
+        if !cards.visible.isEmpty {
             BodyHomeTrendsSection(
-                cards: visibleHomeTrendCards,
-                canToggleAll: canToggleAllHomeTrends,
+                cards: cards.visible,
+                canToggleAll: cards.canToggleAll,
                 showsAllTrends: showsAllHomeTrends,
                 toggleAll: toggleAllHomeTrends,
                 zoomNamespace: metricZoom
@@ -698,12 +874,12 @@ struct BodyHomeView: View {
 
     /// iPhone layout: trends stacked beneath the metrics with a divider separator.
     @ViewBuilder
-    private var homeTrendsSection: some View {
-        if hasHomeTrends {
+    private func homeTrendsSection(_ cards: HomeTrendCards) -> some View {
+        if !cards.visible.isEmpty {
             BodyHomeSectionDivider()
                 .padding(.top, 8)
 
-            homeTrendsContent
+            homeTrendsContent(cards)
                 .padding(.top, 8)
         }
     }
@@ -711,7 +887,11 @@ struct BodyHomeView: View {
     private var metricCardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model] {
         let inputs = metricCardsInputs
         return trendComputationCache.metricCards(inputs: inputs) {
-            self.buildMetricCards(today: inputs.dayStart, metricWarningSelectionRawValue: inputs.metricWarningSelectionRawValue)
+            self.buildMetricCards(
+                today: inputs.dayStart,
+                metricWarningSelectionRawValue: inputs.metricWarningSelectionRawValue,
+                previewDayCount: inputs.previewDayCount
+            )
         }
     }
 
@@ -729,14 +909,18 @@ struct BodyHomeView: View {
             showSleepScore: showSleepScore,
             sleepDurationGoalMinutes: sleepDurationGoalMinutes,
             dayStart: Calendar.bodyGregorian.startOfDay(for: Date()),
-            previewDayCount: BodyHomeMetricCardPreview.dayCount(forScreenWidth: UIScreen.main.bounds.width),
+            previewDayCount: BodyHomeMetricCardPreview.dayCount(forScreenWidth: homeContentWidth),
             localeIdentifier: Locale.current.identifier,
             timeZoneIdentifier: TimeZone.current.identifier,
             metricWarningSelectionRawValue: metricWarningSelectionRawValue
         )
     }
 
-    private func buildMetricCards(today: Date, metricWarningSelectionRawValue: String) -> [BodyHealthMetricCard.Model] {
+    private func buildMetricCards(
+        today: Date,
+        metricWarningSelectionRawValue: String,
+        previewDayCount: Int
+    ) -> [BodyHealthMetricCard.Model] {
         let summary = workoutStore.healthSummary
         let trends = workoutStore.healthTrends
         let warningSelection = BodyMetricWarningSelection.storedValue(from: metricWarningSelectionRawValue)
@@ -744,161 +928,134 @@ struct BodyHomeView: View {
         return [
             readinessMetric(
                 summary: summary.readiness,
-                chartPreview: trends.series(for: .readiness)
+                chartPreview: trends.series(for: .readiness),
+                previewDayCount: previewDayCount
             ),
             stressMetric(
                 summary: summary.stress,
                 currentScore: summary.stressCurrentScore,
-                chartPreview: trends.series(for: .stress)
+                chartPreview: trends.series(for: .stress),
+                previewDayCount: previewDayCount
             ),
+            bodyRadarMetric(summary: summary.bodyRadar),
             metric(
                 kind: .exerciseMinutes,
                 title: "Exercise Minutes",
                 summary: summary.exerciseMinutes,
-                unit: "",
-                decimals: 0,
-                symbolName: "figure.run",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .bar,
-                chartPreview: trends.series(for: .exerciseMinutes)
+                chartPreview: trends.series(for: .exerciseMinutes),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .trainingLoad,
                 title: "Training Load",
                 summary: summary.trainingLoad,
-                unit: "",
-                decimals: 2,
-                symbolName: "figure.strengthtraining.traditional",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .line,
-                chartPreview: trends.series(for: .trainingLoad)
+                chartPreview: trends.series(for: .trainingLoad),
+                previewDayCount: previewDayCount
             ),
             wristTemperatureMetric(
                 summary: summary,
-                chartPreview: trends.series(for: .wristTemperature)
+                chartPreview: trends.series(for: .wristTemperature),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .timeInDaylight,
                 title: "Time In Daylight",
                 summary: summary.timeInDaylight,
-                unit: "min",
-                decimals: 0,
-                symbolName: "sun.max.fill",
-                symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
                 chartStyle: .bar,
-                chartPreview: trends.series(for: .timeInDaylight)
+                chartPreview: trends.series(for: .timeInDaylight),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .steps,
                 title: "Steps",
                 summary: summary.steps,
-                unit: "",
-                decimals: 0,
-                symbolName: "figure.walk",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
                 chartStyle: .bar,
-                chartPreview: trends.series(for: .steps)
+                chartPreview: trends.series(for: .steps),
+                previewDayCount: previewDayCount
             ),
             sleepMetric(
                 summary: summary,
                 sleepHistory: trends.sleepHistory,
                 chartPreview: trends.series(for: .sleep),
-                today: today
+                today: today,
+                previewDayCount: previewDayCount
             ),
             vitalsMetric(summary: summary, trends: trends, today: today),
-            basicsMetric(summary: summary, chartPreview: trends.series(for: .bodyMass)),
+            basicsMetric(summary: summary, chartPreview: trends.series(for: .bodyMass), previewDayCount: previewDayCount),
             metric(
                 kind: .heartRate,
                 title: "Heart Rate",
                 summary: summary.heartRate,
-                unit: "bpm",
-                decimals: 0,
-                symbolName: "heart.fill",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
                 chartPreview: trends.series(for: .heartRate),
-                warningSymbolName: warningSymbolName(for: .heartRate, summary: summary, selection: warningSelection)
+                warningSymbolName: warningSymbolName(for: .heartRate, summary: summary, selection: warningSelection),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .restingHeartRate,
                 title: "Resting Heart Rate",
                 summary: summary.restingHeartRate,
-                unit: "bpm",
-                decimals: 0,
-                symbolName: "heart.fill",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                chartPreview: trends.series(for: .restingHeartRate)
+                chartPreview: trends.series(for: .restingHeartRate),
+                previewDayCount: previewDayCount
             ),
             cardioFitnessMetric(summary: summary),
             metric(
                 kind: .heartRateVariability,
                 title: "HRV",
                 summary: summary.heartRateVariability,
-                unit: "ms",
-                decimals: 1,
-                symbolName: "waveform.path.ecg",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                chartPreview: trends.series(for: .heartRateVariability)
+                chartPreview: trends.series(for: .heartRateVariability),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .oxygenSaturation,
                 title: "Blood Oxygen",
                 summary: summary.oxygenSaturation,
-                unit: "%",
-                decimals: 0,
-                symbolName: "drop.fill",
-                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
                 chartPreviewStyle: .range,
                 chartRangePreview: trends.rangeSeries(for: .oxygenSaturation),
-                warningSymbolName: warningSymbolName(for: .oxygenSaturation, summary: summary, selection: warningSelection)
+                warningSymbolName: warningSymbolName(for: .oxygenSaturation, summary: summary, selection: warningSelection),
+                previewDayCount: previewDayCount
             ),
             metric(
                 kind: .respiratoryRate,
                 title: "Respiratory Rate",
                 summary: summary.respiratoryRate,
-                unit: "br/min",
-                decimals: 0,
-                symbolName: "lungs.fill",
-                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
                 chartPreviewStyle: .range,
-                chartRangePreview: trends.rangeSeries(for: .respiratoryRate)
+                chartRangePreview: trends.rangeSeries(for: .respiratoryRate),
+                previewDayCount: previewDayCount
             ),
             energyMetric(
                 kind: .activeEnergy,
                 title: "Active Energy",
                 summary: summary.activeEnergy,
-                symbolName: "flame.fill",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                chartPreview: trends.series(for: .activeEnergy)
+                chartPreview: trends.series(for: .activeEnergy),
+                previewDayCount: previewDayCount
             ),
             energyMetric(
                 kind: .restingEnergy,
                 title: "Resting Energy",
                 summary: summary.restingEnergy,
-                symbolName: "leaf.fill",
-                symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                chartPreview: trends.series(for: .restingEnergy)
+                chartPreview: trends.series(for: .restingEnergy),
+                previewDayCount: previewDayCount
             )
         ]
     }
 
-    private var visibleHomeTrendCards: [BodyHomeTrendCard.Model] {
+    /// The trend list plus the "Show all" affordance, derived together so `body`
+    /// runs the card factory at most twice per pass instead of once per reader.
+    struct HomeTrendCards {
+        let visible: [BodyHomeTrendCard.Model]
+        let canToggleAll: Bool
+    }
+
+    private var homeTrendCards: HomeTrendCards {
+        let all = makeHomeTrendCards(includesStable: true)
         if showsAllHomeTrends {
-            return allHomeTrendCards
+            return HomeTrendCards(visible: all, canToggleAll: true)
         }
 
-        return Array(significantHomeTrendCards.prefix(4))
-    }
-
-    private var canToggleAllHomeTrends: Bool {
-        showsAllHomeTrends || allHomeTrendCards.count > visibleHomeTrendCards.count
-    }
-
-    private var significantHomeTrendCards: [BodyHomeTrendCard.Model] {
-        makeHomeTrendCards(includesStable: false)
-    }
-
-    private var allHomeTrendCards: [BodyHomeTrendCard.Model] {
-        makeHomeTrendCards(includesStable: true)
+        let visible = Array(makeHomeTrendCards(includesStable: false).prefix(4))
+        return HomeTrendCards(visible: visible, canToggleAll: all.count > visible.count)
     }
 
     private func makeHomeTrendCards(includesStable: Bool) -> [BodyHomeTrendCard.Model] {
@@ -951,37 +1108,45 @@ struct BodyHomeView: View {
         return hasActiveWarning ? "exclamationmark.triangle.fill" : nil
     }
 
+    /// A summary card whose value is a plain number with a unit. Symbol, tint,
+    /// unit and decimals come from the shared metric table, so the card, the
+    /// trend card for the same metric and the widget that mirrors it cannot
+    /// drift apart. Every kind routed through here has a `summaryFormat` row,
+    /// so the fallbacks are unreachable (`HealthMetricPresentationTests`).
     private func metric(
         kind: HealthMetricKind,
         title: String,
         summary: HealthMetricSummary,
-        unit: String,
-        decimals: Int,
-        symbolName: String,
-        symbolColor: Color,
         chartStyle: BodyHealthMetricChartStyle = .line,
         chartPreviewStyle: BodyHomeMetricCardPreview.Style? = nil,
         chartPreview: HealthTrendSeries? = nil,
         chartRangePreview: HealthTrendRangeSeries? = nil,
-        warningSymbolName: String? = nil
+        warningSymbolName: String? = nil,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
-        BodyHealthMetricCard.Model(
+        let presentation = HealthMetricPresentation.presentation(for: kind)
+        let summaryFormat = presentation?.summaryFormat
+        return BodyHealthMetricCard.Model(
             kind: kind,
             title: title,
-            value: summary.value.map { BodyValueFormat.numberText($0, decimals: decimals) } ?? "--",
-            unit: unit,
-            symbolName: symbolName,
-            symbolColor: symbolColor,
+            value: summary.value.map {
+                BodyValueFormat.numberText($0, decimals: summaryFormat?.decimals ?? 0)
+            } ?? "--",
+            unit: summaryFormat?.unitSuffix ?? "",
+            symbolName: presentation?.symbolName ?? "questionmark.circle",
+            symbolColor: presentation?.tint ?? .secondary,
             chartPreviewStyle: chartPreviewStyle ?? BodyHomeMetricCardPreview.Style.matching(chartStyle: chartStyle),
             chartPreview: chartPreview,
             chartRangePreview: chartRangePreview,
-            warningSymbolName: warningSymbolName
+            warningSymbolName: warningSymbolName,
+            previewDayCount: previewDayCount
         )
     }
 
     private func readinessMetric(
         summary: ReadinessSummary,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let scoreText = summary.score.map { "\($0)" } ?? "--"
 
@@ -993,23 +1158,31 @@ struct BodyHomeView: View {
             symbolName: "bolt.heart.fill",
             symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
             chartPreviewStyle: .line,
-            chartPreview: chartPreview
+            chartPreview: chartPreview,
+            previewDayCount: previewDayCount
         )
     }
 
     private func stressMetric(
         summary: StressDaySummary?,
         currentScore: Int?,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let scoreText = summary?.averageScore.map { "\($0)" } ?? "--"
         // Band follows the CURRENT stress reading when one is fresh (see
         // `stressCurrentScore`'s staleness guard), falling back to the day
         // average so the card still shows a band once any score exists.
         let bandScore = currentScore ?? summary?.averageScore
-        let bandDisplay = bandScore.map { StressBand.band(for: $0) }.map {
-            BodyMetricDisplayValue(title: "Band", value: $0.title, unit: "")
-        }
+        // Always a prominent row, "--" until a band exists, the way the Sleep
+        // card holds its score slot: dropping the row swaps the card between
+        // its regular and prominent layouts, which rebuilds the preview (so it
+        // lands without motion) and pops the value in instead of animating it.
+        let bandDisplay = BodyMetricDisplayValue(
+            title: "Band",
+            value: bandScore.map { StressBand.band(for: $0).title } ?? "--",
+            unit: ""
+        )
 
         return BodyHealthMetricCard.Model(
             kind: .stress,
@@ -1018,20 +1191,140 @@ struct BodyHomeView: View {
             unit: "",
             symbolName: "brain.head.profile.fill",
             symbolColor: Color(red: 0.90, green: 0.35, blue: 0.75),
-            prominentMetrics: bandDisplay.map { [$0] } ?? [],
+            prominentMetrics: [bandDisplay],
             chartPreviewStyle: .line,
-            chartPreview: chartPreview
+            chartPreview: chartPreview,
+            previewDayCount: previewDayCount
         )
+    }
+
+    /// Body Radar reads as a verdict rather than a number: one word for the band
+    /// the night landed in, with the preview's ring showing where inside it, the
+    /// way the Vitals card reads.
+    private func bodyRadarMetric(summary: BodyRadarSummary?) -> BodyHealthMetricCard.Model {
+        // Only a scored night in the Minor or Major band earns the badge.
+        let warningRegion: BodyRadarRegion? = summary?.latest.flatMap { night in
+            night.state.isScored && night.region != BodyRadarRegion.none ? night.region : nil
+        }
+        return BodyHealthMetricCard.Model(
+            kind: .bodyRadar,
+            title: "Body Radar",
+            value: Self.bodyRadarCardValue(for: summary),
+            unit: "",
+            symbolName: BodyHomeCardKind.bodyRadar.iconName,
+            // White rather than the card kind's gray: the dotted-person glyph reads
+            // as washed out at this size in the kind's own tint. The dots preview
+            // takes its color from each ring's own band, so this only moves the icon
+            // and the tile behind it. Settings reads the same property.
+            symbolColor: BodyHomeCardKind.bodyRadar.iconTintColor,
+            chartPreviewStyle: .dots,
+            previewDotEntries: Self.bodyRadarDotEntries(for: summary),
+            // Same three slots as Vitals, read top to bottom as Major / Minor /
+            // None: fixed thresholds, so the bands stay equal; no standing
+            // highlight, the verdict washes its own band; and the pending
+            // skeleton shows the single ring the verdict will.
+            dotPreviewHighlightedRegion: nil,
+            dotPreviewEqualRegions: true,
+            dotPreviewPlaceholderCount: 1,
+            // Its own verdict, not a HealthKit warning event, so it doesn't go
+            // through the metric-warning preference the heart cards read.
+            warningSymbolName: warningRegion == nil ? nil : "exclamationmark.triangle.fill",
+            warningColor: BodyRadarChartStyle.color(for: warningRegion ?? BodyRadarRegion.none),
+            warningAccessibilityLabel: Self.bodyRadarCardValue(for: summary)
+        )
+    }
+
+    /// One word, the band the night landed in, so the card reads at a glance
+    /// the way the Vitals card does. A night with no verdict keeps its state's
+    /// own word instead, and a missing summary (Sleep access off, so nothing can
+    /// ever be scored) reads as No Data rather than a calibration that never ends.
+    static func bodyRadarCardValue(for summary: BodyRadarSummary?) -> String {
+        guard let summary else {
+            return Self.bodyRadarNoDataTitle
+        }
+
+        switch summary.state {
+        case .calibrating, .missingSleep, .insufficientData:
+            return summary.state.title
+        case .noSigns:
+            return String(localized: "Typical")
+        case .minorSigns:
+            return BodyRadarRegion.minor.title
+        case .majorSigns:
+            return BodyRadarRegion.major.title
+        }
+    }
+
+    /// The preview reads like the Vitals one, with a single ring for the latest
+    /// night: None rests in the typical band, Minor in the low region and Major
+    /// in the high one, so the ring takes the same color the detail chart's dot
+    /// does. A night with no data or no verdict shows the same ring faded on
+    /// the floor; only a missing summary leaves the skeleton.
+    /// Shown when there is no Body Radar summary at all, so no night can be
+    /// scored and no calibration is under way.
+    static var bodyRadarNoDataTitle: String {
+        String(localized: "bodyRadar.state.noData", defaultValue: "No Data")
+    }
+
+    static func bodyRadarDotEntries(for summary: BodyRadarSummary?) -> [BodyHealthMetricCard.Model.DotEntry] {
+        guard let summary, let latest = summary.latest else {
+            return []
+        }
+
+        guard latest.state.isScored else {
+            return [.init(
+                position: 0.02,
+                region: .low,
+                tint: Color.secondary,
+                opacity: BodyRadarChartStyle.placeholderOpacity
+            )]
+        }
+
+        let position = BodyRadarChartPoint(night: latest)
+            .bandPosition(majorCeiling: BodyRadarChartStyle.majorEvidenceCeiling)
+        let third = 1.0 / 3.0
+        // Held just inside each third so the ring never lands on the boundary
+        // the preview reads the region from.
+        let inset = 0.01
+
+        // The preview's slots are the Vitals ones (low / typical / high, bottom
+        // to top); Body Radar reads them as None / Minor / Major, so each ring
+        // carries its own color and washes its own band. A typical night keeps
+        // everything gray.
+        switch latest.region {
+        case .none:
+            return [.init(
+                position: position * (third - inset),
+                region: .low,
+                tint: Color.secondary
+            )]
+        case .minor:
+            let color = BodyRadarChartStyle.color(for: .minor)
+            return [.init(
+                position: third + inset + position * (third - inset * 2),
+                region: .typical,
+                tint: color,
+                bandTint: color
+            )]
+        case .major:
+            let color = BodyRadarChartStyle.color(for: .major)
+            return [.init(
+                position: third * 2 + inset + position * (third - inset),
+                region: .high,
+                tint: color,
+                bandTint: color
+            )]
+        }
     }
 
     private func energyMetric(
         kind: HealthMetricKind,
         title: String,
         summary: HealthMetricSummary,
-        symbolName: String,
-        symbolColor: Color,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
+        let presentation = HealthMetricPresentation.presentation(for: kind)
         let display = summary.value.map {
             BodyValueFormat.energyValue(kilocalories: $0, energyUnitPreference: selectedEnergyUnitPreference)
         }
@@ -1039,23 +1332,27 @@ struct BodyHomeView: View {
         return BodyHealthMetricCard.Model(
             kind: kind,
             title: title,
-            value: display.map { BodyValueFormat.numberText($0.value, decimals: 0) } ?? "--",
+            value: display.map {
+                BodyValueFormat.numberText($0.value, decimals: presentation?.summaryFormat?.decimals ?? 0)
+            } ?? "--",
             unit: selectedEnergyUnitPreference.unitLabel,
-            symbolName: symbolName,
-            symbolColor: symbolColor,
+            symbolName: presentation?.symbolName ?? "questionmark.circle",
+            symbolColor: presentation?.tint ?? .secondary,
             chartPreviewStyle: .bar,
             chartPreview: chartPreview.mapValues {
                 BodyValueFormat.energyValue(
                     kilocalories: $0,
                     energyUnitPreference: selectedEnergyUnitPreference
                 ).value
-            }
+            },
+            previewDayCount: previewDayCount
         )
     }
 
     private func wristTemperatureMetric(
         summary: HealthSummarySnapshot,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let display = summary.wristTemperature.value.map {
             BodyValueFormat.temperatureDisplay(
@@ -1087,7 +1384,8 @@ struct BodyHomeView: View {
             symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
             prominentMetrics: [deviationDisplay, actualDisplay],
             chartPreviewStyle: .line,
-            chartPreview: chartPreview
+            chartPreview: chartPreview,
+            previewDayCount: previewDayCount
         )
     }
 
@@ -1095,7 +1393,8 @@ struct BodyHomeView: View {
         summary: HealthSummarySnapshot,
         sleepHistory: SleepHistorySnapshot,
         chartPreview: HealthTrendSeries,
-        today: Date
+        today: Date,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let todaySleep = summary.sleep.asOf(today)
         let prominentMetrics: [BodyMetricDisplayValue]
@@ -1131,7 +1430,8 @@ struct BodyHomeView: View {
             symbolName: "bed.double.fill",
             symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
             prominentMetrics: prominentMetrics,
-            chartPreview: chartPreview
+            chartPreview: chartPreview,
+            previewDayCount: previewDayCount
         )
     }
 
@@ -1213,7 +1513,8 @@ struct BodyHomeView: View {
 
     private func basicsMetric(
         summary: HealthSummarySnapshot,
-        chartPreview: HealthTrendSeries
+        chartPreview: HealthTrendSeries,
+        previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let weightDisplay = summary.bodyMass.value.map {
             BodyValueFormat.massDisplay(
@@ -1251,7 +1552,8 @@ struct BodyHomeView: View {
                     ).unit
                 )
             ],
-            chartPreview: chartPreview
+            chartPreview: chartPreview,
+            previewDayCount: previewDayCount
         )
     }
 
@@ -1292,6 +1594,19 @@ struct BodyHomeView: View {
             .accessibilityAction(named: "Move later") {
                 moveHomeCard(card, offset: 1)
             }
+            // Outermost, after the drop: applied any earlier and the glow (and its
+            // shadow) would be baked into UIKit's drag preview snapshot. The cost is
+            // that it sits outside `matchedTransitionSource`, so tapping a glowing
+            // card drops the glow as the zoom starts.
+            .overlay {
+                // The card's own accent, so the glow reads as that card lighting up
+                // rather than a generic selection ring.
+                BodyHomeCardHighlightGlow(
+                    card: card,
+                    highlightState: cardHighlightState,
+                    tint: card.tintColor
+                )
+            }
     }
 
     @ViewBuilder
@@ -1312,7 +1627,11 @@ struct BodyHomeView: View {
             if let metricKind = card.healthMetricKind,
                let metric = lookup[metricKind] {
                 NavigationLink(value: HomeMetricRoute.metric(metric.kind)) {
-                    BodyHealthMetricCard(metric: metric, isRefreshing: workoutStore.isRefreshing)
+                    BodyHealthMetricCard(
+                        metric: metric,
+                        isRefreshing: workoutStore.isRefreshing,
+                        containerWidth: homeContentWidth
+                    )
                         .matchedTransitionSource(id: HomeMetricRoute.metric(metric.kind), in: metricZoom) {
                             $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
                         }
@@ -1838,6 +2157,32 @@ struct BodyHomeView: View {
                 helpText: kind.detailHelpText,
                 dataSourceText: kind.detailDataSourceText
             )
+        case .bodyRadar:
+            // Like Vitals, Body Radar has no metric series of its own: the page is
+            // drawn from the nights the summary carries, so the model hands the
+            // summary over and the detail view charts it.
+            let radar = summary.bodyRadar
+            return BodyHealthMetricDetailModel(
+                kind: kind,
+                title: "Body Radar",
+                value: radar?.state.title ?? Self.bodyRadarNoDataTitle,
+                unit: "",
+                symbolName: BodyHomeCardKind.bodyRadar.iconName,
+                symbolColor: BodyHomeCardKind.bodyRadar.tintColor,
+                series: radar?.evidenceSeries() ?? HealthTrendSeries(points: []),
+                basicsTrend: nil,
+                sleepStageSnapshot: nil,
+                sleepScore: nil,
+                sleepVitals: nil,
+                sleepDuration: nil,
+                sleepHistory: trends.sleepHistory,
+                chartStyle: .line,
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) },
+                secondaryValueFormatter: nil,
+                bodyRadar: radar,
+                helpText: kind.detailHelpText,
+                dataSourceText: kind.detailDataSourceText
+            )
         }
     }
 
@@ -1856,7 +2201,7 @@ struct BodyHomeView: View {
         cardioFitnessValue: Double? = nil,
         cardioFitnessProfile: CardioFitnessProfile? = nil,
         sleepHistory: SleepHistorySnapshot = .empty,
-        valueTransform: @escaping (Double) -> Double = { $0 }
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 }
     ) -> BodyHealthMetricDetailModel {
         let suffix = unit.isEmpty ? "" : " " + unit
         let transformedValue = summary.value.map(valueTransform)
@@ -2558,14 +2903,19 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         let lastTimestamp: TimeInterval?
         let firstValue: Double?
         let lastValue: Double?
-        // Hash over every point so a backdated edit to a non-edge day (manually
-        // editable Basics metrics: weight/body fat) invalidates the cache instead
-        // of colliding on the count + first/last fields above.
-        let contentHash: Int
     }
 
+    /// The cached series is compared alongside the fingerprint instead of hashing
+    /// every point into it: `==` on an unchanged array is an identity check, so a
+    /// hit costs a pointer compare rather than an O(n) walk on every render, while
+    /// a backdated edit to a non-edge day (manually editable Basics metrics:
+    /// weight/body fat) still misses. The store's write counter is deliberately
+    /// not part of the key: a refresh writes `healthTrends` several times per
+    /// launch, and keying on the counter recomputed every card on each write even
+    /// when the series came back equal, which stalled the hero animations.
     private struct Entry {
         let fingerprint: Fingerprint
+        let series: HealthTrendSeries
         let result: BodyHomeTrendCardPresentation.WindowResult?
     }
 
@@ -2601,7 +2951,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
     }
 
     private var entries: [CacheKey: Entry] = [:]
-    private var wristTemperatureBaselineEntry: (fingerprint: Fingerprint, baseline: Double?)?
+    private var wristTemperatureBaselineEntry: (fingerprint: Fingerprint, series: HealthTrendSeries, baseline: Double?)?
     private var vitalsSnapshotEntry: (fingerprint: VitalsFingerprint, snapshot: VitalsSnapshot)?
     private var metricCardsEntry: (inputs: MetricCardsInputs, cardsByKind: [HealthMetricKind: BodyHealthMetricCard.Model])?
 
@@ -2614,7 +2964,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
     ) -> BodyHomeTrendCardPresentation.WindowResult? {
         let fingerprint = Self.fingerprint(for: series, dayStart: calendar.startOfDay(for: date))
         let key = CacheKey(kind: kind, includesStable: includesStable)
-        if let entry = entries[key], entry.fingerprint == fingerprint {
+        if let entry = entries[key], entry.fingerprint == fingerprint, entry.series == series {
             return entry.result
         }
         let result = BodyHomeTrendCardPresentation.bestWindowResult(
@@ -2624,7 +2974,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
             calendar: calendar,
             date: date
         )
-        entries[key] = Entry(fingerprint: fingerprint, result: result)
+        entries[key] = Entry(fingerprint: fingerprint, series: series, result: result)
         return result
     }
 
@@ -2653,12 +3003,14 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         date: Date = Date()
     ) -> Double? {
         let fingerprint = Self.fingerprint(for: series, dayStart: calendar.startOfDay(for: date))
-        if let entry = wristTemperatureBaselineEntry, entry.fingerprint == fingerprint {
+        if let entry = wristTemperatureBaselineEntry,
+           entry.fingerprint == fingerprint,
+           entry.series == series {
             return entry.baseline
         }
 
         let baseline = wristTemperatureBaselineIfAvailable(from: series, calendar: calendar, date: date)
-        wristTemperatureBaselineEntry = (fingerprint, baseline)
+        wristTemperatureBaselineEntry = (fingerprint, series, baseline)
         return baseline
     }
 
@@ -2724,19 +3076,13 @@ final class BodyHomeTrendComputationCache: ObservableObject {
     }
 
     private static func fingerprint(for series: HealthTrendSeries, dayStart: Date) -> Fingerprint {
-        var hasher = Hasher()
-        for point in series.points {
-            hasher.combine(point.date)
-            hasher.combine(point.value)
-        }
-        return Fingerprint(
+        Fingerprint(
             dayStart: dayStart,
             pointCount: series.points.count,
             firstTimestamp: series.points.first?.date.timeIntervalSinceReferenceDate,
             lastTimestamp: series.points.last?.date.timeIntervalSinceReferenceDate,
             firstValue: series.points.first?.value,
-            lastValue: series.points.last?.value,
-            contentHash: hasher.finalize()
+            lastValue: series.points.last?.value
         )
     }
 }

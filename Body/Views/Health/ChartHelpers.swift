@@ -266,7 +266,45 @@ struct BodyChartFloatingCallout {
 /// not the whole home body.
 @Observable
 final class BodyChartFloatingCalloutState {
-    var callout: BodyChartFloatingCallout?
+    /// The reporter that published the current callout. The channel is a single
+    /// global slot shared by every chart on the page, so a reporter appearing
+    /// mid-scrub (a warning card scrolling in) would otherwise publish nil on
+    /// appear, or clear on disappear, and cancel the hero chart's callout.
+    /// Owner-scoped clears only take effect for the publisher that owns the slot.
+    private var owner: AnyHashable?
+    private var storedCallout: BodyChartFloatingCallout?
+
+    /// Unowned access, for the callers that drive the slot directly. Writing
+    /// here releases the ownership token, so any reporter may clear afterwards.
+    var callout: BodyChartFloatingCallout? {
+        get { storedCallout }
+        set {
+            storedCallout = newValue
+            owner = nil
+        }
+    }
+
+    /// Publishes on behalf of `owner`. A nil callout clears only if `owner`
+    /// holds the slot (or nobody does).
+    func publish(_ callout: BodyChartFloatingCallout?, owner: AnyHashable) {
+        guard let callout else {
+            clear(owner: owner)
+            return
+        }
+
+        storedCallout = callout
+        self.owner = owner
+    }
+
+    /// Releases the slot only if `owner` holds it.
+    func clear(owner: AnyHashable) {
+        guard self.owner == nil || self.owner == owner, storedCallout != nil else {
+            return
+        }
+
+        storedCallout = nil
+        self.owner = nil
+    }
 }
 
 /// Renders the published scrub callout. Hosted as an `.overlay` on the home
@@ -392,16 +430,31 @@ extension View {
         centersOnDayInterval: Bool = true,
         content: @escaping () -> AnyView
     ) -> some View {
-        func publish(_ anchor: CGPoint?) {
-            guard let state else { return }
-            if let anchor {
-                state.callout = BodyChartFloatingCallout(anchor: anchor, content: content())
-            } else if state.callout != nil {
-                state.callout = nil
-            }
-        }
+        modifier(
+            BodyChartFloatingCalloutReporterModifier(
+                state: state,
+                selectionDate: selectionDate,
+                centersOnDayInterval: centersOnDayInterval,
+                calloutContent: content
+            )
+        )
+    }
+}
 
-        return chartOverlay { chartProxy in
+/// Backs `bodyFloatingCalloutReporter`. A modifier rather than a bare
+/// `chartOverlay` so each call site owns a stable identity for the shared
+/// callout slot; without it the first reporter to appear or disappear clears
+/// whatever another chart had published.
+private struct BodyChartFloatingCalloutReporterModifier: ViewModifier {
+    let state: BodyChartFloatingCalloutState?
+    let selectionDate: Date?
+    let centersOnDayInterval: Bool
+    let calloutContent: () -> AnyView
+
+    @State private var ownerID = UUID()
+
+    func body(content: Content) -> some View {
+        content.chartOverlay { chartProxy in
             GeometryReader { geo in
                 let anchor = bodyFloatingCalloutAnchor(
                     selectionDate: selectionDate,
@@ -421,11 +474,24 @@ extension View {
                     // switch destroys the chart before the gesture can end — clear here
                     // or the callout sticks.
                     .onDisappear {
-                        state?.callout = nil
+                        state?.clear(owner: ownerID)
                     }
             }
             .allowsHitTesting(false)
         }
+    }
+
+    private func publish(_ anchor: CGPoint?) {
+        guard let state else { return }
+        guard let anchor else {
+            state.clear(owner: ownerID)
+            return
+        }
+
+        state.publish(
+            BodyChartFloatingCallout(anchor: anchor, content: calloutContent()),
+            owner: ownerID
+        )
     }
 }
 

@@ -243,4 +243,66 @@ final class SnapshotStoreLoadCacheTests: XCTestCase {
 
         XCTAssertEqual(result, populatedPrevious)
     }
+
+    // MARK: - M18: schema gates
+
+    /// Rewriting the version key by hand keeps the test honest even after a future
+    /// bump: whatever the current version is, "current + 1" must be refused.
+    private func rewritingSchemaVersion(_ version: Int?, in fileURL: URL) throws {
+        let data = try Data(contentsOf: fileURL)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        if let version {
+            object["schemaVersion"] = version
+        } else {
+            object.removeValue(forKey: "schemaVersion")
+        }
+        try JSONSerialization.data(withJSONObject: object).write(to: fileURL, options: [.atomic])
+    }
+
+    func testWorkoutLoadReturnsNilForNewerSchemaVersion() throws {
+        let fileURL = try uniqueFileURL()
+        let snapshot = WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)
+
+        WorkoutSnapshotStore.save(snapshot, fileURL: fileURL)
+        XCTAssertNotNil(WorkoutSnapshotStore.load(fileURL: fileURL))
+
+        try rewritingSchemaVersion(WorkoutMonthSnapshot.currentSchemaVersion + 1, in: fileURL)
+
+        // Nil on the first load, and again on the second: a refused snapshot must
+        // never reach the in-process load cache.
+        XCTAssertNil(WorkoutSnapshotStore.load(fileURL: fileURL))
+        XCTAssertNil(WorkoutSnapshotStore.load(fileURL: fileURL))
+    }
+
+    func testWorkoutLoadAcceptsLegacyFileWithoutSchemaVersionKey() throws {
+        let fileURL = try uniqueFileURL()
+        let snapshot = WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)
+
+        WorkoutSnapshotStore.save(snapshot, fileURL: fileURL)
+        try rewritingSchemaVersion(nil, in: fileURL)
+
+        XCTAssertNotNil(WorkoutSnapshotStore.load(fileURL: fileURL))
+    }
+
+    func testHealthWidgetLoadAcceptsFileWithoutSchemaVersionKey() throws {
+        let fileURL = try uniqueFileURL()
+
+        HealthWidgetSnapshotStore.save(.placeholder, fileURL: fileURL)
+        try rewritingSchemaVersion(nil, in: fileURL)
+
+        let loaded = try XCTUnwrap(HealthWidgetSnapshotStore.load(fileURL: fileURL))
+        XCTAssertNil(loaded.schemaVersion)
+    }
+
+    func testHealthWidgetLoadReturnsNilForNewerSchemaVersion() throws {
+        let fileURL = try uniqueFileURL()
+
+        HealthWidgetSnapshotStore.save(.placeholder, fileURL: fileURL)
+        XCTAssertNotNil(HealthWidgetSnapshotStore.load(fileURL: fileURL))
+
+        try rewritingSchemaVersion(99, in: fileURL)
+
+        XCTAssertNil(HealthWidgetSnapshotStore.load(fileURL: fileURL))
+        XCTAssertNil(HealthWidgetSnapshotStore.load(fileURL: fileURL))
+    }
 }

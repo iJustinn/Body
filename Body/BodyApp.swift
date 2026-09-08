@@ -8,7 +8,7 @@ import SwiftUI
 @main
 struct BodyApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var workoutStore = HealthKitWorkoutStore()
+    @State private var workoutStore: HealthKitWorkoutStore
     @State private var proStore: BodyProStore
     /// Owns the on-device Apple Intelligence readiness comment. Lives at the root so
     /// Home (which drives generation) and Settings (which reads `isSupported`) share
@@ -19,6 +19,15 @@ struct BodyApp: App {
     private var workoutColorOverridesRawValue = ""
 
     init() {
+        // The permission-selection migrations run exactly once here, before
+        // anything reads the selection. `workoutStore` is built on the line below
+        // rather than in its declaration, so the `BodyHealthPermissionSelection.load()`
+        // default argument inside `HealthKitWorkoutStore.init` runs after the
+        // migration. Do not move the assignment above this line, and do not give the
+        // property an inline default, which would construct the store first.
+        BodyHealthPermissionSelection.migrateIfNeeded()
+        _workoutStore = State(initialValue: HealthKitWorkoutStore())
+
         // Configure RevenueCat before constructing BodyProStore so the store's async
         // entitlement work always runs against a configured SDK.
         RevenueCatConfiguration.configure()
@@ -37,7 +46,7 @@ struct BodyApp: App {
         WindowGroup {
             MainTabView()
                 .bodyBaseInterfaceLevel()
-                .environmentObject(workoutStore)
+                .environment(workoutStore)
                 .environment(proStore)
                 .environment(readinessComment)
                 .environment(\.workoutColorPalette, workoutColorPalette)
@@ -45,9 +54,6 @@ struct BodyApp: App {
                 .accentColor(.primary)
                 .preferredColorScheme(selectedTheme.colorScheme)
                 .onChange(of: workoutColorOverridesRawValue) { _, _ in
-                    BodyWidgetReloadCoalescer.shared.requestReload()
-                }
-                .onChange(of: proStore.isPro) { _, _ in
                     BodyWidgetReloadCoalescer.shared.requestReload()
                 }
                 .task(priority: .utility) {
@@ -72,6 +78,9 @@ struct BodyApp: App {
                     // The background evaluator skips a pass while the app is on
                     // screen, where the foreground refresh owns detection.
                     BodyBackgroundRefreshScheduler.setForegroundActive(newPhase == .active)
+                    if newPhase == .background {
+                        workoutStore.noteAppDidEnterBackground()
+                    }
                     guard newPhase == .active else {
                         return
                     }
@@ -83,6 +92,14 @@ struct BodyApp: App {
                         // so refunds / other-device purchases update Pro and the widgets.
                         await proStore.refreshEntitlement()
                     }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+                    guard scenePhase == .active else { return }
+                    _ = workoutStore.captureRefreshInputs()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+                    guard scenePhase == .active else { return }
+                    _ = workoutStore.captureRefreshInputs()
                 }
         }
     }

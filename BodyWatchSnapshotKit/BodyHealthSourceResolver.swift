@@ -200,30 +200,18 @@ enum BodyHealthSourceResolver {
                 HKObjectType.quantityType(forIdentifier: .bodyFatPercentage),
                 HKObjectType.quantityType(forIdentifier: .bodyMassIndex)
             ].compactMap { $0 }
-        case .heartRate:
-            return [HKObjectType.quantityType(forIdentifier: .heartRate)].compactMap { $0 }
-        case .restingHeartRate:
-            return [HKObjectType.quantityType(forIdentifier: .restingHeartRate)].compactMap { $0 }
-        case .heartRateVariability:
-            return [HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN)].compactMap { $0 }
-        case .respiratoryRate:
-            return [HKObjectType.quantityType(forIdentifier: .respiratoryRate)].compactMap { $0 }
-        case .steps:
-            return [HKObjectType.quantityType(forIdentifier: .stepCount)].compactMap { $0 }
-        case .oxygenSaturation:
-            return [HKObjectType.quantityType(forIdentifier: .oxygenSaturation)].compactMap { $0 }
-        case .activeEnergy:
-            return [HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)].compactMap { $0 }
-        case .restingEnergy:
-            return [HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)].compactMap { $0 }
-        case .exerciseMinutes:
-            return [HKObjectType.quantityType(forIdentifier: .appleExerciseTime)].compactMap { $0 }
-        case .wristTemperature:
-            return [HKObjectType.quantityType(forIdentifier: .appleSleepingWristTemperature)].compactMap { $0 }
-        case .timeInDaylight:
-            return [HKObjectType.quantityType(forIdentifier: .timeInDaylight)].compactMap { $0 }
         default:
-            return []
+            // Every other source-selectable kind is one quantity type, read from
+            // the query descriptor so discovery can never fan over a different
+            // type than the reads do. A kind that is not source-selectable (or
+            // is only a member of `.basics`, like the three above) has no source
+            // list of its own.
+            guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+                  descriptor.isSourceSelectable,
+                  descriptor.sourceKind == kind else {
+                return []
+            }
+            return [HKObjectType.quantityType(forIdentifier: descriptor.quantityType)].compactMap { $0 }
         }
     }
 
@@ -236,32 +224,18 @@ enum BodyHealthSourceResolver {
             return .sleep
         case .basics:
             return .basics
-        case .steps:
-            return .steps
-        case .heartRate,
-             .restingHeartRate,
-             .heartRateVariability:
-            return .heart
-        case .respiratoryRate:
-            return .respiratory
-        case .oxygenSaturation:
-            return .bloodOxygen
-        case .activeEnergy,
-             .restingEnergy:
-            return .energy
-        case .exerciseMinutes:
-            return .exerciseMinutes
-        case .wristTemperature:
-            return .wristTemperature
-        case .timeInDaylight:
-            return .timeInDaylight
-        case .cardioFitness:
-            // Not source-selectable (absent from `sourceSelectableKinds`), so
-            // nothing calls this for the kind today — mapped explicitly anyway so
-            // a future caller can't silently inherit the `.heart` fallback below.
-            return .cardioFitness
         default:
-            return .heart
+            // Every other source kind is a query-descriptor kind and carries its
+            // own permission there. `.cardioFitness` resolves through the same
+            // row even though it is not source-selectable, so a future caller
+            // can't silently inherit the `.heart` fallback below. A kind with no
+            // row of its own (the three `.basics` members, readiness, stress,
+            // vitals, trainingLoad) keeps that fallback.
+            guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+                  descriptor.sourceKind == kind else {
+                return .heart
+            }
+            return descriptor.permission
         }
     }
 
@@ -434,26 +408,43 @@ enum BodyHealthSourceResolver {
         customGroups: [BodyCustomHealthSourceGroup] = [],
         displayName: (HKSource) -> String
     ) -> (options: [BodyHealthDataSourceOption], sourcesByID: [String: [HKSource]]) {
+        sourceOptionsAndMap(
+            from: sources, combinesSourcesByName: combinesSourcesByName, customGroups: customGroups,
+            bundleIdentifier: { $0.bundleIdentifier }, identityName: { Self.identityName(for: $0) },
+            displayName: displayName
+        )
+    }
+
+    /// The same grouping path with value-type source fixtures: HKSource has no
+    /// public initializer in an unsigned test host.
+    static func sourceOptionsAndMap<Source>(
+        from sources: [Source],
+        combinesSourcesByName: Bool,
+        customGroups: [BodyCustomHealthSourceGroup] = [],
+        bundleIdentifier: (Source) -> String,
+        identityName: (Source) -> String,
+        displayName: (Source) -> String
+    ) -> (options: [BodyHealthDataSourceOption], sourcesByID: [String: [Source]]) {
         let sortedSources = sources.sorted { lhs, rhs in
             let lhsName = displayName(lhs)
             let rhsName = displayName(rhs)
             if lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedSame {
-                return lhs.bundleIdentifier < rhs.bundleIdentifier
+                return bundleIdentifier(lhs) < bundleIdentifier(rhs)
             }
             return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending
         }
 
-        var sourcesByID: [String: [HKSource]] = [:]
+        var sourcesByID: [String: [Source]] = [:]
         let duplicateNameBundleIdentifiers = Set(
-            Dictionary(grouping: sortedSources, by: \.bundleIdentifier)
-                .compactMap { bundleIdentifier, sources in
+            Dictionary(grouping: sortedSources, by: bundleIdentifier)
+                .compactMap { identifier, sources in
                     let sourceNameKeys = Set(sources.map { source in
                         BodyHealthDataSourceOption.individualSourceIdentityKey(
-                            bundleIdentifier: source.bundleIdentifier,
-                            name: identityName(for: source)
+                            bundleIdentifier: bundleIdentifier(source),
+                            name: identityName(source)
                         )
                     })
-                    return sourceNameKeys.count > 1 ? bundleIdentifier : nil
+                    return sourceNameKeys.count > 1 ? identifier : nil
                 }
         )
         for source in sortedSources {
@@ -469,13 +460,13 @@ enum BodyHealthSourceResolver {
             // dedupe via the same bucket) whenever disambiguation isn't
             // needed.
             let plainID = BodyHealthDataSourceOption.individualSourceID(
-                bundleIdentifier: source.bundleIdentifier,
-                name: identityName(for: source),
+                bundleIdentifier: bundleIdentifier(source),
+                name: identityName(source),
                 disambiguatesBundleIdentifier: false
             )
             let disambiguatedID = BodyHealthDataSourceOption.individualSourceID(
-                bundleIdentifier: source.bundleIdentifier,
-                name: identityName(for: source),
+                bundleIdentifier: bundleIdentifier(source),
+                name: identityName(source),
                 disambiguatesBundleIdentifier: true
             )
             sourcesByID[plainID, default: []].append(source)
@@ -485,7 +476,7 @@ enum BodyHealthSourceResolver {
         }
 
         let groupedSources = Dictionary(grouping: sortedSources) { source in
-            BodyHealthDataSourceOption.normalizedSourceName(identityName(for: source))
+            BodyHealthDataSourceOption.normalizedSourceName(identityName(source))
         }
         // Register the combined-name alias for EVERY group, including
         // singletons: a `combined-name:` selection is persisted by whichever
@@ -500,7 +491,7 @@ enum BodyHealthSourceResolver {
         // Display is unaffected: the `options` picker list below keeps its own
         // count-aware ID choice.
         for group in groupedSources.values {
-            sourcesByID[BodyHealthDataSourceOption.combinedSourceID(for: identityName(for: group[0]))] = group
+            sourcesByID[BodyHealthDataSourceOption.combinedSourceID(for: identityName(group[0]))] = group
         }
 
         sourcesByID = registeringCustomGroupBuckets(
@@ -508,8 +499,8 @@ enum BodyHealthSourceResolver {
             customGroups: customGroups,
             identityKey: { source in
                 BodyHealthDataSourceOption.individualSourceIdentityKey(
-                    bundleIdentifier: source.bundleIdentifier,
-                    name: identityName(for: source)
+                    bundleIdentifier: bundleIdentifier(source),
+                    name: identityName(source)
                 )
             }
         )
@@ -518,11 +509,11 @@ enum BodyHealthSourceResolver {
         if combinesSourcesByName {
             options = groupedSources.values.map { group in
                 let optionID = group.count > 1
-                    ? BodyHealthDataSourceOption.combinedSourceID(for: identityName(for: group[0]))
+                    ? BodyHealthDataSourceOption.combinedSourceID(for: identityName(group[0]))
                     : BodyHealthDataSourceOption.individualSourceID(
-                        bundleIdentifier: group[0].bundleIdentifier,
-                        name: identityName(for: group[0]),
-                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(group[0].bundleIdentifier)
+                        bundleIdentifier: bundleIdentifier(group[0]),
+                        name: identityName(group[0]),
+                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(bundleIdentifier(group[0]))
                     )
                 return BodyHealthDataSourceOption(
                     id: optionID,
@@ -533,9 +524,9 @@ enum BodyHealthSourceResolver {
             options = sortedSources.map { source in
                 return BodyHealthDataSourceOption(
                     id: BodyHealthDataSourceOption.individualSourceID(
-                        bundleIdentifier: source.bundleIdentifier,
-                        name: identityName(for: source),
-                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(source.bundleIdentifier)
+                        bundleIdentifier: bundleIdentifier(source),
+                        name: identityName(source),
+                        disambiguatesBundleIdentifier: duplicateNameBundleIdentifiers.contains(bundleIdentifier(source))
                     ),
                     name: displayName(source)
                 )
@@ -561,7 +552,7 @@ enum BodyHealthSourceResolver {
     /// the cache instead of silently querying all sources (H4).
     static func discoverSources(
         for sampleTypes: [HKSampleType],
-        store: HKHealthStore,
+        store: any BodyHealthQuerying,
         onFailure: ((String, Error?) -> Void)? = nil
     ) async -> [HKSource]? {
         // Fan the per-sample-type `HKSourceQuery` round-trips out concurrently
@@ -602,27 +593,25 @@ enum BodyHealthSourceResolver {
         return Array(sourcesByIdentifier.values)
     }
 
-    /// One sample type's sources. `nil` marks a query failure; `onFailure`
-    /// receives the query context so the caller can log it its own way.
+    /// One sample type's sources. `nil` marks a query failure OR cancellation
+    /// (including the caller losing the race against its own deadline);
+    /// `onFailure` receives the query context so the caller can log a genuine
+    /// HealthKit failure its own way. Cancellation is not reported through
+    /// `onFailure` — it is not a query failure, and the store's own
+    /// `BodyQueryResumeBox` already stops the in-flight query.
     static func discoverSources(
         for sampleType: HKSampleType,
-        store: HKHealthStore,
+        store: any BodyHealthQuerying,
         onFailure: ((String, Error?) -> Void)? = nil
     ) async -> [HKSource]? {
-        await withCheckedContinuation { continuation in
-            let query = HKSourceQuery(
-                sampleType: sampleType,
-                samplePredicate: nil
-            ) { _, sources, error in
-                guard let sources else {
-                    onFailure?("sources:\(sampleType.identifier)", error)
-                    continuation.resume(returning: nil)
-                    return
-                }
-                continuation.resume(returning: Array(sources))
-            }
-
-            store.execute(query)
+        switch await store.sources(for: sampleType) {
+        case .failure(let error):
+            onFailure?("sources:\(sampleType.identifier)", error)
+            return nil
+        case .cancelled:
+            return nil
+        case .success(let sources):
+            return sources
         }
     }
 }

@@ -404,6 +404,65 @@ final class MetricThresholdWarningTests: XCTestCase {
         XCTAssertEqual(window, dayInterval)
     }
 
+    // MARK: - Chart point marks
+
+    /// A dense series thins to the slot limit, while a short one is left alone.
+    func testChartPointMarksThinOnlyDenseSeries() {
+        let window = DateInterval(start: time(8, 0), end: time(8, 20))
+        let warning = event(.highHeartRate, start: time(8, 5), end: time(8, 6), extremeValue: 150, sampleCount: 2)
+
+        let sparse = (0..<20).map { index in
+            HealthTrendDataPoint(date: window.start.addingTimeInterval(Double(index) * 60), value: 100)
+        }
+        XCTAssertEqual(
+            MetricThresholdWarning.chartPointMarks(for: sparse, in: window, of: warning),
+            sparse
+        )
+
+        let dense = (0..<300).map { index in
+            HealthTrendDataPoint(date: window.start.addingTimeInterval(Double(index) * 4), value: 100)
+        }
+        let marks = MetricThresholdWarning.chartPointMarks(for: dense, in: window, of: warning)
+        XCTAssertLessThanOrEqual(marks.count, MetricThresholdWarning.chartPointMarkLimit)
+        XCTAssertGreaterThan(marks.count, MetricThresholdWarning.chartPointMarkLimit - 4)
+        XCTAssertEqual(marks, marks.sorted { $0.date < $1.date })
+        XCTAssertTrue(marks.allSatisfy { mark in dense.contains(mark) })
+    }
+
+    /// The readings the warning is about keep their dots, and the slot holding
+    /// the episode's peak keeps the peak rather than a neighbour.
+    func testChartPointMarksKeepPastThresholdReadings() {
+        let window = DateInterval(start: time(8, 0), end: time(8, 20))
+        let warning = event(.highHeartRate, start: time(8, 10), end: time(8, 10), extremeValue: 150, sampleCount: 1)
+
+        var samples = (0..<300).map { index in
+            HealthTrendDataPoint(date: window.start.addingTimeInterval(Double(index) * 4), value: 100)
+        }
+        samples[150] = HealthTrendDataPoint(date: samples[150].date, value: 138)
+        samples[151] = HealthTrendDataPoint(date: samples[151].date, value: 150)
+
+        let marks = MetricThresholdWarning.chartPointMarks(for: samples, in: window, of: warning)
+        XCTAssertTrue(marks.contains(samples[151]))
+        XCTAssertFalse(marks.contains(samples[150]))
+    }
+
+    /// A low warning keeps the slot's lowest past-threshold reading, since the
+    /// side the episode is on flips with the kind.
+    func testChartPointMarksKeepTheLowestReadingForALowWarning() {
+        let window = DateInterval(start: time(8, 0), end: time(8, 20))
+        let warning = event(.lowHeartRate, start: time(8, 10), end: time(8, 10), extremeValue: 34, sampleCount: 1)
+
+        var samples = (0..<300).map { index in
+            HealthTrendDataPoint(date: window.start.addingTimeInterval(Double(index) * 4), value: 60)
+        }
+        samples[150] = HealthTrendDataPoint(date: samples[150].date, value: 38)
+        samples[151] = HealthTrendDataPoint(date: samples[151].date, value: 34)
+
+        let marks = MetricThresholdWarning.chartPointMarks(for: samples, in: window, of: warning)
+        XCTAssertTrue(marks.contains(samples[151]))
+        XCTAssertFalse(marks.contains(samples[150]))
+    }
+
     // MARK: - Snapshot warnings
 
     private var lowHeartRateWarning: MetricWarningEvent {

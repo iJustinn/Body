@@ -62,8 +62,16 @@ struct BodyHomeTrendCard: View {
         let symbolName: String
         let symbolColor: Color
 
+        /// Namespaces the trend card's identity away from the grid card of the same
+        /// metric. Both live in Home's single ScrollView, and `BodyHomeCardKind` and
+        /// `HealthMetricKind` share raw values ("heartRate", "oxygenSaturation"), so
+        /// an un-prefixed id made `scrollTo` ambiguous: a readiness-hero warning
+        /// badge could scroll to the trend card at the bottom of the page while the
+        /// glow lit the grid card off-screen above it.
+        static let scrollIDPrefix = "trend-"
+
         var id: String {
-            presentation.id
+            Self.scrollIDPrefix + presentation.id
         }
     }
 
@@ -270,6 +278,25 @@ enum BodyHomeTrendCardFactory {
         )
     }
 
+    /// Formats a raw value the same way this card's chart labels do, without
+    /// building a full card. Used to keep the widget's number formatting in
+    /// parity with Home's, since both must agree on how a metric reads.
+    static func formattedValue(
+        _ value: Double,
+        for kind: BodyHomeTrendCardKind,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference
+    ) -> String {
+        configuration(
+            for: kind,
+            trends: .empty,
+            temperatureUnitPreference: temperatureUnitPreference,
+            energyUnitPreference: energyUnitPreference,
+            weightUnitPreference: weightUnitPreference
+        ).valueFormatter(value)
+    }
+
     private static func configuration(
         for trendKind: BodyHomeTrendCardKind,
         trends: HealthTrendSnapshot,
@@ -282,6 +309,38 @@ enum BodyHomeTrendCardFactory {
             temperatureUnitPreference: temperatureUnitPreference
         ).unit
         let energyUnit = energyUnitPreference.unitLabel
+        let massUnit = BodyValueFormat.massValue(
+            kilograms: 0,
+            weightUnitPreference: weightUnitPreference
+        ).unit
+
+        // Symbol, tint, chart shape and value text come from the shared metric
+        // table, so a card cannot drift from the Home summary card above it or
+        // from the widget that mirrors it. Only the title, the series and the
+        // message sentence are per-card. Every kind has a row, so the
+        // formatter's fallback is unreachable (`HealthMetricPresentationTests`).
+        let presentation = trendKind.presentation
+        let symbolName = trendKind.iconName
+        let symbolColor = trendKind.tintColor
+        let chartStyle: BodyHealthMetricChartStyle = presentation?.chartStyle == .bar ? .bar : .line
+        let preferenceUnit: String? = {
+            switch presentation.flatMap({ $0.unitPreference }) {
+            case .temperature:
+                return temperatureUnit
+            case .energy:
+                return energyUnit
+            case .mass:
+                return massUnit
+            case nil:
+                return nil
+            }
+        }()
+        let valueFormatter: (Double) -> String = { value in
+            guard let format = presentation?.trendFormat else {
+                return BodyValueFormat.numberText(value, decimals: 0)
+            }
+            return format.text(value, unit: preferenceUnit)
+        }
 
         switch trendKind {
         case .readiness:
@@ -289,10 +348,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .readiness,
                 title: "Readiness",
                 series: trends.series(for: .readiness),
-                chartStyle: .line,
-                symbolName: "bolt.heart.fill",
-                symbolColor: Color(red: 0.12, green: 0.68, blue: 0.55),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your readiness score")
             )
         case .stress:
@@ -300,10 +359,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .stress,
                 title: "Stress",
                 series: trends.series(for: .stress),
-                chartStyle: .line,
-                symbolName: "brain.head.profile.fill",
-                symbolColor: Color(red: 0.90, green: 0.35, blue: 0.75),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your stress level")
             )
         case .heartRate:
@@ -311,10 +370,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .heartRate,
                 title: "Heart Rate",
                 series: trends.series(for: .heartRate),
-                chartStyle: .line,
-                symbolName: "heart.fill",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " BPM" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your heart rate")
             )
         case .restingHeartRate:
@@ -322,10 +381,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .restingHeartRate,
                 title: "Resting Heart Rate",
                 series: trends.series(for: .restingHeartRate),
-                chartStyle: .line,
-                symbolName: "heart.fill",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " BPM" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your resting heart rate")
             )
         case .heartRateVariability:
@@ -333,10 +392,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .heartRateVariability,
                 title: "HRV",
                 series: trends.series(for: .heartRateVariability),
-                chartStyle: .line,
-                symbolName: "waveform.path.ecg",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " ms" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your HRV")
             )
         case .cardioFitness:
@@ -344,10 +403,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .cardioFitness,
                 title: "Cardio Fitness",
                 series: trends.series(for: .cardioFitness),
-                chartStyle: .line,
-                symbolName: "arrow.up.heart.fill",
-                symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " VO₂ max" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your cardio fitness")
             )
         case .respiratoryRate:
@@ -355,10 +414,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .respiratoryRate,
                 title: "Respiratory Rate",
                 series: trends.series(for: .respiratoryRate),
-                chartStyle: .line,
-                symbolName: "lungs.fill",
-                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " br/min" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your respiratory rate")
             )
         case .oxygenSaturation:
@@ -366,10 +425,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .oxygenSaturation,
                 title: "Blood Oxygen",
                 series: trends.series(for: .oxygenSaturation),
-                chartStyle: .line,
-                symbolName: "drop.fill",
-                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + "%" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your blood oxygen")
             )
         case .sleep:
@@ -377,9 +436,9 @@ enum BodyHomeTrendCardFactory {
                 kind: .sleep,
                 title: "Sleep",
                 series: trends.series(for: .sleep),
-                chartStyle: .line,
-                symbolName: "bed.double.fill",
-                symbolColor: Color(red: 0.20, green: 0.72, blue: 1.00),
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
                 valueFormatter: { BodyValueFormat.sleepDurationText(for: $0 * 60 * 60) },
                 messageStyle: .average(subject: "your sleep duration")
             )
@@ -393,10 +452,10 @@ enum BodyHomeTrendCardFactory {
                         temperatureUnitPreference: temperatureUnitPreference
                     ).value
                 },
-                chartStyle: .line,
-                symbolName: "thermometer.medium",
-                symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " " + temperatureUnit },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your skin temperature")
             )
         case .steps:
@@ -404,10 +463,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .steps,
                 title: "Steps",
                 series: trends.series(for: .steps),
-                chartStyle: .bar,
-                symbolName: "figure.walk",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " steps" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "The number of steps you took per day")
             )
         case .activeEnergy:
@@ -420,10 +479,10 @@ enum BodyHomeTrendCardFactory {
                         energyUnitPreference: energyUnitPreference
                     ).value
                 },
-                chartStyle: .bar,
-                symbolName: "flame.fill",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " " + energyUnit },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "Your active energy")
             )
         case .restingEnergy:
@@ -436,10 +495,10 @@ enum BodyHomeTrendCardFactory {
                         energyUnitPreference: energyUnitPreference
                     ).value
                 },
-                chartStyle: .bar,
-                symbolName: "leaf.fill",
-                symbolColor: Color(red: 0.14, green: 0.72, blue: 0.42),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " " + energyUnit },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "Your resting energy")
             )
         case .exerciseMinutes:
@@ -447,10 +506,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .exerciseMinutes,
                 title: "Exercise Minutes",
                 series: trends.series(for: .exerciseMinutes),
-                chartStyle: .bar,
-                symbolName: "figure.run",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " min" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "Your exercise minutes")
             )
         case .trainingLoad:
@@ -458,10 +517,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .trainingLoad,
                 title: "Training Load",
                 series: trends.series(for: .trainingLoad),
-                chartStyle: .line,
-                symbolName: "figure.strengthtraining.traditional",
-                symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 2) },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "Your training load ratio")
             )
         case .timeInDaylight:
@@ -469,17 +528,13 @@ enum BodyHomeTrendCardFactory {
                 kind: .timeInDaylight,
                 title: "Time In Daylight",
                 series: trends.series(for: .timeInDaylight),
-                chartStyle: .bar,
-                symbolName: "sun.max.fill",
-                symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) + " min" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .quantity(subject: "Your time in daylight")
             )
         case .bodyMass:
-            let massUnit = BodyValueFormat.massValue(
-                kilograms: 0,
-                weightUnitPreference: weightUnitPreference
-            ).unit
             return Configuration(
                 kind: .bodyMass,
                 title: "Weight",
@@ -489,10 +544,10 @@ enum BodyHomeTrendCardFactory {
                         weightUnitPreference: weightUnitPreference
                     ).value
                 },
-                chartStyle: .line,
-                symbolName: "scalemass.fill",
-                symbolColor: Color(red: 0.50, green: 0.34, blue: 1.00),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " " + massUnit },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your weight")
             )
         case .bodyFatPercentage:
@@ -500,10 +555,10 @@ enum BodyHomeTrendCardFactory {
                 kind: .bodyFatPercentage,
                 title: "Body Fat",
                 series: trends.series(for: .bodyFatPercentage),
-                chartStyle: .line,
-                symbolName: "percent",
-                symbolColor: Color(red: 1.00, green: 0.68, blue: 0.08),
-                valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + "%" },
+                chartStyle: chartStyle,
+                symbolName: symbolName,
+                symbolColor: symbolColor,
+                valueFormatter: valueFormatter,
                 messageStyle: .average(subject: "your body fat")
             )
         }
@@ -558,28 +613,37 @@ struct BodyHomeTrendComparisonChart: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            let entries = plotEntries(in: proxy.size)
+        // The domain and the average-line segments are derived once per pass and
+        // handed down: they used to be recomputed inside `barHeight`, `yPosition`
+        // and `averageLine`, so a card with 30 bars walked the point list dozens
+        // of times per render.
+        let domain = Self.domain(for: presentation)
+
+        return GeometryReader { proxy in
+            let entries = plotEntries(in: proxy.size, domain: domain)
+            let segments = presentation.averageLineSegments(in: proxy.size.width)
             ZStack {
                 switch presentation.chartStyle {
                 case .line:
                     linePlot(entries: entries)
                 case .bar:
-                    barPlot(entries: entries, size: proxy.size)
+                    barPlot(entries: entries, size: proxy.size, domain: domain)
                 }
 
                 averageLine(
                     value: presentation.baselineAverage,
                     in: proxy.size,
+                    domain: domain,
                     color: Color.secondary.opacity(0.64),
-                    xRange: presentation.averageLineSegments(in: proxy.size.width).baseline
+                    xRange: segments.baseline
                 )
 
                 averageLine(
                     value: presentation.recentAverage,
                     in: proxy.size,
+                    domain: domain,
                     color: color,
-                    xRange: presentation.averageLineSegments(in: proxy.size.width).recent
+                    xRange: segments.recent
                 )
             }
         }
@@ -613,21 +677,30 @@ struct BodyHomeTrendComparisonChart: View {
         }
     }
 
-    private func barPlot(entries: [PlotEntry], size: CGSize) -> some View {
+    private func barPlot(entries: [PlotEntry], size: CGSize, domain: Domain) -> some View {
         let layout = BodyHomeTrendBarLayout.fitting(barCount: entries.count, availableWidth: size.width)
 
         return HStack(alignment: .bottom, spacing: layout.spacing) {
             ForEach(entries) { entry in
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(barColor(for: entry))
-                    .frame(width: layout.barWidth, height: barHeight(for: entry.point.value, in: size.height))
+                    .frame(
+                        width: layout.barWidth,
+                        height: Self.barHeight(for: entry.point.value, in: size.height, domain: domain)
+                    )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
 
-    private func averageLine(value: Double, in size: CGSize, color: Color, xRange: ClosedRange<CGFloat>) -> some View {
-        let y = yPosition(for: value, in: size)
+    private func averageLine(
+        value: Double,
+        in size: CGSize,
+        domain: Domain,
+        color: Color,
+        xRange: ClosedRange<CGFloat>
+    ) -> some View {
+        let y = Self.yPosition(for: value, in: size, domain: domain)
 
         return Path { path in
             path.move(to: CGPoint(x: xRange.lowerBound, y: y))
@@ -642,12 +715,12 @@ struct BodyHomeTrendComparisonChart: View {
         )
     }
 
-    private func plotEntries(in size: CGSize) -> [PlotEntry] {
+    private func plotEntries(in size: CGSize, domain: Domain) -> [PlotEntry] {
         let points = presentation.displayCalendarPoints
         let denominator = max(CGFloat(points.count - 1), 1)
         return points.enumerated().map { index, point in
             let x = size.width * CGFloat(index) / denominator
-            let y = yPosition(for: point.value ?? chartMinimum, in: size)
+            let y = Self.yPosition(for: point.value ?? domain.minimum, in: size, domain: domain)
             return PlotEntry(point: point, position: CGPoint(x: x, y: y), index: index)
         }
     }
@@ -662,42 +735,47 @@ struct BodyHomeTrendComparisonChart: View {
             : Color.secondary.opacity(0.28)
     }
 
-    private func barHeight(for value: Double?, in height: CGFloat) -> CGFloat {
+    /// The chart's value domain, derived once per render from the visible points
+    /// plus the two average lines. Static and input-only so it can be tested
+    /// directly against degenerate series (all equal, a single point, none).
+    struct Domain: Equatable {
+        let minimum: Double
+        let maximum: Double
+    }
+
+    static func domain(for presentation: BodyHomeTrendCardPresentation) -> Domain {
+        domain(
+            values: presentation.displayCalendarPoints.compactMap(\.value).filter(\.isFinite)
+                + [presentation.baselineAverage, presentation.recentAverage],
+            chartStyle: presentation.chartStyle
+        )
+    }
+
+    static func domain(values: [Double], chartStyle: BodyHealthMetricChartStyle) -> Domain {
+        let finite = values.filter(\.isFinite)
+        let lowest = finite.min() ?? 0
+        let highest = finite.max() ?? (finite.isEmpty ? 1 : lowest)
+        let padding = max((highest - lowest) * 0.16, 1)
+        // Bars are read against zero; a line chart pads both ends so a flat series
+        // still draws inside the plot rather than along its edge.
+        let minimum = chartStyle == .line ? max(0, lowest - padding) : 0
+        return Domain(minimum: minimum, maximum: highest + padding)
+    }
+
+    static func barHeight(for value: Double?, in height: CGFloat, domain: Domain) -> CGFloat {
         guard let value, value.isFinite else {
             return max(height * 0.05, 4)
         }
 
-        let range = max(chartMaximum - chartMinimum, 1)
-        let normalized = min(max((value - chartMinimum) / range, 0), 1)
-        return max(height * CGFloat(normalized), 4)
+        return max(height * CGFloat(normalized(value, in: domain)), 4)
     }
 
-    private func yPosition(for value: Double, in size: CGSize) -> CGFloat {
-        let range = max(chartMaximum - chartMinimum, 1)
-        let normalized = min(max((value - chartMinimum) / range, 0), 1)
-        return size.height - (size.height * CGFloat(normalized))
+    static func yPosition(for value: Double, in size: CGSize, domain: Domain) -> CGFloat {
+        size.height - (size.height * CGFloat(normalized(value, in: domain)))
     }
 
-    private var chartValues: [Double] {
-        presentation.displayCalendarPoints.compactMap(\.value).filter(\.isFinite)
-            + [presentation.baselineAverage, presentation.recentAverage]
-    }
-
-    private var chartMinimum: Double {
-        let minimum = chartValues.min() ?? 0
-        guard presentation.chartStyle == .line else {
-            return 0
-        }
-
-        let maximum = chartValues.max() ?? minimum
-        let padding = max((maximum - minimum) * 0.16, 1)
-        return max(0, minimum - padding)
-    }
-
-    private var chartMaximum: Double {
-        let maximum = chartValues.max() ?? 1
-        let minimum = chartValues.min() ?? maximum
-        let padding = max((maximum - minimum) * 0.16, 1)
-        return maximum + padding
+    private static func normalized(_ value: Double, in domain: Domain) -> Double {
+        let range = max(domain.maximum - domain.minimum, 1)
+        return min(max((value - domain.minimum) / range, 0), 1)
     }
 }

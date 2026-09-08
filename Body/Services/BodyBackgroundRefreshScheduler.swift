@@ -84,8 +84,10 @@ enum BodyBackgroundRefreshScheduler {
             }
         }
 
-        // Installed before any work starts, so an immediate expiration still
-        // stops the evaluation.
+        // Installed synchronously right after `work` is created and before the
+        // launch handler returns, so an early expiration still cancels the
+        // evaluation. `TaskCompletion` is one-shot, so an expiration that lands
+        // between the two statements is harmless.
         task.expirationHandler = {
             work.cancel()
             completion.complete(success: false)

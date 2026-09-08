@@ -75,7 +75,7 @@ extension HealthKitFetchEngine {
         predicate: NSPredicate,
         limit: Int = HKObjectQueryNoLimit
     ) async throws -> [HKQuantitySample] {
-        try await trackedThrowingHealthQuery { (resume: @escaping (Result<[HKQuantitySample], Error>) -> Void) in
+        try await trackedThrowingHealthQuery { (resume: @escaping @Sendable (Result<[HKQuantitySample], Error>) -> Void) in
             let query = HKSampleQuery(
                 sampleType: type,
                 predicate: predicate,

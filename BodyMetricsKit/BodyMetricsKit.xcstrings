@@ -1426,6 +1426,397 @@
         }
       }
     },
+    "bodyRadar.allTypical" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All typical"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各项均在典型范围内"
+          }
+        }
+      }
+    },
+    "bodyRadar.combinedChanges" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Several small changes suggest strain"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多项小幅变化提示身体承受压力"
+          }
+        }
+      }
+    },
+    "bodyRadar.detail.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body Radar looks for signs of overnight strain by comparing sleeping heart rate, respiratory rate, skin temperature, and heart rate variability with your personal range, learned from up to eight weeks of sleep data. At least two signals need about two weeks of baseline data and seven observations in the last fourteen nights.\nMissing Sleep means there is no qualifying night. Insufficient Data means too few overnight readings are available; Calibrating means more baseline or recent data is needed. Unscored nights can update when more data arrives. A scored result stays fixed for the rest of the day. Several small changes can add up to Minor signs even when no individual signal stands out. Major signs require at least two individually unusual signals.\nIt is not a medical device and does not diagnose conditions."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "身体雷达将睡眠心率、呼吸频率、皮肤温度和心率变异性与根据最多八周睡眠数据学习到的个人范围进行比较，以发现夜间身体承受压力的迹象。至少需要两项信号，每项约两周的基线数据，以及最近十四晚中的七次观测。\n“缺少睡眠”表示没有符合条件的夜间睡眠。“数据不足”表示可用的夜间读数太少；“校准中”表示需要更多基线或近期数据。未评分的夜晚可在更多数据到达后更新。已评分的结果在当天保持不变。即使没有单项信号明显异常，多项小幅变化也可能累积为轻微迹象。明显迹象需要至少两项信号各自出现明显异常。\n这不是医疗设备，不能诊断疾病。"
+          }
+        }
+      }
+    },
+    "bodyRadar.detail.helpTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Body Radar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于身体雷达"
+          }
+        }
+      }
+    },
+    "bodyRadar.region.major" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Major"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "明显"
+          }
+        }
+      }
+    },
+    "bodyRadar.region.minor" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minor"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "轻微"
+          }
+        }
+      }
+    },
+    "bodyRadar.region.none" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "None"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无"
+          }
+        }
+      }
+    },
+    "bodyRadar.signal.heartRateVariability" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heart Rate Variability"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率变异性"
+          }
+        }
+      }
+    },
+    "bodyRadar.signal.heartRateVariability.short" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HRV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HRV"
+          }
+        }
+      }
+    },
+    "bodyRadar.signal.inactiveTime" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inactive Time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "静止时间"
+          }
+        }
+      }
+    },
+    "bodyRadar.signal.inactiveTime.short" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inactivity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "静止"
+          }
+        }
+      }
+    },
+    "bodyRadar.signal.respiratoryRate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Respiratory Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "呼吸频率"
+          }
+        }
+      }
+    },
+    "bodyRadar.signal.respiratoryRate.short" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resp Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "呼吸率"
+          }
+        }
+      }
+    },
+    "bodyRadar.signal.sleepingHeartRate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleeping Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠心率"
+          }
+        }
+      }
+    },
+    "bodyRadar.signal.sleepingHeartRate.short" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率"
+          }
+        }
+      }
+    },
+    "bodyRadar.signal.wristTemperature" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skin Temperature"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "皮肤温度"
+          }
+        }
+      }
+    },
+    "bodyRadar.signal.wristTemperature.short" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Temp"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "温度"
+          }
+        }
+      }
+    },
+    "bodyRadar.state.calibrating" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calibrating"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "校准中"
+          }
+        }
+      }
+    },
+    "bodyRadar.state.insufficientData" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Insufficient Data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数据不足"
+          }
+        }
+      }
+    },
+    "bodyRadar.state.majorSigns" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Major Signs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "明显迹象"
+          }
+        }
+      }
+    },
+    "bodyRadar.state.minorSigns" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minor Signs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "轻微迹象"
+          }
+        }
+      }
+    },
+    "bodyRadar.state.missingSleep" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Missing Sleep"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缺少睡眠数据"
+          }
+        }
+      }
+    },
+    "bodyRadar.state.noSigns" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Signs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无迹象"
+          }
+        }
+      }
+    },
     "Bowling" : {
       "extractionState" : "manual",
       "localizations" : {

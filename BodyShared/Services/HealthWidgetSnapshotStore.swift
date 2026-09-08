@@ -80,11 +80,11 @@ enum HealthWidgetSnapshotStore {
         }
 
         do {
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try data.write(to: fileURL, options: [.atomic])
+            try BodySnapshotDirectory.prepare(fileURL.deletingLastPathComponent())
+            // Complete-until-first-unlock protection: the widget timeline and
+            // background refresh both read this file while the device may be
+            // locked, so `.completeUnlessOpen` would break those reads.
+            try data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return true
         } catch {
             logger.error("Health widget snapshot file write failed: \(error.localizedDescription, privacy: .public)")
@@ -161,6 +161,14 @@ enum HealthWidgetSnapshotStore {
 
         do {
             let snapshot = try JSONDecoder().decode(HealthWidgetSnapshot.self, from: data)
+            // A newer-schema file can decode without error yet mean something else,
+            // so refuse it rather than render it. A file with no version key is
+            // schema 1 (app and widget always ship together, so the gate cannot
+            // strand the extension on a build mismatch).
+            guard (snapshot.schemaVersion ?? 1) == HealthWidgetSnapshot.currentSchemaVersion else {
+                loadCache.remove(fileURL)
+                return nil
+            }
             if let modificationDate, let fileSize {
                 loadCache.store(snapshot, for: fileURL, modificationDate: modificationDate, fileSize: fileSize)
             }

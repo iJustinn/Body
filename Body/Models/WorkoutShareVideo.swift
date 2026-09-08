@@ -19,6 +19,7 @@ import CoreImage
 import CoreMedia
 import CoreTransferable
 import Foundation
+import os
 import UIKit
 import UniformTypeIdentifiers
 
@@ -32,6 +33,14 @@ enum WorkoutShareVideoError: Error {
     case exportSessionUnavailable
     /// The export itself failed; carries AVFoundation's error.
     case exportFailed(Error)
+    /// A frame was requested before `renderContextChanged` handed the compositor a
+    /// render context — there is nothing to allocate the output buffer from.
+    case missingRenderContext
+    /// The frame's instruction is not ours, so there is no transform or overlay to
+    /// draw with.
+    case missingInstruction
+    /// The render context refused to vend an output pixel buffer (memory pressure).
+    case pixelBufferUnavailable
 }
 
 /// A clip the user picked, inspected once so the preview and the export can share the
@@ -421,7 +430,11 @@ final class WorkoutShareVideoOverlayInstruction: NSObject, AVVideoCompositionIns
 /// Simulator at any render size — that would leave the entire export path untestable.
 /// Core Image runs identically on both, and gives the overlay's orientation explicitly
 /// rather than through the layer tree's origin convention.
-final class WorkoutShareVideoCompositor: NSObject, AVVideoCompositing {
+///
+/// `@unchecked Sendable`: `AVVideoCompositing` is called from AVFoundation's own queues,
+/// and the one piece of mutable state, the render context, is held behind
+/// `OSAllocatedUnfairLock`. Everything else is a `let`.
+final class WorkoutShareVideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
     let sourcePixelBufferAttributes: [String: any Sendable]? = [
         kCVPixelBufferPixelFormatTypeKey as String: [kCVPixelFormatType_32BGRA]
     ]
@@ -431,35 +444,62 @@ final class WorkoutShareVideoCompositor: NSObject, AVVideoCompositing {
 
     private let context = CIContext(options: [.cacheIntermediates: false])
     private let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-    private var renderContext: AVVideoCompositionRenderContext?
+    /// AVFoundation calls `renderContextChanged` and `startRequest` on queues of its own
+    /// choosing, and the two are not serialized against each other — the lock is the
+    /// only thing keeping the write and the reads ordered.
+    /// `uncheckedState` / `withLockUnchecked`: `AVVideoCompositionRenderContext` is not
+    /// `Sendable`, and the lock is what makes handing it between those queues safe.
+    private let renderContext = OSAllocatedUnfairLock<AVVideoCompositionRenderContext?>(
+        uncheckedState: nil
+    )
 
     func renderContextChanged(_ newRenderContext: AVVideoCompositionRenderContext) {
-        renderContext = newRenderContext
+        renderContext.withLockUnchecked { $0 = newRenderContext }
     }
 
     func startRequest(_ request: AVAsynchronousVideoCompositionRequest) {
-        guard let renderContext,
-              let instruction = request.videoCompositionInstruction
-                as? WorkoutShareVideoOverlayInstruction,
-              let source = request.sourceFrame(byTrackID: instruction.trackID),
-              let destination = renderContext.newPixelBuffer() else {
-            request.finish(
-                with: WorkoutShareVideoError.exportSessionUnavailable
-            )
+        guard let context = renderContext.withLockUnchecked({ $0 }) else {
+            request.finish(with: WorkoutShareVideoError.missingRenderContext)
+            return
+        }
+        guard let instruction = request.videoCompositionInstruction
+            as? WorkoutShareVideoOverlayInstruction else {
+            request.finish(with: WorkoutShareVideoError.missingInstruction)
+            return
+        }
+        guard let destination = context.newPixelBuffer() else {
+            request.finish(with: WorkoutShareVideoError.pixelBufferUnavailable)
             return
         }
 
+        // A missing source frame is a gap in the track, not a failure: dropping the whole
+        // export because one frame had no pixels would lose a minute of encoding over a
+        // frame the viewer would not notice. The overlay goes over black instead.
+        let source = request.sourceFrame(byTrackID: instruction.trackID)
+            .map { CIImage(cvPixelBuffer: $0) }
         let rect = CGRect(origin: .zero, size: instruction.renderSize)
-        var image = CIImage(cvPixelBuffer: source).transformed(by: instruction.transform)
+
+        self.context.render(
+            Self.composedFrame(source: source, instruction: instruction),
+            to: destination,
+            bounds: rect,
+            colorSpace: colorSpace
+        )
+        request.finish(withComposedVideoFrame: destination)
+    }
+
+    /// The source scaled to fill the card, the card overlay on top, on black. Pure, so
+    /// the nil-source path can be rendered in a test without an `AVFoundation` request.
+    static func composedFrame(
+        source: CIImage?, instruction: WorkoutShareVideoOverlayInstruction
+    ) -> CIImage {
+        let rect = CGRect(origin: .zero, size: instruction.renderSize)
+        var image = source?.transformed(by: instruction.transform)
+            ?? CIImage(color: .black).cropped(to: rect)
         if let overlay = instruction.overlay {
             image = overlay.composited(over: image)
         }
-        image = image.composited(over: CIImage(color: .black).cropped(to: rect))
-
-        context.render(
-            image, to: destination, bounds: rect, colorSpace: colorSpace
-        )
-        request.finish(withComposedVideoFrame: destination)
+        return image.composited(over: CIImage(color: .black).cropped(to: rect))
     }
 
     func cancelAllPendingVideoCompositionRequests() {}

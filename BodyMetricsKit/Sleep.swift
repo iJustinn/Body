@@ -51,7 +51,7 @@ struct SleepDaySummary: Codable, Equatable, Identifiable {
 }
 
 struct SleepHistorySnapshot: Codable, Equatable {
-    var days: [SleepDaySummary]
+    private(set) var days: [SleepDaySummary]
 
     var isEmpty: Bool {
         days.isEmpty
@@ -73,6 +73,21 @@ struct SleepHistorySnapshot: Codable, Equatable {
 
     init(days: [SleepDaySummary]) {
         self.days = days.sorted { $0.date < $1.date }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case days
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        days = try container.decode([SleepDaySummary].self, forKey: .days)
+            .sorted { $0.date < $1.date }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(days, forKey: .days)
     }
 
     func summary(on date: Date, calendar: Calendar = .bodyGregorian) -> SleepDaySummary? {
@@ -551,7 +566,8 @@ struct SleepScoreSummary: Equatable {
         kind: SleepScoreCategory.Kind,
         progress: Double,
         maximumPoints: Int,
-        valueDescription: String? = nil
+        valueDescription: String? = nil,
+        temperatureCelsius: Double? = nil
     ) -> SleepScoreCategory {
         let clampedProgress = min(max(progress, 0), 1)
         return SleepScoreCategory(
@@ -559,22 +575,19 @@ struct SleepScoreSummary: Equatable {
             points: Int((clampedProgress * Double(maximumPoints)).rounded()),
             maximumPoints: maximumPoints,
             progress: clampedProgress,
-            valueDescription: valueDescription
+            valueDescription: valueDescription,
+            temperatureCelsius: temperatureCelsius
         )
     }
 
     private static func continuityCategory(sleep: SleepSummary) -> SleepScoreCategory? {
-        guard let interval = sleep.stageSnapshot.dateInterval else {
-            return nil
-        }
-
-        let inSleepWindowDuration = max(interval.duration, sleep.duration ?? 0)
-        guard inSleepWindowDuration > 0 else {
-            return nil
-        }
-
-        let awakeDuration = sleep.stageSnapshot.awakeDuration
-        let sleepEfficiency = min(max(1 - (awakeDuration / inSleepWindowDuration), 0), 1)
+        // Continuity, like Consistency below, reads the main sleep session only, so a
+        // daytime nap cannot stretch the in-bed window and inflate efficiency.
+        let session = sleep.stageSnapshot.mainSession
+        guard let interval = session.dateInterval else { return nil }
+        let inSleepWindowDuration = max(interval.duration, session.mergedAsleepDuration)
+        guard inSleepWindowDuration > 0 else { return nil }
+        let sleepEfficiency = min(max(1 - (session.awakeDuration / inSleepWindowDuration), 0), 1)
         let progress = min(max((sleepEfficiency - 0.86) / 0.115, 0), 1)
         return category(
             kind: .continuity,
@@ -801,7 +814,7 @@ struct SleepScoreSummary: Equatable {
             kind: .temperature,
             progress: progress,
             maximumPoints: 5,
-            valueDescription: "\(BodyValueFormat.numberText(wristTemperatureCelsius, decimals: 1))C"
+            temperatureCelsius: wristTemperatureCelsius
         )
     }
 
@@ -1121,6 +1134,9 @@ struct SleepScoreCategory: Equatable, Identifiable {
     let maximumPoints: Int
     let progress: Double
     let valueDescription: String?
+    /// Set only by the temperature category, which formats its own chip in the
+    /// viewer's unit preference instead of carrying a pre-formatted string.
+    let temperatureCelsius: Double?
 
     var id: Kind {
         kind

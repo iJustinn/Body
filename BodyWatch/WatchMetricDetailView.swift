@@ -9,10 +9,18 @@
 //  week chart sits below it, and the current value reads large at the
 //  bottom-left — followed, for Readiness and Training Load, by the status level
 //  beside it ("85 · HIGH"), and on Sleep by the night's duration under the same
-//  dot ("85 pts · 7h 32m"). The tint fill is the page's own background so it
-//  slides with the vertical pager, giving a smooth color transition between
-//  metrics. Display-only: it reads the `weekly` series, `statusBand`, and sleep
-//  score the iPhone baked into the pushed snapshot (no watch compute).
+//  dot ("85 pts · 7h 32m"). On the Sleep page, whenever the snapshot carries
+//  the night's stages, that first screen scrolls: the week chart stays exactly
+//  where it is and the night's stages hypnogram
+//  (`WatchSleepStagesChartView`) is added below the value row, reached by
+//  scrolling down. The Training Load page scrolls the same way whenever the
+//  snapshot carries the weekly workout minutes, adding the Weekly Workout Time
+//  complication's bar chart (`WatchExerciseWeekChartView`) below its value row.
+//  The
+//  tint fill is the page's own background so it slides with the vertical
+//  pager, giving a smooth color transition between metrics. Display-only: it
+//  reads the `weekly` series, `statusBand`, sleep score, sleep stages, and
+//  workout minutes the iPhone baked into the pushed snapshot (no watch compute).
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -21,10 +29,22 @@ import SwiftUI
 
 struct WatchMetricDetailView: View {
     let metric: WatchMetric
-    /// The day the metric's weekly series ends on — the snapshot's generation
-    /// date — so a cached snapshot shown on a later day still labels its days
-    /// against when the data was built, not against the current date.
+    /// The day the snapshot was generated on — `metric.weekly`'s last real
+    /// slot. Used to re-window the series onto `referenceDate` when a cached
+    /// snapshot is shown on a later day.
+    var generatedAt: Date = Date()
+    /// Today, the day the weekly series and its weekday labels should end on
+    /// (a cached snapshot shown after midnight still labels "today", not the
+    /// day it was generated).
     var referenceDate: Date = Date()
+    /// The snapshot's `sleepStages` (the Sleep metric's night, main session
+    /// only), drawn as a hypnogram below the Sleep page's info (the week chart
+    /// stays). Ignored on every other page.
+    var sleepStages: [WatchSleepStageSegment]? = nil
+    /// The snapshot's weekly workout minutes metric (the Weekly Workout Time
+    /// complication's), drawn as bars below the Training Load page's info (the
+    /// week chart stays). Ignored on every other page.
+    var exerciseWeekMetric: WatchMetric? = nil
 
     /// The page theme (title, background wash, chart line): the metric's static
     /// kind color, matching the iOS detail page — never the status-band color.
@@ -34,7 +54,22 @@ struct WatchMetricDetailView: View {
     private var statusTint: Color { Color(metric.resolvedTint) }
 
     private var weekly: [Double?]? {
-        guard let weekly = metric.weekly, weekly.contains(where: { $0 != nil }) else { return nil }
+        Self.sparklineWeekly(metric: metric, generatedAt: generatedAt, today: referenceDate)
+    }
+
+    /// The weekly series for the sparkline, first re-windowed from the
+    /// snapshot's generation day onto `today` (so a cached snapshot shown
+    /// after midnight shifts its slots rather than mislabeling them). When
+    /// the metric's own headline is cleared (`!hasValue`, e.g. a sleep night
+    /// sanitized as not-today), today's slot is forced to nil so the chart
+    /// doesn't show a value under a "--" headline (L-36); `cleared()` itself
+    /// still keeps `weekly` for history.
+    static func sparklineWeekly(metric: WatchMetric, generatedAt: Date, today: Date, calendar: Calendar = .current) -> [Double?]? {
+        var weekly = metric.weeklyRewound(from: generatedAt, to: today, calendar: calendar)
+        guard weekly.contains(where: { $0 != nil }) else { return nil }
+        if !metric.hasValue, !weekly.isEmpty {
+            weekly[weekly.count - 1] = nil
+        }
         return weekly
     }
 
@@ -59,6 +94,26 @@ struct WatchMetricDetailView: View {
         sleepScore == nil ? metric.unit : String(localized: "pts")
     }
 
+    /// The Sleep page's hypnogram segments, added below the page's info and
+    /// making the page scroll, or nil (the page reads exactly like every other
+    /// metric's) when the night's stages aren't in the snapshot: an un-synced
+    /// or sanitized (no longer today) night, or a stage-less night.
+    private var sleepStageSegments: [SleepStageSegment]? {
+        guard metric.kind == WatchMetricKindKey.sleep, let sleepStages else { return nil }
+        let segments = WatchSleepStagesChartView.segments(from: sleepStages)
+        return segments.isEmpty ? nil : segments
+    }
+
+    /// The Training Load page's daily workout minutes, re-windowed onto
+    /// `referenceDate` like the complication does, or nil (the page reads
+    /// exactly like every other metric's) when the snapshot carries no workout
+    /// minutes or a week with no data at all.
+    private var exerciseWeekly: [Double?]? {
+        guard metric.kind == WatchMetricKindKey.trainingLoad, let exerciseWeekMetric else { return nil }
+        let weekly = exerciseWeekMetric.weeklyRewound(from: generatedAt, to: referenceDate)
+        return weekly.contains(where: { $0 != nil }) ? weekly : nil
+    }
+
     private var trailingLabel: String? {
         guard sleepScore == nil else { return metric.displayValue }
         guard let label = metric.statusBand?.label else { return nil }
@@ -70,39 +125,71 @@ struct WatchMetricDetailView: View {
             backgroundGradient
                 .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 0) {
-                titleRow
+            if sleepStageSegments != nil || exerciseWeekly != nil {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        pageContent
+                            .containerRelativeFrame(.vertical, alignment: .topLeading)
 
-                if let weekly {
-                    WatchSparklineView(
-                        values: weekly,
-                        tint: pageTint,
-                        band: metric.statusBand,
-                        bandTint: statusTint,
-                        currentValue: metric.weeklyCurrentValue,
-                        dayLabels: weekdayLabels(count: weekly.count)
-                    )
-                    .frame(height: 86)
-                    .padding(.top, 4)
-                } else {
-                    Text("No recent data yet")
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 16)
+                        if let sleepStageSegments {
+                            WatchSleepStagesChartView(segments: sleepStageSegments)
+                                .frame(height: 86)
+                                .padding(.top, 10)
+                                .padding(.bottom, 12)
+                        }
+
+                        if let exerciseWeekly {
+                            WatchExerciseWeekChartView(weekly: exerciseWeekly, today: referenceDate, tint: pageTint)
+                                .frame(height: 86)
+                                .padding(.top, 10)
+                                .padding(.bottom, 12)
+                        }
+                    }
+                    .padding(.horizontal, 8)
                 }
-
-                Spacer(minLength: 6)
-
-                valueRow
+            } else {
+                pageContent
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 4)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
     // MARK: - Pieces
+
+    /// The page proper: title, week chart and big value row, sized to fill one
+    /// full screen so the Sleep page's scrolling version opens on exactly the
+    /// same first screen as every other metric.
+    private var pageContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            titleRow
+
+            if let weekly {
+                WatchSparklineView(
+                    values: weekly,
+                    tint: pageTint,
+                    band: metric.statusBand,
+                    bandTint: statusTint,
+                    currentValue: metric.weeklyCurrentValue,
+                    dayLabels: weekdayLabels(count: weekly.count)
+                )
+                .frame(height: 86)
+                .padding(.top, 4)
+            } else {
+                Text("No recent data yet")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 16)
+            }
+
+            Spacer(minLength: 6)
+
+            valueRow
+        }
+        .padding(.bottom, 4)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
 
     private var titleRow: some View {
         HStack(spacing: 0) {
@@ -181,24 +268,27 @@ struct WatchMetricDetailView: View {
             tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20),
             weekly: [0.95, 1.30, 1.05, 0.78, 1.32, 1.10, 1.23],
             statusBand: WatchStatusBand(min: 0.8, max: 1.3, label: "Optimal")
-        ))
+        ), exerciseWeekMetric: WatchMetricsSnapshot.placeholder.metric(forKind: WatchMetricKindKey.workoutMinutes))
     }
 }
 
 #Preview("Sleep (scored)") {
     NavigationStack {
-        WatchMetricDetailView(metric: WatchMetric(
-            kind: WatchMetricKindKey.sleep,
-            title: "Sleep",
-            displayValue: "7h 32m",
-            unit: "",
-            score: 85,
-            fillFraction: 0.85,
-            rawValue: 85,
-            rangeMin: 0,
-            rangeMax: 100,
-            weekly: [6.5, 7.2, nil, 8.1, 7.0, 6.8, 7.53]
-        ))
+        WatchMetricDetailView(
+            metric: WatchMetric(
+                kind: WatchMetricKindKey.sleep,
+                title: "Sleep",
+                displayValue: "7h 32m",
+                unit: "",
+                score: 85,
+                fillFraction: 0.85,
+                rawValue: 85,
+                rangeMin: 0,
+                rangeMax: 100,
+                weekly: [6.5, 7.2, nil, 8.1, 7.0, 6.8, 7.53]
+            ),
+            sleepStages: WatchMetricsSnapshot.placeholder.sleepStages
+        )
     }
 }
 

@@ -118,6 +118,11 @@ struct BodyMetricWarningCard: View {
         // Sources can stamp two readings at the same instant, so the marks are
         // keyed by position rather than by date.
         let indexedSamples = Array(samples.enumerated())
+        // The line runs through every reading; the dots are thinned so their
+        // rings stay legible on a dense per-second series.
+        let indexedPointMarks = Array(
+            MetricThresholdWarning.chartPointMarks(for: samples, in: window, of: event).enumerated()
+        )
 
         return Chart {
             ForEach(indexedSamples, id: \.offset) { _, sample in
@@ -130,7 +135,7 @@ struct BodyMetricWarningCard: View {
                 .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
             }
 
-            ForEach(indexedSamples, id: \.offset) { _, sample in
+            ForEach(indexedPointMarks, id: \.offset) { _, sample in
                 PointMark(
                     x: .value("Time", sample.date),
                     y: .value(valueLabel, sample.value)

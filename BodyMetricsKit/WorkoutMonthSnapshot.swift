@@ -4,11 +4,34 @@
 //
 
 import Foundation
+import os
 
 struct WorkoutDaySummary: Codable, Equatable, Identifiable {
     let dateKey: String
     let day: Int
     let workouts: [WorkoutSummary]
+    /// The device zone this day's workouts were resolved in when the snapshot was
+    /// built (the first workout's, in start order, on the rare day that resolved
+    /// to more than one). `nil` when no zone was resolved: no resolver, no ledger
+    /// record covering the workout, a resolved zone that would have left the
+    /// month, or a snapshot written before this field existed. A row that prints
+    /// a workout's date or time next to this day's header formats it in this zone
+    /// so the two agree; `nil` keeps the current zone, as before. Optional on
+    /// decode and omitted from the encoded form when `nil`, so old snapshots load
+    /// here and new ones load in builds that predate the field.
+    let timeZoneIdentifier: String?
+
+    init(
+        dateKey: String,
+        day: Int,
+        workouts: [WorkoutSummary],
+        timeZoneIdentifier: String? = nil
+    ) {
+        self.dateKey = dateKey
+        self.day = day
+        self.workouts = workouts
+        self.timeZoneIdentifier = timeZoneIdentifier
+    }
 
     var id: String { dateKey }
 
@@ -61,19 +84,48 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
     let generatedAt: Date
     let days: [WorkoutDaySummary]
     let schemaVersion: Int?
+    var validatedAt: Date?
+    var validationContext: String?
 
     init(
         month: Int,
         year: Int,
         generatedAt: Date,
         days: [WorkoutDaySummary],
-        schemaVersion: Int? = WorkoutMonthSnapshot.currentSchemaVersion
+        schemaVersion: Int? = WorkoutMonthSnapshot.currentSchemaVersion,
+        validatedAt: Date? = nil,
+        validationContext: String? = nil
     ) {
         self.month = month
         self.year = year
         self.generatedAt = generatedAt
         self.days = days
         self.schemaVersion = schemaVersion
+        self.validatedAt = validatedAt
+        self.validationContext = validationContext
+    }
+
+    func isValidated(now: Date, context: String) -> Bool {
+        guard let validatedAt, validationContext == context else { return false }
+        let age = now.timeIntervalSince(validatedAt)
+        return age >= 0 && age < 300
+    }
+
+    mutating func recordValidation(
+        at date: Date, context: String, previous: Self?,
+        allDetailsValidated: Bool, hadQueryFailure: Bool
+    ) {
+        validatedAt = nil
+        validationContext = nil
+        guard !hadQueryFailure else { return }
+        if allDetailsValidated {
+            validatedAt = date
+            validationContext = context
+        } else if previous?.validationContext == context {
+            // Reuse neither renews nor destroys an existing validation.
+            validatedAt = previous?.validatedAt
+            validationContext = context
+        }
     }
 
     var activeDayCount: Int {
@@ -160,28 +212,55 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
             && components.day == day.day
     }
 
+    /// `timeZoneIdentifier` resolves the zone the device was in when a workout
+    /// started, so a workout keeps the calendar day it happened on instead of
+    /// being re-dayed by whatever zone the phone is in now. `nil` (the default,
+    /// and any day the resolver has no record for) groups by `calendar`'s own
+    /// zone exactly as before.
     static func make(
         month: Int,
         year: Int,
         workouts: [WorkoutSummary],
         calendar: Calendar = .bodyGregorian,
-        generatedAt: Date = Date()
+        generatedAt: Date = Date(),
+        timeZoneIdentifier: ((Date) -> String?)? = nil
     ) -> WorkoutMonthSnapshot {
         guard let range = calendar.range(of: .day, in: .month, for: date(month: month, year: year, day: 1, calendar: calendar)) else {
             return WorkoutMonthSnapshot(month: month, year: year, generatedAt: generatedAt, days: [])
         }
 
-        let grouped = Dictionary(grouping: workouts) { workout in
+        // Each workout keeps the zone its day was resolved in alongside its key,
+        // so the day it lands in can carry that zone for presentation.
+        let keyed = workouts.map { workout -> (key: String, zoneIdentifier: String?, workout: WorkoutSummary) in
+            // A resolved zone only wins while it keeps the workout inside the
+            // month being built: `range.map` below drops any key outside it, so
+            // a workout the resolved zone pushes into the neighbouring month
+            // would vanish from both months rather than move.
+            if let identifier = timeZoneIdentifier?(workout.startDate),
+               let zone = TimeZone(identifier: identifier) {
+                var zonedCalendar = calendar
+                zonedCalendar.timeZone = zone
+                let zoned = zonedCalendar.dateComponents([.year, .month, .day], from: workout.startDate)
+                if zoned.year == year, zoned.month == month {
+                    return (dateKey(year: year, month: month, day: zoned.day ?? 1), identifier, workout)
+                }
+            }
             let components = calendar.dateComponents([.year, .month, .day], from: workout.startDate)
-            return dateKey(year: components.year ?? year, month: components.month ?? month, day: components.day ?? 1)
+            let key = dateKey(year: components.year ?? year, month: components.month ?? month, day: components.day ?? 1)
+            return (key, nil, workout)
         }
+        let grouped = Dictionary(grouping: keyed, by: \.key)
 
         let days = range.map { day in
             let key = dateKey(year: year, month: month, day: day)
+            let entries = (grouped[key] ?? []).sorted { $0.workout.startDate < $1.workout.startDate }
             return WorkoutDaySummary(
                 dateKey: key,
                 day: day,
-                workouts: (grouped[key] ?? []).sorted { $0.startDate < $1.startDate }
+                workouts: entries.map(\.workout),
+                // The earliest workout's zone on a day that resolved to more than
+                // one, which only a mid-day zone change can produce.
+                timeZoneIdentifier: entries.first?.zoneIdentifier
             )
         }
 
@@ -191,27 +270,48 @@ struct WorkoutMonthSnapshot: Codable, Equatable {
     /// Returns a copy with the Workout Metrics detail fields (VO₂max, power,
     /// cadence, swim strokes) stripped from every workout, for when the user
     /// disables the Workout Metrics permission. Preserves the month identity and
-    /// `generatedAt` so a re-saved snapshot stays change-deduped on disk.
+    /// `generatedAt` so a re-saved snapshot stays change-deduped on disk. Maps
+    /// each day's workouts in place rather than regrouping by `dateKey` through
+    /// `calendar`, so a workout near a month boundary is never reassigned to a
+    /// different day (and dropped outright) just because the calendar's time
+    /// zone changed since the snapshot was built. `calendar` is unused; kept
+    /// only so existing call sites do not need to change.
     func removingWorkoutMetrics(calendar: Calendar = .bodyGregorian) -> WorkoutMonthSnapshot {
-        WorkoutMonthSnapshot.make(
+        WorkoutMonthSnapshot(
             month: month,
             year: year,
-            workouts: days.flatMap(\.workouts).map { $0.removingWorkoutMetrics() },
-            calendar: calendar,
-            generatedAt: generatedAt
+            generatedAt: generatedAt,
+            days: days.map { day in
+                WorkoutDaySummary(
+                    dateKey: day.dateKey,
+                    day: day.day,
+                    workouts: day.workouts.map { $0.removingWorkoutMetrics() },
+                    timeZoneIdentifier: day.timeZoneIdentifier
+                )
+            },
+            schemaVersion: schemaVersion
         )
     }
 
     /// Returns a copy with heart-rate recovery stripped from every workout, for
     /// when the user disables the Heart permission. Same identity/`generatedAt`
-    /// preservation as `removingWorkoutMetrics(calendar:)`.
+    /// preservation and in-place-mapping rationale as
+    /// `removingWorkoutMetrics(calendar:)`. `calendar` is unused; kept only so
+    /// existing call sites do not need to change.
     func removingHeartRateRecovery(calendar: Calendar = .bodyGregorian) -> WorkoutMonthSnapshot {
-        WorkoutMonthSnapshot.make(
+        WorkoutMonthSnapshot(
             month: month,
             year: year,
-            workouts: days.flatMap(\.workouts).map { $0.removingHeartRateRecovery() },
-            calendar: calendar,
-            generatedAt: generatedAt
+            generatedAt: generatedAt,
+            days: days.map { day in
+                WorkoutDaySummary(
+                    dateKey: day.dateKey,
+                    day: day.day,
+                    workouts: day.workouts.map { $0.removingHeartRateRecovery() },
+                    timeZoneIdentifier: day.timeZoneIdentifier
+                )
+            },
+            schemaVersion: schemaVersion
         )
     }
 
@@ -316,9 +416,23 @@ struct WorkoutTypeBreakdown: Equatable, Identifiable {
 }
 
 extension Calendar {
+    /// Caches the built calendar so every call site does not pay to
+    /// reconstruct one, rebuilding only when the device's time zone has
+    /// actually changed. `firstWeekday` is pinned to `1` (Sunday) regardless
+    /// of locale, so the captured `Locale` at build time does not matter and
+    /// does not need to be part of the cache key.
+    private static let bodyGregorianCache = OSAllocatedUnfairLock<(timeZoneID: String, calendar: Calendar)?>(initialState: nil)
+
     static var bodyGregorian: Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.firstWeekday = 1
-        return calendar
+        let currentTimeZoneID = TimeZone.current.identifier
+        return bodyGregorianCache.withLock { cached in
+            if let cached, cached.timeZoneID == currentTimeZoneID {
+                return cached.calendar
+            }
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.firstWeekday = 1
+            cached = (timeZoneID: currentTimeZoneID, calendar: calendar)
+            return calendar
+        }
     }
 }

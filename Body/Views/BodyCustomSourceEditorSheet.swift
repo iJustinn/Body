@@ -12,7 +12,7 @@ import SwiftUI
 
 struct BodyCustomSourceEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var workoutStore: HealthKitWorkoutStore
+    let workoutStore: HealthKitWorkoutStore
 
     /// `nil` when creating a new custom source.
     let group: BodyCustomHealthSourceGroup?
@@ -26,7 +26,7 @@ struct BodyCustomSourceEditorSheet: View {
     private let tintColor = Color.cyan
 
     init(workoutStore: HealthKitWorkoutStore, group: BodyCustomHealthSourceGroup?) {
-        _workoutStore = ObservedObject(wrappedValue: workoutStore)
+        self.workoutStore = workoutStore
         self.group = group
         _name = State(initialValue: group?.name ?? "")
         _selectedIconSystemName = State(
@@ -198,7 +198,7 @@ struct BodyCustomSourceEditorSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(
                 title: "Select Sources",
-                detail: "Pick at least two sources to merge into this one."
+                detail: "Pick one or more sources to include in this one."
             )
 
             if discoveredSources.isEmpty {

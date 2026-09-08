@@ -1,0 +1,40 @@
+{
+  "configurations" : [
+    {
+      "id" : "0F89197F-14F3-4A01-9C0F-3167B0DFDF60",
+      "name" : "Parallel",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : true,
+    "environmentVariableEntries" : [
+      {
+        "key" : "BODY_SRCROOT",
+        "value" : "$(SRCROOT)"
+      }
+    ]
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "skippedTests" : [
+        "ActivityRingsDetailLayoutTests",
+        "BodyHomeCardGridLayoutTests",
+        "BodyUserProfileTests",
+        "PerformanceBenchmarks",
+        "WorkoutShareRenderTests",
+        "WorkoutShareSummaryRenderTests",
+        "WorkoutShareVideoTests"
+      ],
+      "target" : {
+        "containerPath" : "container:body.xcodeproj",
+        "identifier" : "710000242E00000100000024",
+        "name" : "BodyTests"
+      }
+    }
+  ],
+  "version" : 1
+}

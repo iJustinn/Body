@@ -8,7 +8,8 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-/// The pushed profile page: an avatar photo and a name, both stored on device only.
+/// The profile sheet: an avatar photo and a name, both stored on device only.
+/// Wears the shared settings-sheet chrome so it matches every other one.
 struct BodyProfileView: View {
     @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
     @AppStorage(BodyAppearancePreference.profileAvatarDataKey) private var profileAvatarData = Data()
@@ -17,16 +18,18 @@ struct BodyProfileView: View {
     @State private var showingPhotoPicker = false
     /// Body Blue until a photo with a usable color is stored, then that photo's own.
     @State private var avatarGlowColor = BodyProfileView.fallbackGlowColor
+    /// Decoded once per `profileAvatarData` change rather than on every body pass.
+    @State private var avatarImage: UIImage?
+    /// The name field's own text: committed to `profileName` on submit, on focus
+    /// loss, and on disappear, rather than on every keystroke.
+    @FocusState private var isNameFieldFocused: Bool
+    @State private var editedName = ""
 
     /// The app's own blue, shared with the share card's default route trace.
     private static let fallbackGlowColor = BodyWorkoutShareCardView.defaultRouteColor
 
-    private var avatarImage: UIImage? {
-        profileAvatarData.isEmpty ? nil : UIImage(data: profileAvatarData)
-    }
-
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        BodySettingsAboutSheetScaffold(title: "Profile") {
             VStack(spacing: 22) {
                 VStack(spacing: 10) {
                     hero
@@ -36,20 +39,13 @@ struct BodyProfileView: View {
 
                 privacyText
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 14)
-            .padding(.bottom, 34)
             .readableContentColumn()
         }
-        .background {
-            Color.black.ignoresSafeArea()
-        }
-        .navigationTitle("Profile")
-        .navigationBarTitleDisplayMode(.inline)
         // Latest-wins and cancellable: the picker can be re-opened before a slow
         // cloud photo finishes loading, and only the current pick may open the crop.
         .task(id: photoItem) { await loadPickedPhoto() }
         .task(id: profileAvatarData) {
+            avatarImage = profileAvatarData.isEmpty ? nil : UIImage(data: profileAvatarData)
             avatarGlowColor = avatarImage.flatMap { BodyProfileImageCodec.glowColor(from: $0) } ?? Self.fallbackGlowColor
         }
         .fullScreenCover(item: $cropTarget) { target in
@@ -59,40 +55,47 @@ struct BodyProfileView: View {
                 onCancel: { cropTarget = nil }
             )
         }
+        .onAppear {
+            editedName = profileName
+        }
+        .onChange(of: isNameFieldFocused) { _, isFocused in
+            if !isFocused {
+                commitEditedName()
+            }
+        }
+        .onDisappear {
+            commitEditedName()
+        }
     }
 
     // Tap the avatar for a menu to choose, change, or delete the profile photo.
     private var hero: some View {
-        ZStack {
-            BodyProConfetti()
-
-            Menu {
-                Button {
-                    showingPhotoPicker = true
-                } label: {
-                    // `LocalizedStringKey` explicitly: a ternary of string literals
-                    // would otherwise pick Label's non-localizing `StringProtocol` init.
-                    Label(
-                        avatarImage == nil
-                            ? LocalizedStringKey("Choose Photo")
-                            : LocalizedStringKey("Change Photo"),
-                        systemImage: "photo"
-                    )
-                }
-
-                if avatarImage != nil {
-                    Button(role: .destructive) {
-                        profileAvatarData = Data()
-                        playHaptic()
-                    } label: {
-                        Label("Delete Photo", systemImage: "trash")
-                    }
-                }
+        Menu {
+            Button {
+                showingPhotoPicker = true
             } label: {
-                heroAvatar
+                // `LocalizedStringKey` explicitly: a ternary of string literals
+                // would otherwise pick Label's non-localizing `StringProtocol` init.
+                Label(
+                    avatarImage == nil
+                        ? LocalizedStringKey("Choose Photo")
+                        : LocalizedStringKey("Change Photo"),
+                    systemImage: "photo"
+                )
             }
-            .buttonStyle(.plain)
+
+            if avatarImage != nil {
+                Button(role: .destructive) {
+                    profileAvatarData = Data()
+                    playHaptic()
+                } label: {
+                    Label("Delete Photo", systemImage: "trash")
+                }
+            }
+        } label: {
+            heroAvatar
         }
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
         .frame(height: 168)
         .padding(.top, 6)
@@ -138,7 +141,7 @@ struct BodyProfileView: View {
     }
 
     private var nameField: some View {
-        TextField("Add a name", text: $profileName)
+        TextField("Add a name", text: $editedName)
             .font(.system(size: 20, weight: .bold, design: .rounded))
             .multilineTextAlignment(.center)
             .textInputAutocapitalization(.words)
@@ -150,11 +153,8 @@ struct BodyProfileView: View {
             .padding(.vertical, 10)
             .background(Capsule().fill(Color.primary.opacity(0.06)))
             .frame(maxWidth: 260)
-            .onChange(of: profileName) { _, newValue in
-                if newValue.count > BodyUserProfile.maximumNameLength {
-                    profileName = String(newValue.prefix(BodyUserProfile.maximumNameLength))
-                }
-            }
+            .focused($isNameFieldFocused)
+            .onSubmit(commitEditedName)
     }
 
     private var privacyText: some View {
@@ -199,6 +199,16 @@ struct BodyProfileView: View {
         cropTarget = nil
     }
 
+    private func commitEditedName() {
+        let truncated = String(editedName.prefix(BodyUserProfile.maximumNameLength))
+        if truncated != editedName {
+            editedName = truncated
+        }
+        if profileName != truncated {
+            profileName = truncated
+        }
+    }
+
     private func playHaptic() {
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.prepare()
@@ -221,6 +231,7 @@ private struct BodyProfilePhotoCropView: View {
     @State private var lastScale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
+    @State private var showsCropFailedAlert = false
 
     private let cropSize: CGFloat = 300
 
@@ -254,6 +265,11 @@ private struct BodyProfilePhotoCropView: View {
                     Button("Apply", action: applyCrop)
                         .fontWeight(.bold)
                 }
+            }
+            .alert("Couldn't Crop Photo", isPresented: $showsCropFailedAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Could not crop the photo. Try again.")
             }
         }
     }
@@ -313,8 +329,12 @@ private struct BodyProfilePhotoCropView: View {
         let renderer = ImageRenderer(content: framedImage().clipped())
         renderer.scale = 2
         // No silent fallback: storing the uncropped original would ignore the
-        // framing the user just chose, so keep the cover open instead.
-        guard let cropped = renderer.uiImage else { return }
+        // framing the user just chose, so keep the cover open instead, with a
+        // short alert so Apply doesn't look dead.
+        guard let cropped = renderer.uiImage else {
+            showsCropFailedAlert = true
+            return
+        }
         onApply(cropped)
     }
 }

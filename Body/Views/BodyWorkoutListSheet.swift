@@ -6,12 +6,21 @@
 import SwiftUI
 
 enum BodyWorkoutListSelection: Identifiable {
-    case day(WorkoutDaySummary)
+    /// The day's workouts, sorted ascending by start date once at construction
+    /// (`BodyWorkoutListSelection.day(_:)` below) rather than on every read of
+    /// `workouts`.
+    case day(WorkoutDaySummary, workouts: [WorkoutSummary])
     case type(BodyWorkoutType, workouts: [WorkoutSummary])
+
+    /// Builds a `.day` selection with its workouts pre-sorted, so `workouts`
+    /// below is a plain stored read.
+    static func day(_ day: WorkoutDaySummary) -> BodyWorkoutListSelection {
+        .day(day, workouts: day.workouts.sorted { $0.startDate < $1.startDate })
+    }
 
     var id: String {
         switch self {
-        case .day(let day):
+        case .day(let day, _):
             return "day-\(day.dateKey)"
         case .type(let type, _):
             return "type-\(type.rawValue)"
@@ -20,7 +29,7 @@ enum BodyWorkoutListSelection: Identifiable {
 
     var title: String {
         switch self {
-        case .day(let day):
+        case .day(let day, _):
             return dayTitle(for: day)
         case .type(let type, _):
             return type.displayName
@@ -42,17 +51,29 @@ enum BodyWorkoutListSelection: Identifiable {
 
     func accentColor(palette: BodyWorkoutColorPalette) -> Color {
         switch self {
-        case .day(let day):
+        case .day(let day, _):
             return day.primaryWorkoutType.map { palette.color(for: $0) } ?? Color.accentColor
         case .type(let type, _):
             return palette.color(for: type)
         }
     }
 
+    /// The zone the day's workouts were resolved in when the month snapshot was
+    /// built, so a row's time reads in the same zone as the day title above it.
+    /// `nil` for a type selection, whose rows span many days under no day title.
+    var timeZoneIdentifier: String? {
+        switch self {
+        case .day(let day, _):
+            return day.timeZoneIdentifier
+        case .type:
+            return nil
+        }
+    }
+
     var workouts: [WorkoutSummary] {
         switch self {
-        case .day(let day):
-            return day.workouts.sorted { $0.startDate < $1.startDate }
+        case .day(_, let workouts):
+            return workouts
         case .type(_, let workouts):
             return workouts
         }
@@ -80,7 +101,7 @@ enum BodyWorkoutListSelection: Identifiable {
 }
 
 struct BodyWorkoutListSheet: View {
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.workoutColorPalette) private var workoutColorPalette
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
@@ -109,7 +130,8 @@ struct BodyWorkoutListSheet: View {
                                 BodyWorkoutRecordRow(
                                     workout: workout,
                                     customName: workoutStore.workoutCustomNames[workout.id],
-                                    recordStanding: workoutStore.rowRecordStanding(for: workout)
+                                    recordStanding: workoutStore.rowRecordStanding(for: workout),
+                                    timeZoneIdentifier: selection.timeZoneIdentifier
                                 )
                                     .matchedTransitionSource(id: workout.id, in: workoutZoom) {
                                         $0.clipShape(.rect(cornerRadius: 30, style: .continuous))
@@ -128,7 +150,7 @@ struct BodyWorkoutListSheet: View {
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(item: $selectedWorkout) { workout in
                 BodyWorkoutDetailSheet(workout: workout)
-                    .environmentObject(workoutStore)
+                    .environment(workoutStore)
                     .navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))
             }
         }
@@ -207,6 +229,9 @@ private struct BodyWorkoutRecordRow: View {
     /// The workout's strongest record standing, or nil when it holds none. Computed
     /// at the call site — the row is a pure struct with no store access.
     var recordStanding: WorkoutRecordStanding? = nil
+    /// The zone the day this row sits under was resolved in, so the start time
+    /// printed here is the one the day title means. `nil` reads the current zone.
+    var timeZoneIdentifier: String? = nil
 
     var body: some View {
         HStack(spacing: 16) {
@@ -273,7 +298,7 @@ private struct BodyWorkoutRecordRow: View {
     }
 
     private var workoutDetailText: String {
-        var details = [timeText(for: workout.startDate)]
+        var details = [timeText(for: workout.startDate, timeZoneIdentifier: timeZoneIdentifier)]
 
         if let distanceMeters = workout.distanceMeters, distanceMeters > 0 {
             details.append(
@@ -305,6 +330,10 @@ private struct BodyWorkoutRecordRow: View {
     }
 }
 
-private func timeText(for date: Date) -> String {
-    date.formatted(.dateTime.hour().minute())
+private func timeText(for date: Date, timeZoneIdentifier: String?) -> String {
+    var style = Date.FormatStyle.dateTime.hour().minute()
+    if let timeZoneIdentifier, let zone = TimeZone(identifier: timeZoneIdentifier) {
+        style.timeZone = zone
+    }
+    return date.formatted(style)
 }

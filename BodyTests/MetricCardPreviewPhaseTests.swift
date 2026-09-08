@@ -103,7 +103,7 @@ final class MetricCardPreviewPhaseTests: XCTestCase {
     /// Vitals' "Typical"/"Below Average" and Stress's band word both render
     /// through `BodyMetricStatusValueText`, not the numeric-value text a kind
     /// like Heart Rate uses.
-    func testStressAndVitalsUseWordValueButHeartRateDoesNot() {
+    func testStressVitalsAndBodyRadarUseWordValueButHeartRateDoesNot() {
         let stressModel = BodyHealthMetricCard.Model(
             kind: .stress,
             title: "Stress",
@@ -113,6 +113,14 @@ final class MetricCardPreviewPhaseTests: XCTestCase {
             symbolColor: .pink
         )
         let vitalsModel = vitalsModel(dotEntries: [])
+        let bodyRadarModel = BodyHealthMetricCard.Model(
+            kind: .bodyRadar,
+            title: "Body Radar",
+            value: "No signs",
+            unit: "All typical",
+            symbolName: "person.and.background.dotted",
+            symbolColor: .gray
+        )
         let heartRateModel = BodyHealthMetricCard.Model(
             kind: .heartRate,
             title: "Heart Rate",
@@ -124,6 +132,38 @@ final class MetricCardPreviewPhaseTests: XCTestCase {
 
         XCTAssertTrue(stressModel.usesWordValue)
         XCTAssertTrue(vitalsModel.usesWordValue)
+        XCTAssertTrue(bodyRadarModel.usesWordValue)
         XCTAssertFalse(heartRateModel.usesWordValue)
+    }
+
+    /// With the Sleep permission off the summary carries no Body Radar at all, so
+    /// the card must read No Data with the pending/unavailable skeleton rather
+    /// than a calibration that can never finish.
+    func testBodyRadarWithoutSummaryReadsAsNoDataWithNoDotEntries() {
+        XCTAssertEqual(
+            BodyHomeView.bodyRadarCardValue(for: nil),
+            String(localized: "bodyRadar.state.noData", defaultValue: "No Data")
+        )
+        XCTAssertTrue(BodyHomeView.bodyRadarDotEntries(for: nil).isEmpty)
+
+        let model = BodyHealthMetricCard.Model(
+            kind: .bodyRadar,
+            title: "Body Radar",
+            value: BodyHomeView.bodyRadarCardValue(for: nil),
+            unit: "",
+            symbolName: "person.and.background.dotted",
+            symbolColor: .gray,
+            chartPreviewStyle: .dots,
+            previewDotEntries: BodyHomeView.bodyRadarDotEntries(for: nil)
+        )
+
+        XCTAssertEqual(
+            BodyHealthMetricCard.PreviewPhase.resolved(for: model, isRefreshing: false),
+            .unavailable
+        )
+        XCTAssertEqual(
+            BodyHealthMetricCard.PreviewPhase.resolved(for: model, isRefreshing: true),
+            .pending
+        )
     }
 }

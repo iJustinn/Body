@@ -36,15 +36,20 @@ struct BodyOnboardingView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @EnvironmentObject private var workoutStore: HealthKitWorkoutStore
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
+    @AppStorage(BodyAppearancePreference.updateOnboardingCompletedVersionKey) private var updateOnboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
     @State private var showsWorkoutEffortWriteDenied = false
     /// Retains the opt-in auto-apply pass so switching it off cancels the
     /// in-flight batch (same contract as the Settings sheet).
+    @State private var pageWidth: CGFloat = 0
     @State private var autoApplyTask: Task<Void, Never>?
+    /// Retains the first Health load so leaving the flow can cancel it instead of
+    /// leaving `isLoadingHealth` stuck on.
+    @State private var healthLoadTask: Task<Void, Never>?
     @State private var step = 0
     /// Set before every step change so the page slide matches the direction:
     /// Continue brings the next page in from the right, Back from the left.
@@ -167,6 +172,31 @@ struct BodyOnboardingView: View {
             if reduceMotion && introState == .playing {
                 introState = .finished
             }
+        }
+        // Owned by the page body, not `effortSettingsCard`, so paging away from
+        // step 4 (which unmounts the card) no longer cancels an in-flight write.
+        .onChange(of: autoApplyWorkoutEffort) {
+            guard autoApplyWorkoutEffort else {
+                autoApplyTask?.cancel()
+                autoApplyTask = nil
+                return
+            }
+            autoApplyTask?.cancel()
+            autoApplyTask = Task {
+                if await workoutStore.requestWorkoutEffortWriteAuthorization() {
+                    await workoutStore.autoApplyPredictedEffortNow()
+                } else {
+                    autoApplyWorkoutEffort = false
+                    showsWorkoutEffortWriteDenied = true
+                }
+            }
+        }
+        .onDisappear {
+            autoApplyTask?.cancel()
+            autoApplyTask = nil
+            healthLoadTask?.cancel()
+            healthLoadTask = nil
+            isLoadingHealth = false
         }
     }
 
@@ -459,7 +489,7 @@ struct BodyOnboardingView: View {
 
             // Exactly the width of one Home grid card (two columns, 16pt
             // gutters, 14pt between), centered on the page.
-            BodyHealthMetricCard(metric: Self.sampleTrainingLoadMetric)
+            BodyHealthMetricCard(metric: Self.sampleTrainingLoadMetric, containerWidth: pageWidth)
                 .containerRelativeFrame(.horizontal) { length, _ in (length - 46) / 2 }
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -474,7 +504,7 @@ struct BodyOnboardingView: View {
 
                 OnboardingFeatureRow(
                     iconName: "checkmark.circle.fill",
-                    tintColor: .white,
+                    tintColor: .green,
                     title: "onboarding.trainingLoad.range",
                     subtitle: "onboarding.trainingLoad.range.subtitle"
                 )
@@ -550,7 +580,7 @@ struct BodyOnboardingView: View {
             }
             // The rows are the Settings components verbatim; a smaller type
             // size keeps them in proportion with the onboarding copy.
-            .dynamicTypeSize(.xSmall)
+            .dynamicTypeSize(...DynamicTypeSize.large)
             .bodyCardBackground(cornerRadius: 26, translucent: true)
 
             Text("onboarding.effort.settingsHint")
@@ -559,30 +589,10 @@ struct BodyOnboardingView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 4)
         }
-        .onChange(of: autoApplyWorkoutEffort) {
-            guard autoApplyWorkoutEffort else {
-                autoApplyTask?.cancel()
-                autoApplyTask = nil
-                return
-            }
-            autoApplyTask?.cancel()
-            autoApplyTask = Task {
-                if await workoutStore.requestWorkoutEffortWriteAuthorization() {
-                    await workoutStore.autoApplyPredictedEffortNow()
-                } else {
-                    autoApplyWorkoutEffort = false
-                    showsWorkoutEffortWriteDenied = true
-                }
-            }
-        }
         .alert("Auto-Apply Needs Permission", isPresented: $showsWorkoutEffortWriteDenied) {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Auto-Apply needs permission to update Workouts in Apple Health. Allow it in Settings › Health › Data Access & Devices › Body, then switch Auto-Apply back on.")
-        }
-        .onDisappear {
-            autoApplyTask?.cancel()
-            autoApplyTask = nil
         }
     }
 
@@ -729,7 +739,7 @@ struct BodyOnboardingView: View {
             )
 
             // The real Summary sleep card at its in-app (one grid column) width.
-            BodyHealthMetricCard(metric: Self.sampleSleepMetric)
+            BodyHealthMetricCard(metric: Self.sampleSleepMetric, containerWidth: pageWidth)
                 .containerRelativeFrame(.horizontal) { length, _ in (length - 46) / 2 }
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -797,7 +807,7 @@ struct BodyOnboardingView: View {
                     }
                     .padding(.trailing, 18)
                 }
-                .dynamicTypeSize(.xSmall)
+                .dynamicTypeSize(...DynamicTypeSize.large)
                 .bodyCardBackground(cornerRadius: 26, translucent: true)
 
                 Text("onboarding.sleep.goalHint")
@@ -878,6 +888,11 @@ struct BodyOnboardingView: View {
                 // Room for the floating buttons + dots at the bottom.
                 .padding(.bottom, 110)
                 .frame(maxWidth: .infinity, minHeight: centersVertically ? proxy.size.height : 0)
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                // The sample Summary cards size their preview from the page width,
+                // the same way Home cards use the content column width.
+                pageWidth = width
             }
         }
     }
@@ -1067,15 +1082,21 @@ struct BodyOnboardingView: View {
 
         isLoadingHealth = true
         hasAttemptedHealthLoad = true
-        Task {
+        healthLoadTask = Task {
             await workoutStore.requestAuthorizationAndRefresh()
             await workoutStore.awaitRefreshCompletion()
+            guard !Task.isCancelled else {
+                return
+            }
             isLoadingHealth = false
         }
     }
 
     private func finish() {
         onboardingCompletedVersion = BodyOnboardingGate.currentAppVersion()
+        // A fresh install has nothing to rebuild, so first-run completion also
+        // settles the update page (`BodyOnboardingGate.shouldPresentUpdate`).
+        updateOnboardingCompletedVersion = BodyOnboardingGate.currentAppVersionAndBuild()
         dismiss()
     }
 
@@ -1119,5 +1140,5 @@ private struct OnboardingFeatureRow: View {
 
 #Preview {
     BodyOnboardingView(mode: .firstRun)
-        .environmentObject(HealthKitWorkoutStore())
+        .environment(HealthKitWorkoutStore())
 }

@@ -27,7 +27,7 @@ enum BodyWorkoutEffortFetcher {
     /// layer built on this fetcher (iOS engine today, watch compute next).
     static let effortConfirmationAge: TimeInterval = 48 * 60 * 60
 
-    static func savedEffortOutcome(for workout: HKWorkout, store: HKHealthStore) async -> BodyWorkoutEffortOutcome {
+    static func savedEffortOutcome(for workout: HKWorkout, store: any BodyHealthQuerying) async -> BodyWorkoutEffortOutcome {
         guard let effortType = HKObjectType.quantityType(forIdentifier: .workoutEffortScore) else {
             return .failed
         }
@@ -35,37 +35,33 @@ enum BodyWorkoutEffortFetcher {
         let predicate = HKQuery.predicateForWorkoutEffortSamplesRelated(workout: workout, activity: nil)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
 
-        return await withCheckedContinuation { continuation in
-            let query = HKSampleQuery(
+        switch await store.samples(
+            BodySampleRequest(
                 sampleType: effortType,
                 predicate: predicate,
                 limit: 1,
                 sortDescriptors: [sort]
-            ) { _, samples, error in
-                guard error == nil else {
-                    continuation.resume(returning: .failed)
-                    return
-                }
+            )
+        ) {
+        case .failure, .cancelled:
+            return .failed
+        case .success(let samples):
+            let effort = (samples as? [HKQuantitySample] ?? [])
+                .first?
+                .quantity
+                .doubleValue(for: .appleEffortScore())
 
-                let effort = (samples as? [HKQuantitySample] ?? [])
-                    .first?
-                    .quantity
-                    .doubleValue(for: .appleEffortScore())
-
-                if let effort, effort.isFinite {
-                    continuation.resume(returning: .found(effort))
-                } else {
-                    continuation.resume(returning: .noSavedEffort)
-                }
+            if let effort, effort.isFinite {
+                return .found(effort)
+            } else {
+                return .noSavedEffort
             }
-
-            store.execute(query)
         }
     }
 
     /// Convenience: the saved effort value, or `nil` when there's none / the
     /// query failed. Use when the found/errored distinction isn't needed.
-    static func savedEffortLevel(for workout: HKWorkout, store: HKHealthStore) async -> Double? {
+    static func savedEffortLevel(for workout: HKWorkout, store: any BodyHealthQuerying) async -> Double? {
         if case .found(let effort) = await savedEffortOutcome(for: workout, store: store) {
             return effort
         }
