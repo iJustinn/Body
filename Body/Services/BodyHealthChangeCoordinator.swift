@@ -121,6 +121,7 @@ final class BodyHealthChangeCoordinator {
         let remaining = await pending(history: true)
         store.observedRepairDidSettle(pending: !remaining.isEmpty || store.needsObservedRingRepair)
         store.scheduleWorkoutJournalIfNeeded()
+        await store.evaluateNewNotifications()
     }
 
     func runBackground(lease: BodyBackgroundLease) async -> Bool {
@@ -137,7 +138,11 @@ final class BodyHealthChangeCoordinator {
             await store.scanObservedWorkouts(lease: lease, scanOnly: true)
             guard lease.isValid else { return false }
             let changed = await store.repairObservedMetrics(work, ledger: ledger, background: lease)
+            // Metadata is sufficient for workout delivery; do not make the alert
+            // wait for enriched month/detail repair to consume the lease.
+            if lease.isValid { await store.evaluateNewNotifications(lease: lease, includesStress: false) }
             if lease.isValid { await store.scanObservedWorkouts(lease: lease, scanOnly: false) }
+            if lease.isValid { await store.evaluateNewNotifications(lease: lease) }
             return changed
         }
     }

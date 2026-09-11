@@ -33,7 +33,7 @@ enum BodyBackgroundRefreshScheduler {
     }
 
     static func schedule() {
-        guard UserDefaults.standard.bool(forKey: BodyAppearancePreference.metricWarningNotificationsKey) else {
+        guard BodyNotificationPreferences.enabled(BodyAppearancePreference.metricWarningNotificationsKey) else {
             return
         }
 

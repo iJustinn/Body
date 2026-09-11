@@ -4,6 +4,17 @@ import HealthKit
 
 final class BodyHealthObservationTests: XCTestCase {
     @MainActor
+    func testNotificationOnlyHeartbeatWakeDoesNotEnqueueStressHistoryRepair() throws {
+        let hidden = BodyDashboardFetchSelection(summaryCards: .init(selectedCards: []), trendCards: .init(selectedCards: []))
+        let registrations = BodyHealthObservationPolicy.registrations(
+            permissions: .init(enabledPermissions: [.heart]), selection: hidden,
+            includesCompanionConsumers: true, includesNotificationConsumers: true)
+        let heartbeat = try XCTUnwrap(registrations.first { $0.type == HKSeriesType.heartbeat() })
+        XCTAssertFalse(heartbeat.metrics.contains(.stress))
+        XCTAssertEqual(heartbeat.frequency, .hourly)
+    }
+
+    @MainActor
     func testAppHolderCreatesOneStoreForUIAndHandlers() {
         var count = 0
         let runtime = BodyAppRuntime {

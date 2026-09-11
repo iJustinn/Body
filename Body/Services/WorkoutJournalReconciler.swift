@@ -10,6 +10,8 @@ actor WorkoutJournalReconciler {
         case failed, invalidAnchor, cancelled
     }
 
+    typealias CandidateSink = @Sendable ([WorkoutJournalEntry], UUID, UInt64) async -> Bool
+    private let candidateSink: CandidateSink?
     private let engine: HealthKitFetchEngine
     private let file: URL
     private let write: @Sendable (Data, URL) throws -> Void
@@ -21,7 +23,9 @@ actor WorkoutJournalReconciler {
     private static let entryLimit = 10_000
 
     init(engine: HealthKitFetchEngine, file: URL, scope: WorkoutJournalScope? = nil, date: Date = Date(),
+         candidateSink: CandidateSink? = nil,
          write: @escaping @Sendable (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }) {
+        self.candidateSink = candidateSink
         self.engine = engine
         self.file = file
         self.write = write
@@ -184,6 +188,15 @@ actor WorkoutJournalReconciler {
                 if next.dirtyIntervals.count > Self.entryLimit {
                     next.dirtyIntervals = [:]
                     next.requiresFullRepair = true
+                }
+                if journal.bootstrapComplete, let candidateSink {
+                    let added = entries.filter { journal.entries[$0.id.uuidString] == nil && !deleted.contains($0.id) }
+                    if !added.isEmpty {
+                        guard await candidateSink(added, next.generation, next.revision) else { return .failed }
+                        let latestContext = await engine.queryContextRevision
+                        guard latestContext == contextRevision, !Task.isCancelled,
+                              epoch == admissionEpoch, journal.revision == revision else { return .superseded }
+                    }
                 }
                 guard commit(next) else { return .failed }
                 if empty { return .caughtUp }

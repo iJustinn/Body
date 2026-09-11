@@ -223,6 +223,7 @@ final class HealthKitWorkoutStore {
     @ObservationIgnored private var backgroundPublicationLease: BodyBackgroundLease?
     @ObservationIgnored private var observedRingChange: UUID?
     @ObservationIgnored private var observedHealthChanges = false
+    @ObservationIgnored private var notificationEvaluationInFlight = false
     @ObservationIgnored private var observedMetricValidation: [String: HealthDashboardSnapshotStore.Freshness] = [:]
     /// Phase of the in-flight refresh, for the sync badge. `nil` while idle.
     enum RefreshStage: Hashable {
@@ -4895,7 +4896,9 @@ final class HealthKitWorkoutStore {
             let engine = self.engine
             if self.workoutJournal == nil {
                 let owner = await Task.detached(priority: .utility) {
-                    WorkoutJournalReconciler(engine: engine, file: file)
+                    WorkoutJournalReconciler(engine: engine, file: file, candidateSink: { entries, generation, revision in
+                        await BodyNotificationDelivery.shared.stage(entries, generation: generation, revision: revision)
+                    })
                 }.value
                 guard admission.isValid, !Task.isCancelled, epoch == self.cacheEpoch,
                       self.mayApplyRefreshInputs(inputs) else { return }
@@ -8398,7 +8401,9 @@ extension HealthKitWorkoutStore {
         guard permissionSelection.includes(.workouts), let file = workoutJournalFile else { return false }
         if workoutJournal == nil {
             // Small metadata read; installing before suspension prevents two owners.
-            workoutJournal = WorkoutJournalReconciler(engine: engine, file: file)
+            workoutJournal = WorkoutJournalReconciler(engine: engine, file: file, candidateSink: { entries, generation, revision in
+                await BodyNotificationDelivery.shared.stage(entries, generation: generation, revision: revision)
+            })
         }
         return await workoutJournal?.noteObservedChange() ?? false
     }
@@ -8509,7 +8514,11 @@ extension HealthKitWorkoutStore {
         let inputs = captureRefreshInputs()
         let eligibility = await engine.backgroundReadEligibility(protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable)
         guard eligibility == .eligible, lease.isValid, mayApplyRefreshInputs(inputs) else { return }
-        if workoutJournal == nil { workoutJournal = WorkoutJournalReconciler(engine: engine, file: file) }
+        if workoutJournal == nil {
+            workoutJournal = WorkoutJournalReconciler(engine: engine, file: file, candidateSink: { entries, generation, revision in
+                await BodyNotificationDelivery.shared.stage(entries, generation: generation, revision: revision)
+            })
+        }
         guard let owner = workoutJournal else { return }
         if scanOnly {
             _ = await owner.scanInBackground(eligibility: eligibility, deadline: lease.remaining)
@@ -8523,6 +8532,72 @@ extension HealthKitWorkoutStore {
         if lease.isValid, !Task.isCancelled, mayApplyRefreshInputs(inputs), monthSnapshotsGeneration != priorMonths {
             await publishObservedCompanions()
         }
+    }
+
+    func evaluateNewNotifications(lease: BodyBackgroundLease? = nil, includesStress: Bool = true) async {
+        guard !notificationEvaluationInFlight else { return }
+        notificationEvaluationInFlight = true
+        defer { notificationEvaluationInFlight = false }
+        if let lease {
+            await performNotificationEvaluation(lease: lease, includesStress: includesStress)
+        } else {
+            let operation = Task { @MainActor in await self.performNotificationEvaluation(lease: nil, includesStress: includesStress) }
+            _ = await OneShotDeadlineRace.run(deadline: .seconds(20)) { await operation.value }
+            operation.cancel()
+        }
+    }
+
+    private func performNotificationEvaluation(lease: BodyBackgroundLease?, includesStress: Bool) async {
+        guard await engine.backgroundReadEligibility(protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable) == .eligible,
+              !Task.isCancelled, lease?.isValid ?? BodyAppRuntime.isForegroundActive else { return }
+        let inputs = captureRefreshInputs()
+        let context = currentDashboardCacheScope().signature
+        if let owner = workoutJournal {
+            await BodyNotificationDelivery.shared.deliverWorkouts(journal: await owner.snapshot(), lease: lease,
+                isCurrent: { @MainActor [weak self] in
+                    self?.mayApplyRefreshInputs(inputs) == true
+                        && (lease == nil ? BodyAppRuntime.isForegroundActive : (!BodyAppRuntime.isForegroundActive && lease?.isValid == true))
+                })
+        }
+        // Run once in the early delivery pass (or foreground seeding), using
+        // the successful current sleep refresh when available.
+        if (!includesStress || lease == nil), permissionSelection.includes(.sleep),
+           BodyNotificationPreferences.enabled(BodyNotificationPreferences.sleepKey) {
+            let now = Date(), calendar = Calendar.bodyGregorian
+            let stamp = observedMetricValidation[HealthMetricKind.sleep.rawValue]
+            let freshlyValidated = stamp?.contextSignature == context
+                && stamp.map { now.timeIntervalSince($0.date) >= 0 && now.timeIntervalSince($0.date) < 60 } == true
+            let sleep: SleepSummary?
+            if freshlyValidated {
+                sleep = healthSummary.sleep
+            } else {
+                sleep = await withBackgroundQueryPool { await engine.fetchNotificationSleepSummary(now: now, calendar: calendar) }
+            }
+            if let sleep {
+                await BodyNotificationDelivery.shared.deliverSleep(sleep, lease: lease,
+                    isCurrent: { @MainActor [weak self] in
+                        self?.mayApplyRefreshInputs(inputs) == true && self?.permissionSelection.includes(.sleep) == true
+                            && (lease == nil ? BodyAppRuntime.isForegroundActive : (!BodyAppRuntime.isForegroundActive && lease?.isValid == true))
+                    }, now: now, calendar: calendar)
+            }
+        }
+        guard includesStress, BodyNotificationPreferences.enabled(BodyNotificationPreferences.stressKey),
+              permissionSelection.includes(.heart), permissionSelection.includes(.sleep),
+              permissionSelection.includes(.workouts), permissionSelection.includes(.steps), permissionSelection.includes(.energy),
+              lease?.isValid ?? BodyAppRuntime.isForegroundActive,
+              currentStressRecordContextSignature == healthTrends.recordedStressContext else { return }
+        let now = Date(), calendar = Calendar.bodyGregorian
+        let snapshot = HealthDashboardSnapshot(summary: healthSummary, trends: healthTrends, activityRingHistory: activityRingHistory)
+        let baselines = snapshot.stressBackfillContext(chunkAnalyses: [], calendar: calendar).baselines(for: now)
+        guard baselines.quietHeartRate != nil,
+              let input = await engine.fetchNotificationStressInput(now: now, calendar: calendar),
+              mayApplyRefreshInputs(inputs), !Task.isCancelled,
+              lease?.isValid ?? BodyAppRuntime.isForegroundActive else { return }
+        await BodyNotificationDelivery.shared.evaluateStress(input: input, baselines: baselines, context: context,
+            lease: lease, isCurrent: { @MainActor [weak self] in
+                    self?.mayApplyRefreshInputs(inputs) == true
+                        && (lease == nil ? BodyAppRuntime.isForegroundActive : (!BodyAppRuntime.isForegroundActive && lease?.isValid == true))
+                }, now: now)
     }
 
     func observedMetricNeedsValidation(_ kind: HealthMetricKind, date: Date = Date()) -> Bool {

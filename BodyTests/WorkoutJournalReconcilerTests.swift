@@ -26,6 +26,54 @@ final class WorkoutJournalReconcilerTests: XCTestCase {
         .init(activityType: .running, start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 160))
     }
 
+    private actor CandidateRecorder {
+        var ids: [UUID] = []
+        func capture(_ entries: [WorkoutJournalEntry]) -> Bool { ids += entries.map(\.id); return true }
+        func recorded() -> [UUID] { ids }
+    }
+
+    func testCandidateSinkSkipsBootstrapAndExistingUUIDUpdates() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fake = FakeHealthStore(), first = workout(), recorder = CandidateRecorder()
+        let a = try anchor(1), b = try anchor(2), c = try anchor(3)
+        fake.scriptWorkoutChanges([
+            .success(.init(workouts: [first], deletedIDs: [], anchor: a)),
+            .success(.init(workouts: [], deletedIDs: [], anchor: a))])
+        let owner = WorkoutJournalReconciler(engine: engine(fake), file: directory.appendingPathComponent("journal.json"),
+            scope: scope, candidateSink: { entries, _, _ in await recorder.capture(entries) })
+        let bootstrap = await owner.scan()
+        XCTAssertEqual(bootstrap, .caughtUp)
+        var recorded = await recorder.recorded(); XCTAssertTrue(recorded.isEmpty)
+        fake.scriptWorkoutChanges([.success(.init(workouts: [first], deletedIDs: [], anchor: b))])
+        _ = await owner.scan(maxPages: 1)
+        recorded = await recorder.recorded(); XCTAssertTrue(recorded.isEmpty)
+        let second = workout()
+        fake.scriptWorkoutChanges([.success(.init(workouts: [second], deletedIDs: [], anchor: c))])
+        _ = await owner.scan(maxPages: 1)
+        recorded = await recorder.recorded(); XCTAssertEqual(recorded, [second.uuid])
+        _ = await owner.restart(scope: scope)
+        fake.scriptWorkoutChanges([.success(.init(workouts: [first, second], deletedIDs: [], anchor: c))])
+        _ = await owner.scan(maxPages: 1)
+        recorded = await recorder.recorded(); XCTAssertEqual(recorded, [second.uuid])
+    }
+
+    func testCandidateWriteFailureDoesNotAdvanceAnchor() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fake = FakeHealthStore(), a = try anchor(1), b = try anchor(2)
+        fake.scriptWorkoutChanges([.success(.init(workouts: [], deletedIDs: [], anchor: a))])
+        let owner = WorkoutJournalReconciler(engine: engine(fake), file: directory.appendingPathComponent("journal.json"),
+            scope: scope, candidateSink: { _, _, _ in false })
+        _ = await owner.scan(maxPages: 1)
+        fake.scriptWorkoutChanges([.success(.init(workouts: [workout()], deletedIDs: [], anchor: b))])
+        let failed = await owner.scan(maxPages: 1)
+        XCTAssertEqual(failed, .failed)
+        let journal = await owner.snapshot()
+        XCTAssertEqual(journal.anchor, a)
+        XCTAssertTrue(journal.entries.isEmpty)
+    }
+
     func testObservedWakeIsDurableUntilCaughtUpAndNeedsExplicitEligibility() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 final class BodyAppRuntime {
     static let shared = BodyAppRuntime {
+        BodyNotificationPreferences.migrate()
         BodyHealthPermissionSelection.migrateIfNeeded()
         return HealthKitWorkoutStore()
     }
@@ -20,6 +21,7 @@ final class BodyAppRuntime {
         else { observingStore?.healthChangeCoordinator?.enteredBackground() }
     }
 
+    let notificationRoute = BodyNotificationRoute()
     let workoutStore: HealthKitWorkoutStore
 
     func startObserving() {

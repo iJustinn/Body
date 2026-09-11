@@ -24,7 +24,8 @@ enum BodyHealthObservationPolicy {
     static func registrations(
         permissions: BodyHealthPermissionSelection,
         selection: BodyDashboardFetchSelection,
-        includesCompanionConsumers: Bool = false
+        includesCompanionConsumers: Bool = false,
+        includesNotificationConsumers: Bool? = nil
     ) -> [BodyHealthObservation] {
         let readable = BodyHealthReadTypes.readObjectTypes(for: permissions)
         // The app maintains the shared widget snapshot and watch payload even
@@ -33,6 +34,14 @@ enum BodyHealthObservationPolicy {
             ? Set(HealthWidgetMetric.allCases.map(\.healthMetricKind))
                 .union(WatchMetricKindKey.displayOrder.compactMap(HealthMetricKind.init(rawValue:)))
             : []
+        // Notification-only consumers require a wake, not dashboard history
+        // repair. Their current-day inputs are read by the transient evaluator.
+        var notificationKinds: Set<HealthMetricKind> = includesCompanionConsumers
+            && (includesNotificationConsumers ?? BodyNotificationPreferences.enabled(BodyNotificationPreferences.stressKey))
+            ? [.heartRate, .heartRateVariability, .steps, .activeEnergy, .sleep, .stress] : []
+        if includesCompanionConsumers, BodyNotificationPreferences.enabled(BodyNotificationPreferences.sleepKey) {
+            notificationKinds.insert(.sleep)
+        }
         var result: [BodyHealthObservation] = []
         func add(_ type: HKSampleType?, metrics: Set<HealthMetricKind>, immediate: Bool = false,
                  workouts: Bool = false) {
@@ -41,7 +50,7 @@ enum BodyHealthObservationPolicy {
             let ringInputs: Set<String> = [HKQuantityTypeIdentifier.activeEnergyBurned.rawValue,
                 HKQuantityTypeIdentifier.appleExerciseTime.rawValue, HKQuantityTypeIdentifier.appleStandTime.rawValue]
             let rings = selection.includesActivityRings && ringInputs.contains(type.identifier)
-            guard workouts || rings || !needed.isEmpty else { return }
+            guard workouts || rings || !needed.isEmpty || !metrics.isDisjoint(with: notificationKinds) else { return }
             result.append(.init(type: type, frequency: immediate ? .immediate : .hourly,
                                 metrics: needed, scansWorkouts: workouts, invalidatesActivityRings: rings))
         }

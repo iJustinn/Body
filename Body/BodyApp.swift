@@ -7,6 +7,7 @@ import SwiftUI
 
 @main
 struct BodyApp: App {
+    @UIApplicationDelegateAdaptor(BodyNotificationAppDelegate.self) private var notificationDelegate
     @Environment(\.scenePhase) private var scenePhase
     @State private var workoutStore: HealthKitWorkoutStore
     @State private var proStore: BodyProStore

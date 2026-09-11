@@ -84,7 +84,7 @@ actor MetricWarningBackgroundEvaluator {
         defer { evaluationInFlight = false }
         let context = evaluationContext()
         let calendar = calendar
-        guard defaults.bool(forKey: BodyAppearancePreference.metricWarningNotificationsKey) else {
+        guard BodyNotificationPreferences.enabled(BodyAppearancePreference.metricWarningNotificationsKey, defaults: defaults) else {
             return .skipped
         }
 
@@ -199,6 +199,7 @@ actor MetricWarningBackgroundEvaluator {
     /// headless engine itself receives thresholds captured from this evaluator.
     private func evaluationContext() -> [String] {
         let keys = [
+            BodyNotificationPreferences.masterKey,
             BodyAppearancePreference.metricWarningNotificationsKey,
             BodyAppearancePreference.metricWarningsKey,
             BodyAppearancePreference.metricWarningThresholdsKey,
