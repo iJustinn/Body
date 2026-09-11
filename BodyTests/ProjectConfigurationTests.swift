@@ -13,6 +13,20 @@ final class ProjectConfigurationTests: XCTestCase {
         try BodyTestSupport.requireProjectRoot()
     }
 
+    func testNotificationDocumentationAndTaskOwnership() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let plan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        let version = try BodyTestSupport.sourceText(at: "VersionHistory.md")
+        XCTAssertTrue(readme.contains("Notification delivery"))
+        XCTAssertTrue(readme.contains("Notifications/workouts.json"))
+        XCTAssertTrue(plan.contains("Notification feature acceptance (1.1.1 build 1)"))
+        XCTAssertTrue(version.contains("Build remains 1"))
+        let coordinator = try BodyTestSupport.sourceText(at: "Body/Services/BodyHealthChangeCoordinator.swift")
+        XCTAssertTrue(coordinator.contains("evaluateNewNotifications(lease: lease)"))
+        let scheduler = try BodyTestSupport.sourceText(at: "Body/Services/BodyDataRefreshScheduler.swift")
+        XCTAssertFalse(scheduler.contains("metricWarningNotificationsKey"))
+    }
+
     func testSettingsAboutTabsMatchCoinAboutSet() {
         XCTAssertEqual(
             BodySettingsAboutTab.allCases.map(\.title),

@@ -2,7 +2,9 @@
 
 ## 1.1.1 (build 1)
 
-- Opened the 1.1.1 line. No behavior changes yet; the entries below describe 1.1.0.
+- Added Sleep Data notifications for newly synced nights, with direct navigation to Sleep details.
+
+- Added Settings > Notifications, high-stress episode alerts, and synced-workout notifications that open workout details. Background delivery follows system scheduling. Existing warning preferences are preserved. Build remains 1.
 - Updated the app, widget, watch, and test bundle version to 1.1.1 build 1.
 
 ## 1.1.0 (build 11)
