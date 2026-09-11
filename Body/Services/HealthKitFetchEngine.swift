@@ -1167,8 +1167,9 @@ actor HealthKitFetchEngine {
         _ body: (@escaping @Sendable (Value) -> Void) -> Void
     ) async -> Value {
         let semaphore = HealthKitQueryPool.current.semaphore
-        await semaphore.acquire()
+        guard await semaphore.acquireForCurrentTask() else { return cancelledValue() }
         defer { semaphore.release() }
+        guard BodyBackgroundLease.current?.isValid != false else { return cancelledValue() }
         if Task.isCancelled {
             return cancelledValue()
         }
@@ -1224,8 +1225,9 @@ actor HealthKitFetchEngine {
         _ body: @escaping @Sendable () async -> Value
     ) async -> Value {
         let semaphore = HealthKitQueryPool.current.semaphore
-        await semaphore.acquire()
+        guard await semaphore.acquireForCurrentTask() else { return cancelledValue() }
         defer { semaphore.release() }
+        guard BodyBackgroundLease.current?.isValid != false else { return cancelledValue() }
         if Task.isCancelled {
             return cancelledValue()
         }
@@ -1980,8 +1982,9 @@ actor HealthKitFetchEngine {
         // Await it directly so cancellation reaches that query, while retaining
         // the same pool permit and existing query-depth telemetry.
         let semaphore = HealthKitQueryPool.current.semaphore
-        await semaphore.acquire()
+        guard await semaphore.acquireForCurrentTask() else { return nil }
         defer { semaphore.release() }
+        guard BodyBackgroundLease.current?.isValid != false else { return nil }
         guard !Task.isCancelled else { return nil }
         BodyRefreshProfile.shared.enterQuery()
         defer { BodyRefreshProfile.shared.exitQuery() }
@@ -2278,8 +2281,9 @@ actor HealthKitFetchEngine {
         // task still acquires, then falls straight through the cancellation
         // handler below and releases.
         let semaphore = HealthKitQueryPool.current.semaphore
-        await semaphore.acquire()
+        guard await semaphore.acquireForCurrentTask() else { return cancelledValue() }
         defer { semaphore.release() }
+        guard BodyBackgroundLease.current?.isValid != false else { return cancelledValue() }
         // Measurement only: counts this query against the in-flight depth for
         // the whole await, cancellation included.
         BodyRefreshProfile.shared.enterQuery()
@@ -2611,8 +2615,9 @@ actor HealthKitFetchEngine {
 
     private func fetchWorkoutObjects(predicate: NSPredicate, sort: NSSortDescriptor) async throws -> [HKWorkout] {
         let semaphore = HealthKitQueryPool.current.semaphore
-        await semaphore.acquire()
+        guard await semaphore.acquireForCurrentTask() else { throw CancellationError() }
         defer { semaphore.release() }
+        guard BodyBackgroundLease.current?.isValid != false else { throw CancellationError() }
         try Task.checkCancellation()
         BodyRefreshProfile.shared.enterQuery()
         defer { BodyRefreshProfile.shared.exitQuery() }
@@ -3309,8 +3314,9 @@ actor HealthKitFetchEngine {
     private func workoutCumulativeQuantity(for workout: HKWorkout,
         quantityType: HKQuantityType) async -> QueryOutcome<HKQuantity> {
         let semaphore = HealthKitQueryPool.current.semaphore
-        await semaphore.acquire()
+        guard await semaphore.acquireForCurrentTask() else { return .failure }
         defer { semaphore.release() }
+        guard BodyBackgroundLease.current?.isValid != false else { return .failure }
         guard !Task.isCancelled else { return .failure }
         BodyRefreshProfile.shared.enterQuery()
         defer { BodyRefreshProfile.shared.exitQuery() }

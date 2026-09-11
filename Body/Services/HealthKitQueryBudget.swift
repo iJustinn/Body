@@ -5,7 +5,7 @@
 
 import Foundation
 
-/// Which of the two HealthKit concurrency budgets a query spends
+/// Which HealthKit concurrency budget a query spends
 /// (RefreshOptimizationPlan-02 P0-C).
 ///
 /// `healthd` is a single XPC service, so past roughly a dozen concurrent
@@ -25,6 +25,7 @@ enum HealthKitQueryPool: Sendable {
     /// ring pagination, the Stress history walk and its input load, the
     /// workout-record baseline scan, lazy month loads, intraday day samples.
     case background
+    case appRefresh
 
     /// Pool for the current task. Queries default to `.interactive`; the
     /// background entry points bind `.background` around their whole task
@@ -43,6 +44,7 @@ enum HealthKitQueryPool: Sendable {
         switch self {
         case .interactive: return HealthKitQuerySemaphore.interactive
         case .background: return HealthKitQuerySemaphore.background
+        case .appRefresh: return HealthKitQuerySemaphore.appRefresh
         }
     }
 
@@ -50,6 +52,7 @@ enum HealthKitQueryPool: Sendable {
         switch self {
         case .interactive: return "interactive"
         case .background: return "background"
+        case .appRefresh: return "appRefresh"
         }
     }
 }
@@ -65,16 +68,16 @@ func withBackgroundQueryPool<Value>(
     _ operation: () async throws -> Value
 ) async rethrows -> Value {
     try await HealthKitQueryPool.$current.withValue(
-        .background,
+        BodyBackgroundLease.current == nil ? .background : .appRefresh,
         operation: operation,
         isolation: isolation
     )
 }
 
-/// FIFO permit pool bounding how many HealthKit queries one budget keeps in
+/// Permit pool bounding how many HealthKit queries one budget keeps in
 /// flight at once.
 ///
-/// Deliberately **not** cancellable while waiting: a waiter that is cancelled
+/// Legacy `acquire()` is deliberately **not** cancellable while waiting: a waiter that is cancelled
 /// still takes its permit and runs, and the query wrappers release in `defer`,
 /// so there is no path on which a permit is handed out and never returned. The
 /// alternative (resuming waiters with a `CancellationError`) buys nothing here
@@ -91,6 +94,8 @@ final class HealthKitQuerySemaphore: @unchecked Sendable {
     /// Small on purpose: these walks are latency-insensitive, and their whole
     /// job is to stay out of the refresh's way.
     static let background = HealthKitQuerySemaphore(limit: 4, name: "background")
+
+    static let appRefresh = HealthKitQuerySemaphore(limit: 2, name: "appRefresh")
 
     private let limit: Int
     private let name: String
@@ -119,6 +124,31 @@ final class HealthKitQuerySemaphore: @unchecked Sendable {
             BodyRefreshProfile.shared.notePoolDepth(name, depth: depth)
             continuation.resume()
         }
+    }
+
+    /// Bounded work never enters the legacy non-cancellable waiter queue.
+    /// A dedicated pool prevents a history walk from occupying these permits.
+    func acquireForCurrentTask() async -> Bool {
+        guard let lease = BodyBackgroundLease.current else {
+            await acquire()
+            return true
+        }
+        while lease.isValid && !Task.isCancelled {
+            if tryAcquire() { return true }
+            do { try await Task.sleep(for: .milliseconds(10)) }
+            catch { return false }
+        }
+        return false
+    }
+
+    func tryAcquire() -> Bool {
+        lock.lock()
+        guard inFlight < limit else { lock.unlock(); return false }
+        inFlight += 1
+        let depth = inFlight
+        lock.unlock()
+        BodyRefreshProfile.shared.notePoolDepth(name, depth: depth)
+        return true
     }
 
     /// Returns a permit, handing it straight to the oldest waiter if there is

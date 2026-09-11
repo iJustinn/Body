@@ -52,6 +52,26 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
     }
 
     private let lock = NSLock()
+    private var authorizationDecision: HKAuthorizationRequestStatus = .unnecessary
+    private var authorizationPromptCount = 0
+    private var authorizationStatusReadCount = 0
+
+    func scriptAuthorizationStatus(_ status: HKAuthorizationRequestStatus) {
+        lock.lock(); defer { lock.unlock() }
+        authorizationDecision = status
+    }
+
+    var authorizationCalls: (prompts: Int, statusReads: Int) {
+        lock.lock(); defer { lock.unlock() }
+        return (authorizationPromptCount, authorizationStatusReadCount)
+    }
+
+    private func recordedAuthorizationStatus() -> HKAuthorizationRequestStatus {
+        lock.lock(); defer { lock.unlock() }
+        authorizationStatusReadCount += 1
+        return authorizationDecision
+    }
+
     private var sampleScripts: [String: Script] = [:]
     private var sourceScripts: [String: Script] = [:]
     private var statisticsScripts: [String: Script] = [:]
@@ -275,6 +295,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
         read typesToRead: Set<HKObjectType>?,
         completion: @escaping @Sendable (Bool, (any Error)?) -> Void
     ) {
+        lock.lock(); authorizationPromptCount += 1; lock.unlock()
         completion(true, nil)
     }
 
@@ -286,7 +307,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
         toShare typesToShare: Set<HKSampleType>,
         read typesToRead: Set<HKObjectType>
     ) async throws -> HKAuthorizationRequestStatus {
-        .unnecessary
+        recordedAuthorizationStatus()
     }
 
     func save(_ objects: [HKObject], withCompletion completion: @escaping @Sendable (Bool, (any Error)?) -> Void) {
