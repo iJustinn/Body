@@ -77,6 +77,7 @@ struct BodySettingsView: View {
                         metricsSection
                         workoutsSection
                         aiSection
+                        notificationsSection
                         dataSection
                         aboutSection
                         bodyProEntryCard
@@ -600,6 +601,23 @@ struct BodySettingsView: View {
         }
     }
 
+    private var notificationsSection: some View {
+        BodySettingsCardSection("notifications.section") {
+            Button {
+                activeSheet = .notifications
+            } label: {
+                BodySettingsRowLabel(
+                    title: "notifications.section",
+                    value: nil,
+                    iconName: "bell.badge.fill",
+                    tintColor: .red,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     private var starredMetric: Binding<BodyHomeCardKind?> {
         Binding {
             BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
@@ -916,6 +934,8 @@ struct BodySettingsView: View {
                 isEnabled: $workoutsChartSwipeSwitchesMonth,
                 usesShortMonthNames: $workoutsMonthPickerUsesShortMonth
             )
+        case .notifications:
+            BodyNotificationSettingsSheet()
         case .aiReadiness:
             BodyReadinessAISettingsSheet(
                 isEnabled: $showReadinessAIComment,
@@ -1022,6 +1042,7 @@ enum BodySettingsSheet: String, Identifiable {
     case workoutRouteStyle
     case workoutMonthSwipe
     case aiReadiness
+    case notifications
     case units
     case source
     case permissions
@@ -3888,50 +3909,16 @@ private struct BodyMetricWarningsSettingsSheet: View {
     @Binding var thresholds: BodyMetricWarningThresholds
     let workoutStore: HealthKitWorkoutStore
 
-    @AppStorage(BodyAppearancePreference.metricWarningNotificationsKey) private var metricWarningNotificationsEnabled = false
     @AppStorage(BodyAppearancePreference.metricWarningsOnReadinessHeroKey) private var showsWarningsOnReadinessHero = true
 
     /// Needed for the high heart rate default, which tracks zone 3's lower bound.
     @State private var resolvedMaxHeartRate: Double?
-
-    /// Set when the system denied the notification request, so the row can tell
-    /// the user to turn notifications on in Settings.
-    @State private var notificationsDenied = false
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Warnings") {
             VStack(alignment: .leading, spacing: 12) {
                 BodyMetricWarningReadinessHeroRow(isEnabled: $showsWarningsOnReadinessHero)
                     .bodyCardBackground(translucent: true)
-
-                BodyMetricWarningNotificationsRow(isEnabled: Binding {
-                    metricWarningNotificationsEnabled
-                } set: { isEnabled in
-                    metricWarningNotificationsEnabled = isEnabled
-                    if isEnabled {
-                        Task { await enableNotifications() }
-                    } else {
-                        notificationsDenied = false
-                        BodyBackgroundRefreshScheduler.cancelPending()
-                    }
-                })
-                .bodyCardBackground(translucent: true)
-
-                Text("When on, Body periodically checks in the background and sends a notification the first time a warning is detected each day. Checks are scheduled by the system and are not real-time.")
-                    .font(.system(.footnote, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
-
-                if notificationsDenied {
-                    Text("Notifications are turned off for Body. Enable them in Settings to get warning alerts.")
-                        .font(.system(.footnote, design: .rounded))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 4)
-                }
 
                 ForEach(MetricWarningKind.allCases) { kind in
                     VStack(spacing: 0) {
@@ -3973,31 +3960,6 @@ private struct BodyMetricWarningsSettingsSheet: View {
         }
         .task {
             resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
-            await reflectNotificationAuthorization()
-        }
-    }
-
-    /// Asks for notification permission; reverts the toggle when it is refused.
-    private func enableNotifications() async {
-        let center = UNUserNotificationCenter.current()
-        let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
-        if granted {
-            notificationsDenied = false
-            BodyBackgroundRefreshScheduler.schedule()
-        } else {
-            metricWarningNotificationsEnabled = false
-            notificationsDenied = true
-        }
-    }
-
-    /// Turns the toggle back off when the user revoked notifications elsewhere.
-    private func reflectNotificationAuthorization() async {
-        guard metricWarningNotificationsEnabled else { return }
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        if settings.authorizationStatus == .denied {
-            metricWarningNotificationsEnabled = false
-            notificationsDenied = true
-            BodyBackgroundRefreshScheduler.cancelPending()
         }
     }
 
@@ -4013,46 +3975,7 @@ private struct BodyMetricWarningsSettingsSheet: View {
     }
 }
 
-private struct BodyMetricWarningNotificationsRow: View {
-    @Binding var isEnabled: Bool
 
-    var body: some View {
-        HStack(spacing: 14) {
-            BodySettingsIconTile(iconName: "bell.badge.fill", color: .yellow)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Notify Me")
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-
-                Text("Send a notification when a warning is detected")
-                    .font(.system(.subheadline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 12)
-
-            Toggle("Notify Me", isOn: $isEnabled)
-                .labelsHidden()
-                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
-                .accessibilityValue(isEnabled ? "On" : "Off")
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-}
-
-/// Toggles the warning badges that sit next to the readiness level on the
-/// Home readiness hero. Off leaves the Home card and detail page warnings
-/// untouched, it only hides the badges on the hero.
 private struct BodyMetricWarningReadinessHeroRow: View {
     @Binding var isEnabled: Bool
 
@@ -5404,4 +5327,110 @@ private struct BodySettingsInfoCard: View {
     BodySettingsView()
         .environment(HealthKitWorkoutStore())
         .environment(ReadinessCommentGenerator())
+}
+
+private struct BodyNotificationSettingsSheet: View {
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
+    @AppStorage(BodyNotificationPreferences.masterKey) private var master = true
+    @AppStorage(BodyAppearancePreference.metricWarningNotificationsKey) private var warnings = false
+    @AppStorage(BodyNotificationPreferences.stressKey) private var stress = true
+    @AppStorage(BodyNotificationPreferences.workoutKey) private var workouts = true
+    @AppStorage(BodyNotificationPreferences.sleepKey) private var sleep = true
+    @State private var authorization: UNAuthorizationStatus = .notDetermined
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "notifications.section") {
+            VStack(alignment: .leading, spacing: 12) {
+                BodySettingsCardSection("notifications.all") {
+                    row("notifications.all", subtitle: "notifications.all.footer", icon: "bell.badge.fill", color: .red,
+                        value: $master, key: BodyNotificationPreferences.masterKey)
+                }
+                BodySettingsCardSection("notifications.categories") {
+                    row("notifications.warnings", subtitle: "notifications.warnings.footer",
+                        icon: "exclamationmark.triangle.fill", color: .orange,
+                        value: $warnings, key: BodyAppearancePreference.metricWarningNotificationsKey)
+                    Divider()
+                        .padding(.leading, 18)
+                    row("notifications.stress", subtitle: "notifications.stress.footer",
+                        icon: "waveform.path.ecg", color: .purple,
+                        value: $stress, key: BodyNotificationPreferences.stressKey)
+                    Divider()
+                        .padding(.leading, 18)
+                    row("notifications.workouts", subtitle: "notifications.workouts.footer",
+                        icon: "figure.run", color: .green,
+                        value: $workouts, key: BodyNotificationPreferences.workoutKey)
+                    Divider()
+                        .padding(.leading, 18)
+                    row("notifications.sleep", subtitle: "notifications.sleep.footer",
+                        icon: "bed.double.fill", color: .indigo,
+                        value: $sleep, key: BodyNotificationPreferences.sleepKey)
+                }
+                .disabled(!master)
+
+                Text("notifications.timing")
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+
+                if authorization == .denied {
+                    Button("notifications.permission.settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    }
+                } else if authorization == .notDetermined {
+                    Button("notifications.permission.enable") {
+                        Task { await BodyNotificationPermission.shared.request(); await reflectAuthorization() }
+                    }
+                    .disabled(!master)
+                }
+            }
+        }
+        .task(id: scenePhase) { await reflectAuthorization() }
+    }
+
+    private func row(_ title: LocalizedStringKey, subtitle: LocalizedStringKey, icon: String, color: Color,
+                     value: Binding<Bool>, key: String) -> some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: icon, color: color)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                Text(subtitle)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            Toggle(title, isOn: binding(value, key: key))
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityLabel(title)
+                .accessibilityValue(Text(value.wrappedValue ? "On" : "Off"))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private func binding(_ value: Binding<Bool>, key: String) -> Binding<Bool> {
+        Binding(get: { value.wrappedValue }, set: { enabled in
+            value.wrappedValue = enabled
+            BodyNotificationPreferences.changed(key: key)
+            workoutStore.healthChangeCoordinator?.contextDidChange()
+            if enabled {
+                Task { await BodyNotificationPermission.shared.request(); await reflectAuthorization() }
+            }
+        })
+    }
+
+    private func reflectAuthorization() async {
+        authorization = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
 }

@@ -341,6 +341,8 @@ enum HomeMetricRoute: Hashable {
 }
 
 struct BodyHomeView: View {
+    @Bindable private var notificationRoute = BodyAppRuntime.shared.notificationRoute
+    @State private var metricNavigationPath: [HomeMetricRoute] = []
     @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
@@ -422,7 +424,7 @@ struct BodyHomeView: View {
         // three times per pass, on both layout paths.
         let trendCards = homeTrendCards
 
-        return NavigationStack {
+        return NavigationStack(path: $metricNavigationPath) {
             // The page width comes from a GeometryReader, which always fills what the
             // navigation host proposes. On iPad (windowed apps, Stage Manager) the
             // vertical ScrollView reports its content's width as its own, so any width
@@ -494,6 +496,12 @@ struct BodyHomeView: View {
             .frame(width: page.size.width, height: page.size.height)
             }
             .accessibilityHidden(readinessDetailPresented)
+            .task(id: notificationRoute.ready ? notificationRoute.sleepRequestID : nil) {
+                guard notificationRoute.ready, notificationRoute.sleepRequestID != nil else { return }
+                readinessDetailPresented = false
+                metricNavigationPath = [.metric(.sleep)]
+                notificationRoute.sleepRequestID = nil
+            }
             .navigationDestination(for: HomeMetricRoute.self) { route in
                 switch route {
                 case .metric(let kind), .trend(let kind), .basicsTrend(let kind):

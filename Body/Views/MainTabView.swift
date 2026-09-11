@@ -37,7 +37,14 @@ enum BodyMainTab: Hashable, CaseIterable {
 }
 
 struct MainTabView: View {
-    @State private var selectedTab: BodyMainTab = .summary
+    @Bindable private var notificationRoute = BodyAppRuntime.shared.notificationRoute
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
+    @State private var showsNotificationExplainer = false
+    private var selectedTab: BodyMainTab {
+        get { notificationRoute.selectedTab }
+        nonmutating set { notificationRoute.selectedTab = newValue }
+    }
     @State private var summaryReselectCount = 0
     @State private var isFirstLaunchOverlayPresented = false
     @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
@@ -102,8 +109,32 @@ struct MainTabView: View {
         }
     }
 
+    private var notificationReady: Bool {
+        scenePhase == .active && !showsOnboarding && !showsUpdateOnboarding && !isFirstLaunchOverlayPresented
+            && !workoutStore.needsInitialHealthDataLoad && !workoutStore.isRefreshing
+    }
+
     var body: some View {
         content
+            .task(id: notificationReady) {
+                notificationRoute.ready = notificationReady
+                guard notificationReady else { return }
+                if UserDefaults.standard.bool(forKey: BodyNotificationPreferences.onboardingPromptKey) {
+                    showsNotificationExplainer = true
+                } else if UserDefaults.standard.bool(forKey: BodyNotificationPreferences.automaticPromptKey) {
+                    await BodyNotificationPermission.shared.request()
+                    UserDefaults.standard.set(false, forKey: BodyNotificationPreferences.automaticPromptKey)
+                }
+            }
+            .alert("notifications.permission.title", isPresented: $showsNotificationExplainer) {
+                Button("notifications.permission.enable") {
+                    UserDefaults.standard.set(false, forKey: BodyNotificationPreferences.onboardingPromptKey)
+                    Task { await BodyNotificationPermission.shared.request() }
+                }
+                Button("notifications.permission.later", role: .cancel) {
+                    UserDefaults.standard.set(false, forKey: BodyNotificationPreferences.onboardingPromptKey)
+                }
+            } message: { Text("notifications.permission.explainer") }
             .environment(\.summaryReselectCount, summaryReselectCount)
             .accessibilityHidden(isFirstLaunchOverlayPresented || showsOnboarding || showsUpdateOnboarding)
             .overlay(alignment: .top) {

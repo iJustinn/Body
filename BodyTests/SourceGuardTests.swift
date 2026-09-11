@@ -4379,10 +4379,14 @@ final class SourceGuardTests: XCTestCase {
         let stackStart = try XCTUnwrap(
             settingsSource.range(of: "VStack(alignment: .leading, spacing: 22) {")?.lowerBound
         )
-        let settingsStack = String(settingsSource[stackStart...].prefix(400))
+        let settingsStack = String(settingsSource[stackStart...].prefix(600))
         let appearanceSectionRange = try XCTUnwrap(settingsStack.range(of: "appearanceSection"))
         let metricsSectionRange = try XCTUnwrap(settingsStack.range(of: "metricsSection"))
         let dataSectionRange = try XCTUnwrap(settingsStack.range(of: "dataSection"))
+        let aiRange = try XCTUnwrap(settingsStack.range(of: "aiSection"))
+        let notificationsRange = try XCTUnwrap(settingsStack.range(of: "notificationsSection"))
+        XCTAssertLessThan(aiRange.lowerBound, notificationsRange.lowerBound)
+        XCTAssertLessThan(notificationsRange.lowerBound, dataSectionRange.lowerBound)
         let iconRange = try XCTUnwrap(appearanceBlock.range(of: #"title: "Icon""#))
         let sleepRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Sleep""#))
         let unitsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Units""#))
