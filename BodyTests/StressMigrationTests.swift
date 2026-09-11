@@ -262,9 +262,9 @@ final class StressMigrationTests: XCTestCase {
         )
 
         XCTAssertTrue(fetch.includes(.sleep))
-        XCTAssertTrue(fetch.includes(.steps))
+        XCTAssertFalse(fetch.includes(.steps), "Radar uses overnight vitals; it must not request Stress movement inputs")
         XCTAssertTrue(fetch.isInputOnly(.sleep))
-        XCTAssertTrue(fetch.isInputOnly(.steps))
+        XCTAssertFalse(fetch.isInputOnly(.steps))
         XCTAssertTrue(fetch.includesFullPayload(.bodyRadar))
     }
 }

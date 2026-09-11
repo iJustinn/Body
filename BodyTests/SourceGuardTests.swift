@@ -2699,7 +2699,9 @@ final class SourceGuardTests: XCTestCase {
         // One post-acquire bail and one cancellation resume per wrapper.
         XCTAssertEqual(engineSource.occurrenceCount(of: "if Task.isCancelled {"), 2)
         XCTAssertEqual(engineSource.occurrenceCount(of: "box.cancel(cancelledValue: cancelledValue())"), 2)
-        XCTAssertFalse(budgetSource.contains("Task.isCancelled"))
+        XCTAssertTrue(budgetSource.contains("while lease.isValid && !Task.isCancelled"))
+        XCTAssertTrue(budgetSource.contains("if tryAcquire() { return true }"))
+        XCTAssertTrue(engineSource.contains("guard await semaphore.acquireForCurrentTask() else { return cancelledValue() }"))
         // The external bodies must not reach back into engine state, or the
         // unstructured hop would be an actor-isolation violation.
         XCTAssertFalse(engineSource.contains("store: healthStore,"))
@@ -2873,7 +2875,7 @@ final class SourceGuardTests: XCTestCase {
         }
         XCTAssertTrue(signatureBlock.contains("let sources = bodyRadarSignedSourceKinds"))
         // The recompute trigger stays on the narrower input set.
-        XCTAssertTrue(storeSource.contains("recomputesBodyRadar: Self.bodyRadarInputMetricKinds.contains(kind)"))
+        XCTAssertTrue(storeSource.contains("recomputesBodyRadar: !observed && Self.bodyRadarInputMetricKinds.contains(kind)"))
     }
 
     func testBodyRadarRecordContextSignatureTracksVitalSourceChanges() {
@@ -4141,16 +4143,24 @@ final class SourceGuardTests: XCTestCase {
     }
 
     func testDaySampleSidecarIsPersistedFromEnoughCallSites() throws {
-        // `persistDaySampleSidecar()` is what makes the day-sample sidecar durable —
-        // including the lazily fetched intraday merge that lets the metric detail
-        // Day View render cached data instantly on the next launch. Guard the call
-        // count so a future refactor can't silently drop that persistence.
-        // Source-setting edits share `persistContextChange()`, which saves
-        // compatible series and their per-metric scope instead of truncating
-        // the entire sidecar. Lazy loads still persist their own merges.
-        let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
-
-        XCTAssertGreaterThanOrEqual(storeSource.occurrenceCount(of: "persistDaySampleSidecar()"), 6)
+        // Protect the actual owners, not a text count that includes comments
+        // and the declaration. Source edits were consolidated into one owner;
+        // each lazy input owner must still persist its successfully admitted data.
+        let source = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        for name in ["loadIntradayMetricSamplesIfNeeded", "loadStressInputSamples", "persistContextChange"] {
+            let start = try XCTUnwrap(source.range(of: "func \(name)("))
+            let tail = source[start.upperBound...]
+            let end = try XCTUnwrap(tail.range(of: "\n    (?:private )?func ", options: .regularExpression))
+            XCTAssertTrue(tail[..<end.lowerBound].contains("persistDaySampleSidecar()"), name)
+        }
+        let start = try XCTUnwrap(source.range(of: "private func persistDaySampleSidecar()"))
+        let tail = source[start.upperBound...]
+        let end = try XCTUnwrap(tail.range(of: "\n    private func "))
+        let persistence = tail[..<end.lowerBound]
+        XCTAssertTrue(persistence.contains("guard token.isValid"))
+        XCTAssertTrue(persistence.contains("HealthDashboardSnapshotStore.saveWithOutcome("))
+        XCTAssertTrue(persistence.contains("metadata: persistenceMetadata"))
+        XCTAssertTrue(persistence.contains("authoritativeDaySampleSeries: daySampleWriteIntent"))
     }
 
     func testBackgroundWarningRefreshIsRegisteredAndScoped() throws {

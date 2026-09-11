@@ -38,7 +38,7 @@ actor MetricWarningBackgroundEvaluator {
     /// The one instance both the background task and the foreground seeding go
     /// through, so every ledger read-modify-write is serialized by this actor.
     static let shared = MetricWarningBackgroundEvaluator(
-        isForegroundActive: { BodyBackgroundRefreshScheduler.isAppForegroundActive }
+        isForegroundActive: { await BodyAppRuntime.isForegroundActive }
     )
 
     /// Ceiling on the HealthKit work. BGAppRefresh gives ~30s wall-clock; leaving
@@ -245,8 +245,12 @@ actor MetricWarningBackgroundEvaluator {
         let calendar = calendar
         // Detached so the fetch does not sit on this actor's executor while it
         // awaits the engine actor.
+        let lease = BodyBackgroundLease.current ?? BodyBackgroundLease(duration: deadline)
+        defer { lease.invalidate() }
         let work = Task.detached {
-            await engine.fetchCurrentMetricWarnings(kinds: kinds, calendar: calendar, now: Date())
+            await lease.run {
+                await engine.fetchCurrentMetricWarnings(kinds: kinds, calendar: calendar, now: Date())
+            }
         }
         let outcome = await OneShotDeadlineRace.run(deadline: deadline) {
             await work.value

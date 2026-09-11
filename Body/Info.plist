@@ -5,6 +5,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.zihengthedeveloper.Body.warningRefresh</string>
+		<string>com.zihengthedeveloper.Body.dataRefresh</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

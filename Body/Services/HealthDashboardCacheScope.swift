@@ -5,11 +5,16 @@ import Foundation
 final class HealthDashboardPublicationToken: @unchecked Sendable {
     private let lock = NSLock()
     private var valid = true
+    private let isCurrent: @Sendable () -> Bool
+
+    init(isCurrent: @escaping @Sendable () -> Bool = { true }) {
+        self.isCurrent = isCurrent
+    }
 
     var isValid: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return valid
+        return valid && isCurrent()
     }
 
     func invalidate() {

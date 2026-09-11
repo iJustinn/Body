@@ -77,7 +77,7 @@ extension HealthKitFetchEngine {
 
     static let healthSourceDiscoveryFreshnessInterval: TimeInterval = 24 * 60 * 60
 
-    private func hasFreshHealthSources(for kind: HealthMetricKind, now: Date) -> Bool {
+    func hasFreshHealthSources(for kind: HealthMetricKind, now: Date) -> Bool {
         guard let date = healthSourceDiscoveryDates[kind] else { return false }
         let elapsed = now.timeIntervalSince(date)
         return elapsed >= 0 && elapsed < Self.healthSourceDiscoveryFreshnessInterval
@@ -184,14 +184,15 @@ extension HealthKitFetchEngine {
     /// (H4). Deliberately does NOT
     /// record `fetchedHealthDataSourcePermissionRawValue`: this is a partial
     /// discovery and must never short-circuit the full one.
-    func discoverHealthSources(for kinds: Set<HealthMetricKind>, now: Date = Date()) async {
+    @discardableResult
+    func discoverHealthSources(for kinds: Set<HealthMetricKind>, now: Date = Date()) async -> [HealthMetricKind: [BodyHealthDataSourceOption]] {
         let pending = kinds.filter { kind in
             !hasFreshHealthSources(for: kind, now: now)
                 && kind.supportsHealthDataSourceSelection
                 && permissionSelection.includes(healthPermission(forSourceKind: kind))
                 && !healthSampleTypes(forSourceKind: kind).isEmpty
         }
-        guard !pending.isEmpty else { return }
+        guard !pending.isEmpty else { return [:] }
         let contextRevision = queryContextRevision
         markHealthSourcesDirty(for: pending)
         let discoveryGeneration = healthSourceDiscoveryGeneration
@@ -209,18 +210,21 @@ extension HealthKitFetchEngine {
         }
 
         guard queryContextRevision == contextRevision,
-              healthSourceDiscoveryGeneration == discoveryGeneration else { return }
+              healthSourceDiscoveryGeneration == discoveryGeneration else { return [:] }
+        var optionsByKind: [HealthMetricKind: [BodyHealthDataSourceOption]] = [:]
         for kindSource in kindSources {
             guard let sources = kindSource.sources else { continue }
-            let (_, sourcesByID) = BodyHealthSourceResolver.sourceOptionsAndMap(
+            let (options, sourcesByID) = BodyHealthSourceResolver.sourceOptionsAndMap(
                 from: sources,
                 combinesSourcesByName: combinesHealthDataSourcesByName,
                 customGroups: customHealthSourceGroups,
                 displayName: Self.displayName(for:)
             )
+            optionsByKind[kindSource.kind] = options
             healthSourcesByKind[kindSource.kind] = sourcesByID
             healthSourceDiscoveryDates[kindSource.kind] = now
         }
+        return optionsByKind
     }
 
     private func fetchKindSources(for kind: HealthMetricKind) async -> KindSources {
@@ -248,8 +252,9 @@ extension HealthKitFetchEngine {
     /// that one kind, not exact.
     private func discoverKindSourcesBudgeted(for kind: HealthMetricKind) async -> [HKSource]? {
         let semaphore = HealthKitQueryPool.current.semaphore
-        await semaphore.acquire()
+        guard await semaphore.acquireForCurrentTask() else { return nil }
         defer { semaphore.release() }
+        guard BodyBackgroundLease.current?.isValid != false else { return nil }
         guard !Task.isCancelled else { return nil }
 
         let healthStore = healthStore

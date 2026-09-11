@@ -444,7 +444,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(readme.contains("general statistics and permission handling are unchanged"))
         XCTAssertTrue(readme.contains("Failed or interrupted attempts never clear dirty obligations"))
         XCTAssertFalse(app.contains("BODY_WORKOUT_JOURNAL_DEVICE_VALIDATION"))
-        XCTAssertTrue(app.contains("State(initialValue: HealthKitWorkoutStore())"))
+        XCTAssertTrue(app.contains("State(initialValue: BodyAppRuntime.shared.workoutStore)"))
+        let runtime = try BodyTestSupport.sourceText(at: "Body/Services/BodyAppRuntime.swift")
+        XCTAssertTrue(runtime.contains("BodyHealthPermissionSelection.migrateIfNeeded()"))
+        XCTAssertTrue(runtime.contains("return HealthKitWorkoutStore()"))
     }
 
     func testRecordValidationDocumentationStaysInSync() throws {

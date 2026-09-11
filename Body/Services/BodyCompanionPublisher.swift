@@ -132,10 +132,11 @@ final class BodyCompanionPublisher {
     /// off-actor.
     func saveWidgetSnapshot(
         _ input: BodyCompanionPublishInput.Widget,
-        isCurrent: @escaping @Sendable () -> Bool = { true }
+        isCurrent: @escaping @Sendable () -> Bool = { true },
+        completion: @escaping @Sendable () -> Void = {}
     ) {
         HealthKitWorkoutStore.snapshotPersistQueue.async {
-            guard isCurrent() else { return }
+            guard isCurrent() else { completion(); return }
             let snapshot = HealthWidgetSnapshotBuilder.make(
                 trends: input.shared.trends,
                 summary: input.shared.summary,
@@ -146,8 +147,10 @@ final class BodyCompanionPublisher {
                 showSleepScore: input.shared.showSleepScore,
                 primarySourceName: { input.primarySourceNames[$0] }
             )
-            if isCurrent(), HealthWidgetSnapshotStore.save(snapshot) {
-                Task { await BodyWidgetReloadCoalescer.shared.requestReload() }
+            let changed = isCurrent() && HealthWidgetSnapshotStore.save(snapshot)
+            Task { @MainActor in
+                if changed, isCurrent() { BodyWidgetReloadCoalescer.shared.requestReload() }
+                completion()
             }
         }
     }
@@ -165,7 +168,8 @@ final class BodyCompanionPublisher {
     /// wiped state (H7).
     func publishWatchSnapshot(
         _ input: BodyCompanionPublishInput,
-        isEpochCurrent: @escaping @MainActor @Sendable (Int) -> Bool
+        isEpochCurrent: @escaping @MainActor @Sendable (Int) -> Bool,
+        completion: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         let send = self.send
         HealthKitWorkoutStore.snapshotPersistQueue.async {
@@ -288,6 +292,7 @@ final class BodyCompanionPublisher {
             let permissionRawValue = input.permissionRawValue
             let captureSequence = input.captureSequence
             Task { @MainActor in
+                defer { completion() }
                 // A Clear Cache that bumped the epoch after this snapshot was
                 // captured must win — don't ship pre-clear metrics onto the wiped
                 // state (H7). The reset send in `clearLocalCache` blanks the watch.
