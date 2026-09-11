@@ -7,8 +7,9 @@ extension HealthKitFetchEngine {
     func fetchWorkoutChanges(_ request: BodyWorkoutChangesRequest) async -> BodyHealthReadOutcome<BodyWorkoutChanges> {
         guard permissionSelection.includes(.workouts) else { return .cancelled }
         let semaphore = HealthKitQueryPool.current.semaphore
-        await semaphore.acquire()
+        guard await semaphore.acquireForCurrentTask() else { return .cancelled }
         defer { semaphore.release() }
+        guard BodyBackgroundLease.current?.isValid != false else { return .cancelled }
         guard !Task.isCancelled else { return .cancelled }
         BodyRefreshProfile.shared.enterQuery()
         defer { BodyRefreshProfile.shared.exitQuery() }

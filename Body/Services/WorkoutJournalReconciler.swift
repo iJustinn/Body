@@ -42,6 +42,28 @@ actor WorkoutJournalReconciler {
 
     func snapshot() -> WorkoutChangeJournal { journal }
 
+    /// A wake does not include affected dates. Persist its scan request in the
+    /// existing journal; do not create a second workout dirty ledger.
+    @discardableResult
+    func noteObservedChange() -> Bool {
+        var next = journal
+        next.pendingObservation = UUID()
+        next.revision &+= 1
+        // Even on write failure retain the invalidation and fence in-flight
+        // scans. The next scan first retries this pending state.
+        journal = next
+        needsSave = true
+        admissionEpoch &+= 1
+        return persistPendingRestart()
+    }
+
+    /// Headless callers pass the non-prompting decision explicitly; they must
+    /// not depend on the UI store's authorization state having been populated.
+    func scanInBackground(eligibility: BodyBackgroundReadEligibility, deadline: Duration) async -> Result {
+        guard eligibility == .eligible else { return .failed }
+        return await scan(maxPages: 1, deadline: deadline)
+    }
+
     /// Scope/anchor repair preserves canonical history but immediately fences work.
     @discardableResult
     func restart(scope: WorkoutJournalScope) -> Bool {
@@ -152,9 +174,10 @@ actor WorkoutJournalReconciler {
                           && $0.start.timeIntervalSince1970.isFinite && $0.end.timeIntervalSince1970.isFinite
                           && $0.duration.isFinite && $0.duration >= 0 }) else { return .failed }
                 let empty = entries.isEmpty && deleted.isEmpty
-                if empty && journal.bootstrapComplete && journal.anchor == anchor { return .caughtUp }
+                if empty && journal.bootstrapComplete && journal.anchor == anchor && journal.pendingObservation == nil { return .caughtUp }
                 var next = journal
                 next.apply(additions: entries, deletedIDs: deleted, nextAnchor: anchor)
+                if empty { next.pendingObservation = nil }
                 guard next.entries.count <= Self.entryLimit, (next.staging?.count ?? 0) <= Self.entryLimit else {
                     return .capacityExceeded
                 }

@@ -26,6 +26,41 @@ final class WorkoutJournalReconcilerTests: XCTestCase {
         .init(activityType: .running, start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 160))
     }
 
+    func testObservedWakeIsDurableUntilCaughtUpAndNeedsExplicitEligibility() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("journal.json"), fake = FakeHealthStore()
+        let a = try anchor(1)
+        fake.scriptWorkoutChanges([.success(.init(workouts: [], deletedIDs: [], anchor: a))])
+        let owner = WorkoutJournalReconciler(engine: engine(fake), file: file, scope: scope)
+        let captured = await owner.noteObservedChange()
+        XCTAssertTrue(captured)
+        XCTAssertNotNil(WorkoutChangeJournalStore.load(file: file)?.pendingObservation)
+        let denied = await owner.scanInBackground(eligibility: .deferred, deadline: .seconds(1))
+        XCTAssertEqual(denied, .failed)
+        XCTAssertTrue(fake.workoutChangeRequests.isEmpty)
+        let completed = await owner.scanInBackground(eligibility: .eligible, deadline: .seconds(1))
+        XCTAssertEqual(completed, .caughtUp)
+        let stored = try XCTUnwrap(WorkoutChangeJournalStore.load(file: file))
+        XCTAssertNil(stored.pendingObservation)
+        XCTAssertTrue(stored.requiresFullRepair, "a caught-up anchor does not acknowledge dependent repairs")
+    }
+
+    func testObservedWakeWithUnchangedAnchorStillCommitsReceiptRemoval() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("journal.json"), fake = FakeHealthStore()
+        let a = try anchor(1)
+        fake.scriptWorkoutChanges([.success(.init(workouts: [], deletedIDs: [], anchor: a)),
+                                   .success(.init(workouts: [], deletedIDs: [], anchor: a))])
+        let owner = WorkoutJournalReconciler(engine: engine(fake), file: file, scope: scope)
+        _ = await owner.scan()
+        _ = await owner.noteObservedChange()
+        let result = await owner.scanInBackground(eligibility: .eligible, deadline: .seconds(1))
+        XCTAssertEqual(result, .caughtUp)
+        XCTAssertNil(WorkoutChangeJournalStore.load(file: file)?.pendingObservation)
+    }
+
     func testPagedBootstrapReloadDeletionAndStaleAcknowledgment() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
