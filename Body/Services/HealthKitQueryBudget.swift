@@ -60,17 +60,16 @@ enum HealthKitQueryPool: Sendable {
 /// Runs `operation` with every HealthKit query it reaches charged to the
 /// background budget instead of the interactive one.
 ///
-/// `isolation` is forwarded so `operation` keeps running on the caller's actor:
+/// `nonisolated(nonsending)` keeps `operation` running on the caller's actor:
 /// several of these bodies capture non-`Sendable` HealthKit closures, and the
 /// ring query in particular is unstructured precisely to stay on the engine.
+nonisolated(nonsending)
 func withBackgroundQueryPool<Value>(
-    isolation: isolated (any Actor)? = #isolation,
-    _ operation: () async throws -> Value
+    _ operation: nonisolated(nonsending) () async throws -> Value
 ) async rethrows -> Value {
     try await HealthKitQueryPool.$current.withValue(
         BodyBackgroundLease.current == nil ? .background : .appRefresh,
-        operation: operation,
-        isolation: isolation
+        operation: operation
     )
 }
 

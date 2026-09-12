@@ -23,11 +23,11 @@ final class BodyBackgroundLease: @unchecked Sendable {
         lock.unlock()
     }
 
-    func run<Value>(isolation: isolated (any Actor)? = #isolation,
-                    _ operation: () async throws -> Value) async rethrows -> Value {
+    nonisolated(nonsending)
+    func run<Value>(_ operation: nonisolated(nonsending) () async throws -> Value) async rethrows -> Value {
         try await Self.$current.withValue(self, operation: {
-            try await HealthKitQueryPool.$current.withValue(.appRefresh, operation: operation, isolation: isolation)
-        }, isolation: isolation)
+            try await HealthKitQueryPool.$current.withValue(.appRefresh, operation: operation)
+        })
     }
 }
 
