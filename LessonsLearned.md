@@ -4,11 +4,12 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
-### 2026-09-12 - Preserve Xcode's watch test scheme macro expansion
-- Symptom: `BodyWatchTests.xcscheme` repeatedly becomes modified when Xcode restores `ProfileAction/MacroExpansion` referencing `BodyWatch.app`.
-- Cause: Cleanup commits repeatedly removed the block, including after a September 7 commit documented that Xcode writes it back.
-- Fix: Keep the Xcode-written block in the shared scheme and commit it as the baseline. The referenced target `710000362E00000100000036` is the valid `BodyWatch` target.
-- Reuse: Do not remove this block as stale or generated noise. Preserve Xcode's serialized scheme metadata unless a deliberate scheme behavior change requires editing it.
+### 2026-09-12 - Concurrent Xcode GUI and MCP service rewrite watch schemes
+- Symptom: `BodyWatchTests.xcscheme` alternates between having and omitting `ProfileAction/MacroExpansion` every few seconds, while `BodyWatch.xcscheme` is repeatedly rewritten with identical contents. The loop also occurs after moving the repository from Google Drive to Desktop.
+- Confirmed cause: A 10-second Instruments File Activity trace showed both the visible `Xcode` process and the separate `Xcode Service` process writing and atomically replacing these same files. The service is Apple's MCP host at `Xcode.app/Contents/Developer/Library/Xcode/Agents/Xcode Service.app` (bundle ID `com.apple.dt.mcp-server`). Each process reacts to the other's scheme saves.
+- Verification: The loop continued with Otty's Git tab closed and immediately after quitting Otty. After the background service exited, the scheme stopped changing; reopening Otty with normal Xcode still open produced zero rewrites during a 45-second observation. Otty reopening did not restart the service in that check.
+- Resolution: Ensure only one Xcode instance manages the workspace. If the loop returns, inspect both the GUI and background MCP service before changing scheme XML. Prefer closing the duplicate workspace or restarting its stale MCP service; preserve unrelated workspaces and active agent operations. The local `xcrun mcpbridge --help` documents `MCP_XCODE_PID` for explicitly selecting the Xcode process a client connects to.
+- Reuse: Removing/restoring the macro-expansion block, changing profile settings, clearing DerivedData, resetting window state, and stripping old sync attributes did not resolve this incident. All unsuccessful experiments were restored. A clean copy alone does not establish a cloud-sync cause because the background service may only have the original workspace loaded. Preserve the stable scheme form produced after the duplicate writer is gone; one final Git diff is distinct from continuous rewriting.
 
 ### 2026-06-10 - `JSONEncoder` output is not byte-stable; save-if-changed compares need `.sortedKeys`
 - Context: All three snapshot stores (dashboard, workout, widget) dedupe disk writes by encoding and comparing bytes against the existing file, and gate widget reloads on that result (2026-05-18 "Save-if-changed" entry).
