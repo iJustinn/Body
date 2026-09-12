@@ -253,11 +253,15 @@ extension Array where Element == HealthTrendCalendarPoint {
 
 /// Holds the home page's live scroll offset. Kept as a standalone `@Observable` so writing
 /// it on each scroll frame only invalidates the views that actually read `offset` (the
-/// readiness hero fade) instead of all of `BodyHomeView`, whose body rebuilds every metric
+/// readiness hero pin) instead of all of `BodyHomeView`, whose body rebuilds every metric
 /// card model on every evaluation.
 @Observable
-private final class BodyHomeScrollState {
+final class BodyHomeScrollState {
     var offset: CGFloat = 0
+    /// The metric grid's top in Home's content space (constant while scrolling), so the
+    /// hero pin knows when the first card row has climbed up under the flat bar. Nil
+    /// until the grid has laid out.
+    var gridContentY: CGFloat?
 }
 
 /// The card a readiness-hero warning badge last pointed at, glowing for a moment so
@@ -291,30 +295,102 @@ private struct BodyHomeCardHighlightGlow: View {
     }
 }
 
-/// Applies the readiness hero's scroll fade and pin. It reads `scrollState.offset`, so this
-/// small view re-renders as the page scrolls while `BodyHomeView`'s body does not.
-private struct BodyReadinessHeroScrollFade<Content: View>: View {
+/// Pins the readiness arc hero and drives its flattening. It reads `scrollState.offset`,
+/// so this small view re-renders as the page scrolls while `BodyHomeView`'s body does not.
+///
+/// The hero keeps a constant content height, so nothing here feeds back into the scroll
+/// geometry. Once the page has scrolled past the hero's own resting position it is held
+/// at the top of the viewport by a counter-offset while `progress` (0 = arc, 1 = flat)
+/// ramps over the next `morphDistance` points, quantized so identical frames don't
+/// rebuild the bar paths. The hold lasts until the metric grid's first row has climbed up
+/// to sit the grid spacing under the flat bar (the comment fades out on its way beneath
+/// it); then the hero scrolls away with the cards. Both positions are measured, not
+/// assumed, so a notice banner above the hero or a longer comment shifts the sequence.
+struct BodyReadinessHeroScrollPin<Content: View>: View {
     let scrollState: BodyHomeScrollState
+    @ViewBuilder var content: (Double) -> Content
+
+    /// The hero's top in the scroll viewport at offset 0, measured from its own frame:
+    /// `frame.minY` is where it is drawn (after the pin offset), so undoing the pin
+    /// and adding the scroll offset gives the content-space position.
+    @State private var heroContentY: CGFloat = 0
+
+    /// Scroll travel past the hero's resting position.
+    private var travel: CGFloat {
+        scrollState.offset - heroContentY
+    }
+
+    private var progress: Double {
+        let raw = min(1, max(0, Double(travel) / Double(BodyReadinessArcGeometry.morphDistance)))
+        return (raw * 120).rounded() / 120
+    }
+
+    /// How far past its resting position the hero is held: until the grid's top reaches
+    /// `heldGridGap` under the flat bar. Falls back to the morph distance before the grid
+    /// has reported its position.
+    private var holdDistance: CGFloat {
+        guard let gridContentY = scrollState.gridContentY else {
+            return BodyReadinessArcGeometry.morphDistance
+        }
+        let barBottom = BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2
+        return max(BodyReadinessArcGeometry.morphDistance, gridContentY - heroContentY - (barBottom + BodyReadinessArcGeometry.heldGridGap))
+    }
+
+    private var pinOffset: CGFloat {
+        min(max(0, travel), holdDistance)
+    }
+
+    var body: some View {
+        content(progress)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .named(BodyHomeView.viewportCoordinateSpace)).minY
+            } action: { drawnMinY in
+                let measured = drawnMinY + scrollState.offset - pinOffset
+                // Ignore sub-point jitter so the pin doesn't churn every frame.
+                if abs(measured - heroContentY) > 0.5 {
+                    heroContentY = measured
+                }
+            }
+            .offset(y: pinOffset)
+            // Above the cards only while it is held: in the arc state a card dragged
+            // over the hero still draws on top, as it always has.
+            .zIndex(pinOffset > 0 ? 1 : 0)
+    }
+}
+
+/// Fades the hero comment out as it scrolls up toward the held flat bar, so it is gone
+/// by the time it would pass beneath it. Driven by the comment's own position in the
+/// viewport rather than the scroll offset, so it needs nothing from the pin: fully
+/// visible `fadeDistance` above the spot just under the bar, gone on reaching it.
+/// Measures its own frame, so only this wrapper re-renders.
+private struct BodyReadinessHeroCommentFade<Content: View>: View {
     @ViewBuilder var content: Content
 
+    @State private var viewportMinY: CGFloat = .greatestFiniteMagnitude
+
+    private var fadeDistance: CGFloat { 40 }
+
     private var opacity: Double {
-        max(0, 1 - Double(scrollState.offset) / 70)
+        let goneAt = BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2 + BodyReadinessArcGeometry.heldGridGap
+        let travelled = goneAt + fadeDistance - viewportMinY
+        return 1 - min(1, max(0, Double(travelled / fadeDistance)))
     }
 
     var body: some View {
         content
-            // Stay put and fade out as the page scrolls up; fade back in at the top — it
-            // pins via offset rather than scrolling away with the content.
             .opacity(opacity)
-            .offset(y: min(scrollState.offset, 160))
             .allowsHitTesting(opacity > 0.1)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .named(BodyHomeView.viewportCoordinateSpace)).minY
+            } action: { minY in
+                viewportMinY = minY
+            }
     }
 }
 
-/// Dims the fixed full-bleed star-hero backdrop as the page scrolls up — in step with the
-/// hero number/text fade — so the translucent cards scrolling over it stay readable. Reads
-/// `scrollState.offset` itself so only this layer re-renders per scroll frame, not all of
-/// `BodyHomeView`.
+/// Dims the fixed readiness backdrop as the page scrolls up, to near the page color, so
+/// the cards scrolling over it stay readable, as the original hero's backdrop did.
+/// Reads `scrollState.offset` itself so only this layer re-renders per scroll frame.
 private struct BodyHomeBackgroundScrollDim: View {
     let scrollState: BodyHomeScrollState
 
@@ -326,6 +402,24 @@ private struct BodyHomeBackgroundScrollDim: View {
         Color(.systemGroupedBackground)
             .opacity(opacity)
             .allowsHitTesting(false)
+    }
+}
+
+/// Reports the metric grid's top in Home's content space to the scroll state, for the
+/// hero pin's hold. The value only changes when layout does, so scrolling doesn't
+/// write it.
+struct BodyHomeGridPositionReporter: ViewModifier {
+    let scrollState: BodyHomeScrollState
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .named(BodyHomeView.contentCoordinateSpace)).minY
+            } action: { minY in
+                if scrollState.gridContentY != minY {
+                    scrollState.gridContentY = minY
+                }
+            }
     }
 }
 
@@ -353,9 +447,6 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.homeCardOrderKey) private var homeCardOrderRawValue = BodyHomeCardKind.defaultRawValue
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
-    @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
-    @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var homeBackgroundColorsRawValue = ""
-    @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var homeBackgroundSeparatorsRawValue = ""
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
@@ -365,12 +456,11 @@ struct BodyHomeView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.summaryReselectCount) private var summaryReselectCount
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @Environment(ReadinessCommentGenerator.self) private var readinessComment
     @State private var dragState = BodyHomeCardDragState()
     @State private var showsAllHomeTrends = false
     // Scroll offset lives in an @Observable so per-frame scroll updates only re-render the
-    // hero fade wrapper that reads it — not this whole body. (The metric-card models are
+    // hero pin wrapper that reads it — not this whole body. (The metric-card models are
     // additionally memoized in BodyHomeTrendComputationCache, keyed on their full input set.)
     @State private var scrollState = BodyHomeScrollState()
     // Which card a readiness-hero warning badge just scrolled to, held in its own
@@ -435,10 +525,11 @@ struct BodyHomeView: View {
             GeometryReader { page in
             ZStack {
                 homeBackground
-                    .ignoresSafeArea()
 
-                BodyHomeBackgroundScrollDim(scrollState: scrollState)
-                    .ignoresSafeArea()
+                if starredHomeCard == .readiness {
+                    BodyHomeBackgroundScrollDim(scrollState: scrollState)
+                        .ignoresSafeArea()
+                }
 
                 ScrollViewReader { scrollProxy in
                     ScrollView(.vertical, showsIndicators: false) {
@@ -453,6 +544,7 @@ struct BodyHomeView: View {
                                 HStack(alignment: .top, spacing: 14) {
                                     metricCardsGrid(lookup: metricCardLookup)
                                         .frame(maxWidth: .infinity, alignment: .top)
+                                        .modifier(BodyHomeGridPositionReporter(scrollState: scrollState))
 
                                     if !trendCards.visible.isEmpty {
                                         homeTrendsContent(trendCards)
@@ -461,6 +553,7 @@ struct BodyHomeView: View {
                                 }
                             } else {
                                 metricCardsGrid(lookup: metricCardLookup)
+                                    .modifier(BodyHomeGridPositionReporter(scrollState: scrollState))
 
                                 homeTrendsSection(trendCards)
                             }
@@ -468,6 +561,9 @@ struct BodyHomeView: View {
                         .padding(.horizontal)
                         .padding(.top, 10)
                         .padding(.bottom, 110)
+                        // Content-space frames stay put while scrolling; the hero pin
+                        // reads the grid's resting position in this space.
+                        .coordinateSpace(name: Self.contentCoordinateSpace)
                         .readableContentColumn(maxWidth: AppLayout.homeContentWidth)
                         .onGeometryChange(for: CGFloat.self) { proxy in
                             // Rounded up to the next 8 pt: the preview sizing reads
@@ -491,6 +587,8 @@ struct BodyHomeView: View {
                     } action: { _, offset in
                         scrollState.offset = max(0, offset)
                     }
+                    // The hero pin measures its resting position in this space.
+                    .coordinateSpace(name: Self.viewportCoordinateSpace)
                 }
             }
             .frame(width: page.size.width, height: page.size.height)
@@ -501,6 +599,17 @@ struct BodyHomeView: View {
                 readinessDetailPresented = false
                 metricNavigationPath = [.metric(.sleep)]
                 notificationRoute.sleepRequestID = nil
+            }
+            .task(id: notificationRoute.ready ? notificationRoute.readinessRequestID : nil) {
+                guard notificationRoute.ready, notificationRoute.readinessRequestID != nil else { return }
+                notificationRoute.readinessRequestID = nil
+                if starredHomeCard == .readiness {
+                    metricNavigationPath = []
+                    readinessDetailPresented = true
+                } else {
+                    readinessDetailPresented = false
+                    metricNavigationPath = [.metric(.readiness)]
+                }
             }
             .navigationDestination(for: HomeMetricRoute.self) { route in
                 switch route {
@@ -637,6 +746,12 @@ struct BodyHomeView: View {
     /// Takes the card lookup rather than reading `metricCardsByKind` itself: that
     /// property snapshots the whole summary and trend store to key its memo, and
     /// `body` has already paid for it once this pass.
+    /// Name of the ScrollView's coordinate space, which the hero pin measures against.
+    static let viewportCoordinateSpace = "homeViewport"
+    /// Name of the scroll content's coordinate space (origin at the content's top
+    /// padding), in which resting positions don't change as the page scrolls.
+    static let contentCoordinateSpace = "homeContent"
+
     @ViewBuilder
     private func starMetricHero(
         proxy: ScrollViewProxy,
@@ -645,31 +760,31 @@ struct BodyHomeView: View {
         switch starredHomeCard {
         case .readiness:
             let badges = heroWarningBadges(lookup: lookup)
-            // The scroll fade/pin lives in the wrapper (which reads scrollState.offset) so
-            // scrolling re-renders only it, not this body. Reading the offset here would
-            // rebuild every metric card model on each scroll frame.
-            BodyReadinessHeroScrollFade(scrollState: scrollState) {
+            let readiness = workoutStore.healthSummary.readiness
+            // The pin (which reads scrollState.offset) hands its progress to the closure,
+            // so scrolling re-renders only that closure, not this body. Reading the
+            // offset here would rebuild every metric card model on each scroll frame.
+            BodyReadinessHeroScrollPin(scrollState: scrollState) { progress in
+                let isTextVisible = BodyReadinessArcHero.isTextVisible(progress: progress)
                 Button {
                     withAnimation(.easeInOut(duration: 0.28)) {
                         readinessDetailPresented = true
                     }
                 } label: {
-                    BodyReadinessHeroLabel(
-                        readiness: workoutStore.healthSummary.readiness,
-                        morningScore: todaysMorningReadiness,
-                        aiComment: heroAIComment,
-                        onRegenerateAIComment: regenerateReadinessComment,
+                    BodyReadinessArcHero(
+                        readiness: readiness,
+                        progress: progress,
                         warningBadges: badges
                     )
                 }
                 .buttonStyle(.plain)
                 // The badges draw inside the button's label — the only place they stay
-                // aligned with the headline — but a nested button there never gets the
+                // aligned with the score — but a nested button there never gets the
                 // tap and a SwiftUI gesture fights this button (the reason the comment's
                 // press-and-hold is a UIKit recognizer). So the tap targets are real
                 // buttons laid over the glyphs from out here, where hit testing, the
-                // button trait and VoiceOver all work normally. They sit inside the
-                // fade wrapper, so they go inert with the hero as the page scrolls.
+                // button trait and VoiceOver all work normally. They switch off at the
+                // same threshold that fades the glyphs, so nothing invisible is tappable.
                 .overlayPreferenceValue(BodyReadinessHeroBadgeAnchorKey.self) { anchors in
                     GeometryReader { geometry in
                         ForEach(Array(badges.enumerated()), id: \.element.id) { index, badge in
@@ -699,7 +814,29 @@ struct BodyHomeView: View {
                             }
                         }
                     }
+                    .allowsHitTesting(isTextVisible)
+                    .accessibilityHidden(!isTextVisible)
                 }
+            }
+
+            // The comment sits on the page under the hero (no card), tapping through to
+            // the same detail; the press-and-hold regenerate inside is a UIKit recognizer,
+            // so it coexists with this button as it did in the original hero. It fades
+            // away once the flat bar has let go and it keeps scrolling up.
+            BodyReadinessHeroCommentFade {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.28)) {
+                        readinessDetailPresented = true
+                    }
+                } label: {
+                    BodyReadinessHeroComment(
+                        readiness: readiness,
+                        morningScore: todaysMorningReadiness,
+                        aiComment: heroAIComment,
+                        onRegenerateAIComment: regenerateReadinessComment
+                    )
+                }
+                .buttonStyle(.plain)
             }
         default:
             EmptyView()
@@ -804,25 +941,11 @@ struct BodyHomeView: View {
         }
     }
 
-    /// Fixed full-bleed backdrop behind the scroll view: the custom Background
-    /// color mix when enabled, otherwise the plain grouped background. The mix is
-    /// auto-suppressed while Readiness is starred — that hero is colored by today's
-    /// readiness level, so a separate background tint would clash.
-    @ViewBuilder
+    /// Fixed full-bleed backdrop behind the scroll view, shared with the other tabs so
+    /// a tab switch crossfades between the pages' backgrounds. See `BodyHomePageBackground`
+    /// for what Summary paints.
     private var homeBackground: some View {
-        if starredHomeCard == .readiness {
-            // Readiness colors the top of Home directly — fixed, bleeding behind the
-            // status bar, melting into the page — so it replaces the custom mix here.
-            BodyReadinessHeroBackdrop(readiness: workoutStore.healthSummary.readiness)
-        } else if homeBackgroundEnabled {
-            let isPro = proStore?.isPro ?? false
-            BodyActivityRingsCard.heroBackground(
-                colors: BodyHomeBackground.proGatedColors(from: homeBackgroundColorsRawValue, isProUnlocked: isPro),
-                separators: BodyHomeBackground.proGatedSeparators(from: homeBackgroundSeparatorsRawValue, isProUnlocked: isPro)
-            )
-        } else {
-            Color(.systemGroupedBackground)
-        }
+        BodyTabCrossfadeBackground()
     }
 
     /// The two-column grid of summary metric cards (identical on iPhone and iPad).

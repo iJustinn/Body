@@ -41,6 +41,9 @@ struct MainTabView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @State private var showsNotificationExplainer = false
+    @State private var readinessHeroState = BodyReadinessHeroState()
+    @State private var previousTab: BodyMainTab?
+
     private var selectedTab: BodyMainTab {
         get { notificationRoute.selectedTab }
         nonmutating set { notificationRoute.selectedTab = newValue }
@@ -114,10 +117,21 @@ struct MainTabView: View {
             && !workoutStore.needsInitialHealthDataLoad && !workoutStore.isRefreshing
     }
 
+    /// A tapped notification navigates as soon as the cached dashboard has data: the
+    /// background pass that sent it already repaired and persisted that data, so the
+    /// page opens on it while the launch refresh updates in place. Only an empty cache
+    /// (first launch) still waits for the refresh to finish.
+    private var notificationRouteReady: Bool {
+        notificationReady || (scenePhase == .active && !showsOnboarding && !showsUpdateOnboarding
+            && !isFirstLaunchOverlayPresented && workoutStore.hasHealthDataToShow)
+    }
+
     var body: some View {
         content
+            .task(id: notificationRouteReady) {
+                notificationRoute.ready = notificationRouteReady
+            }
             .task(id: notificationReady) {
-                notificationRoute.ready = notificationReady
                 guard notificationReady else { return }
                 if UserDefaults.standard.bool(forKey: BodyNotificationPreferences.onboardingPromptKey) {
                     showsNotificationExplainer = true
@@ -136,6 +150,12 @@ struct MainTabView: View {
                 }
             } message: { Text("notifications.permission.explainer") }
             .environment(\.summaryReselectCount, summaryReselectCount)
+            .onChange(of: selectedTab) { old, _ in
+                previousTab = old
+            }
+            .environment(\.selectedMainTab, selectedTab)
+            .environment(\.previousMainTab, previousTab)
+            .environment(readinessHeroState)
             .accessibilityHidden(isFirstLaunchOverlayPresented || showsOnboarding || showsUpdateOnboarding)
             .overlay(alignment: .top) {
                 BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented || showsOnboarding || showsUpdateOnboarding)

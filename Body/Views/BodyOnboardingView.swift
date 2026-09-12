@@ -427,24 +427,31 @@ struct BodyOnboardingView: View {
                 subtitle: "onboarding.readiness.subtitle"
             )
 
-            // The Home star hero (colored wave backdrop + score label) over a
-            // fabricated summary, cropped to a card.
+            // The Home star hero (readiness arc over its band-colored glow) with
+            // the comment under it, over a fabricated summary, cropped to a card.
             ZStack(alignment: .top) {
-                BodyReadinessHeroBackdrop(readiness: Self.sampleReadiness)
-                BodyReadinessHeroLabel(readiness: Self.sampleReadiness, morningScore: nil)
-                    .padding(.horizontal, 20)
+                BodyReadinessGlowBackground(
+                    tint: BodyReadinessStatusPresentation.color(for: Self.sampleReadiness.status),
+                    circleCenterY: BodyReadinessArcGeometry.arcCenterY
+                )
+
+                VStack(spacing: 14) {
+                    BodyReadinessArcHero(readiness: Self.sampleReadiness, progress: 0)
+                    BodyReadinessHeroComment(readiness: Self.sampleReadiness, morningScore: nil)
+                }
+                .padding(.horizontal, 16)
             }
-            .frame(height: 300)
+            .frame(height: 310)
             .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-            // The backdrop melts into the flat grouped background, which is a
+            // The background melts into the flat grouped background, which is a
             // touch lighter than the page gradient, so a hard clip leaves a pale
-            // rim around the lower corners. Fading the card out over its last
-            // third lets it dissolve into the page instead.
+            // rim around the lower corners. Fading the card out below the summary
+            // card's top lets it dissolve into the page instead.
             .mask(
                 LinearGradient(
                     stops: [
                         .init(color: .black, location: 0),
-                        .init(color: .black, location: 0.62),
+                        .init(color: .black, location: 0.82),
                         .init(color: .clear, location: 1)
                     ],
                     startPoint: .top,

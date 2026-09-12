@@ -104,6 +104,7 @@ enum BodyHomeBackground {
         separators.map { String(format: "%.4f", $0) }.joined(separator: ",")
     }
 
+
     /// Sorted internal boundaries for `count` colors (count − 1 values in (0,1)),
     /// falling back to the default split when the stored data doesn't match.
     static func normalizedSeparators(_ separators: [Double], count: Int) -> [Double] {

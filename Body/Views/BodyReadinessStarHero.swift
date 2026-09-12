@@ -5,20 +5,6 @@
 
 import SwiftUI
 
-/// Layout constants shared by the readiness hero's fixed color backdrop and its
-/// scrolling text label so they stay vertically aligned.
-enum BodyReadinessHeroMetrics {
-    /// Height of the colored band at the top of Home (measured from the screen's
-    /// top edge, i.e. behind the status bar) before it melts into the page.
-    static let coloredHeight: CGFloat = 360
-    /// Minimum height of the text label so the headline sits low in the colored band.
-    static let labelMinHeight: CGFloat = 255
-    /// Vertical center of the big score number's row (measured from the top of the
-    /// colored band, i.e. the screen's top edge behind the status bar), used to center
-    /// the fill's highlight band on the number in `BodyReadinessHeroLabel`.
-    static let numberRowFromTop: CGFloat = 190
-}
-
 /// One warning sign mirrored onto the readiness hero from the Home card that is
 /// already showing it. Built from the finished card models rather than from the
 /// warning events, so the hero can never draw a glyph or a tint the card itself
@@ -88,229 +74,181 @@ struct BodyReadinessHeroBadgeAnchorKey: PreferenceKey {
     }
 }
 
-/// Fixed, full-bleed color backdrop for the Readiness star hero. Lives in the home
-/// page's `.ignoresSafeArea()` background so the readiness color reaches the very top
-/// of the screen (behind the status bar) and melts into the page background lower down,
-/// mirroring how the metric detail hero eases its tint behind the nav bar. The score
-/// text scrolls over this in `BodyReadinessHeroLabel`.
-struct BodyReadinessHeroBackdrop: View {
-    let readiness: ReadinessSummary
-
-    private var status: ReadinessStatus { readiness.status }
-    private var tint: Color { BodyReadinessStatusPresentation.color(for: status) }
-
-    private var fillFraction: Double {
-        guard let score = readiness.score else { return 0 }
-        return min(max(Double(score) / 100, 0), 1)
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            BodyReadinessWaveFill(
-                fraction: fillFraction,
-                tint: tint
-            )
-            .frame(height: BodyReadinessHeroMetrics.coloredHeight)
-
-            Color(.systemGroupedBackground)
-        }
-    }
-}
-
-/// The readiness score + status text that scrolls over `BodyReadinessHeroBackdrop`.
-/// Transparent — the color comes entirely from the backdrop behind it.
-struct BodyReadinessHeroLabel: View {
+/// The Home readiness gauge: five glass bar segments, one per readiness band, on an
+/// arc over the big score, with a more opaque pill inside today's band marking the
+/// score. `progress` (0 = arc, 1 = flat) is scroll-driven by the host: the arc unfurls
+/// into a horizontal bar held under the status bar while the score and warning badges
+/// fade out, then leaves with the cards. Pure: no scroll state, so onboarding and tests
+/// render it as-is.
+/// The level title and explanation live in `BodyReadinessSummaryCard` beneath it.
+struct BodyReadinessArcHero: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let readiness: ReadinessSummary
 
-    /// Today's frozen morning score (undrained, captured ~10 min after wake), so the
-    /// starting value stays visible once the live score drains below it.
-    let morningScore: Int?
+    /// 0 = full arc with the score, 1 = the flat pinned bar. Clamped here.
+    let progress: Double
 
-    /// What sits in the explanation slot: the authored `heroExplanation` (feature off,
-    /// unsupported, or generation failed), a placeholder while Apple Intelligence writes,
-    /// or the generated comment itself.
-    var aiComment: BodyReadinessAIComment = .authored
-    /// Press-and-hold (3 s) on a generated comment asks Apple Intelligence for a
-    /// fresh rewrite. Nil disables the hold; the authored line never offers it.
-    var onRegenerateAIComment: (() -> Void)? = nil
-
-    /// Warning signs mirrored from the Home cards, drawn beside the readiness
-    /// level. Drawing only: the taps are handled by buttons the host overlays on
-    /// these glyphs, outside the hero's own button. Empty everywhere but Home.
+    /// Warning signs mirrored from the Home cards, drawn under the score. Drawing
+    /// only: the taps are handled by buttons the host overlays on these glyphs,
+    /// outside the hero's own button. Empty everywhere but Home.
     var warningBadges: [BodyReadinessHeroWarningBadge] = []
 
-    /// Animated score for the big number — counts up from 0 on launch and rolls to each
-    /// new value, kept roughly in sync with the backdrop fill's rise.
+    /// Animated score for the big number: counts up from 0 on launch and rolls to each
+    /// new value.
     @State private var displayedScore = 0
 
-    /// True once a generated comment has been shown; until then the explanation slot
-    /// updates instantly instead of animating.
-    @State private var hasShownGeneratedComment = false
+    /// The score the pill sits at. Animates separately from the scroll-driven geometry,
+    /// so a score change slides the pill while a scroll frame mid-slide just moves the
+    /// track under it without cancelling the spring.
+    @State private var presentedScore: Double = 0
+    @Environment(BodyReadinessHeroState.self) private var heroState: BodyReadinessHeroState?
+    @State private var glowTask: Task<Void, Never>?
+
+    private typealias Geometry = BodyReadinessArcGeometry
 
     private var status: ReadinessStatus { readiness.status }
+    private var clampedProgress: Double { min(max(progress, 0), 1) }
 
     private var numberText: String {
         readiness.score == nil ? "--" : "\(displayedScore)"
     }
 
-    private var headline: String {
-        status == .unavailable ? String(localized: "Readiness") : String(localized: "\(status.title) Readiness")
+    /// Opacity of the score and badges for a scroll progress; shared with the host so
+    /// the badge tap targets switch off at the same moment the glyphs vanish.
+    static func textOpacity(progress: Double) -> Double {
+        Geometry.textOpacity(progress: progress)
     }
 
-    /// Shown only when today's live score has dropped below the morning value, so the
-    /// user can still read where the day started at a glance.
-    private var startedTodayText: String? {
-        guard let morning = morningScore,
-              let current = readiness.score,
-              morning > current else { return nil }
-        return String(localized: "Started today with \(morning)%")
+    static func isTextVisible(progress: Double) -> Bool {
+        Geometry.isTextVisible(progress: progress)
     }
 
-    private var statusTextAnimation: Animation? {
-        reduceMotion ? nil : .easeInOut(duration: 0.28)
+    private var textOpacity: Double { Self.textOpacity(progress: clampedProgress) }
+    private var isTextVisible: Bool { Self.isTextVisible(progress: clampedProgress) }
+
+    /// Underdamped on purpose: the pill overshoots its mark, swings back past it, and
+    /// settles over a couple of shrinking bounces, the slosh the old wave fill had. The
+    /// track clamps its position, so the overshoot can't leave the band's cap.
+    private var dotAnimation: Animation? {
+        reduceMotion ? nil : .interpolatingSpring(mass: 1, stiffness: 55, damping: 10)
     }
 
-    private var statusTextTransition: AnyTransition {
-        .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.28))
-    }
-
-    /// Crossfades changes of the explanation slot, but only once the first generated
-    /// comment has landed: the cold-launch population (authored → generating → comment,
-    /// or authored → cached comment) appears in place with no animation, so the hero's
-    /// growth from one line to several doesn't slide the text upward. Every later change
-    /// (a press-and-hold regenerate, a workout drain rewriting the comment) crossfades.
-    /// Skipped under Reduce Motion like the score roll.
-    private var aiCommentAnimation: Animation? {
-        guard hasShownGeneratedComment, !reduceMotion else { return nil }
-        return .easeInOut(duration: 0.28)
-    }
-
-    /// Matches `aiCommentAnimation`: no fade on the first comment, the usual crossfade after.
-    private var aiCommentTransition: AnyTransition {
-        hasShownGeneratedComment ? statusTextTransition : .identity
-    }
-
-    /// The text of the explanation slot, whichever state it's in. Drives the crossfade
-    /// identity: any change of wording is a change of view.
-    private var explanationString: String {
-        switch aiComment {
-        case .authored:
-            return readiness.heroExplanation
-        case .generating:
-            return String(localized: "Generating comment…")
-        case .comment(let text):
-            return text
+    /// Slides the pill to `score`. The page glow switches off as the pill sets off and
+    /// fades back in on the target band a fixed `glowDelay` later, so the color never
+    /// leads the pill. A newer move cancels an older one's pending fade-in.
+    private func movePill(to score: Int?) {
+        let target = Double(score ?? 0)
+        let landedStatus: ReadinessStatus? = score.map { Geometry.segmentOrder[Geometry.segmentIndex(forScore: $0)] }
+        if reduceMotion {
+            placePill(at: score)
+            return
+        }
+        heroState?.activeStatus = nil
+        withAnimation(dotAnimation) {
+            presentedScore = target
+        }
+        glowTask?.cancel()
+        glowTask = Task {
+            try? await Task.sleep(for: Self.glowDelay)
+            guard !Task.isCancelled else { return }
+            heroState?.activeStatus = landedStatus
         }
     }
+
+    /// Lands the pill on `score` with no slide and the glow on immediately.
+    private func placePill(at score: Int?) {
+        glowTask?.cancel()
+        presentedScore = Double(score ?? 0)
+        heroState?.activeStatus = score.map { Geometry.segmentOrder[Geometry.segmentIndex(forScore: $0)] }
+    }
+
+    private static let glowDelay: Duration = .milliseconds(300)
+    private static var hasPlayedLaunchSlide = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Spacer(minLength: 95)
+        GeometryReader { geo in
+            let width = geo.size.width
+            let layout = Geometry.layout(progress: clampedProgress, width: width)
+            let barWidth = layout.barWidth
 
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(numberText)
-                    .font(.system(size: 66, weight: .heavy))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: displayedScore)
+            ZStack(alignment: .topLeading) {
+                BodyReadinessTrackView(
+                    score: presentedScore,
+                    hasScore: readiness.score != nil,
+                    progress: clampedProgress,
+                    width: width,
+                    reduceMotion: reduceMotion
+                )
+                .animation(dotAnimation, value: presentedScore)
 
-                if readiness.score != nil {
-                    Text("%")
-                        .font(.system(size: 30, weight: .heavy))
-                        .opacity(0.9)
-                }
+                scoreText
+                    .position(x: width / 2, y: Geometry.numberCenterY)
+
+                warningBadgeRow
+                    .position(x: width / 2, y: Geometry.badgeRowCenterY)
             }
-
-            Spacer().frame(height: 35)
-
-            ZStack(alignment: .leading) {
-                statusText
-                    .id(status)
-                    .transition(statusTextTransition)
-            }
-            .animation(statusTextAnimation, value: status)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Spacer(minLength: 6)
+            .frame(width: width, height: Geometry.heroHeight, alignment: .topLeading)
+            .contentShape(BodyReadinessHeroHitShape(
+                layout: layout,
+                lineWidth: max(barWidth, 44),
+                textRect: isTextVisible ? textRect(width: width) : nil
+            ))
         }
-        // `.primary` resolves to white in dark mode (the tuned look) but near-black in
-        // light mode, so the headline/explanation stay legible where they extend past the
-        // colored fill onto the light page background instead of vanishing white-on-light.
-        .foregroundStyle(.primary)
-        .shadow(color: .black.opacity(0.3), radius: 6, y: 1)
-        .padding(.horizontal, 6)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-        .frame(maxWidth: .infinity, minHeight: BodyReadinessHeroMetrics.labelMinHeight, alignment: .leading)
-        // Whole area (including the transparent gaps) taps through to the detail page.
-        .contentShape(Rectangle())
+        .frame(height: Geometry.heroHeight)
         .onAppear {
-            // Flip from 0 up to today's score on launch. The roll lives on the number
-            // itself (same .smooth / .numericText as the metric cards), nothing else.
+            // Flip from 0 up to today's score once per launch, with the glow's delayed
+            // fade-in. Coming back to the tab (or any later re-creation of the hero)
+            // lands the pill in place with the glow already on, as does Reduce Motion.
+            // Only the Home hero counts as the launch slide; the onboarding demo has no
+            // shared state and does not use it up.
             displayedScore = readiness.score ?? 0
+            if heroState == nil || !Self.hasPlayedLaunchSlide {
+                if heroState != nil { Self.hasPlayedLaunchSlide = true }
+                movePill(to: readiness.score)
+            } else {
+                placePill(at: readiness.score)
+            }
         }
         .onChange(of: readiness.score) { _, newScore in
             displayedScore = newScore ?? 0
-        }
-        .onChange(of: aiComment) { _, newValue in
-            // Flipped here, not in onAppear: the change delivering the first comment is
-            // evaluated while the animation is still nil, so it lands in place and only
-            // later changes crossfade.
-            if case .comment = newValue, !hasShownGeneratedComment {
-                hasShownGeneratedComment = true
-            }
+            movePill(to: newScore)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
     }
 
-    private var statusText: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // The row is pinned to the full width rather than hugging its
-            // content: the explanation slot below swaps between a one-liner and
-            // a paragraph, and the VStack sizing to its widest child would slide
-            // the badges in and out with it.
-            HStack(alignment: .center, spacing: 8) {
-                Text(headline)
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    // Takes the leftover width itself instead of leaving it to a
-                    // Spacer: given only its ideal width to report, the headline
-                    // truncated rather than scaling when the badges crowded it.
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private var scoreText: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 2) {
+            Text(numberText)
+                .font(.system(size: 66, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .contentTransition(reduceMotion ? .identity : .numericText())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: displayedScore)
 
-                warningBadgeRow
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            ZStack(alignment: .topLeading) {
-                explanationText
-                    .id(explanationString)
-                    .transition(aiCommentTransition)
-            }
-            .animation(aiCommentAnimation, value: explanationString)
-            .contentShape(Rectangle())
-            .gesture(BodyReadinessCommentRegenerateGesture(
-                isEnabled: onRegenerateAIComment != nil && aiComment != .authored && aiComment != .generating,
-                onRecognized: { onRegenerateAIComment?() }
-            ))
-
-            if let startedTodayText {
-                Text(startedTodayText)
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if readiness.score != nil {
+                Text("%")
+                    .font(.system(size: 30, weight: .heavy, design: .rounded))
+                    .opacity(0.9)
             }
         }
+        .fixedSize()
+        // `.primary` resolves to white in dark mode (the tuned look) but near-black in
+        // light mode, so the number stays legible over the light page tones.
+        .foregroundStyle(.primary)
+        .shadow(color: .black.opacity(0.3), radius: 6, y: 1)
+        .opacity(textOpacity)
+    }
+
+    /// The rectangle the score and badges occupy, used as a tap target while visible.
+    private func textRect(width: CGFloat) -> CGRect {
+        CGRect(x: width / 2 - 90, y: Geometry.numberCenterY - 44, width: 180, height: Geometry.badgeRowCenterY - Geometry.numberCenterY + 44 + 22)
     }
 
     /// The width of one badge's box, and so of the tap target laid over it. Three
-    /// badges have to share the width the headline leaves; one or two can spend it.
+    /// badges have to share the row; one or two can spend it.
     private var badgeSlotWidth: CGFloat {
         switch warningBadges.count {
         case 0, 1:
@@ -322,9 +260,9 @@ struct BodyReadinessHeroLabel: View {
         }
     }
 
-    /// The warning signs beside the readiness level, each the same glyph and tint
-    /// its own Home card is showing. Publishes its glyphs' bounds so the host can
-    /// lay tap targets over them; nothing here is interactive.
+    /// The warning signs under the score, each the same glyph and tint its own Home
+    /// card is showing. Publishes its glyphs' bounds so the host can lay tap targets
+    /// over them; nothing here is interactive.
     private var warningBadgeRow: some View {
         HStack(spacing: 0) {
             ForEach(warningBadges) { badge in
@@ -332,12 +270,7 @@ struct BodyReadinessHeroLabel: View {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(badge.color)
                     // A fixed box rather than the glyph's own size, so the tap
-                    // targets laid over the badges are all the same. The width
-                    // depends on the count: a full three-badge row has to stay
-                    // tight (at 34 each it pushed "Moderate Readiness" past its
-                    // scale floor and truncated it on a narrow screen), but one
-                    // or two badges have the room to be comfortably tappable and
-                    // still cost no more width than three tight ones. The host
+                    // targets laid over the badges are all the same. The host
                     // gives the targets their height back.
                     .frame(width: badgeSlotWidth, height: 28)
                     .anchorPreference(key: BodyReadinessHeroBadgeAnchorKey.self, value: .bounds) {
@@ -347,260 +280,142 @@ struct BodyReadinessHeroLabel: View {
                     .transition(.opacity)
             }
         }
+        .fixedSize()
+        .shadow(color: .black.opacity(0.3), radius: 6, y: 1)
+        .opacity(textOpacity)
         // The same fade the card badges use, so a warning arriving mid-refresh
         // reads as one change in both places.
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: warningBadges)
-    }
-
-    /// The explanation slot: the Apple Intelligence glyph leads both the placeholder and
-    /// the generated comment; the authored one-liner has no glyph. Same type, size and
-    /// color in every state.
-    @ViewBuilder
-    private var explanationText: some View {
-        switch aiComment {
-        case .authored:
-            Text(explanationString)
-                .font(.system(size: 15, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        case .generating:
-            // The placeholder is one short line, so the glyph can sit in its own view
-            // here and spin while the model writes.
-            HStack(spacing: 5) {
-                BodyAppleIntelligenceSpinningGlyph()
-                Text(explanationString)
-            }
-            .font(.system(size: 15, weight: .medium, design: .rounded))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .modifier(BodyAppleIntelligenceShimmer(looping: true))
-        case .comment:
-            // The glyph is interpolated into the text run rather than laid out in an
-            // HStack, so wrapped lines flow full-width instead of indenting past it.
-            (Text(Image(systemName: BodyAppleIntelligenceGlyph.symbolName))
-                .font(.system(size: 13, weight: .semibold))
-                + Text(verbatim: " ")
-                + Text(explanationString))
-                .font(.system(size: 15, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .modifier(BodyAppleIntelligenceShimmer(looping: false))
-        }
     }
 
     private var accessibilityLabel: String {
         guard let score = readiness.score else {
             return String(localized: "Readiness, needs more data")
         }
-        var label = String(localized: "Readiness \(score) percent, \(status.title)")
-        if let morning = morningScore, morning > score {
-            label += String(localized: ", started today at \(morning) percent")
-        }
-        // The label suppresses child elements, so the generated comment is only spoken
-        // if it's folded in here.
-        if case .comment(let text) = aiComment {
-            label += ". " + String(localized: "Apple Intelligence comment: \(text)")
-        }
-        return label
+        return String(localized: "Readiness \(score) percent, \(status.title)")
     }
 }
 
-/// A 3-second hold on the generated comment. UIKit rather than SwiftUI so it
-/// coexists with the hero's tap-to-open button and the surrounding scroll: a tap
-/// still opens the detail, a scroll still scrolls, and only a stationary hold
-/// regenerates (see the Activity Rings peek gesture for the same reasoning).
-private struct BodyReadinessCommentRegenerateGesture: UIGestureRecognizerRepresentable {
-    static let minimumPressDuration: TimeInterval = 3
-
-    let isEnabled: Bool
-    let onRecognized: () -> Void
-
-    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
-        let recognizer = UILongPressGestureRecognizer()
-        recognizer.minimumPressDuration = Self.minimumPressDuration
-        recognizer.allowableMovement = 12
-        recognizer.isEnabled = isEnabled
-        return recognizer
-    }
-
-    func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
-        recognizer.isEnabled = isEnabled
-    }
-
-    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
-        guard recognizer.state == .began else { return }
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        onRecognized()
-    }
-}
-
-/// The Apple Intelligence glyph turning continuously while a comment generates.
-/// Static under Reduce Motion.
-private struct BodyAppleIntelligenceSpinningGlyph: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    @State private var isSpinning = false
-
-    var body: some View {
-        Image(systemName: BodyAppleIntelligenceGlyph.symbolName)
-            .font(.system(size: 13, weight: .semibold))
-            .rotationEffect(.degrees(isSpinning ? 360 : 0))
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.linear(duration: 2.4).repeatForever(autoreverses: false)) {
-                    isSpinning = true
-                }
-            }
-    }
-}
-
-/// The Apple Intelligence multicolor wave: a blue → purple → pink → orange band, with a
-/// soft blurred glow under it, sweeping left to right across the text it modifies.
-/// `looping` (the placeholder) repeats the sweep until the view goes away; otherwise
-/// (a freshly generated comment) it sweeps once and settles to the plain text. The
-/// modifier is re-created whenever the slot's text identity changes, so every new
-/// comment earns its own sweep. Skipped entirely under Reduce Motion.
-private struct BodyAppleIntelligenceShimmer: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    let looping: Bool
-
-    /// 0 = band fully off the leading edge, 1 = fully off the trailing edge.
-    @State private var phase: CGFloat = 0
-    @State private var isVisible = true
-
-    private static let colors: [Color] = [
-        .clear,
-        Color(red: 0.36, green: 0.62, blue: 1.0),
-        Color(red: 0.68, green: 0.42, blue: 1.0),
-        Color(red: 1.0, green: 0.42, blue: 0.72),
-        Color(red: 1.0, green: 0.62, blue: 0.30),
-        .clear
-    ]
-
-    func body(content: Content) -> some View {
-        content
-            .overlay {
-                if isVisible && !reduceMotion {
-                    ZStack {
-                        band.blur(radius: 6).opacity(0.8)
-                        band
-                    }
-                    .mask(content)
-                    .allowsHitTesting(false)
-                }
-            }
-            .onAppear(perform: start)
-    }
-
-    private var band: some View {
-        LinearGradient(
-            colors: Self.colors,
-            startPoint: UnitPoint(x: phase * 2 - 1, y: 0.5),
-            endPoint: UnitPoint(x: phase * 2, y: 0.5)
-        )
-    }
-
-    private func start() {
-        guard !reduceMotion else { return }
-        if looping {
-            withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) {
-                phase = 1
-            }
-        } else {
-            withAnimation(.easeInOut(duration: 1.4)) {
-                phase = 1
-            }
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(1.4))
-                isVisible = false
-            }
-        }
-    }
-}
-
-/// State of the hero's explanation slot when the Apple Intelligence readiness comment
-/// is involved.
-enum BodyReadinessAIComment: Equatable {
-    /// Body's own authored explanation (feature off, unsupported, or generation failed).
-    case authored
-    /// Apple Intelligence is writing; a placeholder shows so the authored line never
-    /// flashes up only to be replaced a moment later.
-    case generating
-    case comment(String)
-}
-
-/// The animated fill: solid `tint` from the left edge out to `fraction` of the width,
-/// with a soft horizontal highlight band centered on the score number's row, the fill
-/// front cut crisply and the lower portion melting into the page background. The level
-/// animates via frame width so it rises from empty and slosh-springs to each new value.
-private struct BodyReadinessWaveFill: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    let fraction: Double
-    let tint: Color
-
-    @State private var hasAppeared = false
-
-    private var clamped: Double { min(max(fraction, 0), 1) }
-
-    /// Soft horizontal highlight across the fill, centered on the score number's row and
-    /// kept fairly tight so the number sits precisely on its bright center line.
-    private var highlightBand: LinearGradient {
-        let center = BodyReadinessHeroMetrics.numberRowFromTop / BodyReadinessHeroMetrics.coloredHeight
-        let halfSpread: CGFloat = 0.30
-        return LinearGradient(
-            stops: [
-                .init(color: .clear, location: center - halfSpread),
-                .init(color: .white.opacity(0.26), location: center),
-                .init(color: .clear, location: center + halfSpread)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
+/// The page background while Readiness is starred: the plain grouped background with a
+/// soft glow of today's band color centered on the arc's circle, so the color sits in
+/// the ring rather than washing the top of the page. `circleCenterY` is where the arc's
+/// center lands in this view's own coordinates (the host adds its safe-area and padding
+/// offsets), and `tint` is nil without a score, which leaves the page plain.
+struct BodyReadinessGlowBackground: View {
+    let tint: Color?
+    let circleCenterY: CGFloat
 
     var body: some View {
         GeometryReader { geo in
-            let width = geo.size.width
-            let height = geo.size.height
-            let target: CGFloat = (hasAppeared || reduceMotion) ? CGFloat(clamped) : 0
-
-            ZStack(alignment: .leading) {
-                // "Unfilled" track = a much darker shade of the readiness color (the
-                // tint laid over the page background) so the area past the score reads as
-                // a deep version of today's color rather than a hard black block, while
-                // still staying far dimmer than the filled side to keep the cut crisp.
+            ZStack {
                 Color(.systemGroupedBackground)
-                tint.opacity(0.28)
 
-                // Filled color region: solid tint with a soft horizontal highlight band
-                // centered on the score number's row, cut sharply at the fill front.
-                ZStack {
-                    Rectangle().fill(tint)
-
-                    highlightBand
-                        .blendMode(.screen)
+                if let tint {
+                    RadialGradient(
+                        stops: [
+                            .init(color: tint.opacity(0.26), location: 0),
+                            .init(color: tint.opacity(0.10), location: 0.55),
+                            .init(color: .clear, location: 1)
+                        ],
+                        center: UnitPoint(x: 0.5, y: geo.size.height > 0 ? circleCenterY / geo.size.height : 0),
+                        startRadius: 0,
+                        endRadius: BodyReadinessArcGeometry.arcRadius(width: geo.size.width) + 110
+                    )
                 }
-                .frame(width: target * width)
-                .animation(reduceMotion ? nil : .interpolatingSpring(stiffness: 55, damping: 8.25), value: target)
-
-                // Concentrate the color up top and melt the lower portion into the page
-                // background — mirroring how the metric detail hero eases its tint into
-                // the page — so the headline reads in white and the panel blends into
-                // the cards below.
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0.42),
-                        .init(color: Color(.systemGroupedBackground).opacity(0.85), location: 0.78),
-                        .init(color: Color(.systemGroupedBackground), location: 1.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
             }
-            .frame(width: width, height: height)
         }
-        .onAppear { hasAppeared = true }
+    }
+}
+
+/// The five bands and the pill, drawn from one animatable score so the band lights up
+/// at the moment the pill actually crosses into it. `animatableData` is the presented
+/// score alone: positions and the active band are recomputed from the live scroll
+/// geometry on every render, so a score change animates while a scroll frame just moves
+/// the track.
+private struct BodyReadinessTrackView: View, Animatable {
+    var score: Double
+    let hasScore: Bool
+    let progress: Double
+    let width: CGFloat
+    let reduceMotion: Bool
+
+    var animatableData: Double {
+        get { score }
+        set { score = newValue }
+    }
+
+    private typealias Geometry = BodyReadinessArcGeometry
+
+    /// The segment the pill currently sits on, from the interpolated score. Nil without
+    /// a score, so every band stays neutral.
+    private var activeSegmentIndex: Int? {
+        guard hasScore else { return nil }
+        return Geometry.segmentIndex(forScore: Int(score.rounded(.down)))
+    }
+
+    var body: some View {
+        let layout = Geometry.layout(progress: progress, width: width)
+
+        ZStack(alignment: .topLeading) {
+            ForEach(layout.segments.indices, id: \.self) { index in
+                segment(layout: layout, index: index)
+            }
+
+            if hasScore, let activeSegmentIndex {
+                dot(layout: layout, tint: BodyReadinessStatusPresentation.color(for: Geometry.segmentOrder[activeSegmentIndex]))
+                    .transition(.opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.28)))
+            }
+        }
+        .frame(width: width, height: Geometry.heroHeight, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+
+    /// One band's bar in the flat-glass language the app's chips use: a translucent
+    /// fill, a soft top highlight and a one-point rim. Only the band the pill is on
+    /// carries its color; the others stay neutral glass and crossfade when it arrives.
+    private func segment(layout: Geometry.Layout, index: Int) -> some View {
+        let shape = BodyReadinessSegmentShape(layout: layout, index: index)
+        let isActive = activeSegmentIndex == index
+        let color = isActive
+            ? BodyReadinessStatusPresentation.color(for: Geometry.segmentOrder[index]).opacity(0.34)
+            : Color.primary.opacity(0.10)
+
+        return ZStack {
+            shape.fill(color)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: isActive)
+
+            LinearGradient(
+                colors: [Color.white.opacity(0.18), .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .mask(shape)
+
+            shape
+                .stroke(Color.primary.opacity(0.15), lineWidth: 1)
+        }
+    }
+
+    /// The pill marking today's score inside its band's segment, rotated to the track.
+    private func dot(layout: Geometry.Layout, tint: Color) -> some View {
+        let distance = layout.dotDistance(score: score)
+        let center = layout.point(atDistance: distance)
+        let tangent = layout.tangent(atDistance: distance)
+        let angle = Angle.radians(atan2(Double(tangent.dy), Double(tangent.dx)))
+        let thickness = max(layout.barWidth - 4, 6)
+
+        // Only the tint crossfades when the band flips. The position jumps from one
+        // band's cap to the next and must not be tweened, or the pill crosses the gap.
+        return ZStack {
+            Capsule()
+                .fill(tint.opacity(0.85))
+
+            Capsule()
+                .strokeBorder(Color.white.opacity(0.35), lineWidth: 1)
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: activeSegmentIndex)
+        .frame(width: Geometry.dotLength, height: thickness)
+        .rotationEffect(angle)
+        .position(center)
     }
 }
