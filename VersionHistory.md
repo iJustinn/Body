@@ -1,5 +1,17 @@
 # Version History
 
+## 1.1.1 (build 2)
+
+- Redesigned the Summary tab's Star Metric readiness hero as a gauge of five glass-styled bar segments, one per readiness band, sized proportionally to each band's score range and arranged in an arc over the score number, with a pill marking today's score that slides smoothly when the score changes, even across bands.
+- Scrolling up now flattens the arc into a horizontal five-segment bar held under the status bar while the score number and warning badges fade out; the comment fades out as it climbs toward the bar, the glow dims to near the page color, and once the first card row has climbed up to sit the grid spacing under the flat bar, the bar scrolls away with the cards. Only the band the pill sits on carries its color, the rest stay neutral glass and crossfade when the pill arrives. Reduce Motion keeps the pill and background static while still tracking the scroll with your finger.
+- The page background now carries a soft glow of the current readiness band's color centered in the ring, which switches off as the pill sets off and fades back in on the new band shortly after; returning to the tab lands the pill in place with the glow already on.
+- The explanation or Apple Intelligence comment and the "Started today with N%" line sit as plain text directly under the hero; tapping either opens the Readiness detail.
+- Tapping a notification now opens its page on cached data right away instead of waiting for the launch refresh to finish.
+- Added Daily Readiness notifications that announce today's start-of-day readiness score once it includes the night's sleep, with a tap opening the Readiness detail.
+- Settings has a new **General** section, the first one, above Appearance. It holds the Notifications row, moved up from between AI and Data, and a new **Vibration** row that now carries the Equivalent card's Collision Vibration switch, taken out of Settings > Workouts > Workout Equivalents. Both rows use a red icon tile and read On/Off, the Notifications row from its All Notifications master switch.
+- The Summary Cards row in Settings > Metrics now uses the same blue icon tile as Units.
+- Updated the app, widget, watch, and test bundle version to 1.1.1 build 2.
+
 ## 1.1.1 (build 1)
 
 - Added Sleep Data notifications for newly synced nights, with direct navigation to Sleep details.
