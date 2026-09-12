@@ -289,7 +289,7 @@ final class WatchComputeSeedTests: XCTestCase {
         let dataThrough = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
         let dataThroughDay = calendar.startOfDay(for: dataThrough)
 
-        var days = consistencySleepHistoryFixture(nightCount: 30, anchor: dataThrough).days
+        var days = consistencySleepHistoryFixture(nightCount: 365, anchor: dataThrough).days
         // A night for each of the 7 days AFTER `dataThrough` too, so scoring
         // can walk forward across the seed's whole `maxComputeAge` validity
         // window (a real watch compute at `dataThrough + N` still needs
@@ -309,6 +309,7 @@ final class WatchComputeSeedTests: XCTestCase {
 
         // Trim ONCE, at the fixed `dataThrough` anchor.
         let trimmedHistory = fullHistory.watchComputeTrimmed(anchor: dataThrough, calendar: calendar)
+        XCTAssertEqual(trimmedHistory.days.count, WatchComputeSeed.trendDayCount + 7)
 
         for aheadOffset in 0...7 {
             let scoringInstant = try XCTUnwrap(calendar.date(byAdding: .day, value: aheadOffset, to: dataThrough))
@@ -402,7 +403,8 @@ final class WatchComputeSeedTests: XCTestCase {
 
     func testCompressedRealisticSeedFixtureStaysUnderFiftyKilobytes() throws {
         let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
-        let seed = makeSeed(anchor: anchor, dayCount: WatchComputeSeed.trendDayCount)
+        let seed = makeSeed(anchor: anchor, dayCount: 365)
+        XCTAssertEqual(seed.trends.sleepHistory.days.count, WatchComputeSeed.trendDayCount)
 
         let compressed = try XCTUnwrap(seed.encodedCompressed())
         XCTAssertLessThan(compressed.count, 50_000, "compressed seed was \(compressed.count) bytes, expected under 50 KB")

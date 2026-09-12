@@ -414,7 +414,8 @@ private func watchComputeWindowed(
 }
 
 extension SleepHistorySnapshot {
-    /// Collapses stage detail for nights `WatchComputeSeed.sleepSegmentDayCount`
+    /// Keeps the same 70-day lookback as the compute trends (including the
+    /// 56-day readiness baseline), then collapses stage detail for nights `WatchComputeSeed.sleepSegmentDayCount`
     /// (or more) days before `anchor` into a single synthesized segment
     /// spanning the night's main-session interval — full per-stage detail
     /// (REM/Core/Deep/Awake) only matters for tonight's own sleep score and the
@@ -433,9 +434,10 @@ extension SleepHistorySnapshot {
     /// score categories correctly stop scoring a night whose split is unknown.
     func watchComputeTrimmed(anchor: Date, calendar: Calendar = .bodyGregorian) -> SleepHistorySnapshot {
         let anchorDay = calendar.startOfDay(for: anchor)
-        let trimmedDays = days.map { day -> SleepDaySummary in
+        let trimmedDays = days.compactMap { day -> SleepDaySummary? in
             let dayStart = calendar.startOfDay(for: day.date)
             let ageInDays = calendar.dateComponents([.day], from: dayStart, to: anchorDay).day ?? 0
+            guard ageInDays < WatchComputeSeed.trendDayCount else { return nil }
             guard ageInDays >= WatchComputeSeed.sleepSegmentDayCount else {
                 return day
             }
