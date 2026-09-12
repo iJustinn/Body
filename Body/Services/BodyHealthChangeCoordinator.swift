@@ -11,7 +11,7 @@ final class BodyHealthChangeCoordinator {
     private let observing: any BodyHealthObserving
     private let suppressesInitialDelivery: @MainActor () -> Bool
     private var registrations: [BodyHealthObservation] = []
-    private var context = ""
+    private var context: BodyHealthObserverContext { store.currentObserverLedgerContext() }
     private var debounce: Task<Void, Never>?
     private var firstWake: ContinuousClock.Instant?
     private var repairing = false
@@ -29,20 +29,22 @@ final class BodyHealthChangeCoordinator {
         self.observing = observing ?? BodyHealthKitObserver()
         let registrations = BodyHealthObservationPolicy.registrations(permissions: store.permissionSelection, selection: .load(), includesCompanionConsumers: true)
         ledger = BodyHealthDirtyWorkStore(file: file, domains: Set(registrations.flatMap(\.metrics)),
-                                         context: store.currentDashboardCacheScope().signature)
+                                         context: store.currentObserverLedgerContext())
     }
 
     func configure() async {
         let next = BodyHealthObservationPolicy.registrations(permissions: store.permissionSelection,
                                                             selection: .load(), includesCompanionConsumers: true)
-        let nextContext = store.currentDashboardCacheScope().signature
+        let nextContext = store.currentObserverLedgerContext()
         registrations = next
-        context = nextContext
         _ = await ledger.synchronize(domains: Set(next.flatMap(\.metrics)), context: nextContext)
         await observer.configure(next)
     }
 
     func contextDidChange() {
+        #if DEBUG
+        BodyObserverRefreshDiagnostics.log("coordinator contextDidChange repairing=\(repairing) busy=\(store.isRefreshing)")
+        #endif
         Task { @MainActor [weak self] in
             await self?.configure()
             self?.scheduleForeground()
@@ -57,6 +59,9 @@ final class BodyHealthChangeCoordinator {
 
     private func capture(identifier: String, failed: Bool) async {
         guard let registration = registrations.first(where: { $0.type.identifier == identifier }) else { return }
+        #if DEBUG
+        BodyObserverRefreshDiagnostics.log("delivery observerError=\(failed) kinds=[\(registration.metrics.map(\.rawValue).sorted().joined(separator: ","))]")
+        #endif
         // Bypass TTL admission before the first suspension. Capture failure keeps the
         // in-memory obligation and never withholds HealthKit's completion.
         store.invalidateObservedHealthChanges()
@@ -96,6 +101,9 @@ final class BodyHealthChangeCoordinator {
     }
 
     func repairOnActivation() async {
+        #if DEBUG
+        BodyObserverRefreshDiagnostics.log("admission foreground=\(BodyAppRuntime.isForegroundActive) repairing=\(repairing) busy=\(store.isRefreshing)")
+        #endif
         guard BodyAppRuntime.isForegroundActive, !repairing else { return }
         repairing = true
         await configure()
@@ -109,8 +117,12 @@ final class BodyHealthChangeCoordinator {
             repairing = false
             if followupNeeded { scheduleForeground() }
         }
-        _ = await ledger.flush()
+        let durable = await ledger.flush()
         let work = await pending(history: true)
+        #if DEBUG
+        BodyObserverRefreshDiagnostics.log("admission ledgerDurable=\(durable) pending=[\(BodyObserverRefreshDiagnostics.pending(await ledger.snapshot()))] rings=\(store.needsObservedRingRepair)")
+        #endif
+        _ = durable // The common repair entry rechecks durability after admission.
         if !work.isEmpty || store.needsObservedRingRepair {
             store.invalidateObservedHealthChanges()
             let operation = Task { await store.repairObservedMetrics(work, ledger: ledger) }
@@ -121,7 +133,13 @@ final class BodyHealthChangeCoordinator {
         let remaining = await pending(history: true)
         store.observedRepairDidSettle(pending: !remaining.isEmpty || store.needsObservedRingRepair)
         store.scheduleWorkoutJournalIfNeeded()
+        #if DEBUG
+        let notificationStart = ContinuousClock.now
+        #endif
         await store.evaluateNewNotifications()
+        #if DEBUG
+        BodyObserverRefreshDiagnostics.log("activation notifications duration=\(BodyObserverRefreshDiagnostics.elapsed(since: notificationStart))")
+        #endif
     }
 
     func runBackground(lease: BodyBackgroundLease) async -> Bool {
@@ -131,7 +149,7 @@ final class BodyHealthChangeCoordinator {
         var work = await pending(history: false)
         // A fallback is a revalidation opportunity even when no observer fired.
         if work.isEmpty {
-            _ = await ledger.mark(Set(registrations.flatMap(\.metrics).filter { store.observedMetricNeedsValidation($0) }), context: context)
+            _ = await ledger.mark(Set(registrations.flatMap(\.metrics).filter { store.observedMetricNeedsValidation($0) }), context: context, reason: "backgroundRevalidation")
             work = await pending(history: false)
         }
         return await lease.run {
@@ -159,9 +177,10 @@ final class BodyHealthChangeCoordinator {
             if $1.key == "sleep" { return false }
             return $0.key < $1.key
         }) {
-            guard let kind = HealthMetricKind(rawValue: key) else { continue }
+            guard let kind = HealthMetricKind(rawValue: key),
+                  let context = BodyHealthObserverContext(signature: entry.context) else { continue }
             result.append((kind, .init(resetID: snapshot.resetID, domain: key,
-                                      generation: entry.generation, context: entry.context)))
+                                      generation: entry.generation, context: context)))
         }
         return result
     }

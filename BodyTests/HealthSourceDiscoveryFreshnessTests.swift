@@ -89,6 +89,30 @@ final class HealthSourceDiscoveryFreshnessTests: XCTestCase {
         XCTAssertNotNil(full)
     }
 
+    @MainActor
+    func testObservedRepairAcceptsSourcesDiscoveredAfterItsAdmissionDate() async throws {
+        let restore = preserveInitialHealthLoadDefaults()
+        defer { restore() }
+        let fake = FakeHealthStore()
+        let resting = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .restingHeartRate))
+        fake.scriptSources(for: resting, .sources([]))
+        let store = HealthKitWorkoutStore(initialMonthSnapshots: [], initialHealthDashboardSnapshot: .empty,
+            initialPermissionSelection: .init(enabledPermissions: [.heart]),
+            initialHealthDataSourceSelection: .defaultValue, initialSecondaryHealthDataSourceSelection: .defaultValue,
+            initialCombinesHealthDataSourcesByName: false, initialCustomHealthSourceGroups: [],
+            engineHealthStore: fake, workoutJournalFile: nil)
+        // Deliberately earlier than discovery's wall-clock default. A successful
+        // discovery must not look like clock rollback to this same repair.
+        fake.scriptStatistics(for: resting, .failure(nil))
+        fake.scriptStatisticsCollection(for: resting, .failure(nil))
+        fake.scriptSamples(for: resting, .failure(nil))
+        await store.withRefreshSlotHeld {
+            _ = await store.performHealthMetricRefresh(.restingHeartRate, date: self.now, calendar: .bodyGregorian, observed: true)
+        }
+        XCTAssertTrue(fake.leafRequests.contains(.statisticsCollection(resting.identifier)),
+                      "Successful discovery must admit metric reads")
+    }
+
     func testStableCombinedSelectionResolvesAddedAndRemovedMembers() {
         struct Source: Equatable { let bundle: String; let name: String }
         let a = Source(bundle: "app.a", name: "Tracker"), b = Source(bundle: "app.b", name: "Tracker")
@@ -103,5 +127,37 @@ final class HealthSourceDiscoveryFreshnessTests: XCTestCase {
         XCTAssertEqual(map([a, b])[selectedID], [a, b])
         XCTAssertEqual(map([b])[selectedID], [b])
         XCTAssertNil(map([])[selectedID])
+    }
+
+    @MainActor
+    func testObservedBodyMeasurementsDiscoverSharedBasicsSourceBeforeReading() async throws {
+        let restore = preserveInitialHealthLoadDefaults()
+        defer { restore() }
+        for kind in [HealthMetricKind.bodyMass, .bodyFatPercentage, .bodyMassIndex] {
+            let fake = FakeHealthStore()
+            let types = try [HKQuantityTypeIdentifier.bodyMass, .bodyFatPercentage, .bodyMassIndex].map {
+                try XCTUnwrap(HKObjectType.quantityType(forIdentifier: $0))
+            }
+            for type in types {
+                fake.scriptSources(for: type, .sources([]))
+                fake.scriptSamples(for: type, .failure(nil))
+                fake.scriptStatisticsCollection(for: type, .failure(nil))
+            }
+            let store = HealthKitWorkoutStore(initialMonthSnapshots: [], initialHealthDashboardSnapshot: .empty,
+                initialPermissionSelection: .init(enabledPermissions: [.basics]),
+                initialHealthDataSourceSelection: .init(selectedOptions: [.basics: .init(id: "source:scale", name: "Scale")]),
+                initialSecondaryHealthDataSourceSelection: .defaultValue,
+                initialCombinesHealthDataSourcesByName: false, initialCustomHealthSourceGroups: [],
+                engineHealthStore: fake, workoutJournalFile: nil)
+            await store.withRefreshSlotHeld {
+                _ = await store.performHealthMetricRefresh(kind, date: self.now, calendar: .bodyGregorian, observed: true)
+            }
+            for type in types {
+                XCTAssertTrue(fake.leafRequests.contains(.sources(type.identifier)), "\(kind) needs the shared Basics source map")
+            }
+            let descriptor = try XCTUnwrap(HealthMetricQueryDescriptor.descriptor(for: kind))
+            XCTAssertTrue(fake.leafRequests.contains(.samples(descriptor.quantityType.rawValue)),
+                          "Resolved Basics selection must admit the body-measurement query")
+        }
     }
 }

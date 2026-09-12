@@ -75,12 +75,22 @@ final class HealthDashboardCalendarContextTests: XCTestCase {
     }
 
     @MainActor
-    func testMidnightInsideFreshnessTTLQueuesCorrectionBeforeResumeGate() async {
+    func testMidnightInsideFreshnessTTLQueuesCorrectionBeforeResumeGate() async throws {
         let restore = preserveInitialHealthLoadDefaults()
         defer { restore() }
         let cal = calendar("America/New_York")
         var now = date("2026-09-04T03:59:50Z")
         let store = makeStore(snapshot(now), context: { (cal, now) })
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("dirty.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let domains: Set<HealthMetricKind> = [.steps, .heartRate]
+        let ledger = BodyHealthDirtyWorkStore(file: file, domains: domains, context: store.currentObserverLedgerContext())
+        _ = await ledger.flush()
+        for kind in domains {
+            let value = await ledger.receipt(for: kind)
+            let acknowledged = await ledger.acknowledge(try XCTUnwrap(value), current: true, history: true)
+            XCTAssertTrue(acknowledged)
+        }
         store.markRefreshSucceeded(date: now, refreshedVitals: true, publishesWatch: false)
         store.stageCompletedDashboardFreshness(date: now)
         XCTAssertNotNil(store.currentDashboardPersistenceMetadata().freshness)
@@ -92,8 +102,60 @@ final class HealthDashboardCalendarContextTests: XCTestCase {
         XCTAssertEqual(store.healthTrends.steps.points.count, 1)
         XCTAssertNil(store.lastSuccessfulRefreshDate)
         XCTAssertNil(store.currentDashboardPersistenceMetadata().freshness)
+        // Reproduce coordinator synchronization using the real injected store
+        // scope, without attaching observers or querying personal Health data.
+        _ = await ledger.synchronize(domains: domains, context: store.currentObserverLedgerContext())
+        let pending = await ledger.snapshot()
+        XCTAssertTrue(pending.entries.values.allSatisfy { !$0.currentPending && !$0.historyPending },
+                      "Midnight must not create observer history work")
         await fulfillment(of: [corrected], timeout: 3)
         store.contextRefreshOverride = { _ in }
+    }
+
+    func testLedgerRolloverAcrossDSTPreservesCleanHistoryOnSynchronizeAndReload() async throws {
+        let cal = calendar("America/New_York")
+        for (start, hours) in [("2026-03-08T05:00:00Z", 23), ("2026-11-01T04:00:00Z", 25)] {
+            let dayA = date(start)
+            let dayB = try XCTUnwrap(cal.date(byAdding: .day, value: 1, to: dayA))
+            XCTAssertEqual(dayB.timeIntervalSince(dayA), Double(hours) * 3600)
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("dirty.json")
+            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            let ledger = BodyHealthDirtyWorkStore(file: file, domains: [.steps], context: .init(scope: scope(cal, dayA)))
+            _ = await ledger.flush()
+            let value = await ledger.receipt(for: .steps)
+            let acknowledged = await ledger.acknowledge(try XCTUnwrap(value), current: true, history: true)
+            XCTAssertTrue(acknowledged)
+            let clean = await ledger.snapshot()
+            _ = await ledger.synchronize(domains: [.steps], context: .init(scope: scope(cal, dayB.addingTimeInterval(-1))))
+            let beforeMidnight = await ledger.snapshot()
+            XCTAssertEqual(beforeMidnight, clean, "DST offset changes alone do not replace the context")
+            let saved = try Data(contentsOf: file)
+            _ = await ledger.synchronize(domains: [.steps], context: .init(scope: scope(cal, dayB)))
+            let warm = await ledger.snapshot()
+            XCTAssertEqual(warm, clean)
+            try saved.write(to: file, options: .atomic)
+            let cold = BodyHealthDirtyWorkStore(file: file, domains: [.steps], context: .init(scope: scope(cal, dayB)))
+            let coldState = await cold.snapshot()
+            XCTAssertEqual(coldState, clean)
+        }
+    }
+
+    @MainActor
+    func testColdHydrationAfterMidnightExpiresTodayAndRetainsHistory() {
+        let restore = preserveInitialHealthLoadDefaults()
+        defer { restore() }
+        let cal = calendar("America/New_York")
+        let dayA = date("2026-09-04T03:59:50Z"), dayB = dayA.addingTimeInterval(20)
+        let original = snapshot(dayA)
+        let prior = makeStore(original, context: { (cal, dayA) })
+        let loaded = makeStore(original, context: { (cal, dayB) }, signature: prior.currentDashboardCacheScope().signature)
+        loaded.contextRefreshOverride = { _ in }
+        XCTAssertNil(loaded.healthSummary.steps.value)
+        XCTAssertTrue(loaded.healthSummary.activityRings.isEmpty)
+        XCTAssertEqual(loaded.healthSummary.heartRate.value, original.summary.heartRate.value)
+        XCTAssertEqual(loaded.healthTrends.steps, original.trends.steps)
+        XCTAssertNil(loaded.lastSuccessfulRefreshDate)
+        XCTAssertNil(loaded.currentDashboardPersistenceMetadata().freshness)
     }
 
     @MainActor
@@ -154,7 +216,8 @@ final class HealthDashboardCalendarContextTests: XCTestCase {
 
     @MainActor
     private func makeStore(_ snapshot: HealthDashboardSnapshot,
-                           context: @escaping () -> (calendar: Calendar, date: Date)) -> HealthKitWorkoutStore {
+                           context: @escaping () -> (calendar: Calendar, date: Date),
+                           signature: String? = nil) -> HealthKitWorkoutStore {
         let permission = BodyHealthPermissionSelection(enabledPermissions: [.heart, .steps, .basics, .activityRings])
         var snapshot = snapshot
         // These tests change only calendar context. A mismatched readiness
@@ -168,6 +231,7 @@ final class HealthDashboardCalendarContextTests: XCTestCase {
             showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages()
         )
         return HealthKitWorkoutStore(initialMonthSnapshots: [], initialHealthDashboardSnapshot: snapshot,
+                              initialSummaryContextSignature: signature,
                               initialPermissionSelection: permission,
                               initialHealthDataSourceSelection: .defaultValue, initialSecondaryHealthDataSourceSelection: .defaultValue,
                               initialCombinesHealthDataSourcesByName: false, initialCustomHealthSourceGroups: [],

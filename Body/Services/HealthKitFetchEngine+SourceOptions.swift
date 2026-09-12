@@ -227,6 +227,15 @@ extension HealthKitFetchEngine {
         return optionsByKind
     }
 
+    /// Discovery itself advances queryContextRevision when it installs a new
+    /// source bucket. Return that settled revision on the engine actor, without
+    /// a suspension between the discovered options and their revision stamp.
+    func discoverObservedHealthSources(for kinds: Set<HealthMetricKind>, now: Date)
+        async -> (options: [HealthMetricKind: [BodyHealthDataSourceOption]], revision: Int) {
+        let options = await discoverHealthSources(for: kinds, now: now)
+        return (options, queryContextRevision)
+    }
+
     private func fetchKindSources(for kind: HealthMetricKind) async -> KindSources {
         KindSources(kind: kind, sources: await discoverKindSourcesBudgeted(for: kind))
     }

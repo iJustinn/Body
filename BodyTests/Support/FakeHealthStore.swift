@@ -40,6 +40,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
         /// `.cancelled`. The default for unscripted reads.
         case never
         indirect case delay(Duration, then: Script)
+        indirect case gated(@Sendable () async -> Void, then: Script)
     }
 
     /// Which leaf read a recorded request came from, with the queried type's
@@ -236,7 +237,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
                 return .success(samples)
             case .failure(let error):
                 return .failure(error)
-            case .sources, .never, .delay:
+            case .sources, .never, .delay, .gated:
                 return nil
             }
         }
@@ -251,7 +252,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
                 return .success(sources)
             case .failure(let error):
                 return .failure(error)
-            case .samples, .never, .delay:
+            case .samples, .never, .delay, .gated:
                 return nil
             }
         }
@@ -266,7 +267,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
             switch script {
             case .failure(let error):
                 return .failure(error)
-            case .samples, .sources, .never, .delay:
+            case .samples, .sources, .never, .delay, .gated:
                 return nil
             }
         }
@@ -282,7 +283,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
             switch script {
             case .failure(let error):
                 return .failure(error)
-            case .samples, .sources, .never, .delay:
+            case .samples, .sources, .never, .delay, .gated:
                 return nil
             }
         }
@@ -356,6 +357,10 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
         _ script: Script,
         _ map: (Script) -> BodyHealthReadOutcome<Value>?
     ) async -> BodyHealthReadOutcome<Value> {
+        if case .gated(let gate, let inner) = script {
+            await gate()
+            return await resolve(inner, map)
+        }
         if case .delay(let duration, let inner) = script {
             do {
                 try await Task.sleep(for: duration)

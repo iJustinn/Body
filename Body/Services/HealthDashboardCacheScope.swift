@@ -28,7 +28,7 @@ final class HealthDashboardPublicationToken: @unchecked Sendable {
 /// only a successful query may advance the existing freshness watermarks.
 /// Encoded in the dashboard's existing atomic summary-context field.
 struct HealthDashboardCacheScope: Codable, Equatable {
-    struct Source: Codable, Equatable {
+    struct Source: Codable, Equatable, Sendable {
         var request: String
         var members: [String]?
     }

@@ -2323,15 +2323,15 @@ final class SourceGuardTests: XCTestCase {
 
     func testMetricRefreshDropsDaySamplesWhenSelectionChangesMidFetch() throws {
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
-        // Anchored on `performHealthMetricRefresh`, which now owns the fetch and
-        // the mid-fetch signature check: `refreshHealthMetric` keeps only the
-        // authorization step and the deadline wrapper, so slicing from there
-        // measured past these lines instead of guarding them.
+        // Include the read-context capture and shared commit helper used by
+        // detail pulls and observed batches; both must retain the same fence.
         let start = try XCTUnwrap(storeSource.range(of: "func performHealthMetricRefresh(")?.lowerBound)
         let end = try XCTUnwrap(storeSource.range(of: "let nextTrends =", range: start..<storeSource.endIndex)?.lowerBound)
         let block = String(storeSource[start..<end])
 
-        XCTAssertTrue(block.contains("let capturedDaySampleSignatures = currentDaySampleSignatures()"))
+        XCTAssertTrue(block.contains("let context = await captureHealthMetricReadContext(date: date, calendar: calendar)"))
+        XCTAssertTrue(block.contains("daySampleSignatures: currentDaySampleSignatures()"))
+        XCTAssertTrue(block.contains("let capturedDaySampleSignatures = context.daySampleSignatures"))
         XCTAssertTrue(block.contains("await engine.queryContextRevision == queryRevision"))
         XCTAssertTrue(block.contains("queryScope == currentDashboardCacheScope()"))
         XCTAssertTrue(block.contains("mayApplyRefreshInputs(inputs)"))
@@ -3057,7 +3057,8 @@ final class SourceGuardTests: XCTestCase {
         // metric warning threshold state).
         let detailViewBlock = String(homeSource[detailViewStart...].prefix(8_000))
         let refreshStart = try XCTUnwrap(storeSource.range(of: "func refreshHealthMetric(_ kind: HealthMetricKind")?.lowerBound)
-        let refreshBlock = String(storeSource[refreshStart...].prefix(8_000))
+        let refreshEnd = try XCTUnwrap(storeSource.range(of: "private func refreshAfterWrite(", range: refreshStart..<storeSource.endIndex)?.lowerBound)
+        let refreshBlock = String(storeSource[refreshStart..<refreshEnd])
 
         XCTAssertTrue(detailViewBlock.contains(".bodyPullToRefresh("))
         XCTAssertTrue(detailViewBlock.contains("await workoutStore.refreshHealthMetric(model.kind)"))

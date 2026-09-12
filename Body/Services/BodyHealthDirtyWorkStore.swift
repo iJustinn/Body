@@ -11,7 +11,7 @@ actor BodyHealthDirtyWorkStore {
         var historyPending = true
     }
     struct Envelope: Codable, Equatable, Sendable {
-        var schema = 1
+        var schema = 2
         var resetID = UUID()
         var revision: UInt64 = 0
         var entries: [String: Entry] = [:]
@@ -20,7 +20,7 @@ actor BodyHealthDirtyWorkStore {
         let resetID: UUID
         let domain: String
         let generation: UInt64
-        let context: String
+        let context: BodyHealthObserverContext
     }
 
     private let file: URL
@@ -30,20 +30,44 @@ actor BodyHealthDirtyWorkStore {
 
     /// Missing or invalid storage conservatively dirties every admitted domain.
     /// The caller supplies the current eligibility set; no health values persist.
-    init(file: URL, domains: Set<HealthMetricKind>, context: String,
+    init(file: URL, domains: Set<HealthMetricKind>, context observerContext: BodyHealthObserverContext,
          write: @escaping @Sendable (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }) {
         self.file = file
         self.write = write
+        let context = observerContext.signature
         let allowed = Set(domains.map(\.rawValue))
         if let bytes = try? Data(contentsOf: file),
            var loaded = try? JSONDecoder().decode(Envelope.self, from: bytes),
-           loaded.schema == 1, loaded.revision < UInt64.max,
+           [1, 2].contains(loaded.schema), loaded.revision < UInt64.max,
            loaded.entries.values.allSatisfy({ $0.generation > 0 && $0.generation <= loaded.revision }) {
             let previous = loaded
+            #if DEBUG
+            let differences = Set(loaded.entries.values.map {
+                BodyObserverRefreshDiagnostics.contextDifference(from: $0.context, to: context)
+            }).sorted().joined(separator: ";")
+            BodyObserverRefreshDiagnostics.log("ledger initialization contextDifference=[\(differences)]")
+            #endif
             loaded.entries = loaded.entries.filter { allowed.contains($0.key) }
-            for domain in allowed where loaded.entries[domain]?.context != context {
+            if loaded.schema == 1 {
+                // Project only recognized legacy scopes. Preserve every pending
+                // flag and generation where fetch provenance still matches.
+                // Unknown/mismatched provenance takes the conservative repair below.
+                for domain in allowed {
+                    guard var entry = loaded.entries[domain],
+                          let legacy = HealthDashboardCacheScope(signature: entry.context),
+                          BodyHealthObserverContext(scope: legacy) == observerContext else { continue }
+                    entry.context = context
+                    loaded.entries[domain] = entry
+                }
+                loaded.schema = 2
+                loaded.resetID = UUID()
+            }
+            let changed = allowed.filter { loaded.entries[$0]?.context != context }
+            if !changed.isEmpty {
                 loaded.revision += 1
-                loaded.entries[domain] = Entry(generation: loaded.revision, context: context)
+                for domain in changed {
+                    loaded.entries[domain] = Entry(generation: loaded.revision, context: context)
+                }
             }
             envelope = loaded
             needsSave = loaded != previous
@@ -52,21 +76,26 @@ actor BodyHealthDirtyWorkStore {
                 allowed.map { ($0, Entry(generation: 1, context: context)) }))
             needsSave = true
         }
+        #if DEBUG
+        BodyObserverRefreshDiagnostics.log("ledger reason=initialization needsSave=\(needsSave) pending=[\(BodyObserverRefreshDiagnostics.pending(envelope))]")
+        #endif
     }
 
     func snapshot() -> Envelope { envelope }
 
     func receipt(for kind: HealthMetricKind) -> Receipt? {
-        guard let entry = envelope.entries[kind.rawValue] else { return nil }
+        guard let entry = envelope.entries[kind.rawValue],
+              let context = BodyHealthObserverContext(signature: entry.context) else { return nil }
         return Receipt(resetID: envelope.resetID, domain: kind.rawValue,
-                       generation: entry.generation, context: entry.context)
+                       generation: entry.generation, context: context)
     }
 
     /// Memory retains failed writes; a later capture/flush can retry. Callers
     /// must still complete observer callbacks, and force foreground reconciliation
     /// after failure instead of assuming HealthKit will redeliver the event.
     @discardableResult
-    func mark(_ kinds: Set<HealthMetricKind>, context: String) -> Bool {
+    func mark(_ kinds: Set<HealthMetricKind>, context observerContext: BodyHealthObserverContext, reason: String = "delivery") -> Bool {
+        let context = observerContext.signature
         guard !kinds.isEmpty else { return flush() }
         if envelope.revision == .max {
             envelope.resetID = UUID()
@@ -79,40 +108,80 @@ actor BodyHealthDirtyWorkStore {
             envelope.entries[kind.rawValue] = Entry(generation: envelope.revision, context: context)
         }
         needsSave = true
-        return flush()
+        let durable = flush()
+        #if DEBUG
+        BodyObserverRefreshDiagnostics.log("ledger reason=\(reason) durable=\(durable) pending=[\(BodyObserverRefreshDiagnostics.pending(envelope))]")
+        #endif
+        return durable
     }
 
     /// Payload must already be durably saved under this receipt's context.
     /// A concurrent newer event/reset/context leaves its obligation untouched.
     @discardableResult
     func acknowledge(_ receipt: Receipt, current: Bool, history: Bool) -> Bool {
+        // A delivery can fail to persist while a read is in flight. Retry once,
+        // then recheck every fence below; durability never substitutes for receipt
+        // ownership, and a newer delivery must not be consumed by the old read.
+        if needsSave { _ = flush() }
+        #if DEBUG
+        let rejection: String?
+        if needsSave { rejection = "dirtyLedgerNotDurable" }
+        else if receipt.resetID != envelope.resetID { rejection = "reset" }
+        else if envelope.entries[receipt.domain] == nil { rejection = "removedDomain" }
+        else if envelope.entries[receipt.domain]?.generation != receipt.generation { rejection = "newerGeneration" }
+        else if envelope.entries[receipt.domain]?.context != receipt.context.signature { rejection = "contextMismatch" }
+        else { rejection = nil }
+        if let rejection {
+            BodyObserverRefreshDiagnostics.log("ack kind=\(receipt.domain) generation=\(receipt.generation) accepted=false reason=\(rejection)")
+        }
+        #endif
         guard !needsSave, receipt.resetID == envelope.resetID,
               var entry = envelope.entries[receipt.domain],
-              entry.generation == receipt.generation, entry.context == receipt.context else { return false }
+              entry.generation == receipt.generation, entry.context == receipt.context.signature else { return false }
         if current { entry.currentPending = false }
         if history { entry.historyPending = false }
         var next = envelope
         next.entries[receipt.domain] = entry
-        guard save(next) else { return false }
+        guard save(next) else {
+            #if DEBUG
+            BodyObserverRefreshDiagnostics.log("ack kind=\(receipt.domain) generation=\(receipt.generation) accepted=false reason=ledgerWriteFailure")
+            #endif
+            return false
+        }
         envelope = next
+        #if DEBUG
+        BodyObserverRefreshDiagnostics.log("ack kind=\(receipt.domain) generation=\(receipt.generation) accepted=true current=\(current) history=\(history)")
+        #endif
         return true
     }
 
-    func synchronize(domains: Set<HealthMetricKind>, context: String) -> Bool {
+    func synchronize(domains: Set<HealthMetricKind>, context observerContext: BodyHealthObserverContext) -> Bool {
+        let context = observerContext.signature
         let allowed = Set(domains.map(\.rawValue))
         let previous = envelope
         envelope.entries = envelope.entries.filter { allowed.contains($0.key) }
         let changed = domains.filter { envelope.entries[$0.rawValue]?.context != context }
+        #if DEBUG
+        let differences = Set(changed.map {
+            BodyObserverRefreshDiagnostics.contextDifference(from: previous.entries[$0.rawValue]?.context, to: context)
+        }).sorted().joined(separator: ";")
+        BodyObserverRefreshDiagnostics.log("ledger synchronization contextDifference=[\(differences)] changedDomains=\(changed.count)")
+        #endif
         if envelope != previous { needsSave = true }
-        return mark(changed, context: context)
+        return mark(changed, context: observerContext, reason: "contextSynchronization")
     }
 
     @discardableResult
-    func reset(domains: Set<HealthMetricKind>, context: String) -> Bool {
+    func reset(domains: Set<HealthMetricKind>, context observerContext: BodyHealthObserverContext) -> Bool {
+        let context = observerContext.signature
         envelope = Envelope(revision: 1, entries: Dictionary(uniqueKeysWithValues:
             domains.map { ($0.rawValue, Entry(generation: 1, context: context)) }))
         needsSave = true
-        return flush()
+        let durable = flush()
+        #if DEBUG
+        BodyObserverRefreshDiagnostics.log("ledger reason=reset durable=\(durable) pending=[\(BodyObserverRefreshDiagnostics.pending(envelope))]")
+        #endif
+        return durable
     }
 
     @discardableResult
