@@ -4,6 +4,12 @@ Persistent project-specific troubleshooting notes for future Codex runs.
 
 ## Entries
 
+### 2026-09-12 - Preserve Xcode's watch test scheme macro expansion
+- Symptom: `BodyWatchTests.xcscheme` repeatedly becomes modified when Xcode restores `ProfileAction/MacroExpansion` referencing `BodyWatch.app`.
+- Cause: Cleanup commits repeatedly removed the block, including after a September 7 commit documented that Xcode writes it back.
+- Fix: Keep the Xcode-written block in the shared scheme and commit it as the baseline. The referenced target `710000362E00000100000036` is the valid `BodyWatch` target.
+- Reuse: Do not remove this block as stale or generated noise. Preserve Xcode's serialized scheme metadata unless a deliberate scheme behavior change requires editing it.
+
 ### 2026-06-10 - `JSONEncoder` output is not byte-stable; save-if-changed compares need `.sortedKeys`
 - Context: All three snapshot stores (dashboard, workout, widget) dedupe disk writes by encoding and comparing bytes against the existing file, and gate widget reloads on that result (2026-05-18 "Save-if-changed" entry).
 - Symptom: A new test asserting `save(x); save(x) == false` failed reproducibly — two `JSONEncoder().encode(...)` calls on the *same value instance* returned equal-length but different bytes ("2542 bytes is not equal to 2542 bytes").
