@@ -95,7 +95,7 @@ final class BodyHomeReadinessHeroPinTests: XCTestCase {
                     BodyReadinessHeroScrollPin(
                         scrollState: scrollState,
                         width: BodyHomeReadinessHeroPinTests.heroWidth
-                    ) { progress in
+                    ) { progress, _ in
                         BodyReadinessArcHero(
                             readiness: Self.sample,
                             width: BodyHomeReadinessHeroPinTests.heroWidth,

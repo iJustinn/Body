@@ -305,4 +305,64 @@ final class BodyReadinessArcGeometryTests: XCTestCase {
         XCTAssertEqual(Geometry.segmentIndex(forScore: 95), 4)
         XCTAssertEqual(Geometry.segmentIndex(forScore: 100), 4)
     }
+
+    func testPillMoveKeepsEveryFrameInTheStartOrTargetBand() {
+        // The spring overshoots by a few percent of the distance travelled.
+        XCTAssertGreaterThan(Geometry.pillSpringOvershootRatio, 0.03)
+        XCTAssertLessThan(Geometry.pillSpringOvershootRatio, 0.1)
+
+        XCTAssertEqual(Geometry.pillMove(from: 0, to: 72), .bounce)
+        XCTAssertEqual(Geometry.pillMove(from: 40, to: 50), .bounce)
+
+        // Landing on the edge it enters through: rush past, then return inside the band.
+        guard case .overshootThenReturn(let up) = Geometry.pillMove(from: 0, to: 65) else {
+            return XCTFail("65 from below is the near edge of Moderate")
+        }
+        XCTAssertGreaterThan(up, 65)
+        XCTAssertLessThan(up, 80)
+        guard case .overshootThenReturn(let down) = Geometry.pillMove(from: 100, to: 64) else {
+            return XCTFail("64 from above is the near edge of Low")
+        }
+        XCTAssertLessThan(down, 64)
+        XCTAssertGreaterThanOrEqual(down, 30)
+        XCTAssertLessThanOrEqual(abs(up - 65), Geometry.pillMaxDeliberateOvershoot)
+
+        // Landing on the far edge: no overshoot at all.
+        XCTAssertEqual(Geometry.pillMove(from: 0, to: 64), .settle)
+        XCTAssertEqual(Geometry.pillMove(from: 100, to: 65), .settle)
+        XCTAssertEqual(Geometry.pillMove(from: 0, to: 100), .settle)
+        XCTAssertEqual(Geometry.pillMove(from: 100, to: 0), .settle)
+    }
+
+    func testPullStretchGrowsWithThePullAndStaysUnderItsCap() {
+        XCTAssertEqual(Geometry.pullStretch(pull: 0), 0)
+        XCTAssertEqual(Geometry.pullStretch(pull: -20), 0, "Scrolling up never stretches the ring")
+        let small = Geometry.pullStretch(pull: 40)
+        let large = Geometry.pullStretch(pull: 160)
+        XCTAssertGreaterThan(small, 0)
+        XCTAssertGreaterThan(large, small)
+        XCTAssertLessThanOrEqual(Geometry.pullStretch(pull: 5000), Geometry.maxPullStretch)
+    }
+
+    func testAStretchedRingPullsItsBandsApartWithoutLiftingItsTop() {
+        for width in widths {
+            let rest = Geometry.layout(progress: 0, width: width)
+            let stretched = Geometry.layout(progress: 0, width: width, stretch: 1)
+            XCTAssertEqual(stretched.topY, rest.topY, accuracy: 0.001, "The top of the arc stays put")
+            XCTAssertGreaterThan(stretched.trackLength, rest.trackLength)
+            XCTAssertEqual(stretched.curveRadius!, rest.curveRadius!, accuracy: 0.001, "The ring keeps its radius")
+            for (restLength, stretchedLength) in zip(rest.segmentLengths, stretched.segmentLengths) {
+                XCTAssertEqual(stretchedLength, restLength, accuracy: 0.001, "Bands keep their resting length")
+            }
+            let restEnd = rest.point(atDistance: rest.trackLength)
+            let stretchedEnd = stretched.point(atDistance: stretched.trackLength)
+            XCTAssertGreaterThan(stretchedEnd.y, restEnd.y, "The ends drop further down the sides")
+            for index in 0..<(rest.segments.count - 1) {
+                let restGap = distance(rest.segments[index].last!, rest.segments[index + 1].first!)
+                let stretchedGap = distance(stretched.segments[index].last!, stretched.segments[index + 1].first!)
+                XCTAssertGreaterThan(stretchedGap, restGap * 1.5, "Band \(index) pulls clear of its neighbour at \(width)")
+            }
+            XCTAssertEqual(Geometry.layout(progress: 0, width: width, stretch: 0).trackLength, rest.trackLength, accuracy: 0.001)
+        }
+    }
 }

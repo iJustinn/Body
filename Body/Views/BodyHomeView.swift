@@ -258,6 +258,9 @@ extension Array where Element == HealthTrendCalendarPoint {
 @Observable
 final class BodyHomeScrollState {
     var offset: CGFloat = 0
+    /// Points the page is pulled down past its resting top, for the hero's stretch.
+    /// Zero while `offset` is positive.
+    var pull: CGFloat = 0
     /// The metric grid's top in Home's content space (constant while scrolling), so the
     /// hero pin knows when the first card row has climbed up under the flat bar. Nil
     /// until the grid has laid out.
@@ -310,7 +313,8 @@ struct BodyReadinessHeroScrollPin<Content: View>: View {
     let scrollState: BodyHomeScrollState
     /// The width the hero draws at: the morph distance is sized from its height.
     let width: CGFloat
-    @ViewBuilder var content: (Double) -> Content
+    /// Receives the morph progress and the pull-down distance past rest.
+    @ViewBuilder var content: (Double, CGFloat) -> Content
 
     /// The hero's top in the scroll viewport at offset 0, measured from its own frame:
     /// `frame.minY` is where it is drawn (after the pin offset), so undoing the pin
@@ -350,7 +354,7 @@ struct BodyReadinessHeroScrollPin<Content: View>: View {
     }
 
     var body: some View {
-        content(progress)
+        content(progress, scrollState.pull)
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.frame(in: .named(BodyHomeView.viewportCoordinateSpace)).minY
             } action: { drawnMinY in
@@ -607,6 +611,7 @@ struct BodyHomeView: View {
                         geometry.contentOffset.y + geometry.contentInsets.top
                     } action: { _, offset in
                         scrollState.offset = max(0, offset)
+                        scrollState.pull = max(0, -offset)
                     }
                     // The hero pin measures its resting position in this space.
                     .coordinateSpace(name: Self.viewportCoordinateSpace)
@@ -786,7 +791,7 @@ struct BodyHomeView: View {
             // The pin (which reads scrollState.offset) hands its progress to the closure,
             // so scrolling re-renders only that closure, not this body. Reading the
             // offset here would rebuild every metric card model on each scroll frame.
-            BodyReadinessHeroScrollPin(scrollState: scrollState, width: width) { progress in
+            BodyReadinessHeroScrollPin(scrollState: scrollState, width: width) { progress, pull in
                 let isTextVisible = BodyReadinessArcHero.isTextVisible(progress: progress, width: width)
                 Button {
                     BodyCardTapHaptics.play()
@@ -798,6 +803,7 @@ struct BodyHomeView: View {
                         readiness: readiness,
                         width: width,
                         progress: progress,
+                        pull: pull,
                         warningBadges: badges
                     )
                 }

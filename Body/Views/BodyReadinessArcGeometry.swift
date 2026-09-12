@@ -98,6 +98,78 @@ enum BodyReadinessArcGeometry {
         return bandScoreRanges.firstIndex { $0.contains(clamped) } ?? bandScoreRanges.count - 1
     }
 
+    /// Parameters of the pill's underdamped slide. Kept here so the overshoot the spring
+    /// produces can be worked out from the same numbers that drive it.
+    static let pillSpringMass: Double = 1
+    static let pillSpringStiffness: Double = 55
+    static let pillSpringDamping: Double = 10
+
+    /// How far past its target the pill's spring first swings, as a share of the distance
+    /// it travelled: the first-overshoot ratio of the underdamped spring above, which also
+    /// bounds every later swing back.
+    static var pillSpringOvershootRatio: Double {
+        let ratio = pillSpringDamping / (2 * (pillSpringStiffness * pillSpringMass).squareRoot())
+        guard ratio < 1 else { return 0 }
+        return exp(-ratio * .pi / (1 - ratio * ratio).squareRoot())
+    }
+
+    /// How the pill should travel from `from` to `to`, so that no frame of the move shows
+    /// a band other than the one it started in or the one it lands in.
+    enum PillMove: Equatable {
+        /// The plain underdamped spring: every swing stays inside the target's band.
+        case bounce
+        /// A landing at the far edge of its band (the edge it would leave through if it
+        /// overshot): ease in with no overshoot at all.
+        case settle
+        /// A landing at the near edge of its band (the edge it enters through, where any
+        /// swing back would cross into the band it came from): rush past the target to
+        /// `overshoot`, still inside the band, then ease back to the target.
+        case overshootThenReturn(overshoot: Double)
+    }
+
+    /// Farthest the rush of an `overshootThenReturn` move carries past its target.
+    static let pillMaxDeliberateOvershoot: Double = 8
+
+    static func pillMove(from: Double, to: Double) -> PillMove {
+        let distance = abs(to - from)
+        guard distance > 0 else { return .bounce }
+        let swing = distance * pillSpringOvershootRatio
+        let range = bandScoreRanges[segmentIndex(forScore: Int(to.rounded(.down)))]
+        let lower = Double(range.lowerBound)
+        // The top of a band is exclusive, so the pill may go no further than just under it.
+        let upper = Double(range.upperBound) - 0.001
+        let movingUp = to > from
+        // Room past the target before the far edge, and before the near edge behind it.
+        let roomAhead = movingUp ? upper - to : to - lower
+        let roomBehind = movingUp ? to - lower : upper - to
+
+        if swing <= roomAhead && swing <= roomBehind {
+            return .bounce
+        }
+        if swing > roomAhead {
+            return .settle
+        }
+        let overshoot = min(swing, roomAhead * 0.6, pillMaxDeliberateOvershoot)
+        guard overshoot > 0.5 else { return .settle }
+        return .overshootThenReturn(overshoot: movingUp ? to + overshoot : to - overshoot)
+    }
+
+    /// The stretch at a full pull, 0...1: the input `layout(progress:width:stretch:)` takes.
+    static let maxPullStretch: CGFloat = 1
+    /// Pull distance at which the stretch is a little over half way to `maxPullStretch`.
+    static let pullStretchDistance: CGFloat = 110
+    /// At full stretch each gap widens by this share of itself. The bands keep their
+    /// resting lengths and the ring its radius, so the extra track length opens the
+    /// sweep and the ends swing further down the sides.
+    static let stretchGapGrowth: CGFloat = 1.0
+
+    /// How far the ring is stretched for a pull-down of `pull` points past rest: grows
+    /// quickly at first, then eases toward `maxPullStretch` like a rubber band.
+    static func pullStretch(pull: CGFloat) -> CGFloat {
+        guard pull > 0 else { return 0 }
+        return maxPullStretch * (1 - exp(-pull / pullStretchDistance))
+    }
+
     static func arcRadius(width: CGFloat) -> CGFloat {
         max(0, min(width / 2 - arcBarWidth / 2 - 8, maxArcRadius))
     }
@@ -281,17 +353,28 @@ enum BodyReadinessArcGeometry {
     /// The track partway through the morph. The sweep closes toward zero while the track
     /// length and the bar width move to their flat values, so progress 0 and progress 1 are
     /// exactly `arcLayout` and `flatLayout`.
-    static func layout(progress: Double, width: CGFloat) -> Layout {
+    /// `stretch` (0...1) is the pull-down stretch: the bands keep their resting lengths
+    /// and the ring its radius while every gap widens, so the track gets longer, its
+    /// sweep opens and the ends drop further down the sides, with the top of the track
+    /// held where it is. The morph never runs with a stretch (a pull only happens at
+    /// rest), so the two are simply composed.
+    static func layout(progress: Double, width: CGFloat, stretch: CGFloat = 0) -> Layout {
         let amount = CGFloat(clamped01(progress))
+        let pull = CGFloat(clamped01(Double(stretch)))
         let radius = arcRadius(width: width)
         let arcLength = radius * sweepRadians
         let flatLength = max(width - 2 * flatInset(width: width), 0)
-        let sweep = sweepRadians * (1 - amount)
-        let trackLength = fittedTrackLength(arcLength: arcLength, flatLength: flatLength, sweep: sweep, amount: amount)
+        let restSweep = sweepRadians * (1 - amount)
+        let restLength = fittedTrackLength(arcLength: arcLength, flatLength: flatLength, sweep: restSweep, amount: amount)
         let bar = lerp(arcBarWidth, flatBarWidth, amount)
-        let gap = bar + visualGap + morphMargin
+        let restGap = bar + visualGap + morphMargin
 
-        let lengths = allocateSegmentLengths(trackLength: trackLength, gap: gap, barWidth: bar)
+        let lengths = allocateSegmentLengths(trackLength: restLength, gap: restGap, barWidth: bar)
+
+        let gap = restGap * (1 + stretchGapGrowth * pull)
+        let trackLength = restLength + (gap - restGap) * CGFloat(lengths.count - 1)
+        // Same bend radius as at rest, so the longer track sweeps further round it.
+        let sweep = restSweep > 1e-9 ? trackLength / (restLength / restSweep) : 0
 
         var spans: [ClosedRange<CGFloat>] = []
         var cursor: CGFloat = 0
@@ -302,7 +385,9 @@ enum BodyReadinessArcGeometry {
 
         let curveRadius: CGFloat? = sweep > 1e-9 ? trackLength / sweep : nil
         let centerX = width / 2
-        let topY = lerp(arcCenterY(width: width) - radius, flatY, amount)
+        // The arc's top stays at its inset whatever the radius, so the stretch grows the
+        // ring downward and outward from its top rather than lifting it off the page.
+        let topY = lerp(arcTopInset, flatY, amount)
 
         let segments = spans.map { span in
             (0..<sampleCount).map { step -> CGPoint in

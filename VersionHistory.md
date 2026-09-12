@@ -7,6 +7,8 @@
 - The gap between the hero's bars and the comment under them is now the same spacing the cards keep from each other: the hero no longer reserves a band of empty space below the bars, and the warning signs sit under the score rather than on the hero's bottom edge.
 - The readiness score reads semibold instead of heavy.
 - The page's readiness glow is tighter, about four fifths of the reach it had, and is now sized from the ring itself, so it spreads a little past the bars instead of washing the comment and the first card row.
+- The readiness pill no longer flips band colors back and forth when it lands on a band edge. Landing on the edge it enters through (65 coming up from Low, say) it now rushes a little past the mark into the new band and eases back, so the color changes once and it never waits against the previous band's cap; landing on the far edge of a band (64 coming up, or 65 coming down) it eases in with no overshoot; every other move keeps its bounce.
+- Pulling the Summary tab down past the top now holds the readiness score and percent sign still on screen while the ring is dragged open after your finger (the bands keep their size while the gaps between them open up, so the ring reaches further down the sides) and springs back into place when you let go; with Reduce Motion on the score still holds still but the ring does not stretch.
 - Updated the app, widget, watch, and test bundle version to 1.1.1 build 3.
 
 ## 1.1.1 (build 2)

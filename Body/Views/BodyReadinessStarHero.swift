@@ -94,6 +94,12 @@ struct BodyReadinessArcHero: View {
     /// 0 = full arc with the score, 1 = the flat pinned bar. Clamped here.
     let progress: Double
 
+    /// Points the page has been pulled down past rest. The score row is counter-offset so
+    /// it stays put on screen while the ring, whose top is held the same way, is dragged
+    /// open after the finger (bigger, wider sweep, bands pulling apart) and springs back
+    /// on release. Zero everywhere but Home.
+    var pull: CGFloat = 0
+
     /// Warning signs mirrored from the Home cards, drawn under the score. Drawing
     /// only: the taps are handled by buttons the host overlays on these glyphs,
     /// outside the hero's own button. Empty everywhere but Home.
@@ -107,8 +113,18 @@ struct BodyReadinessArcHero: View {
     /// so a score change slides the pill while a scroll frame mid-slide just moves the
     /// track under it without cancelling the spring.
     @State private var presentedScore: Double = 0
+
+    /// The animation of the move in flight: the bouncing spring, or a critically damped
+    /// one when the bounce would carry the pill across a band edge.
+    @State private var pillAnimation: Animation?
+
+    /// The ring's stretch, 0...1. Follows the pull directly while the finger drags and
+    /// springs back to zero from the moment the pull starts to let go.
+    @State private var stretch: CGFloat = 0
+    @State private var isStretchReleasing = false
     @Environment(BodyReadinessHeroState.self) private var heroState: BodyReadinessHeroState?
     @State private var glowTask: Task<Void, Never>?
+    @State private var returnTask: Task<Void, Never>?
 
     private typealias Geometry = BodyReadinessArcGeometry
 
@@ -135,9 +151,24 @@ struct BodyReadinessArcHero: View {
     /// Underdamped on purpose: the pill overshoots its mark, swings back past it, and
     /// settles over a couple of shrinking bounces, the slosh the old wave fill had. The
     /// track clamps its position, so the overshoot can't leave the band's cap.
-    private var dotAnimation: Animation? {
-        reduceMotion ? nil : .interpolatingSpring(mass: 1, stiffness: 55, damping: 10)
-    }
+    private static let bouncingDotAnimation = Animation.interpolatingSpring(
+        mass: Geometry.pillSpringMass,
+        stiffness: Geometry.pillSpringStiffness,
+        damping: Geometry.pillSpringDamping
+    )
+
+    /// For a target at the far edge of its band, where a bounce would cross into the
+    /// next band: a timed ease-out with no overshoot.
+    private static let settlingDotAnimation = Animation.easeOut(duration: 0.7)
+
+    /// For a target at the near edge of its band, where a swing back would cross into
+    /// the band the pill came from: a quick rush past the target into the band, then a
+    /// slower return to it. Timed curves rather than springs, so the pill is never
+    /// parked against the previous band's cap (the track clamps it there) waiting for a
+    /// spring's tail to carry it over the edge.
+    private static let rushDotAnimation = Animation.easeIn(duration: 0.32)
+    private static let returnDotAnimation = Animation.easeInOut(duration: 0.6)
+    private static let rushDuration: Duration = .milliseconds(320)
 
     /// Slides the pill to `score`. The page glow switches off as the pill sets off and
     /// fades back in on the target band a fixed `glowDelay` later, so the color never
@@ -150,8 +181,31 @@ struct BodyReadinessArcHero: View {
             return
         }
         heroState?.activeStatus = nil
-        withAnimation(dotAnimation) {
-            presentedScore = target
+        returnTask?.cancel()
+        switch Geometry.pillMove(from: presentedScore, to: target) {
+        case .bounce:
+            pillAnimation = Self.bouncingDotAnimation
+            withAnimation(pillAnimation) {
+                presentedScore = target
+            }
+        case .settle:
+            pillAnimation = Self.settlingDotAnimation
+            withAnimation(pillAnimation) {
+                presentedScore = target
+            }
+        case .overshootThenReturn(let overshoot):
+            pillAnimation = Self.rushDotAnimation
+            withAnimation(pillAnimation) {
+                presentedScore = overshoot
+            }
+            returnTask = Task {
+                try? await Task.sleep(for: Self.rushDuration)
+                guard !Task.isCancelled else { return }
+                pillAnimation = Self.returnDotAnimation
+                withAnimation(pillAnimation) {
+                    presentedScore = target
+                }
+            }
         }
         glowTask?.cancel()
         glowTask = Task {
@@ -164,6 +218,7 @@ struct BodyReadinessArcHero: View {
     /// Lands the pill on `score` with no slide and the glow on immediately.
     private func placePill(at score: Int?) {
         glowTask?.cancel()
+        returnTask?.cancel()
         presentedScore = Double(score ?? 0)
         heroState?.activeStatus = score.map { Geometry.segmentOrder[Geometry.segmentIndex(forScore: $0)] }
     }
@@ -181,12 +236,15 @@ struct BodyReadinessArcHero: View {
                 hasScore: readiness.score != nil,
                 progress: clampedProgress,
                 width: width,
+                stretch: stretch,
                 reduceMotion: reduceMotion
             )
-            .animation(dotAnimation, value: presentedScore)
+            .animation(pillAnimation, value: presentedScore)
+            .offset(y: -pull)
 
             scoreText
                 .position(x: width / 2 + scoreCenterNudge, y: Geometry.numberCenterY(width: width))
+                .offset(y: -pull)
 
             warningBadgeRow
                 .position(x: width / 2, y: Geometry.badgeRowCenterY(width: width))
@@ -201,6 +259,9 @@ struct BodyReadinessArcHero: View {
         // so a width arriving in that same update would ride the spring and swing the
         // whole ring into place. Only the pill animates here; the ring is laid out.
         .transaction(value: width) { $0.animation = nil }
+        .onChange(of: pull) { oldPull, newPull in
+            followPull(from: oldPull, to: newPull)
+        }
         .onAppear {
             // Flip from 0 up to today's score once per launch, with the glow's delayed
             // fade-in. Coming back to the tab (or any later re-creation of the hero)
@@ -221,6 +282,30 @@ struct BodyReadinessArcHero: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    /// Drives `stretch` from the pull. While the pull grows the ring follows the finger
+    /// with no animation of its own; the first frame it shrinks is the release, and from
+    /// there a bouncy spring carries the ring home on its own rather than trailing the
+    /// scroll view's rubber band. Reduce Motion leaves the ring unstretched.
+    private func followPull(from oldPull: CGFloat, to newPull: CGFloat) {
+        guard !reduceMotion else { return }
+        if newPull > oldPull {
+            isStretchReleasing = false
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                stretch = Geometry.pullStretch(pull: newPull)
+            }
+        } else if !isStretchReleasing {
+            isStretchReleasing = true
+            withAnimation(.interpolatingSpring(mass: 1, stiffness: 180, damping: 12)) {
+                stretch = 0
+            }
+        }
+        if newPull <= 0 {
+            isStretchReleasing = false
+        }
     }
 
     /// The score row is centered as a whole, so the percent sign's width pulls the digits
@@ -358,11 +443,16 @@ private struct BodyReadinessTrackView: View, Animatable {
     let hasScore: Bool
     let progress: Double
     let width: CGFloat
+    /// The pull-down stretch, 0...1; animated so the release springs the bands home.
+    var stretch: CGFloat
     let reduceMotion: Bool
 
-    var animatableData: Double {
-        get { score }
-        set { score = newValue }
+    var animatableData: AnimatablePair<Double, CGFloat> {
+        get { AnimatablePair(score, stretch) }
+        set {
+            score = newValue.first
+            stretch = newValue.second
+        }
     }
 
     private typealias Geometry = BodyReadinessArcGeometry
@@ -375,7 +465,7 @@ private struct BodyReadinessTrackView: View, Animatable {
     }
 
     var body: some View {
-        let layout = Geometry.layout(progress: progress, width: width)
+        let layout = Geometry.layout(progress: progress, width: width, stretch: stretch)
 
         ZStack(alignment: .topLeading) {
             ForEach(layout.segments.indices, id: \.self) { index in
