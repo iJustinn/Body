@@ -228,6 +228,7 @@ struct BodyMetricWarningCard: View {
         .frame(height: 205)
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
+        .bodyChartScrubHaptics(selection: selectedSample?.date)
         .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedSample?.date, centersOnDayInterval: false) {
             guard let selectedSample else {
                 return AnyView(EmptyView())

@@ -475,6 +475,7 @@ struct BodyHealthMetricTrendChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
+            .bodyChartScrubHaptics(selection: selectedTrendPoint?.date)
             .id(chartIdentity)
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -1111,6 +1112,7 @@ struct BodyHealthMetricDayChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
+        .bodyChartScrubHaptics(selection: selectedBucket?.plotDate)
         .bodyFloatingCalloutReporter(
             floatingCallout,
             selectionDate: selectedBucket.map { normalizedDate($0.plotDate) },

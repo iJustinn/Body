@@ -323,6 +323,10 @@ extension BodyAppearancePreference {
     /// Whether the workout detail Equivalent card's collision haptics fire. Default true.
     static let workoutEquivalentHapticsEnabledKey = "workoutEquivalentHapticsEnabled"
 
+    /// Whether the chart scrub callouts play haptics (`BodyChartScrubHaptics`). Default true.
+    static let chartScrubHapticsEnabledKey = "chartScrubHapticsEnabled"
+
+
     /// Comma-joined emoji of `EnergyEquivalent.Food`s hidden from the Equivalent card.
     /// Empty string means none are hidden.
     static let workoutEquivalentHiddenFoodsKey = "workoutEquivalentHiddenFoods"

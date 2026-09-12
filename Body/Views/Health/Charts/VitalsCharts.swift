@@ -368,6 +368,7 @@ struct BodyVitalsOutlierTrendChart: View {
             .chartYAxis(.hidden)
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
+            .bodyChartScrubHaptics(selection: selectedBucket?.date)
             .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedBucket?.date) {
                 guard let bucket = selectedBucket else {
                     return AnyView(EmptyView())

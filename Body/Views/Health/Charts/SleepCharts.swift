@@ -135,6 +135,7 @@ struct BodySleepStageChart: View {
             }
         }
         .chartXSelection(value: $selectedStageDate)
+        .bodyChartScrubHaptics(selection: selectedStageSegment?.id)
         .simultaneousGesture(stageChartPressGesture)
         // Scoped like the day chart's morph animations: the detail view wraps
         // this chart in a `.transaction { animation = nil }`, so the phases

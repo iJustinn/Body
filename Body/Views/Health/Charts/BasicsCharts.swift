@@ -324,6 +324,7 @@ struct BodyBasicsTrendChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
+        .bodyChartScrubHaptics(selection: selectedTrendDate)
         .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedTrendDate) {
             guard let selectedTrendDate else {
                 return AnyView(EmptyView())
@@ -661,6 +662,7 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
+        .bodyChartScrubHaptics(selection: selectedPoint?.date)
         // Stable across range switches: a per-range id would replace the chart
         // instead of updating it, popping every mark rather than letting them
         // morph.

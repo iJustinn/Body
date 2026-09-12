@@ -3751,6 +3751,7 @@ private struct BodyWorkoutBucketedSeriesPlot: View {
                 drawSelection(in: plotRect, context: &context)
             }
             .contentShape(Rectangle())
+            .bodyChartScrubHaptics(selection: scrubbedBarID)
             .gesture(
                 BodyChartScrubGesture(isEnabled: !presentation.bars.isEmpty) { location in
                     scrub(to: location, plotRect: plotRect, plotFrame: geometry.frame(in: .global))
@@ -3901,7 +3902,6 @@ private struct BodyWorkoutBucketedSeriesPlot: View {
         )
 
         if scrubX == nil {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
                 scrubX = centreX
                 scrubbedBarID = bar.id
@@ -4341,6 +4341,7 @@ private struct BodyWorkoutHeartRateChart: View, Animatable {
                 }
             }
             .contentShape(Rectangle())
+            .bodyChartScrubHaptics(selection: scrubbedPointIndex)
             .gesture(
                 BodyChartScrubGesture(isEnabled: !series.isEmpty) { location in
                     scrub(
@@ -4565,7 +4566,6 @@ private struct BodyWorkoutHeartRateChart: View, Animatable {
         )
 
         if scrubX == nil {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
                 scrubX = pointX
                 scrubbedPointIndex = index
@@ -4917,6 +4917,7 @@ private struct BodyWorkoutElevationLinePlot: View {
                 drawSelection(in: plotRect, context: &context)
             }
             .contentShape(Rectangle())
+            .bodyChartScrubHaptics(selection: scrubbedPointID)
             .gesture(
                 BodyChartScrubGesture(isEnabled: !presentation.points.isEmpty) { location in
                     scrub(to: location, plotRect: plotRect, plotFrame: geometry.frame(in: .global))
@@ -5067,7 +5068,6 @@ private struct BodyWorkoutElevationLinePlot: View {
         )
 
         if scrubX == nil {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
                 scrubX = pointX
                 scrubbedPointID = point.id

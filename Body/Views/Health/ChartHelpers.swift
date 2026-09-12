@@ -499,6 +499,30 @@ private struct BodyChartFloatingCalloutReporterModifier: ViewModifier {
     }
 }
 
+/// Scrub haptics shared by every chart callout: a light tap as the callout
+/// appears, then a selection tick each time the scrub snaps to a different
+/// point. Keyed on the selected point's identity, so sliding within one point
+/// stays silent, and nothing plays on release. Gated by Settings > General >
+/// Vibration > Chart Vibration.
+struct BodyChartScrubHaptics: ViewModifier {
+    @AppStorage(BodyAppearancePreference.chartScrubHapticsEnabledKey) private var isEnabled = true
+
+    let selection: AnyHashable?
+
+    func body(content: Content) -> some View {
+        content.sensoryFeedback(trigger: selection) { oldValue, newValue in
+            guard isEnabled, newValue != nil else { return nil }
+            return oldValue == nil ? .impact(weight: .light) : .selection
+        }
+    }
+}
+
+extension View {
+    func bodyChartScrubHaptics(selection: AnyHashable?) -> some View {
+        modifier(BodyChartScrubHaptics(selection: selection))
+    }
+}
+
 extension DateInterval {
     func clamped(to boundary: DateInterval) -> DateInterval? {
         let clampedStart = max(start, boundary.start)
