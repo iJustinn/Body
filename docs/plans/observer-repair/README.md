@@ -1,7 +1,7 @@
 # Responsive refresh and deferred repair
 
 Date: 2026-09-12  
-Status: **Revision 2 approved; Phase A implemented and exercised on both phones. User authorized committing all changes. Phase B remains outstanding.**
+Status: **Revision 2 approved; Phases A and B and automatic effort/Watch payload follow-ups are implemented. User authorized bulk commit and push after the recorded checks. Remaining device validation is listed in the evidence document.**
 
 The original appended review is preserved below. The revised design and stages are authoritative; [review verification](04-review-verification.md) records accepted findings and corrections against code and Apple documentation.
 

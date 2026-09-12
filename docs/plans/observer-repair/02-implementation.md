@@ -1,6 +1,6 @@
 # Implementation stages — revision 2
 
-Implementation is approved. Phase A code is implemented; verification is recorded in [05-implementation-evidence.md](05-implementation-evidence.md). Phase A is a measurable intermediate delivery; Phase B remains required for the full goal. Phase C is conditional, not automatically authorized work.
+Implementation is approved. Phases A and B are implemented; verification and remaining device checks are recorded in [05-implementation-evidence.md](05-implementation-evidence.md). User authorized bulk commit and push after verification. Phase C is conditional, not automatically authorized work.
 
 ## A0. Focused evidence and independent stress fix
 
