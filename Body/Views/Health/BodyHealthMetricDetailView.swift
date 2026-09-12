@@ -686,6 +686,7 @@ struct BodyHealthMetricDetailView: View {
                 basicsTrendZoomSource(BodyHomeTrendCard(model: card), for: kind)
             }
             .buttonStyle(.plain)
+            .bodyCardTapHaptics()
         }
     }
 

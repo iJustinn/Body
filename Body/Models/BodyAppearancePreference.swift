@@ -326,6 +326,8 @@ extension BodyAppearancePreference {
     /// Whether the chart scrub callouts play haptics (`BodyChartScrubHaptics`). Default true.
     static let chartScrubHapticsEnabledKey = "chartScrubHapticsEnabled"
 
+    /// Whether tapping a card to open its page plays a haptic (`BodyCardTapHaptics`). Default true.
+    static let cardTapHapticsEnabledKey = "cardTapHapticsEnabled"
 
     /// Comma-joined emoji of `EnergyEquivalent.Food`s hidden from the Equivalent card.
     /// Empty string means none are hidden.

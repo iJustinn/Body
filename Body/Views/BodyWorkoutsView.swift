@@ -231,6 +231,7 @@ struct BodyWorkoutsView: View {
                                     LazyVStack(spacing: 12) {
                                         ForEach(visibleWorkouts) { workout in
                                             Button {
+                                                BodyCardTapHaptics.play()
                                                 selectedWorkoutForDetails = workout
                                             } label: {
                                                 BodyWorkoutExpenseStyleRow(

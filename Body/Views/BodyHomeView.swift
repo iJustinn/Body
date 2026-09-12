@@ -789,6 +789,7 @@ struct BodyHomeView: View {
             BodyReadinessHeroScrollPin(scrollState: scrollState, width: width) { progress in
                 let isTextVisible = BodyReadinessArcHero.isTextVisible(progress: progress, width: width)
                 Button {
+                    BodyCardTapHaptics.play()
                     withAnimation(.easeInOut(duration: 0.28)) {
                         readinessDetailPresented = true
                     }
@@ -1777,6 +1778,7 @@ struct BodyHomeView: View {
                     }
             }
             .buttonStyle(.plain)
+            .bodyCardTapHaptics()
         default:
             if let metricKind = card.healthMetricKind,
                let metric = lookup[metricKind] {
@@ -1791,6 +1793,7 @@ struct BodyHomeView: View {
                         }
                 }
                 .buttonStyle(.plain)
+                .bodyCardTapHaptics()
             }
         }
     }
