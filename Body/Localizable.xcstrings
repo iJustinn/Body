@@ -1530,7 +1530,20 @@
       }
     },
     "Align" : {
-
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Align"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "统一"
+          }
+        }
+      }
     },
     "All Apple Health data permissions are turned off in Settings." : {
       "extractionState" : "manual",
@@ -5309,7 +5322,20 @@
       }
     },
     "Every metric's individual source choice will be replaced by the Primary and Secondary Data Source selected here." : {
-
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every metric's individual source choice will be replaced by the Primary and Secondary Data Source selected here."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每项指标的单独数据源设置都将替换为此处选择的主要和次要数据源。"
+          }
+        }
+      }
     },
     "Every session counts." : {
       "localizations" : {
@@ -5625,10 +5651,36 @@
       }
     },
     "Force Align Sources" : {
-
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Align Sources"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强制统一数据源"
+          }
+        }
+      }
     },
     "Force Align Sources?" : {
-
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Align Sources?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强制统一数据源？"
+          }
+        }
+      }
     },
     "Full Day History" : {
       "extractionState" : "manual",
@@ -12427,7 +12479,20 @@
       }
     },
     "Sets every metric to the Primary and Secondary Data Source chosen below" : {
-
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sets every metric to the Primary and Secondary Data Source chosen below"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所有指标设置为下方选择的主要和次要数据源"
+          }
+        }
+      }
     },
     "Settings" : {
       "extractionState" : "manual",
