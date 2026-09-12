@@ -45,6 +45,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentHapticsEnabledKey) private var workoutEquivalentHapticsEnabled = true
+    @AppStorage(BodyNotificationPreferences.masterKey) private var notificationsEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
@@ -67,17 +68,16 @@ struct BodySettingsView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                BodyAppBackground()
-                    .ignoresSafeArea()
+                BodyTabCrossfadeBackground()
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {
                         profileEntryCard
+                        generalSection
                         appearanceSection
                         metricsSection
                         workoutsSection
                         aiSection
-                        notificationsSection
                         dataSection
                         aboutSection
                         bodyProEntryCard
@@ -454,7 +454,7 @@ struct BodySettingsView: View {
                     title: "Summary Cards",
                     value: summaryCardsSummaryText,
                     iconName: "square.grid.2x2",
-                    tintColor: .pink,
+                    tintColor: .blue,
                     accessory: .chevron
                 )
             }
@@ -601,15 +601,30 @@ struct BodySettingsView: View {
         }
     }
 
-    private var notificationsSection: some View {
-        BodySettingsCardSection("notifications.section") {
+    private var generalSection: some View {
+        BodySettingsCardSection("settings.section.general") {
             Button {
                 activeSheet = .notifications
             } label: {
                 BodySettingsRowLabel(
                     title: "notifications.section",
-                    value: nil,
+                    value: notificationsSummaryText,
                     iconName: "bell.badge.fill",
+                    tintColor: .red,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
+                activeSheet = .vibration
+            } label: {
+                BodySettingsRowLabel(
+                    title: "settings.general.vibration",
+                    value: vibrationSummaryText,
+                    iconName: "iphone.radiowaves.left.and.right",
                     tintColor: .red,
                     accessory: .chevron
                 )
@@ -658,9 +673,21 @@ struct BodySettingsView: View {
     }
 
     // The row's summary reflects the card toggle — the sheet's master switch —
-    // not the vibration sub-setting.
+    // not the food and representation sub-settings.
     private var workoutEquivalentsSummaryText: String {
         workoutEquivalentCardEnabled ? String(localized: "On") : String(localized: "Off")
+    }
+
+    // The row's summary reflects the sheet's All Notifications master switch —
+    // the per-category choices it retains aren't summarized here.
+    private var notificationsSummaryText: String {
+        notificationsEnabled ? String(localized: "On") : String(localized: "Off")
+    }
+
+    // Vibration holds only the Equivalent card's collision haptics today, so the
+    // row summarizes that one switch.
+    private var vibrationSummaryText: String {
+        workoutEquivalentHapticsEnabled ? String(localized: "On") : String(localized: "Off")
     }
 
     private var readinessAISummaryText: String {
@@ -926,7 +953,7 @@ struct BodySettingsView: View {
                 workoutStore: workoutStore
             )
         case .workoutEquivalents:
-            BodyWorkoutEquivalentsSettingsSheet(hapticsEnabled: $workoutEquivalentHapticsEnabled)
+            BodyWorkoutEquivalentsSettingsSheet()
         case .workoutRouteStyle:
             BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle, drawsRoute: $drawsWorkoutRouteOnLoad)
         case .workoutMonthSwipe:
@@ -936,6 +963,8 @@ struct BodySettingsView: View {
             )
         case .notifications:
             BodyNotificationSettingsSheet()
+        case .vibration:
+            BodyVibrationSettingsSheet(collisionHapticsEnabled: $workoutEquivalentHapticsEnabled)
         case .aiReadiness:
             BodyReadinessAISettingsSheet(
                 isEnabled: $showReadinessAIComment,
@@ -1043,6 +1072,7 @@ enum BodySettingsSheet: String, Identifiable {
     case workoutMonthSwipe
     case aiReadiness
     case notifications
+    case vibration
     case units
     case source
     case permissions
@@ -3161,7 +3191,6 @@ struct BodyEffortSuggestionToggleRow: View {
 }
 
 private struct BodyWorkoutEquivalentsSettingsSheet: View {
-    @Binding var hapticsEnabled: Bool
     @AppStorage(BodyAppearancePreference.workoutEquivalentHiddenFoodsKey) private var hiddenFoodsRawValue = BodyEquivalentFoodSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.workoutEquivalentPrefersMoreItemsKey) private var prefersMoreItems = false
     @AppStorage(BodyAppearancePreference.workoutEquivalentUsesTotalEnergyKey) private var usesTotalEnergy = false
@@ -3190,15 +3219,6 @@ private struct BodyWorkoutEquivalentsSettingsSheet: View {
 
                 BodyWorkoutEquivalentEmojiSizeRow(scale: $emojiScale)
                     .bodyCardBackground(translucent: true)
-
-                BodyWorkoutEquivalentHapticsToggleRow(isEnabled: $hapticsEnabled)
-                    .bodyCardBackground(translucent: true)
-
-                Text("Vibration plays a soft tap whenever two foods collide in the Equivalent card. Turn it off if you'd rather the card stay silent.")
-                    .font(.system(.footnote, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
 
                 BodyWorkoutEquivalentTotalEnergyToggleRow(isEnabled: $usesTotalEnergy)
                     .bodyCardBackground(translucent: true)
@@ -3236,6 +3256,25 @@ private struct BodyWorkoutEquivalentsSettingsSheet: View {
                     }
                 }
                 .bodyCardBackground(translucent: true)
+            }
+        }
+    }
+}
+
+private struct BodyVibrationSettingsSheet: View {
+    @Binding var collisionHapticsEnabled: Bool
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "settings.general.vibration") {
+            VStack(alignment: .leading, spacing: 12) {
+                BodyWorkoutEquivalentHapticsToggleRow(isEnabled: $collisionHapticsEnabled)
+                    .bodyCardBackground(translucent: true)
+
+                Text("Vibration plays a soft tap whenever two foods collide in the Equivalent card. Turn it off if you'd rather the card stay silent.")
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
             }
         }
     }
@@ -5338,6 +5377,7 @@ private struct BodyNotificationSettingsSheet: View {
     @AppStorage(BodyNotificationPreferences.stressKey) private var stress = true
     @AppStorage(BodyNotificationPreferences.workoutKey) private var workouts = true
     @AppStorage(BodyNotificationPreferences.sleepKey) private var sleep = true
+    @AppStorage(BodyNotificationPreferences.readinessKey) private var readiness = true
     @State private var authorization: UNAuthorizationStatus = .notDetermined
 
     var body: some View {
@@ -5366,6 +5406,11 @@ private struct BodyNotificationSettingsSheet: View {
                     row("notifications.sleep", subtitle: "notifications.sleep.footer",
                         icon: "bed.double.fill", color: .indigo,
                         value: $sleep, key: BodyNotificationPreferences.sleepKey)
+                    Divider()
+                        .padding(.leading, 18)
+                    row("notifications.readiness", subtitle: "notifications.readiness.footer",
+                        icon: "star.fill", color: .yellow,
+                        value: $readiness, key: BodyNotificationPreferences.readinessKey)
                 }
                 .disabled(!master)
 
