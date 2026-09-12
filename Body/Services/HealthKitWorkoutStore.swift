@@ -4006,6 +4006,34 @@ final class HealthKitWorkoutStore {
         await persistContextChange()
     }
 
+    /// Drops every per-metric source override so each metric follows the
+    /// primary and secondary defaults chosen in Settings > Data > Source.
+    func alignHealthDataSourcesToDefaults() async {
+        let nextSelection = BodyHealthDataSourceSelection(
+            defaultOption: healthDataSourceSelection.defaultOption,
+            selectedOptions: [:]
+        )
+        let nextSecondarySelection = BodyHealthSecondaryDataSourceSelection(
+            defaultOption: secondaryHealthDataSourceSelection.defaultOption,
+            selectedOptions: [:]
+        )
+        guard nextSelection != healthDataSourceSelection
+            || nextSecondarySelection != secondaryHealthDataSourceSelection
+        else {
+            return
+        }
+
+        healthDataSourceSelection = nextSelection
+        secondaryHealthDataSourceSelection = nextSecondarySelection
+        nextSelection.save()
+        nextSecondarySelection.save()
+        _ = captureRefreshInputs(intent: .userInitiated)
+        await engine.setHealthDataSourceSelection(nextSelection)
+        await engine.setSecondaryHealthDataSourceSelection(nextSecondarySelection)
+
+        await persistContextChange()
+    }
+
     func updateHealthDataSource(for kind: HealthMetricKind, option: BodyHealthDataSourceOption) async {
         let nextSelection = healthDataSourceSelection.setting(kind, option: option)
         guard nextSelection != healthDataSourceSelection else {

@@ -2,6 +2,7 @@
 
 ## 1.1.1 (build 3)
 
+- Settings > Data > Source gains a **Force Align Sources** row under Options. Tapping it asks for confirmation, then clears every metric's individual source choice so all metrics follow the Primary and Secondary Data Source chosen on that sheet; the affected charts refetch under the aligned sources.
 - Switching between Summary and the other tabs no longer dissolves one page background into the other. Summary still carries the readiness glow and Workouts and Settings the app background, but each page now simply shows its own as it appears.
 - The readiness hero's ring now sizes itself to the screen it is on instead of holding one fixed width, so it is noticeably larger on a big iPhone (stopping a little inside the cards below it) and shrinks to fit a small one; the score, the warning signs and the hero's own height follow it.
 - The gap between the hero's bars and the comment under them is now the same spacing the cards keep from each other: the hero no longer reserves a band of empty space below the bars, and the warning signs sit under the score rather than on the hero's bottom edge.

@@ -4291,6 +4291,7 @@ private struct BodySourceSettingsSheet: View {
     @State private var updatingSelection: PendingSelection?
     @State private var showBodyProPaywall = false
     @State private var customSourceEditorTarget: BodyCustomSourceEditorTarget?
+    @State private var showsForceAlignConfirmation = false
 
     // Read through the store, not the `BodyProEntitlement` static: `isProUnlocked` also
     // reads the store's entitlement generation, which is what makes a flip re-run this
@@ -4329,6 +4330,11 @@ private struct BodySourceSettingsSheet: View {
             VStack(spacing: 18) {
                 BodySettingsCardSection("Options") {
                     combineSourcesToggle
+
+                    Divider()
+                        .padding(.leading, 76)
+
+                    forceAlignRow
                 }
 
                 customSourcesSection
@@ -4357,6 +4363,16 @@ private struct BodySourceSettingsSheet: View {
         }
         .sheet(item: $customSourceEditorTarget) { target in
             BodyCustomSourceEditorSheet(workoutStore: workoutStore, group: target.group)
+        }
+        .alert("Force Align Sources?", isPresented: $showsForceAlignConfirmation) {
+            Button("Align", role: .destructive) {
+                Task {
+                    await workoutStore.alignHealthDataSourcesToDefaults()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every metric's individual source choice will be replaced by the Primary and Secondary Data Source selected here.")
         }
     }
 
@@ -4460,6 +4476,43 @@ private struct BodySourceSettingsSheet: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var forceAlignRow: some View {
+        Button {
+            showsForceAlignConfirmation = true
+        } label: {
+            HStack(spacing: 14) {
+                BodySettingsIconTile(iconName: "arrow.triangle.merge", color: .cyan)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Force Align Sources")
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("Sets every metric to the Primary and Secondary Data Source chosen below")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(.caption, weight: .bold))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
