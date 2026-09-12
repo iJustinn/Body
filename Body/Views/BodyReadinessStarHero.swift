@@ -394,6 +394,10 @@ private struct BodyReadinessTrackView: View, Animatable {
     /// One band's bar in the flat-glass language the app's chips use: a translucent
     /// fill, a soft top highlight and a one-point rim. Only the band the pill is on
     /// carries its color; the others stay neutral glass and crossfade when it arrives.
+    ///
+    /// The top highlight fades out as the arc flattens: pinned at the top of the page the
+    /// row sits directly above the cards, and the highlight made the bars read lighter
+    /// than the card fill right under them.
     private func segment(layout: Geometry.Layout, index: Int) -> some View {
         let shape = BodyReadinessSegmentShape(layout: layout, index: index)
         let isActive = activeSegmentIndex == index
@@ -406,7 +410,7 @@ private struct BodyReadinessTrackView: View, Animatable {
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: isActive)
 
             LinearGradient(
-                colors: [Color.white.opacity(0.18), .clear],
+                colors: [Color.white.opacity(0.18 * (1 - progress)), .clear],
                 startPoint: .top,
                 endPoint: .bottom
             )
