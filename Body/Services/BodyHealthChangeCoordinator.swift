@@ -16,6 +16,8 @@ final class BodyHealthChangeCoordinator {
     private var firstWake: ContinuousClock.Instant?
     private var repairing = false
     private var foregroundWork: Task<Bool, Never>?
+    private var quietWork: Task<Void, Never>?
+    private var quietAttempts: [BodyHealthDirtyWorkStore.Receipt] = []
     private var followupNeeded = false
     private lazy var observer = BodyHealthChangeObserver(observer: observing,
         suppressesInitialDelivery: suppressesInitialDelivery) { [weak self] identifier, failed in
@@ -85,11 +87,13 @@ final class BodyHealthChangeCoordinator {
             guard let self else { return }
             self.debounce = nil
             self.firstWake = nil
-            await self.repairOnActivation()
+            await self.store.syncWhenAppBecomesActive()
         }
     }
 
     func enteredBackground() {
+        store.retireBackgroundRefresh()
+        quietWork?.cancel()
         debounce?.cancel()
         debounce = nil
         firstWake = nil
@@ -98,6 +102,55 @@ final class BodyHealthChangeCoordinator {
 
     func refreshDidFinish() {
         if followupNeeded, !repairing { scheduleForeground() }
+        offerQuietRepair()
+    }
+
+    /// Metadata only: activation decides current freshness before reading history.
+    func prepareActivation() async {
+        quietAttempts.removeAll()
+        await configure()
+        let current = await pending(history: false)
+        #if DEBUG
+        BodyObserverRefreshDiagnostics.log("activation currentPending=\(current.count) ledger=[\(BodyObserverRefreshDiagnostics.pending(await ledger.snapshot()))]")
+        #endif
+        store.observedRepairDidSettle(pending: !current.isEmpty || store.needsObservedRingRepair)
+    }
+
+    func captureReceipts() async -> [BodyHealthDirtyWorkStore.Receipt] {
+        guard await ledger.flush() else { return [] }
+        return await pending(history: true).map { $0.1 }
+    }
+
+    func acknowledgeCoverage(_ receipts: [BodyHealthDirtyWorkStore.Receipt],
+                             kinds: Set<HealthMetricKind>, history: Bool) async {
+        for receipt in receipts {
+            guard let kind = HealthMetricKind(rawValue: receipt.domain), kinds.contains(kind),
+                  !Task.isCancelled, receipt.context == store.currentObserverLedgerContext() else { continue }
+            _ = await ledger.acknowledge(receipt, current: true, history: history)
+        }
+        let current = await pending(history: false)
+        store.observedRepairDidSettle(pending: !current.isEmpty || store.needsObservedRingRepair)
+    }
+
+    /// Failed generations get one attempt per external opportunity. New
+    /// deliveries have new receipts; history alone never creates a visible pass.
+    func offerQuietRepair() {
+        guard quietWork == nil, store.mayStartQuietMaintenance else { return }
+        quietWork = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Retirement does not join the read. Keep its store alive through
+            // the final ledger/freshness update even if the scene releases it.
+            let store = self.store
+            defer { self.quietWork = nil }
+            while !Task.isCancelled, store.mayStartQuietMaintenance {
+                let work = await self.pending(history: true)
+                guard let next = work.first(where: { !self.quietAttempts.contains($0.1) }) else { break }
+                self.quietAttempts.append(next.1)
+                _ = await store.repairObservedMetricsQuietly([next], ledger: self.ledger)
+            }
+            let current = await self.pending(history: false)
+            store.observedRepairDidSettle(pending: !current.isEmpty || store.needsObservedRingRepair)
+        }
     }
 
     func repairOnActivation() async {
@@ -118,7 +171,7 @@ final class BodyHealthChangeCoordinator {
             if followupNeeded { scheduleForeground() }
         }
         let durable = await ledger.flush()
-        let work = await pending(history: true)
+        let work = await pending(history: false)
         #if DEBUG
         BodyObserverRefreshDiagnostics.log("admission ledgerDurable=\(durable) pending=[\(BodyObserverRefreshDiagnostics.pending(await ledger.snapshot()))] rings=\(store.needsObservedRingRepair)")
         #endif
@@ -130,32 +183,30 @@ final class BodyHealthChangeCoordinator {
             _ = await operation.value
             foregroundWork = nil
         }
-        let remaining = await pending(history: true)
+        let remaining = await pending(history: false)
         store.observedRepairDidSettle(pending: !remaining.isEmpty || store.needsObservedRingRepair)
-        store.scheduleWorkoutJournalIfNeeded()
-        #if DEBUG
-        let notificationStart = ContinuousClock.now
-        #endif
-        await store.evaluateNewNotifications()
-        #if DEBUG
-        BodyObserverRefreshDiagnostics.log("activation notifications duration=\(BodyObserverRefreshDiagnostics.elapsed(since: notificationStart))")
-        #endif
+        store.offerQuietMaintenance()
     }
 
     func runBackground(lease: BodyBackgroundLease) async -> Bool {
         await configure()
         guard lease.isValid, !BodyAppRuntime.isForegroundActive else { return false }
         _ = await ledger.flush()
-        var work = await pending(history: false)
-        // A fallback is a revalidation opportunity even when no observer fired.
-        if work.isEmpty {
-            _ = await ledger.mark(Set(registrations.flatMap(\.metrics).filter { store.observedMetricNeedsValidation($0) }), context: context, reason: "backgroundRevalidation")
-            work = await pending(history: false)
-        }
+        let work = await pending(history: false)
+        // Periodic reads are opportunistic, not evidence of a historical change.
+        // An expired/denied fallback must not leave synthetic foreground repairs.
+        let revalidationKinds = work.isEmpty
+            ? Set(registrations.flatMap(\.metrics).filter { store.observedMetricNeedsValidation($0) })
+                .sorted {
+                    if ($0 == .sleep) != ($1 == .sleep) { return $0 == .sleep }
+                    return $0.rawValue < $1.rawValue
+                }
+            : []
         return await lease.run {
             await store.scanObservedWorkouts(lease: lease, scanOnly: true)
             guard lease.isValid else { return false }
-            let changed = await store.repairObservedMetrics(work, ledger: ledger, background: lease)
+            let changed = await store.repairObservedMetrics(work, ledger: ledger, background: lease,
+                                                          revalidating: revalidationKinds)
             // Metadata is sufficient for workout delivery; do not make the alert
             // wait for enriched month/detail repair to consume the lease.
             if lease.isValid { await store.evaluateNewNotifications(lease: lease, includesStress: false) }
@@ -173,8 +224,7 @@ final class BodyHealthChangeCoordinator {
         var result: [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)] = []
         for (key, entry) in entries.sorted(by: {
             if $0.value.generation != $1.value.generation { return $0.value.generation < $1.value.generation }
-            if $0.key == "sleep" { return true }
-            if $1.key == "sleep" { return false }
+            if ($0.key == "sleep") != ($1.key == "sleep") { return $0.key == "sleep" }
             return $0.key < $1.key
         }) {
             guard let kind = HealthMetricKind(rawValue: key),

@@ -2,6 +2,24 @@ import XCTest
 @testable import Body
 
 final class BodyBackgroundLeaseTests: XCTestCase {
+    func testUnleasedQuietWaitCancelsBeforePermitHolderReturns() async {
+        let pool = HealthKitQuerySemaphore(limit: 1, name: "quiet-test")
+        XCTAssertTrue(pool.tryAcquire())
+        let entered = expectation(description: "quiet wait entered")
+        let task = Task {
+            entered.fulfill()
+            return await pool.acquireForCurrentTask()
+        }
+        await fulfillment(of: [entered], timeout: 1)
+        task.cancel()
+        let admitted = await task.value
+        XCTAssertFalse(admitted)
+        XCTAssertFalse(pool.tryAcquire(), "Cancellation cannot release the holder's permit")
+        pool.release()
+        XCTAssertTrue(pool.tryAcquire())
+        pool.release()
+    }
+
     func testSaturatedBoundedPoolReturnsAtDeadlineWithoutLegacyWaiter() async {
         let pool = HealthKitQuerySemaphore(limit: 1, name: "test")
         XCTAssertTrue(pool.tryAcquire())

@@ -35,23 +35,13 @@ extension HealthKitWorkoutStore {
     /// stay comparable to the recompute a normal refresh already performs.
     private static let stressBackfillChunkDays = 30
 
-    /// Starts the history walk if it is needed and nothing blocks it.
-    ///
-    /// Called from `finishRefresh` and again when the post-refresh Stress input
-    /// load finishes — the two moments either of the tasks it must not run
-    /// alongside can free the slot. It stands down rather than awaiting them:
-    /// `await task.value` on a `Task<Void, Never>` is not a cancellation point,
-    /// so a chained wait would park a Clear Cache's cancel-and-await behind an
-    /// unrelated multi-minute scan. Standing down costs nothing, because both
-    /// call sites fire again on every refresh.
-    ///
-    /// Requires confirmed authorization for the same reason the record scan
-    /// does: an empty read under undetermined or denied permissions must never
-    /// be mistaken for "this user has no history" and finalize an empty walk.
+    /// The input batch must settle before history scoring. Record and journal
+    /// scans share admission at their unit boundaries; a retained record task
+    /// (including an empty/failed baseline) is not a Stress data dependency.
     func scheduleStressBackfillIfNeeded() {
         guard stressBackfillTask == nil,
-              recordBackfillTask == nil,
               pendingStressInputLoadTask == nil,
+              mayStartQuietMaintenance,
               !healthTrends.stressBackfillComplete,
               !isClearingLocalCache,
               !isRefreshing,
@@ -83,100 +73,38 @@ extension HealthKitWorkoutStore {
 
         let calendar = Calendar.bodyGregorian
         let capturedSignature = currentStressRecordContextSignature
-
-        // A nil earliest sample means either "no heart rate at all" or "reads we
-        // aren't allowed to see" — HealthKit doesn't distinguish them. Neither
-        // is a history worth finalizing, so bail and let a later refresh retry.
-        guard let earliestHeartRate = await engine.earliestHeartRateSampleDate() else { return }
-
-        let scoreDay = calendar.startOfDay(for: Date())
-        // Floor the walk at the record retention: a day older than it is pruned
-        // by the very publish that would write it, so scanning past it only
-        // burns queries. The oldest day the Year chart draws still keeps a halo
-        // of older days to calibrate against; the ~14 days right after the floor
-        // stay uncalibrated, exactly as a fresh install's first fortnight does.
-        let floor = calendar.date(
-            byAdding: .day,
-            value: -HealthDashboardSnapshot.stressRecordedDayRetention,
-            to: scoreDay
-        ) ?? scoreDay
-        let horizon = max(calendar.startOfDay(for: earliestHeartRate), floor)
-        let end = HealthDashboardSnapshot.stressComputedWindowStart(scoreDay: scoreDay, calendar: calendar)
-        var cursor = max(
-            healthTrends.stressBackfillScannedThrough.map { calendar.startOfDay(for: $0) } ?? horizon,
-            horizon
-        )
-
-        while cursor < end {
-            guard mayApplyStressBackfill(capturedEpoch: capturedEpoch, capturedSignature: capturedSignature) else {
-                return
+        var earliestHeartRate: Date?
+        while !healthTrends.stressBackfillComplete, !Task.isCancelled {
+            let completed = await performQuietMaintenanceUnit(.stressHistory) { [self] _ in
+                guard mayApplyStressBackfill(capturedEpoch: capturedEpoch, capturedSignature: capturedSignature) else { return false }
+                if earliestHeartRate == nil { earliestHeartRate = await engine.earliestHeartRateSampleDate() }
+                guard let earliestHeartRate, mayPublishQuietMaintenance else { return false }
+                let scoreDay = calendar.startOfDay(for: Date())
+                let floor = calendar.date(byAdding: .day, value: -HealthDashboardSnapshot.stressRecordedDayRetention,
+                                          to: scoreDay) ?? scoreDay
+                let horizon = max(calendar.startOfDay(for: earliestHeartRate), floor)
+                let end = HealthDashboardSnapshot.stressComputedWindowStart(scoreDay: scoreDay, calendar: calendar)
+                let cursor = max(healthTrends.stressBackfillScannedThrough.map { calendar.startOfDay(for: $0) } ?? horizon, horizon)
+                let chunkEnd = min(calendar.date(byAdding: .day, value: Self.stressBackfillChunkDays, to: cursor) ?? end, end)
+                let summaries: [StressDaySummary]
+                if cursor < end {
+                    guard let fetched = await stressBackfillChunkSummaries(from: cursor, to: chunkEnd, calendar: calendar) else { return false }
+                    summaries = fetched
+                } else { summaries = [] }
+                guard mayApplyStressBackfill(capturedEpoch: capturedEpoch, capturedSignature: capturedSignature) else { return false }
+                applyStressBackfillChunk(summaries: summaries, scannedThrough: chunkEnd,
+                                         complete: chunkEnd >= end, calendar: calendar, persists: false)
+                return await persistDashboardSnapshotDurably()
             }
-            // Stand down BEFORE spending a chunk's queries, not just before its
-            // publish: a user-visible refresh is competing for the same
-            // HealthKit store, and this walk is part of what pushes it toward
-            // the 120s deadline. Best-effort only — a refresh that starts
-            // between this wake and the fetches below still overlaps, and the
-            // post-fetch barrier is what keeps that case correct.
-            while isRefreshing {
-                await awaitNextRefreshCompletion()
-                guard mayApplyStressBackfill(capturedEpoch: capturedEpoch, capturedSignature: capturedSignature) else {
-                    return
-                }
-            }
-
-            let chunkEnd = min(
-                calendar.date(byAdding: .day, value: Self.stressBackfillChunkDays, to: cursor) ?? end,
-                end
-            )
-            // A failed leaf leaves the marker where it is and never finalizes:
-            // scoring a chunk with, say, the step mask missing would persist
-            // wrongly-scored days for the rest of the retention window.
-            // The chunk's fetches reuse the same engine functions the refresh
-            // does, so the background budget is bound here rather than inside
-            // them: the stand-down above is best effort, and this is what keeps
-            // an overlapping refresh's visible leaves off this walk's queue.
-            guard let summaries = await withBackgroundQueryPool({
-                await stressBackfillChunkSummaries(
-                    from: cursor,
-                    to: chunkEnd,
-                    calendar: calendar
-                )
-            }) else {
-                return
-            }
-
-            // Same hazard the intraday loads guard: a refresh that started while
-            // the fetches were suspended captured `healthTrends` before this
-            // chunk existed and would overwrite the publish below.
-            guard await awaitRefreshSlotFree() else { return }
-            guard mayApplyStressBackfill(capturedEpoch: capturedEpoch, capturedSignature: capturedSignature) else {
-                return
-            }
-
-            applyStressBackfillChunk(
-                summaries: summaries,
-                scannedThrough: chunkEnd,
-                complete: chunkEnd >= end,
-                calendar: calendar
-            )
-            cursor = chunkEnd
-            await Task.yield()
+            if !completed { return }
         }
-
-        // Nothing left to walk — a first heart-rate sample inside the live
-        // window, or a resume that had only the final chunk to go.
-        guard !healthTrends.stressBackfillComplete,
-              mayApplyStressBackfill(capturedEpoch: capturedEpoch, capturedSignature: capturedSignature) else {
-            return
-        }
-        applyStressBackfillChunk(summaries: [], scannedThrough: end, complete: true, calendar: calendar)
     }
 
     /// Cancellation, the cache epoch, and the record context — a source or
     /// permission change mid-walk means the chunk was scored under inputs the
     /// records no longer describe, so it is discarded rather than published.
     private func mayApplyStressBackfill(capturedEpoch: Int, capturedSignature: String) -> Bool {
-        !Task.isCancelled
+        mayPublishQuietMaintenance && !isRefreshing
             && Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: currentCacheEpoch)
             && currentStressRecordContextSignature == capturedSignature
     }

@@ -221,9 +221,74 @@ final class HealthKitWorkoutStore {
     @ObservationIgnored var healthChangeCoordinator: BodyHealthChangeCoordinator?
     @ObservationIgnored private var backgroundRefreshLease: BodyBackgroundLease?
     @ObservationIgnored private var backgroundPublicationLease: BodyBackgroundLease?
+    @ObservationIgnored private var quietObservedFence: HealthDashboardPublicationToken?
+    @ObservationIgnored private lazy var maintenance = BodyMaintenanceScheduler { [weak self] in
+        guard let self else { return false }
+        return self.mayStartQuietMaintenance
+    }
+
+    var mayStartQuietMaintenance: Bool {
+        BodyAppRuntime.isForegroundActive && !needsInitialHealthDataLoad && !isRefreshing
+            && !isClearingCache && pendingPermissionChangeCount == 0
+            && !needsContextRefresh && contextRefreshTask == nil
+            && UIApplication.shared.isProtectedDataAvailable
+    }
+
+    var mayPublishQuietMaintenance: Bool { mayApplyRefreshResults && !Task.isCancelled }
+    var maintenancePublicationToken: HealthDashboardPublicationToken? { Self.observedRefreshFence }
+
+    func awaitRetiredMaintenanceCompletion() async { await maintenance.awaitRetiredCompletion() }
+
+    func persistDashboardSnapshotDurably() async -> Bool {
+        guard mayPublishQuietMaintenance else { return false }
+        return await withCheckedContinuation { continuation in
+            persistDashboardSnapshot { continuation.resume(returning: $0) }
+        }
+    }
+
+    func performQuietMaintenanceUnit(_ owner: BodyMaintenanceScheduler.Owner,
+        operation: @escaping @MainActor (HealthDashboardPublicationToken) async -> Bool) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        return await maintenance.run(owner) { [self] fence in
+            guard mayStartQuietMaintenance, fence.isValid, !Task.isCancelled else { return false }
+            quietObservedFence = fence
+            dashboardPublicationToken = fence
+            defer {
+                quietObservedFence = nil
+                if dashboardPublicationToken === fence { dashboardPublicationToken = HealthDashboardPublicationToken() }
+            }
+            return await HealthDashboardPublicationToken.$quietCurrent.withValue(fence) {
+              await Self.$observedRefreshFence.withValue(fence) {
+                await withBackgroundQueryPool {
+                    let result = await operation(fence)
+                    await withCheckedContinuation { continuation in
+                        Self.snapshotPersistQueue.async { continuation.resume() }
+                    }
+                    return result && fence.isValid
+                }
+              }
+            }
+        }
+    }
+
+    func offerQuietMaintenance() {
+        maintenance.resumeIfEligible()
+        healthChangeCoordinator?.offerQuietRepair()
+        scheduleWorkoutJournalIfNeeded()
+        scheduleRecordBaselineBackfillIfNeeded()
+        scheduleStressBackfillIfNeeded()
+    }
     @ObservationIgnored private var observedRingChange: UUID?
     @ObservationIgnored private var observedHealthChanges = false
     @ObservationIgnored private var notificationEvaluationInFlight = false
+    @ObservationIgnored private lazy var foregroundNotifications = BodyForegroundNotificationScheduler(
+        isEligible: { [weak self] in
+            guard let self else { return false }
+            return BodyAppRuntime.isForegroundActive && !self.isRefreshing && !self.needsInitialHealthDataLoad
+                && !self.isClearingCache && !self.needsContextRefresh && self.pendingPermissionChangeCount == 0
+        }, evaluate: { [weak self] token in
+            await self?.evaluateNewNotifications(foregroundToken: token)
+        })
     @ObservationIgnored private var observedMetricValidation: [String: HealthDashboardSnapshotStore.Freshness] = [:]
     /// Counts observed repair passes; `sleepValidatedGeneration` records the pass whose
     /// sleep leaf last validated successfully, so a later pass whose sleep refresh
@@ -590,7 +655,8 @@ final class HealthKitWorkoutStore {
         BodyRefreshProfile.shared.dumpAndReset()
         releaseRefreshSlot()
         healthChangeCoordinator?.refreshDidFinish()
-        scheduleWorkoutJournalIfNeeded()
+        scheduleForegroundNotifications()
+        offerQuietMaintenance()
         // Off the refresh path by construction: the refresh is already finished
         // and this only starts a detached, cancellable scan (see
         // `HealthKitWorkoutStore+Records.swift`).
@@ -618,9 +684,8 @@ final class HealthKitWorkoutStore {
     /// Internal so the Stress backfill extension parks on the same barrier.
     func awaitRefreshSlotFree(background: Bool = false) async -> Bool {
         if background {
-            return !isRefreshing && !isClearingCache && pendingPermissionChangeCount == 0
-                && !needsContextRefresh && contextRefreshTask == nil && workoutJournalTask == nil
-                && recordBackfillTask == nil && pendingStressInputLoadTask == nil && stressBackfillTask == nil
+            return !maintenance.hasActiveUnit && !isRefreshing && !isClearingCache && pendingPermissionChangeCount == 0
+                && !needsContextRefresh && contextRefreshTask == nil
         }
         retireBackgroundRefresh()
         while isRefreshing {
@@ -753,7 +818,10 @@ final class HealthKitWorkoutStore {
             try? await Task.sleep(for: .milliseconds(300))
             guard let self else { return }
             defer {
-                if self.contextRefreshGeneration == generation { self.contextRefreshTask = nil }
+                if self.contextRefreshGeneration == generation {
+                    self.contextRefreshTask = nil
+                    self.offerQuietMaintenance()
+                }
             }
             while self.needsContextRefresh, !Task.isCancelled {
                 guard await self.awaitRefreshSlotFree() else { return }
@@ -1496,12 +1564,15 @@ final class HealthKitWorkoutStore {
         date: Date,
         calendar: Calendar,
         intent: BodyWorkoutRefreshIntent = .userInitiated,
-        observed: Bool = false
+        observed: Bool = false,
+        sourcesPrepared: Bool = false
     ) async -> Bool {
+        guard mayApplyRefreshResults, !Task.isCancelled else { return false }
         if kind == .trainingLoad {
             if observed {
                 cachedComputeTrainingLoadSeed = nil
                 await engine.setHealthTrendAnchorDate(nil)
+                guard mayApplyRefreshResults, !Task.isCancelled else { return false }
             }
             // The detail pull is an explicit gesture on the metric whose window
             // IS the 408 days: drop the per-workout effort cache in full (memory
@@ -1510,15 +1581,19 @@ final class HealthKitWorkoutStore {
             // used by pull-to-refresh would miss exactly the older workouts this
             // pull exists to reconcile.
             await engine.clearWorkoutEffortCache()
+            guard mayApplyRefreshResults, !Task.isCancelled else { return false }
         }
         setRefreshStage(.fetching)
         if observed {
-            guard await prepareObservedMetricSources([kind], date: date).contains(kind) else { return false }
+            if !sourcesPrepared {
+                guard await prepareObservedMetricSources([kind], date: date).contains(kind) else { return false }
+            }
         } else {
             await fetchHealthDataSourceOptions(calendar: calendar, force: true)
         }
         guard let context = await captureHealthMetricReadContext(date: date, calendar: calendar) else { return false }
         let existing = HealthDashboardSnapshot(summary: healthSummary, trends: healthTrends, activityRingHistory: activityRingHistory)
+        let receipts = observed ? [] : (await healthChangeCoordinator?.captureReceipts() ?? [])
         let metricFetch = await engine.fetchHealthDashboardSnapshot(
             for: kind,
             calendar: calendar,
@@ -1526,7 +1601,11 @@ final class HealthKitWorkoutStore {
             idealSleepDuration: Self.storedIdealSleepDuration(),
             reconcilesRetainedIntradayWindow: intent == .userInitiated
         )
-        return await applyHealthMetricRefresh(kind, metricFetch: metricFetch, context: context, observed: observed)
+        let applied = await applyHealthMetricRefresh(kind, metricFetch: metricFetch, context: context, observed: observed)
+        if !observed, applied, mayApplyRefreshResults, await persistDashboardSnapshotDurably(), mayApplyRefreshResults {
+            await healthChangeCoordinator?.acknowledgeCoverage(receipts, kinds: [kind], history: intent == .userInitiated)
+        }
+        return applied
     }
 
     private struct HealthMetricReadContext {
@@ -1699,8 +1778,10 @@ final class HealthKitWorkoutStore {
     /// retires the entire publication fence and leaves receipts pending.
     private func prepareObservedMetricSources(_ kinds: [HealthMetricKind], date: Date) async -> Set<HealthMetricKind> {
         let inputs = captureRefreshInputs()
+        guard mayApplyRefreshResults, !Task.isCancelled else { return [] }
         let ownSources = Set(kinds.map { HealthMetricQueryDescriptor.descriptor(for: $0)?.querySourceKind ?? $0 })
         await engine.markHealthSourcesDirty(for: ownSources)
+        guard mayApplyRefreshResults, !Task.isCancelled else { return [] }
         let sources = Set(kinds.flatMap { observedSourceKinds(for: $0) })
         // Discovery and freshness must share this date; discovery returns its
         // settled revision, including changes made by installing its own map.
@@ -3236,11 +3317,15 @@ final class HealthKitWorkoutStore {
     /// applies its own permission and in-flight checks before calling this.
     private func startStressInputLoad() {
         stressInputLoadTask = Task { [weak self] in
-            await self?.loadStressInputSamples()
-            self?.stressInputLoadTask = nil
+            guard let self else { return }
+            _ = await self.performQuietMaintenanceUnit(.stressInputs) { _ in
+                await self.loadStressInputSamples()
+                return self.mayPublishQuietMaintenance
+            }
+            self.stressInputLoadTask = nil
             // The history walk stands down while this load holds the slot, and
             // `finishRefresh` has long since run — so hand the slot over here.
-            self?.scheduleStressBackfillIfNeeded()
+            self.scheduleStressBackfillIfNeeded()
         }
     }
 
@@ -3320,9 +3405,7 @@ final class HealthKitWorkoutStore {
         // Same hazard as `loadIntradayMetricSamplesIfNeeded`: a refresh that
         // started while the fetches were suspended captured `healthTrends`
         // before these samples existed and would overwrite the merge below.
-        guard await awaitRefreshSlotFree() else {
-            return
-        }
+        guard mayPublishQuietMaintenance, !isRefreshing else { return }
         guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
               currentDaySampleSignatures() == capturedDaySampleSignatures else {
             return
@@ -3380,8 +3463,12 @@ final class HealthKitWorkoutStore {
         }
 
         fullTrendWindowLoadTask = Task { [weak self] in
-            await self?.loadFullTrendWindow(selection: selection)
-            self?.fullTrendWindowLoadTask = nil
+            guard let self else { return }
+            _ = await self.performQuietMaintenanceUnit(.trendHistory) { _ in
+                await self.loadFullTrendWindow(selection: selection)
+                return self.mayPublishQuietMaintenance
+            }
+            self.fullTrendWindowLoadTask = nil
         }
     }
 
@@ -3427,9 +3514,7 @@ final class HealthKitWorkoutStore {
         // dashboard: wait it out, then reject just the leaves whose input
         // revisions changed. A partial concurrent refresh must not let its
         // unchanged success timestamp admit an older value over a newer one.
-        guard await awaitRefreshSlotFree() else {
-            return
-        }
+        guard mayPublishQuietMaintenance, !isRefreshing else { return }
         // Admit successful leaves independently; a failed comparison or sleep
         // vital cannot veto an unrelated primary repair.
         guard await engine.queryContextRevision == queryRevision,
@@ -4533,9 +4618,10 @@ final class HealthKitWorkoutStore {
         var activationBranch = "full"
         defer { BodyObserverRefreshDiagnostics.log("activation branch=\(activationBranch) duration=\(BodyObserverRefreshDiagnostics.elapsed(since: activationStart))") }
         #endif
-        defer { scheduleWorkoutJournalIfNeeded() }
+        retireBackgroundRefresh()
+        defer { offerQuietMaintenance(); scheduleForegroundNotifications() }
         _ = captureRefreshInputs()
-        await healthChangeCoordinator?.repairOnActivation()
+        await healthChangeCoordinator?.prepareActivation()
         if needsContextRefresh {
             #if DEBUG
             activationBranch = "context"
@@ -4564,6 +4650,15 @@ final class HealthKitWorkoutStore {
 
         lastAppEntrySyncDate = date
 
+        if observedHealthChanges, let lastSuccessfulRefreshDate,
+           Self.isWithinFreshInterval(date.timeIntervalSince(lastSuccessfulRefreshDate), limit: Self.dashboardFreshnessInterval) {
+            #if DEBUG
+            activationBranch = "currentChanges"
+            #endif
+            await healthChangeCoordinator?.repairOnActivation()
+            return
+        }
+
         if !observedHealthChanges, let lastSuccessfulRefreshDate,
            Self.isWithinFreshInterval(date.timeIntervalSince(lastSuccessfulRefreshDate), limit: Self.dashboardFreshnessInterval),
            permissionSelection.includes(.workouts) {
@@ -4574,6 +4669,14 @@ final class HealthKitWorkoutStore {
             let month = calendar.component(.month, from: date)
             let year = calendar.component(.year, from: date)
             await refreshWorkoutMonth(month: month, year: year, intent: .passiveResume)
+            return
+        }
+
+        if !observedHealthChanges, let lastSuccessfulRefreshDate,
+           Self.isWithinFreshInterval(date.timeIntervalSince(lastSuccessfulRefreshDate), limit: Self.dashboardFreshnessInterval) {
+            #if DEBUG
+            activationBranch = "freshCache"
+            #endif
             return
         }
 
@@ -5009,15 +5112,12 @@ final class HealthKitWorkoutStore {
 
     var hasWorkoutJournalWork: Bool { workoutJournalTask != nil }
 
-    /// Runs only after foreground publication. No observer/background delivery;
-    /// query-derived refreshes remain authoritative while journal repair is pending.
+    /// Automatic journal work uses one scan page or repair month per turn.
+    /// Explicit workout refreshes retain their normal visible ownership.
     func scheduleWorkoutJournalIfNeeded() {
         guard let file = workoutJournalFile, workoutJournalTask == nil,
-              recordBackfillTask == nil, !isRefreshing, !isClearingCache,
-              !needsContextRefresh, pendingPermissionChangeCount == 0,
-              permissionSelection.includes(.workouts), authorizationState == .authorized else { return }
-        let admission = HealthDashboardPublicationToken()
-        workoutJournalAdmission = admission
+              mayStartQuietMaintenance, permissionSelection.includes(.workouts),
+              authorizationState == .authorized else { return }
         workoutJournalTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -5025,38 +5125,44 @@ final class HealthKitWorkoutStore {
                 self.scheduleRecordBaselineBackfillIfNeeded()
                 self.scheduleStressBackfillIfNeeded()
             }
-            let inputs = self.captureRefreshInputs()
-            let epoch = self.cacheEpoch
-            let engine = self.engine
-            if self.workoutJournal == nil {
-                let owner = await Task.detached(priority: .utility) {
-                    WorkoutJournalReconciler(engine: engine, file: file, candidateSink: { entries, generation, revision in
-                        await BodyNotificationDelivery.shared.stage(entries, generation: generation, revision: revision)
-                    })
-                }.value
-                guard admission.isValid, !Task.isCancelled, epoch == self.cacheEpoch,
-                      self.mayApplyRefreshInputs(inputs) else { return }
-                self.workoutJournal = owner
-            }
-            guard let owner = self.workoutJournal else { return }
-            var journal = await owner.snapshot()
-            // Finish durable repairs before draining another delta generation.
-            // Full/periodic HealthKit queries remain active while repair is pending.
-            if !journal.bootstrapComplete || (!journal.requiresFullRepair && journal.dirtyIntervals.isEmpty) {
-                guard await owner.scan() == .caughtUp else { return }
-                journal = await owner.snapshot()
-            }
-            guard journal.bootstrapComplete, journal.requiresFullRepair || !journal.dirtyIntervals.isEmpty,
-                  admission.isValid, !Task.isCancelled, epoch == self.cacheEpoch,
-                  self.mayApplyRefreshInputs(inputs), !self.isRefreshing, !self.isClearingCache else { return }
-            self.isRefreshing = true
-            _ = await self.runRefreshWithDeadline {
-                await withBackgroundQueryPool {
-                    await self.repairWorkoutJournal(journal, owner: owner, admission: admission)
+            var more = true
+            while more, !Task.isCancelled {
+                more = false
+                let completed = await self.performQuietMaintenanceUnit(.journal) { fence in
+                    self.workoutJournalAdmission = fence
+                    let inputs = self.captureRefreshInputs()
+                    let epoch = self.cacheEpoch
+                    if self.workoutJournal == nil {
+                        let engine = self.engine
+                        let owner = await Task.detached(priority: .utility) {
+                            WorkoutJournalReconciler(engine: engine, file: file, candidateSink: { entries, generation, revision in
+                                await BodyNotificationDelivery.shared.stage(entries, generation: generation, revision: revision)
+                            })
+                        }.value
+                        guard fence.isValid, self.mayPublishQuietMaintenance,
+                              epoch == self.cacheEpoch, self.mayApplyRefreshInputs(inputs) else { return false }
+                        self.workoutJournal = owner
+                    }
+                    guard let owner = self.workoutJournal else { return false }
+                    let journal = await owner.snapshot()
+                    guard fence.isValid, self.mayPublishQuietMaintenance else { return false }
+                    if !journal.bootstrapComplete || (!journal.requiresFullRepair && journal.dirtyIntervals.isEmpty) {
+                        let result = await owner.scan(maxPages: 1)
+                        guard fence.isValid, self.mayPublishQuietMaintenance else { return false }
+                        let next = await owner.snapshot()
+                        more = result == .morePending || (result == .caughtUp
+                            && (next.requiresFullRepair || !next.dirtyIntervals.isEmpty))
+                        return result == .caughtUp || result == .morePending
+                    }
+                    await self.repairWorkoutJournal(journal, owner: owner, admission: fence, maximumMonths: 1)
+                    guard fence.isValid, self.mayPublishQuietMaintenance else { return false }
+                    let next = await owner.snapshot()
+                    more = (next.requiresFullRepair || !next.dirtyIntervals.isEmpty)
+                        && next.repairProgress?.completedMonths != journal.repairProgress?.completedMonths
+                    return true
                 }
+                if !completed { break }
             }
-            admission.invalidate()
-            self.finishRefresh()
         }
     }
 
@@ -5188,7 +5294,7 @@ final class HealthKitWorkoutStore {
         }
     }
 
-    private func persistWorkoutJournalRecordLedger() async -> Bool {
+    func persistWorkoutJournalRecordLedger() async -> Bool {
         let ledger = recordLedger
         let revision = recordLedgerRevision
         let token = dashboardPublicationToken
@@ -5463,6 +5569,9 @@ final class HealthKitWorkoutStore {
         let persistEpoch = cacheEpoch
         var publishedDashboard = false
         var completedFullRefresh = false
+        var currentCoverage: Set<HealthMetricKind> = []
+        var historyCoverage: Set<HealthMetricKind> = []
+        var observerReceipts: [BodyHealthDirtyWorkStore.Receipt] = []
 
         do {
             // Source discovery must finish before any dashboard query — the
@@ -5470,12 +5579,16 @@ final class HealthKitWorkoutStore {
             // would silently fetch all-source data for custom-source users.
             await fetchHealthDataSourceOptions(calendar: calendar, force: intent == .userInitiated)
 
-            let (fetchedHealthSummary, fetchedHealthTrends, hadQueryFailure, fetchedPartialTrendWindow) =
+            let (fetchedHealthSummary, fetchedHealthTrends, hadQueryFailure, fetchedPartialTrendWindow, coverage, retainedCoverage, receipts) =
                 try await fetchDashboardSnapshotProgressively(
                     calendar: calendar,
                     selection: dashboardFetchSelection,
                     forcesFullTrendWindow: forcesFullTrendWindow
                 )
+
+            currentCoverage = coverage
+                historyCoverage = retainedCoverage
+            observerReceipts = receipts
 
             // Ring history is whatever the out-of-band ring load has published
             // so far; passing the live value keeps the save from dropping the
@@ -5562,7 +5675,13 @@ final class HealthKitWorkoutStore {
             if completedFullRefresh {
                 stageCompletedDashboardFreshness(date: date)
             }
-            persistDashboardSnapshot()
+            let durable = await persistDashboardSnapshotDurably()
+            if durable, mayApplyRefreshResults, UIApplication.shared.isProtectedDataAvailable {
+                await healthChangeCoordinator?.acknowledgeCoverage(observerReceipts, kinds: currentCoverage, history: false)
+                    if mayApplyRefreshResults {
+                        await healthChangeCoordinator?.acknowledgeCoverage(observerReceipts, kinds: historyCoverage, history: true)
+                    }
+            }
             saveHealthWidgetSnapshot()
         }
         // A body abandoned at the refresh deadline must not clear the anchor a
@@ -5582,6 +5701,9 @@ final class HealthKitWorkoutStore {
         reusesCachedWorkoutHeartRate: Bool = false
     ) async {
         let refreshDate = Date()
+        var currentCoverage: Set<HealthMetricKind> = []
+        var historyCoverage: Set<HealthMetricKind> = []
+        var observerReceipts: [BodyHealthDirtyWorkStore.Receipt] = []
         // Hydrate on BOTH paths, not just the dashboard one. The warm
         // workout-only resume can still reach a snapshot save via
         // `reapplyActivityReadinessAfterWorkouts`, and hydration is still what
@@ -5622,7 +5744,7 @@ final class HealthKitWorkoutStore {
             if updatesHealthSummary {
                 await fetchHealthDataSourceOptions(calendar: calendar, force: true)
 
-                let (fetchedHealthSummary, fetchedHealthTrends, leafFailure, partialTrendWindow) =
+                let (fetchedHealthSummary, fetchedHealthTrends, leafFailure, partialTrendWindow, coverage, retainedCoverage, receipts) =
                     try await fetchDashboardSnapshotProgressively(
                         calendar: calendar,
                         selection: dashboardFetchSelection
@@ -5631,6 +5753,9 @@ final class HealthKitWorkoutStore {
                 fetchedPartialTrendWindow = partialTrendWindow
 
                 // Live ring history, for the reason in `refreshRecentMonths`.
+                currentCoverage = coverage
+                historyCoverage = retainedCoverage
+                observerReceipts = receipts
                 guard await updateHealthDashboardSnapshot(
                     summary: fetchedHealthSummary,
                     trends: fetchedHealthTrends,
@@ -5690,7 +5815,13 @@ final class HealthKitWorkoutStore {
             setRefreshStage(.finishing)
             if updatesHealthSummary, !hadQueryFailure, mayApplyRefreshResults {
                 stageCompletedDashboardFreshness(date: refreshDate)
-                persistDashboardSnapshot()
+                let durable = await persistDashboardSnapshotDurably()
+                if durable, mayApplyRefreshResults, UIApplication.shared.isProtectedDataAvailable {
+                    await healthChangeCoordinator?.acknowledgeCoverage(observerReceipts, kinds: currentCoverage, history: false)
+                    if mayApplyRefreshResults {
+                        await healthChangeCoordinator?.acknowledgeCoverage(observerReceipts, kinds: historyCoverage, history: true)
+                    }
+                }
             }
         } catch {
             handleRefreshError(error)
@@ -5719,7 +5850,10 @@ final class HealthKitWorkoutStore {
         summary: HealthSummarySnapshot,
         trends: HealthTrendSnapshot,
         hadQueryFailure: Bool,
-        fetchedPartialTrendWindow: Bool
+        fetchedPartialTrendWindow: Bool,
+        currentCoverage: Set<HealthMetricKind>,
+        historyCoverage: Set<HealthMetricKind>,
+        receipts: [BodyHealthDirtyWorkStore.Receipt]
     ) {
         reconcileDashboardCacheScope()
         let inputs = captureRefreshInputs()
@@ -5735,6 +5869,10 @@ final class HealthKitWorkoutStore {
         // longer contributes: it runs outside this barrier, so a ring failure
         // must not withhold a TTL for data that did land.
         var hadQueryFailure = false
+        var currentCoverage: Set<HealthMetricKind> = []
+        var historyCoverage: Set<HealthMetricKind> = []
+        var trendsFailed = false
+        let receipts = await healthChangeCoordinator?.captureReceipts() ?? []
 
         startActivityRingHistoryLoadIfNeeded(calendar: calendar, selection: selection)
 
@@ -5793,6 +5931,7 @@ final class HealthKitWorkoutStore {
                 switch unit {
                 case .summary(let result):
                     fetchedSummary = result.summary
+                    currentCoverage = result.currentCoverage
                     hadQueryFailure = hadQueryFailure || result.hadQueryFailure
                     // Keep the cached `readiness`, `stress` AND `bodyRadar`
                     // visible during the progressive publish — the final
@@ -5806,6 +5945,8 @@ final class HealthKitWorkoutStore {
                         .replacingMetric(.stress, with: healthSummary)
                         .replacingMetric(.bodyRadar, with: healthSummary)
                 case .trends(let result):
+                    trendsFailed = result.hadQueryFailure
+                    historyCoverage = result.retainedMetricCoverage
                     hadQueryFailure = hadQueryFailure || result.hadQueryFailure
                     let t = result.trends
                     fetchedTrends = t
@@ -5827,7 +5968,9 @@ final class HealthKitWorkoutStore {
             scheduleContextRefreshIfNeeded()
             throw CancellationError()
         }
-        return (fetchedSummary, fetchedTrends, hadQueryFailure, trendWindowDays != nil)
+        // Sleep's current derived view also consumes its history/vital leaves.
+        if trendsFailed { currentCoverage.remove(.sleep) }
+        return (fetchedSummary, fetchedTrends, hadQueryFailure, trendWindowDays != nil, currentCoverage, historyCoverage.intersection(currentCoverage), receipts)
     }
 
     /// The out-of-band activity-ring history load, and the one at a time
@@ -5968,10 +6111,17 @@ final class HealthKitWorkoutStore {
     }
 
     private func repairOneHistoricalRingMonth(calendar: Calendar, epoch: Int, date: Date) async {
-        guard await awaitRefreshSlotFree() else { return }
         guard case .completed = activityRingBackfillState,
               !isRefreshing, !Task.isCancelled,
               permissionSelection.includes(.activityRings) else { return }
+        _ = await performQuietMaintenanceUnit(.ringHistory) { [self] _ in
+            await performHistoricalRingMonth(calendar: calendar, epoch: epoch, date: date)
+            return await persistDashboardSnapshotDurably()
+        }
+    }
+
+    private func performHistoricalRingMonth(calendar: Calendar, epoch: Int, date: Date) async {
+        guard mayPublishQuietMaintenance, !isRefreshing else { return }
         let inputs = captureRefreshInputs()
         let revision = activityRingHistoryRevision
         let queryRevision = await engine.queryContextRevision
@@ -6732,13 +6882,16 @@ final class HealthKitWorkoutStore {
         authoritativeDaySamples: Set<HealthDaySampleSeries> = [],
         expectedDataRevision: Int? = nil
     ) async -> Bool {
+        let publicationRevision = expectedDataRevision
+            ?? (HealthDashboardPublicationToken.quietCurrent == nil ? nil : dashboardDataRevision)
+
         let epoch = cacheEpoch
         let inputs = captureRefreshInputs()
         let scope = currentDashboardCacheScope()
         let calendar = Calendar.bodyGregorian
         let anchorDate = await engine.healthTrendAnchorDate ?? Date()
         guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults,
-              expectedDataRevision.map({ $0 == dashboardDataRevision && !isRefreshing }) ?? true else { return false }
+              publicationRevision.map({ $0 == dashboardDataRevision && !isRefreshing }) ?? true else { return false }
         let permissionSelection = self.permissionSelection
         let idealSleepDuration = Self.storedIdealSleepDuration()
         // Stress is derived, never fetched, so a freshly fetched summary always
@@ -6822,7 +6975,7 @@ final class HealthKitWorkoutStore {
         // A refresh abandoned at `healthRefreshDeadline` loses the same way: its
         // late snapshot must not overwrite a newer refresh's.
         guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
-              expectedDataRevision.map({ $0 == dashboardDataRevision && !isRefreshing }) ?? true,
+              publicationRevision.map({ $0 == dashboardDataRevision && !isRefreshing }) ?? true,
               mayApplyRefreshInputs(inputs), scope == currentDashboardCacheScope(), mayApplyRefreshResults else {
             return false
         }
@@ -7251,7 +7404,8 @@ final class HealthKitWorkoutStore {
         summaries: [StressDaySummary],
         scannedThrough: Date,
         complete: Bool,
-        calendar: Calendar
+        calendar: Calendar,
+        persists: Bool = true
     ) {
         let updated = HealthDashboardSnapshot(
             summary: healthSummary,
@@ -7265,6 +7419,7 @@ final class HealthKitWorkoutStore {
             calendar: calendar
         )
         healthTrends = updated.trends
+        guard persists else { return }
 
         let daySampleSignatures = currentDaySampleSignatures()
         // Same reason as `recomputeStress`: carry the current summary-context
@@ -7410,7 +7565,7 @@ final class HealthKitWorkoutStore {
         // every query — a metric or workout month whose permission is disabled —
         // so a no-op pull can't announce "Health data updated" either. See
         // `BodyHealthSyncBadge`.
-        if advancesSyncBadge, !hadQueryFailure, ranQueries {
+        if advancesSyncBadge, HealthDashboardPublicationToken.quietCurrent == nil, !hadQueryFailure, ranQueries {
             syncBadgeSuccessCount += 1
         }
         // `lastSuccessfulRefreshDate` arms the 5-minute dashboard-freshness TTL
@@ -8556,6 +8711,12 @@ enum HealthKitWorkoutError: LocalizedError {
 // MARK: - Observed changes and bounded headless refresh
 extension HealthKitWorkoutStore {
     func retireBackgroundRefresh() {
+        foregroundNotifications.suspend()
+        quietObservedFence?.invalidate()
+        maintenance.suspend()
+        if let fence = quietObservedFence, dashboardPublicationToken === fence {
+            dashboardPublicationToken = HealthDashboardPublicationToken()
+        }
         guard let lease = backgroundRefreshLease ?? backgroundPublicationLease else { return }
         lease.invalidate()
         backgroundRefreshLease = nil
@@ -8602,8 +8763,9 @@ extension HealthKitWorkoutStore {
     }
 
     func repairObservedMetrics(_ receipts: [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)],
-                               ledger: BodyHealthDirtyWorkStore, background lease: BodyBackgroundLease? = nil) async -> Bool {
-        // Includes migration and any background revalidation marked after the
+                               ledger: BodyHealthDirtyWorkStore, background lease: BodyBackgroundLease? = nil,
+                               revalidating kinds: [HealthMetricKind] = []) async -> Bool {
+        // Includes migration and concurrent observer deliveries after the
         // coordinator's flush. Undurable captures cannot be acknowledged.
         guard await ledger.flush() else {
             invalidateObservedHealthChanges()
@@ -8636,7 +8798,7 @@ extension HealthKitWorkoutStore {
         observedDiagnosticFence = lease == nil ? nil : dashboardPublicationToken
         let passStart = ContinuousClock.now
         var passOutcome = "backgroundFinished"
-        BodyObserverRefreshDiagnostics.log("pass start background=\(lease != nil) receipts=\(receipts.count) pending=[\(BodyObserverRefreshDiagnostics.pending(await ledger.snapshot()))]", passID: passID)
+        BodyObserverRefreshDiagnostics.log("pass start background=\(lease != nil) receipts=\(receipts.count) revalidating=[\(kinds.map(\.rawValue).joined(separator: ","))] pending=[\(BodyObserverRefreshDiagnostics.pending(await ledger.snapshot()))]", passID: passID)
         defer {
             BodyObserverRefreshDiagnostics.log("pass end outcome=\(passOutcome) duration=\(BodyObserverRefreshDiagnostics.elapsed(since: passStart)) setsNotice=false", passID: passID)
             observedDiagnosticPassID = nil
@@ -8683,21 +8845,43 @@ extension HealthKitWorkoutStore {
         }
         #if DEBUG
         let changed = await BodyObserverRefreshDiagnostics.$passID.withValue(passID) {
-            await performObservedMetrics(receipts, ledger: ledger, inputs: inputs, lease: lease)
+            await performObservedMetrics(receipts, ledger: ledger, inputs: inputs, lease: lease, revalidating: kinds)
         }
         passOutcome = Task.isCancelled ? "cancelled" : (lease?.isValid == true ? "backgroundFinished" : "leaseExpired")
         BodyObserverRefreshDiagnostics.log("pass remainder=[\(BodyObserverRefreshDiagnostics.pending(await ledger.snapshot()))]", passID: passID)
         return changed
         #else
-        return await performObservedMetrics(receipts, ledger: ledger, inputs: inputs, lease: lease)
+        return await performObservedMetrics(receipts, ledger: ledger, inputs: inputs, lease: lease, revalidating: kinds)
         #endif
+    }
+
+    /// A quiet owner's reads never spend interactive permits or own the badge.
+    /// Retain the operation until it actually exits, even after preemption, so
+    /// an uncooperative query cannot accumulate replacement maintenance tasks.
+    func repairObservedMetricsQuietly(_ receipts: [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)],
+                                      ledger: BodyHealthDirtyWorkStore) async -> Bool {
+        guard receipts.count == 1, mayStartQuietMaintenance else { return false }
+        return await performQuietMaintenanceUnit(.observer) { [self] _ in
+            guard await ledger.flush(), mayPublishQuietMaintenance else { return false }
+            let kind = receipts[0].0
+            let sourceKind: HealthMetricKind = kind == .stress ? .heartRateVariability : kind
+            guard await prepareObservedMetricSources([sourceKind], date: Date()).contains(sourceKind),
+                  mayPublishQuietMaintenance, mayStartQuietMaintenance,
+                  let receipt = await ledger.receipt(for: kind),
+                  receipt.context == currentObserverLedgerContext() else { return false }
+            let inputs = captureRefreshInputs()
+            guard mayStartQuietMaintenance, mayApplyRefreshResults else { return false }
+            observedRepairGeneration &+= 1
+            return await performObservedMetrics([(kind, receipt)], ledger: ledger, inputs: inputs, lease: nil,
+                                                sourcesPrepared: true)
+        }
     }
 
     /// Only immutable engine reads overlap. At most three snapshots are retained;
     /// publication, sidecar writes, and receipt acknowledgment stay serial in the
     /// original receipt order. The outer observed deadline owns all child reads.
     private func repairObservedQuantityBatch(_ receipts: [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)],
-        ledger: BodyHealthDirtyWorkStore, inputs: CapturedRefreshInputs) async -> Bool {
+        ledger: BodyHealthDirtyWorkStore, inputs: CapturedRefreshInputs) async -> [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)] {
         let date = Date()
         let calendar = Calendar.bodyGregorian
         #if DEBUG
@@ -8707,7 +8891,7 @@ extension HealthKitWorkoutStore {
         #endif
         let ready = await prepareObservedMetricSources(receipts.map { $0.0 }, date: date)
         guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults, !Task.isCancelled,
-              let context = await captureHealthMetricReadContext(date: date, calendar: calendar) else { return false }
+              let context = await captureHealthMetricReadContext(date: date, calendar: calendar) else { return [] }
         let existing = HealthDashboardSnapshot(summary: healthSummary, trends: healthTrends, activityRingHistory: activityRingHistory)
         let sleepGoal = Self.storedIdealSleepDuration()
         setRefreshStage(.fetching)
@@ -8731,29 +8915,31 @@ extension HealthKitWorkoutStore {
             }
             return fetched
         }
-        var changed = false
+        var completed: [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)] = []
         for (kind, receipt) in receipts {
             guard !Task.isCancelled, mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { break }
             guard let result = results[kind] else { continue }
             let success = await applyHealthMetricRefresh(kind, metricFetch: result, context: context, observed: true)
             guard !Task.isCancelled, mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { break }
             if success {
-                changed = true
+                completed.append((kind, receipt))
                 if receipt.context == currentObserverLedgerContext() {
-                    _ = await ledger.acknowledge(receipt, current: true, history: true)
+                    _ = await ledger.acknowledge(receipt, current: true, history: false)
                 }
             }
         }
-        return changed
+        return completed
     }
 
     private func performObservedMetrics(_ receipts: [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)],
-        ledger: BodyHealthDirtyWorkStore, inputs: CapturedRefreshInputs, lease: BodyBackgroundLease?) async -> Bool {
+        ledger: BodyHealthDirtyWorkStore, inputs: CapturedRefreshInputs, lease: BodyBackgroundLease?,
+        revalidating kinds: [HealthMetricKind] = [], sourcesPrepared: Bool = false) async -> Bool {
         let eligibility = await engine.backgroundReadEligibility(protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable)
         guard eligibility == .eligible, mayApplyRefreshInputs(inputs), lease?.isValid ?? true else { return false }
         await hydratePersistedDaySamplesIfNeeded()
         guard mayApplyRefreshInputs(inputs), lease?.isValid ?? true, !Task.isCancelled else { return false }
         var changed = false
+        var historyCandidates: [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)] = []
         var index = 0
         while index < receipts.count {
             if lease == nil {
@@ -8762,8 +8948,9 @@ extension HealthKitWorkoutStore {
                 })
                 if batch.count > 1 {
                     guard !Task.isCancelled, mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { break }
-                    let batchChanged = await repairObservedQuantityBatch(batch, ledger: ledger, inputs: inputs)
-                    changed = changed || batchChanged
+                    let completed = await repairObservedQuantityBatch(batch, ledger: ledger, inputs: inputs)
+                    historyCandidates.append(contentsOf: completed)
+                    changed = changed || !completed.isEmpty
                     index += batch.count
                     continue
                 }
@@ -8783,14 +8970,15 @@ extension HealthKitWorkoutStore {
             // Stress's raw heartbeat history belongs to its progressive repair owner.
             // A pure cached score is never acknowledgment of an observer receipt.
             if kind == .stress {
-                let success = await refreshObservedHeartbeatSamples()
+                let success = await refreshObservedHeartbeatSamples(sourcesPrepared: sourcesPrepared)
                 #if DEBUG
                 leafSuccess = success
                 #endif
                 if success, lease?.isValid ?? true, mayApplyRefreshInputs(inputs), !Task.isCancelled,
                    mayApplyRefreshResults, receipt.context == currentObserverLedgerContext() {
                     changed = true
-                    let acknowledged = await ledger.acknowledge(receipt, current: true, history: lease == nil)
+                    if lease == nil { historyCandidates.append((kind, receipt)) }
+                    let acknowledged = await ledger.acknowledge(receipt, current: true, history: false)
                     #if DEBUG
                     acknowledgement = acknowledged ? "accepted" : "ledgerRejected"
                     #endif
@@ -8799,15 +8987,16 @@ extension HealthKitWorkoutStore {
                 continue
             }
             let success = await performHealthMetricRefresh(kind, date: Date(), calendar: .bodyGregorian,
-                intent: lease == nil ? .userInitiated : .passiveResume, observed: true)
+                intent: lease == nil ? .userInitiated : .passiveResume, observed: true, sourcesPrepared: sourcesPrepared)
             #if DEBUG
             leafSuccess = success
             #endif
             guard lease?.isValid ?? true, mayApplyRefreshInputs(inputs), !Task.isCancelled, mayApplyRefreshResults else { break }
             if success {
                 changed = true
+                if lease == nil { historyCandidates.append((kind, receipt)) }
                 if receipt.context == currentObserverLedgerContext() {
-                    let acknowledged = await ledger.acknowledge(receipt, current: true, history: lease == nil)
+                    let acknowledged = await ledger.acknowledge(receipt, current: true, history: false)
                     #if DEBUG
                     acknowledgement = acknowledged ? "accepted" : "ledgerRejected"
                     #endif
@@ -8817,6 +9006,25 @@ extension HealthKitWorkoutStore {
                     acknowledgement = "contextMismatch"
                     #endif
                 }
+            }
+        }
+        if let lease {
+            for kind in kinds {
+                guard lease.isValid, !Task.isCancelled, mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { break }
+                // Reuse fenced reads and durable publication, but never acknowledge
+                // a receipt: a real delivery during this read still needs repair.
+                let success: Bool
+                if kind == .stress {
+                    success = await refreshObservedHeartbeatSamples()
+                } else {
+                    success = await performHealthMetricRefresh(kind, date: Date(), calendar: .bodyGregorian,
+                                                              intent: .passiveResume, observed: true)
+                }
+                #if DEBUG
+                BodyObserverRefreshDiagnostics.log("revalidation kind=\(kind.rawValue) success=\(success) leaseValid=\(lease.isValid)")
+                #endif
+                guard lease.isValid, !Task.isCancelled, mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { break }
+                changed = changed || success
             }
         }
         guard mayApplyRefreshResults else { return changed }
@@ -8839,8 +9047,17 @@ extension HealthKitWorkoutStore {
         if lease == nil, changed, mayApplyRefreshInputs(inputs), !Task.isCancelled {
             // Recompute only on the foreground owner; background leaf success must
             // not mint freshness for unverified derived dependencies.
-            _ = await updateHealthDashboardSnapshot(summary: healthSummary, trends: healthTrends,
-                activityRingHistory: activityRingHistory)
+            let repairedKinds = Set(historyCandidates.map { $0.0 })
+            guard await updateHealthDashboardSnapshot(summary: healthSummary, trends: healthTrends,
+                activityRingHistory: activityRingHistory,
+                recomputesReadiness: !repairedKinds.isDisjoint(with: Self.readinessInputMetricKinds),
+                recomputesStress: repairedKinds.contains(.stress) || !repairedKinds.isDisjoint(with: Self.stressInputMetricKinds),
+                recomputesBodyRadar: !repairedKinds.isDisjoint(with: Self.bodyRadarInputMetricKinds), persists: false),
+                await persistDashboardSnapshotDurably(), mayApplyRefreshResults, !Task.isCancelled else { return changed }
+            for (_, receipt) in historyCandidates {
+                guard mayApplyRefreshResults, !Task.isCancelled, receipt.context == currentObserverLedgerContext() else { break }
+                _ = await ledger.acknowledge(receipt, current: false, history: true)
+            }
         }
         if changed, lease?.isValid ?? true, mayApplyRefreshInputs(inputs), !Task.isCancelled {
             await publishObservedCompanions()
@@ -8878,14 +9095,29 @@ extension HealthKitWorkoutStore {
         }
     }
 
-    func evaluateNewNotifications(lease: BodyBackgroundLease? = nil, includesStress: Bool = true) async {
+    func scheduleForegroundNotifications() {
+        foregroundNotifications.request()
+    }
+
+    func suspendForegroundNotifications() {
+        foregroundNotifications.suspend()
+    }
+
+    func evaluateNewNotifications(lease: BodyBackgroundLease? = nil, includesStress: Bool = true,
+                                  foregroundToken: HealthDashboardPublicationToken? = nil) async {
         guard !notificationEvaluationInFlight else { return }
         notificationEvaluationInFlight = true
         defer { notificationEvaluationInFlight = false }
         if let lease {
             await performNotificationEvaluation(lease: lease, includesStress: includesStress)
         } else {
-            let operation = Task { @MainActor in await self.performNotificationEvaluation(lease: nil, includesStress: includesStress) }
+            let token = foregroundToken ?? HealthDashboardPublicationToken()
+            defer { token.invalidate() }
+            let operation = Task { @MainActor in
+                await withBackgroundQueryPool {
+                    await self.performNotificationEvaluation(lease: nil, includesStress: includesStress, foregroundToken: token)
+                }
+            }
             let outcome = await OneShotDeadlineRace.run(deadline: .seconds(20)) { await operation.value }
             #if DEBUG
             switch outcome {
@@ -8898,15 +9130,17 @@ extension HealthKitWorkoutStore {
         }
     }
 
-    private func performNotificationEvaluation(lease: BodyBackgroundLease?, includesStress: Bool) async {
+    private func performNotificationEvaluation(lease: BodyBackgroundLease?, includesStress: Bool,
+                                               foregroundToken: HealthDashboardPublicationToken? = nil) async {
         guard await engine.backgroundReadEligibility(protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable) == .eligible,
-              !Task.isCancelled, lease?.isValid ?? BodyAppRuntime.isForegroundActive else { return }
+              !Task.isCancelled, foregroundToken?.isValid ?? true,
+              lease?.isValid ?? BodyAppRuntime.isForegroundActive else { return }
         let inputs = captureRefreshInputs()
         let context = currentDashboardCacheScope().signature
         if let owner = workoutJournal {
             await BodyNotificationDelivery.shared.deliverWorkouts(journal: await owner.snapshot(), lease: lease,
                 isCurrent: { @MainActor [weak self] in
-                    self?.mayApplyRefreshInputs(inputs) == true
+                    (foregroundToken?.isValid ?? true) && self?.mayApplyRefreshInputs(inputs) == true
                         && (lease == nil ? BodyAppRuntime.isForegroundActive : (!BodyAppRuntime.isForegroundActive && lease?.isValid == true))
                 })
         }
@@ -8927,7 +9161,7 @@ extension HealthKitWorkoutStore {
             if let sleep {
                 await BodyNotificationDelivery.shared.deliverSleep(sleep, lease: lease,
                     isCurrent: { @MainActor [weak self] in
-                        self?.mayApplyRefreshInputs(inputs) == true && self?.permissionSelection.includes(.sleep) == true
+                        (foregroundToken?.isValid ?? true) && self?.mayApplyRefreshInputs(inputs) == true && self?.permissionSelection.includes(.sleep) == true
                             && (lease == nil ? BodyAppRuntime.isForegroundActive : (!BodyAppRuntime.isForegroundActive && lease?.isValid == true))
                     }, now: now, calendar: calendar)
             }
@@ -8960,17 +9194,17 @@ extension HealthKitWorkoutStore {
                 }.value
                 record = freeze?.entry
             }
-            guard lease?.isValid ?? BodyAppRuntime.isForegroundActive, mayApplyRefreshInputs(inputs), !Task.isCancelled else { return }
+            guard foregroundToken?.isValid ?? true, lease?.isValid ?? BodyAppRuntime.isForegroundActive, mayApplyRefreshInputs(inputs), !Task.isCancelled else { return }
             if let record {
                 await BodyNotificationDelivery.shared.deliverReadiness(record, lease: lease,
                     isCurrent: { @MainActor [weak self] in
-                        self?.mayApplyRefreshInputs(inputs) == true && self?.permissionSelection.includes(.sleep) == true
+                        (foregroundToken?.isValid ?? true) && self?.mayApplyRefreshInputs(inputs) == true && self?.permissionSelection.includes(.sleep) == true
                             && (lease == nil ? BodyAppRuntime.isForegroundActive : (!BodyAppRuntime.isForegroundActive && lease?.isValid == true))
                     }, now: now, calendar: calendar)
                 // Keep the announced score as the day's record so the hero's "Started
                 // today" matches the alert; the foreground freeze only upgrades it for
                 // strictly richer coverage, exactly as it would its own record.
-                if let freeze, lease?.isValid == true, mayApplyRefreshInputs(inputs), !Task.isCancelled,
+                if let freeze, foregroundToken?.isValid ?? true, lease?.isValid == true, mayApplyRefreshInputs(inputs), !Task.isCancelled,
                    Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch), mayApplyRefreshResults,
                    freeze.context == readinessRecordContextSignature(),
                    !healthTrends.recordedReadiness.contains(where: { calendar.startOfDay(for: $0.date) == today
@@ -8985,7 +9219,7 @@ extension HealthKitWorkoutStore {
                 }
             }
         }
-        guard includesStress, BodyNotificationPreferences.enabled(BodyNotificationPreferences.stressKey),
+        guard foregroundToken?.isValid ?? true, includesStress, BodyNotificationPreferences.enabled(BodyNotificationPreferences.stressKey),
               permissionSelection.includes(.heart), permissionSelection.includes(.sleep),
               permissionSelection.includes(.workouts), permissionSelection.includes(.steps), permissionSelection.includes(.energy),
               lease?.isValid ?? BodyAppRuntime.isForegroundActive,
@@ -8999,7 +9233,7 @@ extension HealthKitWorkoutStore {
               lease?.isValid ?? BodyAppRuntime.isForegroundActive else { return }
         await BodyNotificationDelivery.shared.evaluateStress(input: input, baselines: baselines, context: context,
             lease: lease, isCurrent: { @MainActor [weak self] in
-                    self?.mayApplyRefreshInputs(inputs) == true
+                    (foregroundToken?.isValid ?? true) && self?.mayApplyRefreshInputs(inputs) == true
                         && (lease == nil ? BodyAppRuntime.isForegroundActive : (!BodyAppRuntime.isForegroundActive && lease?.isValid == true))
                 }, now: now)
     }
@@ -9014,8 +9248,12 @@ extension HealthKitWorkoutStore {
         observedHealthChanges = pending
     }
 
-    private func refreshObservedHeartbeatSamples() async -> Bool {
+    private func refreshObservedHeartbeatSamples(sourcesPrepared: Bool = false) async -> Bool {
         let inputs = captureRefreshInputs()
+        if !sourcesPrepared {
+            guard await prepareObservedMetricSources([.heartRateVariability], date: Date()).contains(.heartRateVariability) else { return false }
+        }
+        guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults, !Task.isCancelled else { return false }
         let interval = HealthKitFetchEngine.intradayDaySampleInterval(calendar: .bodyGregorian, anchor: nil)
         guard let samples = await engine.fetchHeartbeatRMSSDSamples(startDate: interval.start, endDate: interval.end),
               mayApplyRefreshResults, mayApplyRefreshInputs(inputs), !Task.isCancelled else { return false }

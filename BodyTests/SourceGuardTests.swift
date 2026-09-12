@@ -2813,7 +2813,7 @@ final class SourceGuardTests: XCTestCase {
                 "await reapplyActivityReadinessAfterWorkouts(date: date, calendar: calendar, persists: false)"
             )
         )
-        XCTAssertEqual(refreshBlock.components(separatedBy: "persistDashboardSnapshot()").count - 1, 1)
+        XCTAssertEqual(refreshBlock.components(separatedBy: "await persistDashboardSnapshotDurably()").count - 1, 1)
         XCTAssertEqual(refreshBlock.components(separatedBy: "saveHealthWidgetSnapshot()").count - 1, 1)
         XCTAssertTrue(
             updateBlock.contains(

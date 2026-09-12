@@ -76,12 +76,8 @@ func withBackgroundQueryPool<Value>(
 /// Permit pool bounding how many HealthKit queries one budget keeps in
 /// flight at once.
 ///
-/// Legacy `acquire()` is deliberately **not** cancellable while waiting: a waiter that is cancelled
-/// still takes its permit and runs, and the query wrappers release in `defer`,
-/// so there is no path on which a permit is handed out and never returned. The
-/// alternative (resuming waiters with a `CancellationError`) buys nothing here
-/// — the queries themselves already handle cancellation, and every wait is
-/// bounded by the permit holders, which are bounded by HealthKit's callbacks.
+/// Cancellation removes ordinary queued waiters without borrowing a permit.
+/// An already admitted caller still owns its permit and releases it in defer.
 ///
 /// `@unchecked Sendable` is sound because every access is lock-guarded, and the
 /// lock is never held across a continuation resume.
@@ -100,7 +96,11 @@ final class HealthKitQuerySemaphore: @unchecked Sendable {
     private let name: String
     private let lock = NSLock()
     private var inFlight = 0
-    private var waiters: [UnsafeContinuation<Void, Never>] = []
+    private final class Waiter: @unchecked Sendable {
+        var continuation: UnsafeContinuation<Bool, Never>?
+        var cancelled = false
+    }
+    private var waiters: [Waiter] = []
 
     init(limit: Int, name: String) {
         self.limit = limit
@@ -110,34 +110,56 @@ final class HealthKitQuerySemaphore: @unchecked Sendable {
     /// Takes a permit, waiting in FIFO order when the budget is full. Every
     /// caller must pair this with exactly one `release()`, in a `defer`.
     func acquire() async {
-        await withUnsafeContinuation { (continuation: UnsafeContinuation<Void, Never>) in
+        _ = await enqueue(Waiter())
+    }
+
+    private func enqueue(_ waiter: Waiter) async -> Bool {
+        await withUnsafeContinuation { continuation in
             lock.lock()
-            guard inFlight < limit else {
-                waiters.append(continuation)
+            if waiter.cancelled {
                 lock.unlock()
-                return
+                continuation.resume(returning: false)
+            } else if inFlight < limit {
+                inFlight += 1
+                let depth = inFlight
+                lock.unlock()
+                BodyRefreshProfile.shared.notePoolDepth(name, depth: depth)
+                continuation.resume(returning: true)
+            } else {
+                waiter.continuation = continuation
+                waiters.append(waiter)
+                lock.unlock()
             }
-            inFlight += 1
-            let depth = inFlight
-            lock.unlock()
-            BodyRefreshProfile.shared.notePoolDepth(name, depth: depth)
-            continuation.resume()
         }
     }
 
-    /// Bounded work never enters the legacy non-cancellable waiter queue.
-    /// A dedicated pool prevents a history walk from occupying these permits.
+    private func cancel(_ waiter: Waiter) {
+        lock.lock()
+        waiter.cancelled = true
+        let continuation = waiter.continuation
+        waiter.continuation = nil
+        waiters.removeAll { $0 === waiter }
+        lock.unlock()
+        continuation?.resume(returning: false)
+    }
+
     func acquireForCurrentTask() async -> Bool {
-        guard let lease = BodyBackgroundLease.current else {
-            await acquire()
-            return true
+        if let lease = BodyBackgroundLease.current {
+            // A lease can expire independently of task cancellation.
+            while lease.isValid && !Task.isCancelled {
+                if tryAcquire() { return true }
+                do { try await Task.sleep(for: .milliseconds(10)) }
+                catch { return false }
+            }
+            return false
         }
-        while lease.isValid && !Task.isCancelled {
-            if tryAcquire() { return true }
-            do { try await Task.sleep(for: .milliseconds(10)) }
-            catch { return false }
+        guard !Task.isCancelled else { return false }
+        let waiter = Waiter()
+        return await withTaskCancellationHandler {
+            await enqueue(waiter)
+        } onCancel: {
+            self.cancel(waiter)
         }
-        return false
     }
 
     func tryAcquire() -> Bool {
@@ -160,7 +182,9 @@ final class HealthKitQuerySemaphore: @unchecked Sendable {
             return
         }
         let waiter = waiters.removeFirst()
+        let continuation = waiter.continuation
+        waiter.continuation = nil
         lock.unlock()
-        waiter.resume()
+        continuation?.resume(returning: true)
     }
 }

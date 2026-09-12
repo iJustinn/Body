@@ -100,6 +100,68 @@ final class BodyObservedQuantityBatchTests: XCTestCase {
         }
     }
 
+    func testQuietRepairDoesNotOwnBadgeAndForegroundPreemptsBeforeReadCompletes() async throws {
+        try await withFixture { fixture in
+            fixture.store.markRefreshSucceeded(date: Date(), refreshedVitals: true, publishesWatch: false)
+            let gate = ReadGate()
+            let admitted = expectation(description: "quiet read started")
+            fixture.health.scriptSamples(for: fixture.types[1], .gated({
+                XCTAssertEqual(HealthKitQueryPool.current, .background)
+                admitted.fulfill()
+                await gate.wait()
+            }, then: .samples([])))
+            let receipts = try await fixture.receipts()
+            let quiet = Task { await fixture.store.repairObservedMetricsQuietly([receipts[1]], ledger: fixture.ledger) }
+            await fulfillment(of: [admitted], timeout: 2)
+            XCTAssertFalse(fixture.store.isRefreshing)
+            XCTAssertNil(fixture.store.refreshStage)
+            await fixture.store.withRefreshSlotHeld {
+                XCTAssertTrue(fixture.store.isRefreshing)
+                let replacement = await fixture.store.repairObservedMetricsQuietly([receipts[1]], ledger: fixture.ledger)
+                XCTAssertFalse(replacement)
+            }
+            // The foreground owner completed while the old query still waits.
+            await gate.release()
+            let changed = await quiet.value
+            XCTAssertFalse(changed)
+            let after = await fixture.ledger.snapshot()
+            XCTAssertEqual(after.entries["bodyMass"]?.historyPending, true)
+            XCTAssertFalse(fixture.store.isRefreshing)
+        }
+    }
+
+    func testQuietRepairPersistsOneDomainWithoutStartingVisibleRefresh() async throws {
+        try await withFixture { fixture in
+            fixture.store.markRefreshSucceeded(date: Date(), refreshedVitals: true, publishesWatch: false)
+            let receipts = try await fixture.receipts()
+            let changed = await fixture.store.repairObservedMetricsQuietly([receipts[1]], ledger: fixture.ledger)
+            XCTAssertTrue(changed)
+            XCTAssertFalse(fixture.store.isRefreshing)
+            XCTAssertNil(fixture.store.refreshStage)
+            let after = await fixture.ledger.snapshot()
+            XCTAssertEqual(after.entries["bodyMass"]?.historyPending, false)
+            XCTAssertEqual(after.entries["bodyFatPercentage"]?.historyPending, true)
+        }
+    }
+
+    func testPreemptionAfterRawSaveLeavesHistoryPendingUntilDerivedSave() async throws {
+        try await withFixture { fixture in
+            fixture.store.markRefreshSucceeded(date: Date(), refreshedVitals: true, publishesWatch: false)
+            var computes = 0
+            fixture.store.beforeDashboardComputeCommit = {
+                computes += 1
+                if computes == 2 { fixture.store.retireBackgroundRefresh() }
+            }
+            defer { fixture.store.beforeDashboardComputeCommit = nil }
+            let receipts = try await fixture.receipts()
+            let changed = await fixture.store.repairObservedMetricsQuietly([receipts[1]], ledger: fixture.ledger)
+            XCTAssertFalse(changed)
+            let after = await fixture.ledger.snapshot()
+            XCTAssertEqual(after.entries["bodyMass"]?.currentPending, false)
+            XCTAssertEqual(after.entries["bodyMass"]?.historyPending, true)
+        }
+    }
+
     func testNewDeliveryDuringParallelReadsSurvivesWhileOtherReceiptsDrain() async throws {
         try await withFixture { fixture in
             let gate = ReadGate()

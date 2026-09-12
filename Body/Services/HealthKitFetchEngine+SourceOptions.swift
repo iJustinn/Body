@@ -119,7 +119,8 @@ extension HealthKitFetchEngine {
 
         // A settings edit can reenter this actor while source queries suspend.
         // Never install buckets grouped for the retired configuration.
-        guard queryContextRevision == contextRevision,
+        guard !Task.isCancelled, HealthDashboardPublicationToken.quietCurrent?.isValid != false,
+              queryContextRevision == contextRevision,
               healthSourceDiscoveryGeneration == discoveryGeneration else { return nil }
 
         // Merge only successfully discovered kinds: a failed kind keeps its
@@ -209,7 +210,8 @@ extension HealthKitFetchEngine {
             return collected
         }
 
-        guard queryContextRevision == contextRevision,
+        guard !Task.isCancelled, HealthDashboardPublicationToken.quietCurrent?.isValid != false,
+              queryContextRevision == contextRevision,
               healthSourceDiscoveryGeneration == discoveryGeneration else { return [:] }
         var optionsByKind: [HealthMetricKind: [BodyHealthDataSourceOption]] = [:]
         for kindSource in kindSources {

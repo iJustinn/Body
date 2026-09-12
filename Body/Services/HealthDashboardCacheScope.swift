@@ -3,6 +3,9 @@ import Foundation
 /// Invalidates queued publications without making the main actor wait for IO.
 /// Writes already admitted retain FIFO order on the shared persistence queue.
 final class HealthDashboardPublicationToken: @unchecked Sendable {
+    /// Shared with engine-side setup so a retired quiet actor hop cannot mutate
+    /// source discovery or the foreground operation's training-load anchor.
+    @TaskLocal static var quietCurrent: HealthDashboardPublicationToken?
     private let lock = NSLock()
     private var valid = true
     private let isCurrent: @Sendable () -> Bool
