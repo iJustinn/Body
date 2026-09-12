@@ -2227,7 +2227,8 @@ struct BodyHealthMetricDetailView: View {
                         // Heart rate and respiratory rate plot min-max bars on their
                         // Week/Month/6M/Year chart, so their Day View carries the same
                         // bars per hour.
-                        showsHourlyRangeBars: model.kind == .heartRate || model.kind == .respiratoryRate
+                        showsHourlyRangeBars: model.kind == .heartRate || model.kind == .respiratoryRate,
+                        floatingCallout: floatingCallout
                     )
                     .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
                     // Scoped so only day-series content changes animate: marks glide to

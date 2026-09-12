@@ -853,6 +853,11 @@ struct BodyHealthMetricDayChart: View {
     /// domain never moves across day switches.
     private static let referenceDayStart = Calendar.bodyGregorian.startOfDay(for: Date(timeIntervalSinceReferenceDate: 0))
 
+    /// Optional report-out of the scrub callout, so the detail page can float it on
+    /// its topmost layer (see `BodyChartFloatingCallout`) instead of the in-chart
+    /// annotation.
+    let floatingCallout: BodyChartFloatingCalloutState?
+
     @State private var selectedDate: Date?
     @GestureState private var isSelecting = false
 
@@ -876,8 +881,10 @@ struct BodyHealthMetricDayChart: View {
         aggregationLabel: String = String(localized: "HOURLY AVG"),
         includesSampleBreakdown: Bool = true,
         collapsesUnchangedPoints: Bool = false,
-        showsHourlyRangeBars: Bool = false
+        showsHourlyRangeBars: Bool = false,
+        floatingCallout: BodyChartFloatingCalloutState? = nil
     ) {
+        self.floatingCallout = floatingCallout
         self.day = day
         self.title = title
         self.color = color
@@ -1055,13 +1062,9 @@ struct BodyHealthMetricDayChart: View {
                         spacing: 8,
                         overflowResolution: bodyChartSelectionOverflowResolution
                     ) {
-                        BodyHealthMetricDayAnnotation(
-                            bucket: selectedBucket.bucket,
-                            values: selectedValues(for: selectedBucket.plotDate),
-                            valueFormatter: valueFormatter,
-                            aggregationLabel: aggregationLabel,
-                            includesSampleBreakdown: includesSampleBreakdown
-                        )
+                        if floatingCallout == nil {
+                            selectionAnnotation(for: selectedBucket)
+                        }
                     }
 
                 ForEach(selectedEntries(for: selectedBucket.plotDate)) { entry in
@@ -1108,6 +1111,26 @@ struct BodyHealthMetricDayChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
+        .bodyFloatingCalloutReporter(
+            floatingCallout,
+            selectionDate: selectedBucket.map { normalizedDate($0.plotDate) },
+            centersOnDayInterval: false
+        ) {
+            guard let selectedBucket else {
+                return AnyView(EmptyView())
+            }
+            return AnyView(selectionAnnotation(for: selectedBucket))
+        }
+    }
+
+    private func selectionAnnotation(for selectedBucket: BodyHealthMetricDayChartEntry) -> BodyHealthMetricDayAnnotation {
+        BodyHealthMetricDayAnnotation(
+            bucket: selectedBucket.bucket,
+            values: selectedValues(for: selectedBucket.plotDate),
+            valueFormatter: valueFormatter,
+            aggregationLabel: aggregationLabel,
+            includesSampleBreakdown: includesSampleBreakdown
+        )
     }
 
     private var selectedBucket: BodyHealthMetricDayChartEntry? {

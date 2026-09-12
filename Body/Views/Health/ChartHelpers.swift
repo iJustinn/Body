@@ -334,6 +334,10 @@ struct BodyChartFloatingCalloutLayer: View {
                 }
 
                 callout.content
+                    // Ideal size, as a chart's own `.annotation` proposes: the
+                    // layer spans the screen, and content with a `Divider` (the
+                    // Day View's sample breakdown) would stretch to fill it.
+                    .fixedSize()
                     .onGeometryChange(for: CGSize.self) { proxy in
                         proxy.size
                     } action: { size in
