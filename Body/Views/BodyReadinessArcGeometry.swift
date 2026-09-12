@@ -30,8 +30,16 @@ import SwiftUI
 /// minimum is applied iteratively so the bands that stay above it keep their proportions to
 /// each other.
 enum BodyReadinessArcGeometry {
-    static let heroHeight: CGFloat = 226
-    static let arcCenterY: CGFloat = 164
+    /// Where the top of the arc's centerline sits, under the page's own top padding.
+    /// The ring's size follows the width it is given, so everything else in the hero
+    /// hangs off this inset and the radius rather than off fixed y values: on a wide
+    /// phone the ring is wider *and* taller, and on a narrow one it shrinks without
+    /// leaving a band of empty page above or below it.
+    static let arcTopInset: CGFloat = 24
+    /// The widest ring the hero draws. It bites on the largest iPhones, holding the arc
+    /// a little short of the page width there, and keeps an iPad's much wider content
+    /// column from handing the hero a ring the rest of the page can't live with.
+    static let maxArcRadius: CGFloat = 162
     static let arcBarWidth: CGFloat = 28
     static let flatBarWidth: CGFloat = 18
     static let flatY: CGFloat = 26
@@ -45,13 +53,26 @@ enum BodyReadinessArcGeometry {
     /// the same 14 pt beneath the flat bar (whose bottom edge is at `flatY + flatBarWidth / 2`)
     /// as the cards keep between each other, at the moment the hero is released to scroll
     /// away with it.
-    static let morphDistance: CGFloat = heroHeight + 14 - (flatY + flatBarWidth / 2 + 14)
+    static func morphDistance(width: CGFloat) -> CGFloat {
+        heroHeight(width: width) + 14 - (flatY + flatBarWidth / 2 + 14)
+    }
     /// Scroll points until the big score number is fully faded.
     static let numberFadeDistance: CGFloat = 60
     static let textVisibleThreshold: Double = 0.1
-    /// The score sits inside the ring, on the circle's center line.
-    static let numberCenterY: CGFloat = 152
-    static let badgeRowCenterY: CGFloat = 204
+    /// The score sits just above the circle's center line, inside the ring.
+    static func numberCenterY(width: CGFloat) -> CGFloat {
+        arcCenterY(width: width) - 12
+    }
+    /// Height of one warning badge's box.
+    static let badgeRowHeight: CGFloat = 28
+    /// Half the score's digits, measured from `numberCenterY`, and the space the row of
+    /// warning signs keeps under them. The row hangs off the score rather than off the
+    /// hero's bottom edge, so it clears the digits by the same amount at every ring size.
+    static let numberHalfHeight: CGFloat = 27
+    static let numberBadgeGap: CGFloat = 8
+    static func badgeRowCenterY(width: CGFloat) -> CGFloat {
+        numberCenterY(width: width) + numberHalfHeight + numberBadgeGap + badgeRowHeight / 2
+    }
     static let sampleCount = 20
     /// Space kept between the held flat bar and the first card row: the grid spacing.
     static let heldGridGap: CGFloat = 14
@@ -78,7 +99,37 @@ enum BodyReadinessArcGeometry {
     }
 
     static func arcRadius(width: CGFloat) -> CGFloat {
-        min(width / 2 - arcBarWidth / 2 - 8, 140)
+        max(0, min(width / 2 - arcBarWidth / 2 - 8, maxArcRadius))
+    }
+
+    /// Center of the circle the arc is drawn on, in the hero's own coordinates.
+    static func arcCenterY(width: CGFloat) -> CGFloat {
+        arcTopInset + arcRadius(width: width)
+    }
+
+    /// The hero's height: where the arc's end caps stop drawing, or the bottom of the
+    /// warning row when the ring is small enough that the row reaches past them. Nothing
+    /// else is reserved, so the comment under the hero sits the grid spacing away from
+    /// the bars rather than from a band of empty space.
+    static func heroHeight(width: CGFloat) -> CGFloat {
+        let radius = arcRadius(width: width)
+        let arcBottom = arcCenterY(width: width) + radius * CGFloat(sin(arcEndAngle.radians)) + arcBarWidth / 2
+        return max(arcBottom, badgeRowCenterY(width: width) + badgeRowHeight / 2)
+    }
+
+    /// How far the page's readiness glow reaches, as a share of the ring's radius: a
+    /// quarter again past the bars, so the color spreads a little beyond the ring
+    /// without washing the first card row below the comment.
+    static let glowRadiusRatio: CGFloat = 1.25
+
+    static func glowRadius(width: CGFloat) -> CGFloat {
+        arcRadius(width: width) * glowRadiusRatio
+    }
+
+    /// The hero's width inside Home's page padding, for the full-bleed backdrop, which
+    /// paints outside the content column but centers its glow on the ring.
+    static func heroWidth(pageWidth: CGFloat) -> CGFloat {
+        max(0, min(pageWidth, AppLayout.homeContentWidth) - 32)
     }
 
     static func flatInset(width: CGFloat) -> CGFloat {
@@ -89,13 +140,13 @@ enum BodyReadinessArcGeometry {
         lerp(arcBarWidth, flatBarWidth, CGFloat(clamped01(progress)))
     }
 
-    static func textOpacity(progress: Double) -> Double {
-        let faded = progress * Double(morphDistance) / Double(numberFadeDistance)
+    static func textOpacity(progress: Double, width: CGFloat) -> Double {
+        let faded = progress * Double(morphDistance(width: width)) / Double(numberFadeDistance)
         return 1 - min(max(faded, 0), 1)
     }
 
-    static func isTextVisible(progress: Double) -> Bool {
-        textOpacity(progress: progress) > textVisibleThreshold
+    static func isTextVisible(progress: Double, width: CGFloat) -> Bool {
+        textOpacity(progress: progress, width: width) > textVisibleThreshold
     }
 
     static func minimumSegmentLength(barWidth: CGFloat) -> CGFloat {
@@ -251,7 +302,7 @@ enum BodyReadinessArcGeometry {
 
         let curveRadius: CGFloat? = sweep > 1e-9 ? trackLength / sweep : nil
         let centerX = width / 2
-        let topY = lerp(arcCenterY - radius, flatY, amount)
+        let topY = lerp(arcCenterY(width: width) - radius, flatY, amount)
 
         let segments = spans.map { span in
             (0..<sampleCount).map { step -> CGPoint in

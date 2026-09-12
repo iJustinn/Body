@@ -86,6 +86,11 @@ struct BodyReadinessArcHero: View {
 
     let readiness: ReadinessSummary
 
+    /// The width the hero draws at. The ring's radius, and with it the hero's height,
+    /// follow it, so the host (which knows its page width) passes it in rather than the
+    /// hero measuring a frame it is itself sizing.
+    let width: CGFloat
+
     /// 0 = full arc with the score, 1 = the flat pinned bar. Clamped here.
     let progress: Double
 
@@ -116,16 +121,16 @@ struct BodyReadinessArcHero: View {
 
     /// Opacity of the score and badges for a scroll progress; shared with the host so
     /// the badge tap targets switch off at the same moment the glyphs vanish.
-    static func textOpacity(progress: Double) -> Double {
-        Geometry.textOpacity(progress: progress)
+    static func textOpacity(progress: Double, width: CGFloat) -> Double {
+        Geometry.textOpacity(progress: progress, width: width)
     }
 
-    static func isTextVisible(progress: Double) -> Bool {
-        Geometry.isTextVisible(progress: progress)
+    static func isTextVisible(progress: Double, width: CGFloat) -> Bool {
+        Geometry.isTextVisible(progress: progress, width: width)
     }
 
-    private var textOpacity: Double { Self.textOpacity(progress: clampedProgress) }
-    private var isTextVisible: Bool { Self.isTextVisible(progress: clampedProgress) }
+    private var textOpacity: Double { Self.textOpacity(progress: clampedProgress, width: width) }
+    private var isTextVisible: Bool { Self.isTextVisible(progress: clampedProgress, width: width) }
 
     /// Underdamped on purpose: the pill overshoots its mark, swings back past it, and
     /// settles over a couple of shrinking bounces, the slosh the old wave fill had. The
@@ -167,35 +172,35 @@ struct BodyReadinessArcHero: View {
     private static var hasPlayedLaunchSlide = false
 
     var body: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            let layout = Geometry.layout(progress: clampedProgress, width: width)
-            let barWidth = layout.barWidth
+        let layout = Geometry.layout(progress: clampedProgress, width: width)
+        let barWidth = layout.barWidth
 
-            ZStack(alignment: .topLeading) {
-                BodyReadinessTrackView(
-                    score: presentedScore,
-                    hasScore: readiness.score != nil,
-                    progress: clampedProgress,
-                    width: width,
-                    reduceMotion: reduceMotion
-                )
-                .animation(dotAnimation, value: presentedScore)
+        return ZStack(alignment: .topLeading) {
+            BodyReadinessTrackView(
+                score: presentedScore,
+                hasScore: readiness.score != nil,
+                progress: clampedProgress,
+                width: width,
+                reduceMotion: reduceMotion
+            )
+            .animation(dotAnimation, value: presentedScore)
 
-                scoreText
-                    .position(x: width / 2, y: Geometry.numberCenterY)
+            scoreText
+                .position(x: width / 2 + scoreCenterNudge, y: Geometry.numberCenterY(width: width))
 
-                warningBadgeRow
-                    .position(x: width / 2, y: Geometry.badgeRowCenterY)
-            }
-            .frame(width: width, height: Geometry.heroHeight, alignment: .topLeading)
-            .contentShape(BodyReadinessHeroHitShape(
-                layout: layout,
-                lineWidth: max(barWidth, 44),
-                textRect: isTextVisible ? textRect(width: width) : nil
-            ))
+            warningBadgeRow
+                .position(x: width / 2, y: Geometry.badgeRowCenterY(width: width))
         }
-        .frame(height: Geometry.heroHeight)
+        .frame(width: width, height: Geometry.heroHeight(width: width), alignment: .topLeading)
+        .contentShape(BodyReadinessHeroHitShape(
+            layout: layout,
+            lineWidth: max(barWidth, 44),
+            textRect: isTextVisible ? textRect(width: width) : nil
+        ))
+        // The hero's size follows `width`, and the pill's spring is a `withAnimation`,
+        // so a width arriving in that same update would ride the spring and swing the
+        // whole ring into place. Only the pill animates here; the ring is laid out.
+        .transaction(value: width) { $0.animation = nil }
         .onAppear {
             // Flip from 0 up to today's score once per launch, with the glow's delayed
             // fade-in. Coming back to the tab (or any later re-creation of the hero)
@@ -218,10 +223,18 @@ struct BodyReadinessArcHero: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
+    /// The score row is centered as a whole, so the percent sign's width pulls the digits
+    /// off to the left of the ring. Nudging the row right splits the difference: the
+    /// digits read as centered without the sign hanging far off the ring's midline.
+    /// Zero without a score, where there is no sign to balance.
+    private var scoreCenterNudge: CGFloat {
+        readiness.score == nil ? 0 : 6
+    }
+
     private var scoreText: some View {
         HStack(alignment: .firstTextBaseline, spacing: 2) {
             Text(numberText)
-                .font(.system(size: 66, weight: .heavy, design: .rounded))
+                .font(.system(size: 66, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(reduceMotion ? .identity : .numericText())
                 .lineLimit(1)
@@ -229,8 +242,13 @@ struct BodyReadinessArcHero: View {
                 .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: displayedScore)
 
             if readiness.score != nil {
+                // Sharing the digits' baseline puts the two on the same bottom edge:
+                // neither the digits nor this sign descend below it. A lift here would
+                // have to be drawn (`offset`) rather than a baseline offset, which grows
+                // the row's bounds upward and would push the digits themselves down out
+                // of the middle of the ring this row is centered in.
                 Text("%")
-                    .font(.system(size: 30, weight: .heavy, design: .rounded))
+                    .font(.system(size: 30, weight: .semibold, design: .rounded))
                     .opacity(0.9)
             }
         }
@@ -244,7 +262,7 @@ struct BodyReadinessArcHero: View {
 
     /// The rectangle the score and badges occupy, used as a tap target while visible.
     private func textRect(width: CGFloat) -> CGRect {
-        CGRect(x: width / 2 - 90, y: Geometry.numberCenterY - 44, width: 180, height: Geometry.badgeRowCenterY - Geometry.numberCenterY + 44 + 22)
+        CGRect(x: width / 2 - 90, y: Geometry.numberCenterY(width: width) - 44, width: 180, height: Geometry.badgeRowCenterY(width: width) - Geometry.numberCenterY(width: width) + 44 + 22)
     }
 
     /// The width of one badge's box, and so of the tap target laid over it. Three
@@ -300,10 +318,13 @@ struct BodyReadinessArcHero: View {
 /// soft glow of today's band color centered on the arc's circle, so the color sits in
 /// the ring rather than washing the top of the page. `circleCenterY` is where the arc's
 /// center lands in this view's own coordinates (the host adds its safe-area and padding
-/// offsets), and `tint` is nil without a score, which leaves the page plain.
+/// offsets) and `glowRadius` how far the color reaches from it, both sized by the host
+/// from the hero's width, since the backdrop is full-bleed and the ring is not. `tint`
+/// is nil without a score, which leaves the page plain.
 struct BodyReadinessGlowBackground: View {
     let tint: Color?
     let circleCenterY: CGFloat
+    let glowRadius: CGFloat
 
     var body: some View {
         GeometryReader { geo in
@@ -319,7 +340,7 @@ struct BodyReadinessGlowBackground: View {
                         ],
                         center: UnitPoint(x: 0.5, y: geo.size.height > 0 ? circleCenterY / geo.size.height : 0),
                         startRadius: 0,
-                        endRadius: BodyReadinessArcGeometry.arcRadius(width: geo.size.width) + 110
+                        endRadius: glowRadius
                     )
                 }
             }
@@ -366,7 +387,7 @@ private struct BodyReadinessTrackView: View, Animatable {
                     .transition(.opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.28)))
             }
         }
-        .frame(width: width, height: Geometry.heroHeight, alignment: .topLeading)
+        .frame(width: width, height: Geometry.heroHeight(width: width), alignment: .topLeading)
         .allowsHitTesting(false)
     }
 

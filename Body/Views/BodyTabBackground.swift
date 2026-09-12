@@ -9,10 +9,6 @@ private struct SelectedMainTabKey: EnvironmentKey {
     static let defaultValue: BodyMainTab = .summary
 }
 
-private struct PreviousMainTabKey: EnvironmentKey {
-    static let defaultValue: BodyMainTab? = nil
-}
-
 /// The band the hero's pill is heading for, cleared as a slide starts and published a
 /// fixed delay later, so the page glow stays off at the start of the slide and fades in
 /// on the target band as the pill arrives.
@@ -23,17 +19,10 @@ final class BodyReadinessHeroState {
 
 extension EnvironmentValues {
     /// The main tab currently on screen, published by `MainTabView` so each page's
-    /// background can crossfade when the selection changes.
+    /// background knows whether it is the one being shown.
     var selectedMainTab: BodyMainTab {
         get { self[SelectedMainTabKey.self] }
         set { self[SelectedMainTabKey.self] = newValue }
-    }
-
-    /// The tab shown before `selectedMainTab`, nil until the first switch, so a page
-    /// appearing after a switch knows which background to fade from.
-    var previousMainTab: BodyMainTab? {
-        get { self[PreviousMainTabKey.self] }
-        set { self[PreviousMainTabKey.self] = newValue }
     }
 }
 
@@ -59,13 +48,13 @@ struct BodyHomePageBackground: View {
         // The reader sits inside the safe area, so its top inset is the status bar strip
         // the full-bleed background extends behind; the glow needs it to land on the ring.
         GeometryReader { geo in
-            content(safeAreaTop: geo.safeAreaInsets.top)
+            content(safeAreaTop: geo.safeAreaInsets.top, pageWidth: geo.size.width)
                 .ignoresSafeArea()
         }
     }
 
     @ViewBuilder
-    private func content(safeAreaTop: CGFloat) -> some View {
+    private func content(safeAreaTop: CGFloat, pageWidth: CGFloat) -> some View {
         if isReadinessStarred {
             let readiness = workoutStore.healthSummary.readiness
             // The glow is off while the pill is sliding and fades in on the band it
@@ -79,9 +68,11 @@ struct BodyHomePageBackground: View {
                 readiness.score == nil ? nil : readiness.status
             }
             ZStack {
+                let heroWidth = BodyReadinessArcGeometry.heroWidth(pageWidth: pageWidth)
                 BodyReadinessGlowBackground(
                     tint: status.map { BodyReadinessStatusPresentation.color(for: $0) },
-                    circleCenterY: safeAreaTop + 10 + BodyReadinessArcGeometry.arcCenterY
+                    circleCenterY: safeAreaTop + 10 + BodyReadinessArcGeometry.arcCenterY(width: heroWidth),
+                    glowRadius: BodyReadinessArcGeometry.glowRadius(width: heroWidth)
                 )
                 .id(status)
                 .transition(.opacity)
@@ -99,55 +90,23 @@ struct BodyHomePageBackground: View {
     }
 }
 
-/// A main tab page's full-bleed background. While Readiness is starred, Summary paints
-/// the ring glow and the other tabs the app mix, so a tab switch dissolves between the
-/// two: `TabView` swaps pages instantly, so every page paints the app mix with the glow
-/// laid over it, and the glow's opacity follows whether Summary is the selected tab.
-/// The fade is driven explicitly on appear, starting from the background of the tab
-/// just left, because a page that is shown in the same update as the selection change
-/// would otherwise start at its final opacity and show no dissolve at all. When
-/// Readiness is not starred every tab shares the same app background, so nothing
-/// animates. Skipped under Reduce Motion.
-struct BodyTabCrossfadeBackground: View {
+/// A main tab page's full-bleed background: the Summary page's ring glow while
+/// Readiness is starred, the app mix everywhere else. `TabView` swaps pages instantly
+/// and every page paints this, so the background it lands on is picked from the
+/// selected tab and switches with the page, without any fade between the two.
+struct BodyTabPageBackground: View {
     @Environment(\.selectedMainTab) private var selectedTab
-    @Environment(\.previousMainTab) private var previousTab
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
-    @State private var glowOpacity: Double = 0
 
     private var isReadinessStarred: Bool {
         BodyHomeCardKind.starredMetric(from: starredMetricRawValue) == .readiness
     }
 
-    private var targetGlowOpacity: Double { selectedTab == .summary ? 1 : 0 }
-
     var body: some View {
-        if isReadinessStarred {
-            ZStack {
-                BodyAppBackground().ignoresSafeArea()
-
-                BodyHomePageBackground()
-                    .opacity(glowOpacity)
-            }
-            .ignoresSafeArea()
-            .onAppear {
-                let from = previousTab.map { $0 == .summary ? 1.0 : 0.0 } ?? targetGlowOpacity
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { glowOpacity = from }
-                fadeToTarget()
-            }
-            .onChange(of: selectedTab) { _, _ in
-                fadeToTarget()
-            }
+        if isReadinessStarred && selectedTab == .summary {
+            BodyHomePageBackground()
         } else {
             BodyAppBackground().ignoresSafeArea()
-        }
-    }
-
-    private func fadeToTarget() {
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
-            glowOpacity = targetGlowOpacity
         }
     }
 }

@@ -429,17 +429,23 @@ struct BodyOnboardingView: View {
 
             // The Home star hero (readiness arc over its band-colored glow) with
             // the comment under it, over a fabricated summary, cropped to a card.
-            ZStack(alignment: .top) {
-                BodyReadinessGlowBackground(
-                    tint: BodyReadinessStatusPresentation.color(for: Self.sampleReadiness.status),
-                    circleCenterY: BodyReadinessArcGeometry.arcCenterY
-                )
+            GeometryReader { card in
+                // The hero sizes its ring from the width it is given, so the demo hands
+                // it the card's width inside the same 16 pt padding Home uses.
+                let heroWidth = max(0, card.size.width - 32)
+                ZStack(alignment: .top) {
+                    BodyReadinessGlowBackground(
+                        tint: BodyReadinessStatusPresentation.color(for: Self.sampleReadiness.status),
+                        circleCenterY: BodyReadinessArcGeometry.arcCenterY(width: heroWidth),
+                        glowRadius: BodyReadinessArcGeometry.glowRadius(width: heroWidth)
+                    )
 
-                VStack(spacing: 14) {
-                    BodyReadinessArcHero(readiness: Self.sampleReadiness, progress: 0)
-                    BodyReadinessHeroComment(readiness: Self.sampleReadiness, morningScore: nil)
+                    VStack(spacing: 14) {
+                        BodyReadinessArcHero(readiness: Self.sampleReadiness, width: heroWidth, progress: 0)
+                        BodyReadinessHeroComment(readiness: Self.sampleReadiness, morningScore: nil)
+                    }
+                    .padding(.horizontal, 16)
                 }
-                .padding(.horizontal, 16)
             }
             .frame(height: 310)
             .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))

@@ -176,7 +176,7 @@ struct BodyWorkoutsView: View {
 
         NavigationStack {
             ZStack {
-                BodyTabCrossfadeBackground()
+                BodyTabPageBackground()
 
                 VStack(spacing: 0) {
                     BodyMonthYearPicker(

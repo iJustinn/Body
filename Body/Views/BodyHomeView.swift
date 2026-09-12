@@ -308,6 +308,8 @@ private struct BodyHomeCardHighlightGlow: View {
 /// assumed, so a notice banner above the hero or a longer comment shifts the sequence.
 struct BodyReadinessHeroScrollPin<Content: View>: View {
     let scrollState: BodyHomeScrollState
+    /// The width the hero draws at: the morph distance is sized from its height.
+    let width: CGFloat
     @ViewBuilder var content: (Double) -> Content
 
     /// The hero's top in the scroll viewport at offset 0, measured from its own frame:
@@ -321,7 +323,11 @@ struct BodyReadinessHeroScrollPin<Content: View>: View {
     }
 
     private var progress: Double {
-        let raw = min(1, max(0, Double(travel) / Double(BodyReadinessArcGeometry.morphDistance)))
+        // Before the page has a width there is no hero to morph: the distance derived
+        // from a zero-width hero is a couple of points, which any offset would read as
+        // a finished morph.
+        guard width > 0 else { return 0 }
+        let raw = min(1, max(0, Double(travel) / Double(BodyReadinessArcGeometry.morphDistance(width: width))))
         return (raw * 120).rounded() / 120
     }
 
@@ -330,10 +336,13 @@ struct BodyReadinessHeroScrollPin<Content: View>: View {
     /// has reported its position.
     private var holdDistance: CGFloat {
         guard let gridContentY = scrollState.gridContentY else {
-            return BodyReadinessArcGeometry.morphDistance
+            return BodyReadinessArcGeometry.morphDistance(width: width)
         }
         let barBottom = BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2
-        return max(BodyReadinessArcGeometry.morphDistance, gridContentY - heroContentY - (barBottom + BodyReadinessArcGeometry.heldGridGap))
+        return max(
+            BodyReadinessArcGeometry.morphDistance(width: width),
+            gridContentY - heroContentY - (barBottom + BodyReadinessArcGeometry.heldGridGap)
+        )
     }
 
     private var pinOffset: CGFloat {
@@ -538,7 +547,19 @@ struct BodyHomeView: View {
                                 BodyHealthNoticeBanner(message: healthDataNotice)
                             }
 
-                            starMetricHero(proxy: scrollProxy, lookup: metricCardLookup)
+                            starMetricHero(
+                                proxy: scrollProxy,
+                                lookup: metricCardLookup,
+                                // The hero's ring, and so its height, are sized from this.
+                                // A layout pass that proposes nothing (the page before it
+                                // has been measured) would otherwise collapse the hero and
+                                // let it spring back open inside the pill's animation, so
+                                // the measured page width falls back to the estimate Home
+                                // starts with rather than to zero.
+                                width: BodyReadinessArcGeometry.heroWidth(
+                                    pageWidth: page.size.width > 0 ? page.size.width : homeContentWidth
+                                )
+                            )
 
                             if horizontalSizeClass == .regular {
                                 HStack(alignment: .top, spacing: 14) {
@@ -755,7 +776,8 @@ struct BodyHomeView: View {
     @ViewBuilder
     private func starMetricHero(
         proxy: ScrollViewProxy,
-        lookup: [HealthMetricKind: BodyHealthMetricCard.Model]
+        lookup: [HealthMetricKind: BodyHealthMetricCard.Model],
+        width: CGFloat
     ) -> some View {
         switch starredHomeCard {
         case .readiness:
@@ -764,8 +786,8 @@ struct BodyHomeView: View {
             // The pin (which reads scrollState.offset) hands its progress to the closure,
             // so scrolling re-renders only that closure, not this body. Reading the
             // offset here would rebuild every metric card model on each scroll frame.
-            BodyReadinessHeroScrollPin(scrollState: scrollState) { progress in
-                let isTextVisible = BodyReadinessArcHero.isTextVisible(progress: progress)
+            BodyReadinessHeroScrollPin(scrollState: scrollState, width: width) { progress in
+                let isTextVisible = BodyReadinessArcHero.isTextVisible(progress: progress, width: width)
                 Button {
                     withAnimation(.easeInOut(duration: 0.28)) {
                         readinessDetailPresented = true
@@ -773,6 +795,7 @@ struct BodyHomeView: View {
                 } label: {
                     BodyReadinessArcHero(
                         readiness: readiness,
+                        width: width,
                         progress: progress,
                         warningBadges: badges
                     )
@@ -942,10 +965,10 @@ struct BodyHomeView: View {
     }
 
     /// Fixed full-bleed backdrop behind the scroll view, shared with the other tabs so
-    /// a tab switch crossfades between the pages' backgrounds. See `BodyHomePageBackground`
-    /// for what Summary paints.
+    /// every page picks its background the same way. See `BodyHomePageBackground` for
+    /// what Summary paints.
     private var homeBackground: some View {
-        BodyTabCrossfadeBackground()
+        BodyTabPageBackground()
     }
 
     /// The two-column grid of summary metric cards (identical on iPhone and iPad).

@@ -243,6 +243,7 @@ final class BodyHomeCardGridLayoutTests: XCTestCase {
                     VStack(spacing: 14) {
                         BodyReadinessArcHero(
                             readiness: .unavailable,
+                            width: BodyReadinessArcGeometry.heroWidth(pageWidth: 393),
                             progress: 0,
                             warningBadges: badges
                         )

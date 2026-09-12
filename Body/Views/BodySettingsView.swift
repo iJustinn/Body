@@ -68,7 +68,7 @@ struct BodySettingsView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                BodyTabCrossfadeBackground()
+                BodyTabPageBackground()
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {

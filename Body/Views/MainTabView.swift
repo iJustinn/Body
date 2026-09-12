@@ -42,7 +42,6 @@ struct MainTabView: View {
     @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @State private var showsNotificationExplainer = false
     @State private var readinessHeroState = BodyReadinessHeroState()
-    @State private var previousTab: BodyMainTab?
 
     private var selectedTab: BodyMainTab {
         get { notificationRoute.selectedTab }
@@ -150,11 +149,7 @@ struct MainTabView: View {
                 }
             } message: { Text("notifications.permission.explainer") }
             .environment(\.summaryReselectCount, summaryReselectCount)
-            .onChange(of: selectedTab) { old, _ in
-                previousTab = old
-            }
             .environment(\.selectedMainTab, selectedTab)
-            .environment(\.previousMainTab, previousTab)
             .environment(readinessHeroState)
             .accessibilityHidden(isFirstLaunchOverlayPresented || showsOnboarding || showsUpdateOnboarding)
             .overlay(alignment: .top) {

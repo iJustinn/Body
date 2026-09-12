@@ -209,7 +209,7 @@ final class BodyReadinessArcGeometryTests: XCTestCase {
             }
 
             let radius = Geometry.arcRadius(width: width)
-            let center = CGPoint(x: width / 2, y: Geometry.arcCenterY)
+            let center = CGPoint(x: width / 2, y: Geometry.arcCenterY(width: width))
             for segment in Geometry.segmentPoints(progress: 0, width: width) {
                 for point in segment {
                     XCTAssertEqual(distance(point, center), radius, accuracy: 1e-6, "arc state at \(width)")
@@ -266,26 +266,32 @@ final class BodyReadinessArcGeometryTests: XCTestCase {
     // MARK: - Score and text mapping
 
     func testTextFadesOutOverTheNumberFadeDistance() {
-        let fadeEnd = Double(Geometry.numberFadeDistance / Geometry.morphDistance)
-        XCTAssertEqual(Geometry.textOpacity(progress: 0), 1, accuracy: 1e-9)
-        XCTAssertEqual(Geometry.textOpacity(progress: fadeEnd), 0, accuracy: 1e-9)
-        XCTAssertEqual(Geometry.textOpacity(progress: 1), 0, accuracy: 1e-9)
-        XCTAssertGreaterThan(Geometry.textOpacity(progress: 0.2), Geometry.textOpacity(progress: 0.3))
+        for width in widths {
+            let fadeEnd = Double(Geometry.numberFadeDistance / Geometry.morphDistance(width: width))
+            XCTAssertEqual(Geometry.textOpacity(progress: 0, width: width), 1, accuracy: 1e-9)
+            XCTAssertEqual(Geometry.textOpacity(progress: fadeEnd, width: width), 0, accuracy: 1e-9)
+            XCTAssertEqual(Geometry.textOpacity(progress: 1, width: width), 0, accuracy: 1e-9)
+            XCTAssertGreaterThan(
+                Geometry.textOpacity(progress: 0.2, width: width),
+                Geometry.textOpacity(progress: 0.3, width: width)
+            )
+        }
     }
 
     func testTextStopsBeingVisibleOnceItIsUnderTheThreshold() {
         // The number fades over `numberFadeDistance` scroll points of a `morphDistance`
         // morph, so it is gone well before the bar is flat and drops under the visibility
         // threshold a little before that.
-        let fadeEnd = Double(Geometry.numberFadeDistance / Geometry.morphDistance)
+        let width: CGFloat = 393
+        let fadeEnd = Double(Geometry.numberFadeDistance / Geometry.morphDistance(width: width))
         let thresholdProgress = fadeEnd * (1 - Geometry.textVisibleThreshold)
-        XCTAssertEqual(Geometry.textOpacity(progress: 0), 1)
-        XCTAssertEqual(Geometry.textOpacity(progress: fadeEnd), 0, accuracy: 1e-9)
-        XCTAssertTrue(Geometry.isTextVisible(progress: 0))
-        XCTAssertTrue(Geometry.isTextVisible(progress: thresholdProgress - 0.01))
-        XCTAssertFalse(Geometry.isTextVisible(progress: thresholdProgress + 0.01))
-        XCTAssertFalse(Geometry.isTextVisible(progress: fadeEnd))
-        XCTAssertFalse(Geometry.isTextVisible(progress: 1))
+        XCTAssertEqual(Geometry.textOpacity(progress: 0, width: width), 1)
+        XCTAssertEqual(Geometry.textOpacity(progress: fadeEnd, width: width), 0, accuracy: 1e-9)
+        XCTAssertTrue(Geometry.isTextVisible(progress: 0, width: width))
+        XCTAssertTrue(Geometry.isTextVisible(progress: thresholdProgress - 0.01, width: width))
+        XCTAssertFalse(Geometry.isTextVisible(progress: thresholdProgress + 0.01, width: width))
+        XCTAssertFalse(Geometry.isTextVisible(progress: fadeEnd, width: width))
+        XCTAssertFalse(Geometry.isTextVisible(progress: 1, width: width))
     }
 
     func testSegmentIndexFollowsTheBandBoundaries() {

@@ -14,6 +14,9 @@ import XCTest
 @MainActor
 final class BodyHomeReadinessHeroPinTests: XCTestCase {
     private static let viewport = CGSize(width: 390, height: 844)
+    /// The width Home would hand the hero at this viewport: the ring's radius, and with
+    /// it the hero's height and morph distance, are sized from it.
+    private static let heroWidth = BodyReadinessArcGeometry.heroWidth(pageWidth: viewport.width)
 
     func testHeroPinsAtTheViewportTopWithoutANotice() throws {
         let harness = try makeHarness(notice: nil)
@@ -23,13 +26,13 @@ final class BodyHomeReadinessHeroPinTests: XCTestCase {
         XCTAssertEqual(resting.minY, 10, accuracy: 1, "At rest the hero sits under the page's top padding")
         let gridAtRest = try XCTUnwrap(harness.recorder.frames["grid"])
 
-        try harness.scroll(to: 10 + BodyReadinessArcGeometry.morphDistance / 2)
+        try harness.scroll(to: 10 + BodyReadinessArcGeometry.morphDistance(width: Self.heroWidth) / 2)
         let pinned = try XCTUnwrap(harness.recorder.frames["hero"])
         XCTAssertEqual(pinned.minY, 0, accuracy: 1, "Past its resting position the hero holds the viewport top")
 
         let barBottom = BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2
         let release = gridAtRest.minY - (barBottom + BodyReadinessArcGeometry.heldGridGap)
-        XCTAssertGreaterThan(release, 10 + BodyReadinessArcGeometry.morphDistance, "The comment scrolls under the bar before the grid arrives")
+        XCTAssertGreaterThan(release, 10 + BodyReadinessArcGeometry.morphDistance(width: Self.heroWidth), "The comment scrolls under the bar before the grid arrives")
 
         try harness.scroll(to: release)
         let held = try XCTUnwrap(harness.recorder.frames["hero"])
@@ -50,7 +53,7 @@ final class BodyHomeReadinessHeroPinTests: XCTestCase {
         XCTAssertGreaterThan(resting.minY, 10 + 14, "A notice above the hero pushes its resting position down")
         let gridAtRest = try XCTUnwrap(harness.recorder.frames["grid"])
 
-        try harness.scroll(to: resting.minY + BodyReadinessArcGeometry.morphDistance / 2)
+        try harness.scroll(to: resting.minY + BodyReadinessArcGeometry.morphDistance(width: Self.heroWidth) / 2)
         let pinned = try XCTUnwrap(harness.recorder.frames["hero"])
         XCTAssertEqual(pinned.minY, 0, accuracy: 1, "The pin lands at the viewport top regardless of the notice's height")
 
@@ -89,8 +92,15 @@ final class BodyHomeReadinessHeroPinTests: XCTestCase {
                         BodyHealthNoticeBanner(message: notice)
                     }
 
-                    BodyReadinessHeroScrollPin(scrollState: scrollState) { progress in
-                        BodyReadinessArcHero(readiness: Self.sample, progress: progress)
+                    BodyReadinessHeroScrollPin(
+                        scrollState: scrollState,
+                        width: BodyHomeReadinessHeroPinTests.heroWidth
+                    ) { progress in
+                        BodyReadinessArcHero(
+                            readiness: Self.sample,
+                            width: BodyHomeReadinessHeroPinTests.heroWidth,
+                            progress: progress
+                        )
                             .onGeometryChange(for: CGRect.self) { proxy in
                                 proxy.frame(in: .named(BodyHomeView.viewportCoordinateSpace))
                             } action: { frame in
