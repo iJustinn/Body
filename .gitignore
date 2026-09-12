@@ -105,3 +105,6 @@ share-examples/
 
 ## Onboarding preview renders (generated locally by a throwaway test)
 /onboarding/
+
+# Design review captures (large PNG renders, kept out of the repo)
+hero-redesign/
