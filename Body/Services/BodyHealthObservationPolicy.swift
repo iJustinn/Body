@@ -39,7 +39,9 @@ enum BodyHealthObservationPolicy {
         var notificationKinds: Set<HealthMetricKind> = includesCompanionConsumers
             && (includesNotificationConsumers ?? BodyNotificationPreferences.enabled(BodyNotificationPreferences.stressKey))
             ? [.heartRate, .heartRateVariability, .steps, .activeEnergy, .sleep, .stress] : []
-        if includesCompanionConsumers, BodyNotificationPreferences.enabled(BodyNotificationPreferences.sleepKey) {
+        // Readiness alerts wait on the same night's sleep sync, so they wake on sleep too.
+        if includesCompanionConsumers, BodyNotificationPreferences.enabled(BodyNotificationPreferences.sleepKey)
+            || BodyNotificationPreferences.enabled(BodyNotificationPreferences.readinessKey) {
             notificationKinds.insert(.sleep)
         }
         var result: [BodyHealthObservation] = []

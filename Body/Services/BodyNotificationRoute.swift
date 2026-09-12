@@ -10,12 +10,20 @@ final class BodyNotificationRoute {
         var requestID = UUID()
     }
     var sleepRequestID: UUID?
+    var readinessRequestID: UUID?
     var workout: Workout?
     var selectedTab: BodyMainTab = .summary
     var ready = false
 
     func receive(_ info: [AnyHashable: Any]) {
         sleepRequestID = nil
+        readinessRequestID = nil
+        if info["metric"] as? String == "readiness" {
+            workout = nil
+            readinessRequestID = UUID()
+            selectedTab = .summary
+            return
+        }
         if info["metric"] as? String == "sleep" {
             workout = nil
             sleepRequestID = UUID()

@@ -222,6 +222,147 @@ final class BodyNotificationTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: "notifications.sleep.receipts"))
     }
 
+    func testReadinessMigrationAddsCategoryWithoutResettingExistingChoices() {
+        let defaults = suite()
+        defaults.set(true, forKey: BodyNotificationPreferences.migrationKey)
+        defaults.set(false, forKey: BodyNotificationPreferences.masterKey)
+        BodyNotificationPreferences.migrate(defaults: defaults, now: day)
+        XCTAssertTrue(defaults.bool(forKey: BodyNotificationPreferences.readinessKey))
+        XCTAssertFalse(defaults.bool(forKey: BodyNotificationPreferences.masterKey))
+        defaults.set(false, forKey: BodyNotificationPreferences.readinessKey)
+        BodyNotificationPreferences.migrate(defaults: defaults)
+        XCTAssertFalse(defaults.bool(forKey: BodyNotificationPreferences.readinessKey))
+    }
+
+    func testReadinessDeliveryWaitsForSleepRetriesAndAnnouncesOncePerDay() async {
+        let defaults = suite(), start = calendar.startOfDay(for: day)
+        BodyNotificationPreferences.migrate(defaults: defaults, now: start)
+        let now = start.addingTimeInterval(9 * 3600)
+        let probe = Probe(), lease = BodyBackgroundLease()
+        let service = BodyNotificationDelivery(defaults: defaults, delivery: .init(
+            authorization: { .authorized }, add: { try await probe.add($0) }), foreground: { false })
+        let provisional = RecordedReadinessEntry(date: start, score: 70, includedSleep: false, coverage: [])
+        await service.deliverReadiness(provisional, lease: lease, isCurrent: { true }, now: now, calendar: calendar)
+        XCTAssertNil(defaults.string(forKey: "notifications.readiness.lastDay"))
+        let record = RecordedReadinessEntry(date: start, score: 82, includedSleep: true, coverage: [.sleepDuration])
+        await probe.setFailure(true)
+        await service.deliverReadiness(record, lease: lease, isCurrent: { true }, now: now, calendar: calendar)
+        XCTAssertNil(defaults.string(forKey: "notifications.readiness.lastDay"))
+        await probe.setFailure(false)
+        await service.deliverReadiness(record, lease: lease, isCurrent: { true }, now: now, calendar: calendar)
+        await service.deliverReadiness(record, lease: lease, isCurrent: { true }, now: now, calendar: calendar)
+        let ids = await probe.ids
+        XCTAssertEqual(ids, ["readiness.2023-11-15"])
+        // Yesterday's record is never announced, and a since-date after the record day skips it.
+        await service.deliverReadiness(record, lease: lease, isCurrent: { true }, now: now.addingTimeInterval(86400), calendar: calendar)
+        let count = await probe.count(); XCTAssertEqual(count, 1)
+    }
+
+    func testReadinessForegroundSeedingAndDisabledCategory() async {
+        let defaults = suite(), start = calendar.startOfDay(for: day), now = start.addingTimeInterval(9 * 3600)
+        BodyNotificationPreferences.migrate(defaults: defaults, now: start)
+        let record = RecordedReadinessEntry(date: start, score: 82, includedSleep: true, coverage: [.sleepDuration])
+        let probe = Probe()
+        let delivery = BodyNotificationDelivery.Delivery(authorization: { .authorized }, add: { try await probe.add($0) })
+        let foreground = BodyNotificationDelivery(defaults: defaults, delivery: delivery, foreground: { true })
+        await foreground.deliverReadiness(record, lease: nil, isCurrent: { true }, now: now, calendar: calendar)
+        XCTAssertEqual(defaults.string(forKey: "notifications.readiness.lastDay"), "2023-11-15")
+        let background = BodyNotificationDelivery(defaults: defaults, delivery: delivery, foreground: { false })
+        await background.deliverReadiness(record, lease: BodyBackgroundLease(), isCurrent: { true }, now: now, calendar: calendar)
+        let count = await probe.count(); XCTAssertEqual(count, 0)
+        defaults.removeObject(forKey: "notifications.readiness.lastDay")
+        defaults.set(false, forKey: BodyNotificationPreferences.readinessKey)
+        await background.deliverReadiness(record, lease: BodyBackgroundLease(), isCurrent: { true }, now: now, calendar: calendar)
+        XCTAssertNil(defaults.string(forKey: "notifications.readiness.lastDay"))
+    }
+
+    /// Sleep syncing while the app is closed: the background pass has no frozen record
+    /// (observed leaves skip the derived recompute), so the notification pass freezes
+    /// one itself from the persisted leaves, and only once the wake+10 window is open.
+    func testBackgroundPassFreezesSleepInclusiveRecordForDelivery() async throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+        let inBed = scoreDay.addingTimeInterval(3_600), wake = inBed.addingTimeInterval(7 * 3_600)
+        var trends = HealthTrendSnapshot.empty
+        trends.trainingLoad = HealthTrendSeries(points: [HealthTrendDataPoint(date: scoreDay, value: 1.0)])
+        var summary = HealthSummarySnapshot.empty
+        summary.sleep = SleepSummary(duration: 7 * 3_600, stageSnapshot: .init(date: scoreDay,
+            segments: [.init(stage: .core, startDate: inBed, endDate: wake)]))
+        trends.sleepHistory = SleepHistorySnapshot(days: [SleepDaySummary(date: scoreDay, summary: summary.sleep)])
+
+        // A record frozen under an older input context, as the persisted cache may hold.
+        let yesterday = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: scoreDay))
+        trends.recordedReadiness = [RecordedReadinessEntry(date: yesterday, score: 50, includedSleep: true, coverage: [.sleepDuration])]
+        trends.recordedReadinessContext = "old"
+
+        XCTAssertNil(HealthKitWorkoutStore.morningReadinessRecord(summary: summary, trends: trends,
+            idealSleepDuration: 8 * 3_600, recordedReadinessContext: "new", now: wake.addingTimeInterval(300), calendar: calendar),
+            "before wake+10 nothing is frozen, so nothing is announced")
+        let freeze = try XCTUnwrap(HealthKitWorkoutStore.morningReadinessRecord(summary: summary, trends: trends,
+            idealSleepDuration: 8 * 3_600, recordedReadinessContext: "new", now: wake.addingTimeInterval(900), calendar: calendar))
+        let record = freeze.entry
+        XCTAssertEqual(calendar.startOfDay(for: record.date), scoreDay)
+        XCTAssertTrue(try XCTUnwrap(record.coverage).contains(.sleepDuration))
+        XCTAssertEqual(freeze.context, "new")
+        XCTAssertEqual(freeze.records, [record], "the stale-context record is dropped, as the dashboard recompute would")
+
+        // Persisted as the pass does, the next foreground recompute under the same
+        // context keeps the announced record instead of discarding it.
+        var persisted = trends
+        persisted.recordedReadiness = freeze.records
+        persisted.recordedReadinessContext = freeze.context
+        let reloaded = HealthDashboardSnapshot(summary: summary, trends: persisted).recalculatingReadiness(
+            on: wake.addingTimeInterval(3_600), idealSleepDuration: 8 * 3_600, calendar: calendar, wakeTime: wake,
+            now: wake.addingTimeInterval(3_600), freezesRecordedReadiness: true, recordedReadinessContext: "new")
+        XCTAssertEqual(reloaded.trends.recordedReadiness, [record])
+
+        let defaults = suite()
+        BodyNotificationPreferences.migrate(defaults: defaults, now: scoreDay)
+        let probe = Probe()
+        let service = BodyNotificationDelivery(defaults: defaults, delivery: .init(
+            authorization: { .authorized }, add: { try await probe.add($0) }), foreground: { false })
+        await service.deliverReadiness(record, lease: BodyBackgroundLease(), isCurrent: { true },
+                                       now: wake.addingTimeInterval(900), calendar: calendar)
+        let ids = await probe.ids
+        XCTAssertEqual(ids, ["readiness.2026-05-17"])
+    }
+
+    /// Success, then a failed refresh seconds later, then a successful retry: the
+    /// stamp survives the failure untouched (same date, same context), so only the
+    /// pass generation can tell the failed pass from the ones that validated.
+    func testBackgroundFreezeRequiresSleepValidatedInThisPass() {
+        let context = "ctx"
+        let stamp = HealthDashboardSnapshotStore.Freshness(date: day, contextSignature: context)
+        // Pass 1 validates sleep at 08:09:50.
+        XCTAssertTrue(HealthKitWorkoutStore.sleepValidatedInThisPass(stamp, context: context,
+            validatedGeneration: 1, currentGeneration: 1))
+        // Pass 2 at 08:10:10 fails its sleep refresh: the stamp is still the 20-second-old one.
+        XCTAssertFalse(HealthKitWorkoutStore.sleepValidatedInThisPass(stamp, context: context,
+            validatedGeneration: 1, currentGeneration: 2))
+        // Pass 3 retries and validates.
+        XCTAssertTrue(HealthKitWorkoutStore.sleepValidatedInThisPass(stamp, context: context,
+            validatedGeneration: 3, currentGeneration: 3))
+        XCTAssertFalse(HealthKitWorkoutStore.sleepValidatedInThisPass(stamp, context: "other",
+            validatedGeneration: 3, currentGeneration: 3))
+        XCTAssertFalse(HealthKitWorkoutStore.sleepValidatedInThisPass(nil, context: context,
+            validatedGeneration: 3, currentGeneration: 3))
+        XCTAssertFalse(HealthKitWorkoutStore.sleepValidatedInThisPass(stamp, context: context,
+            validatedGeneration: nil, currentGeneration: 1))
+    }
+
+    @MainActor func testReadinessRouteReplacesPendingWorkoutAndSleep() {
+        let route = BodyNotificationRoute()
+        route.receive(["workoutID": UUID().uuidString, "workoutStart": day.timeIntervalSince1970])
+        route.receive(["metric": "sleep"])
+        route.receive(["metric": "readiness"])
+        XCTAssertNil(route.workout)
+        XCTAssertNil(route.sleepRequestID)
+        XCTAssertNotNil(route.readinessRequestID)
+        XCTAssertEqual(route.selectedTab, .summary)
+        route.receive(["metric": "sleep"])
+        XCTAssertNil(route.readinessRequestID)
+    }
+
     @MainActor func testSleepRouteReplacesPendingWorkoutAndWaitsForReadiness() {
         let route = BodyNotificationRoute()
         route.receive(["workoutID": UUID().uuidString, "workoutStart": day.timeIntervalSince1970])

@@ -6,6 +6,7 @@ enum BodyNotificationPreferences {
     static let masterKey = "notifications.enabled"
     static let stressKey = "notifications.stress"
     static let sleepKey = "notifications.sleep"
+    static let readinessKey = "notifications.readiness"
     static let workoutKey = "notifications.workouts"
     static let migrationKey = "notifications.migrated.v1"
     static let enabledSinceKey = "notifications.enabledSince"
@@ -16,9 +17,9 @@ enum BodyNotificationPreferences {
     static func migrate(defaults: UserDefaults = .standard, now: Date = Date()) {
         // Independent addition: installations that already migrated v1 also
         // receive the new category, without overwriting an explicit opt-out.
-        if defaults.object(forKey: sleepKey) == nil {
-            defaults.set(true, forKey: sleepKey)
-            defaults.set(now, forKey: sleepKey + ".since")
+        for key in [sleepKey, readinessKey] where defaults.object(forKey: key) == nil {
+            defaults.set(true, forKey: key)
+            defaults.set(now, forKey: key + ".since")
         }
         guard !defaults.bool(forKey: migrationKey) else { return }
         let existing = !(defaults.string(forKey: BodyAppearancePreference.onboardingCompletedVersionKey) ?? "").isEmpty
@@ -46,6 +47,7 @@ enum BodyNotificationPreferences {
         defaults.set(UUID().uuidString, forKey: revisionKey)
         if key == masterKey || key == stressKey { defaults.set(now, forKey: stressKey + ".since") }
         if key == masterKey || key == sleepKey { defaults.set(now, forKey: sleepKey + ".since") }
+        if key == masterKey || key == readinessKey { defaults.set(now, forKey: readinessKey + ".since") }
         if key == masterKey || key == workoutKey { defaults.set(now, forKey: workoutKey + ".since") }
         if enabled(BodyAppearancePreference.metricWarningNotificationsKey, defaults: defaults) {
             BodyBackgroundRefreshScheduler.schedule()

@@ -173,6 +173,47 @@ actor BodyNotificationDelivery {
         if let data = try? JSONEncoder().encode(receipts) { defaults.set(data, forKey: key) }
     }
 
+    /// Announces today's frozen morning readiness once per day, after the night's sleep
+    /// is part of it. A record frozen before sleep synced is provisional (replaced once
+    /// sleep lands), so it is not announced. Foreground-seen days seed the receipt silently.
+    func deliverReadiness(_ record: RecordedReadinessEntry, lease: BodyBackgroundLease?,
+                          isCurrent: @escaping @Sendable () async -> Bool,
+                          now: Date = Date(), calendar: Calendar = .bodyGregorian) async {
+        guard !delivering, !Task.isCancelled,
+              BodyNotificationPreferences.enabled(BodyNotificationPreferences.readinessKey, defaults: defaults),
+              record.includedSleep == true || record.coverage?.contains(.sleepDuration) == true else { return }
+        let scoreDay = calendar.startOfDay(for: record.date)
+        let since = BodyNotificationPreferences.since(BodyNotificationPreferences.readinessKey, defaults: defaults, now: now)
+        guard scoreDay == calendar.startOfDay(for: now), scoreDay >= calendar.startOfDay(for: since) else { return }
+        delivering = true
+        defer { delivering = false }
+        let key = "notifications.readiness.lastDay"
+        let revision = defaults.string(forKey: BodyNotificationPreferences.revisionKey)
+        let parts = calendar.dateComponents([.year, .month, .day], from: scoreDay)
+        let day = String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+        guard defaults.string(forKey: key) != day else { return }
+        let active = await foreground()
+        guard await isCurrent(), !Task.isCancelled,
+              lease == nil ? active : (!active && lease?.isValid == true) else { return }
+        if !active {
+            guard await admitted(key: BodyNotificationPreferences.readinessKey, revision: revision),
+                  await isCurrent(), lease?.isValid == true, !Task.isCancelled,
+                  BodyNotificationPreferences.enabled(BodyNotificationPreferences.readinessKey, defaults: defaults),
+                  defaults.string(forKey: BodyNotificationPreferences.revisionKey) == revision else { return }
+            let content = UNMutableNotificationContent()
+            content.title = String(localized: "notifications.readiness.title", defaultValue: "Today's readiness is ready")
+            let status = ReadinessStatus.status(for: record.score).title
+            content.body = String(localized: "notifications.readiness.body", defaultValue: "You're starting today at \(record.score)% (\(status)). Tap to see what shaped it.")
+            content.sound = .default
+            content.userInfo = ["metric": "readiness"]
+            do {
+                try await delivery.add(UNNotificationRequest(identifier: "readiness.\(day)", content: content, trigger: nil))
+            } catch { return }
+        }
+        guard defaults.string(forKey: BodyNotificationPreferences.revisionKey) == revision else { return }
+        defaults.set(day, forKey: key)
+    }
+
     private func admitted(key: String, revision: String?) async -> Bool {
         let authorization = await delivery.authorization()
         let active = await foreground()

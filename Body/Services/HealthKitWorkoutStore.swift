@@ -225,6 +225,11 @@ final class HealthKitWorkoutStore {
     @ObservationIgnored private var observedHealthChanges = false
     @ObservationIgnored private var notificationEvaluationInFlight = false
     @ObservationIgnored private var observedMetricValidation: [String: HealthDashboardSnapshotStore.Freshness] = [:]
+    /// Counts observed repair passes; `sleepValidatedGeneration` records the pass whose
+    /// sleep leaf last validated successfully, so a later pass whose sleep refresh
+    /// failed (leaving the previous stamp intact) is distinguishable from one that succeeded.
+    @ObservationIgnored private var observedRepairGeneration: UInt64 = 0
+    @ObservationIgnored private var sleepValidatedGeneration: UInt64?
     /// Phase of the in-flight refresh, for the sync badge. `nil` while idle.
     enum RefreshStage: Hashable {
         case authorizing    // HealthKit authorization sheet may be up
@@ -1588,6 +1593,7 @@ final class HealthKitWorkoutStore {
                 return false
             }
             if Self.watchVitalsPullKinds.contains(kind) { lastMetricPullDates[kind.rawValue] = date }
+            if kind == .sleep { sleepValidatedGeneration = observedRepairGeneration }
             return true
         }
         authorizationState = .authorized
@@ -6795,6 +6801,51 @@ final class HealthKitWorkoutStore {
     /// the shared pure static (`ReadinessComputeSupport`) so the watch's on-device
     /// compute reuses the identical math; kept here under the same name/signature
     /// for existing call sites and tests.
+    /// The morning record a freeze would produce from the given leaves at `now`,
+    /// using the same wake+10 window the dashboard recompute uses, or nil when the
+    /// window is not open yet or no score computes. Pure: nothing is persisted, and
+    /// an existing record for the day is kept unless the recompute is strictly richer.
+    /// Whether the sleep leaf validated successfully in the repair pass that is
+    /// running now, under the current input context.
+    nonisolated static func sleepValidatedInThisPass(
+        _ stamp: HealthDashboardSnapshotStore.Freshness?, context: String,
+        validatedGeneration: UInt64?, currentGeneration: UInt64
+    ) -> Bool {
+        guard let stamp, stamp.contextSignature == context else { return false }
+        return validatedGeneration == currentGeneration
+    }
+
+    struct MorningReadinessFreeze: Equatable {
+        var entry: RecordedReadinessEntry
+        /// The full record list to persist with `entry`: records frozen under a
+        /// different input context are dropped, exactly as the dashboard recompute does.
+        var records: [RecordedReadinessEntry]
+        var context: String
+    }
+
+    nonisolated static func morningReadinessRecord(
+        summary: HealthSummarySnapshot,
+        trends: HealthTrendSnapshot,
+        idealSleepDuration: TimeInterval,
+        recordedReadinessContext: String,
+        now: Date,
+        calendar: Calendar
+    ) -> MorningReadinessFreeze? {
+        let today = calendar.startOfDay(for: now)
+        let wakeTime = freezeWakeTime(sleepEnd: summary.sleep.stageSnapshot.wakeCycleEnd,
+                                      scoringDay: today, now: now, calendar: calendar)
+        let recomputed = HealthDashboardSnapshot(summary: summary, trends: trends)
+            .recalculatingReadiness(on: now, idealSleepDuration: idealSleepDuration, calendar: calendar,
+                                    wakeTime: wakeTime, now: now, freezesRecordedReadiness: true,
+                                    recordedReadinessContext: recordedReadinessContext)
+            .trends
+        guard let entry = recomputed.recordedReadiness.first(where: { calendar.startOfDay(for: $0.date) == today }) else {
+            return nil
+        }
+        return MorningReadinessFreeze(entry: entry, records: recomputed.recordedReadiness,
+                                      context: recomputed.recordedReadinessContext)
+    }
+
     nonisolated static func freezeWakeTime(
         sleepEnd: Date?,
         scoringDay: Date,
@@ -8411,6 +8462,7 @@ extension HealthKitWorkoutStore {
     func repairObservedMetrics(_ receipts: [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)],
                                ledger: BodyHealthDirtyWorkStore, background lease: BodyBackgroundLease? = nil) async -> Bool {
         guard await awaitRefreshSlotFree(background: lease != nil), !Task.isCancelled else { return false }
+        observedRepairGeneration &+= 1
         let inputs = captureRefreshInputs()
         guard !needsContextRefresh, pendingPermissionChangeCount == 0, !isClearingCache else { return false }
         if let lease {
@@ -8579,6 +8631,59 @@ extension HealthKitWorkoutStore {
                         self?.mayApplyRefreshInputs(inputs) == true && self?.permissionSelection.includes(.sleep) == true
                             && (lease == nil ? BodyAppRuntime.isForegroundActive : (!BodyAppRuntime.isForegroundActive && lease?.isValid == true))
                     }, now: now, calendar: calendar)
+            }
+        }
+        // Today's frozen morning readiness (the hero's "Started today" value), once it
+        // includes the night's sleep. The foreground owner froze it during this pass's
+        // derived recompute; observed background leaves skip that recompute, so the
+        // background pass freezes it here from the persisted leaves instead.
+        if (!includesStress || lease == nil), permissionSelection.includes(.sleep),
+           BodyNotificationPreferences.enabled(BodyNotificationPreferences.readinessKey) {
+            let now = Date(), calendar = Calendar.bodyGregorian
+            let today = calendar.startOfDay(for: now)
+            let epoch = cacheEpoch
+            var record = healthTrends.recordedReadiness.first(where: { calendar.startOfDay(for: $0.date) == today })
+            var freeze: MorningReadinessFreeze?
+            // Freeze only from a sleep leaf validated by THIS repair pass under the
+            // current context. A failed observed refresh leaves the previous stamp in
+            // place, so the stamp alone (or its age) cannot tell success from failure;
+            // the pass generation can. A failed pass simply retries on the next wake.
+            if lease != nil, record?.coverage?.contains(.sleepDuration) != true,
+               Self.sleepValidatedInThisPass(observedMetricValidation[HealthMetricKind.sleep.rawValue], context: context,
+                                             validatedGeneration: sleepValidatedGeneration,
+                                             currentGeneration: observedRepairGeneration) {
+                let summary = healthSummary, trends = healthTrends
+                let idealSleepDuration = Self.storedIdealSleepDuration()
+                let recordContext = readinessRecordContextSignature()
+                freeze = await Task.detached(priority: .utility) {
+                    Self.morningReadinessRecord(summary: summary, trends: trends, idealSleepDuration: idealSleepDuration,
+                        recordedReadinessContext: recordContext, now: now, calendar: calendar)
+                }.value
+                record = freeze?.entry
+            }
+            guard lease?.isValid ?? BodyAppRuntime.isForegroundActive, mayApplyRefreshInputs(inputs), !Task.isCancelled else { return }
+            if let record {
+                await BodyNotificationDelivery.shared.deliverReadiness(record, lease: lease,
+                    isCurrent: { @MainActor [weak self] in
+                        self?.mayApplyRefreshInputs(inputs) == true && self?.permissionSelection.includes(.sleep) == true
+                            && (lease == nil ? BodyAppRuntime.isForegroundActive : (!BodyAppRuntime.isForegroundActive && lease?.isValid == true))
+                    }, now: now, calendar: calendar)
+                // Keep the announced score as the day's record so the hero's "Started
+                // today" matches the alert; the foreground freeze only upgrades it for
+                // strictly richer coverage, exactly as it would its own record.
+                if let freeze, lease?.isValid == true, mayApplyRefreshInputs(inputs), !Task.isCancelled,
+                   Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch), mayApplyRefreshResults,
+                   freeze.context == readinessRecordContextSignature(),
+                   !healthTrends.recordedReadiness.contains(where: { calendar.startOfDay(for: $0.date) == today
+                       && $0.coverage?.contains(.sleepDuration) == true }) {
+                    var trends = healthTrends
+                    trends.recordedReadiness = freeze.records
+                    trends.recordedReadinessContext = freeze.context
+                    healthTrends = trends
+                    _ = await withCheckedContinuation { continuation in
+                        persistDashboardSnapshot { continuation.resume(returning: $0) }
+                    }
+                }
             }
         }
         guard includesStress, BodyNotificationPreferences.enabled(BodyNotificationPreferences.stressKey),
