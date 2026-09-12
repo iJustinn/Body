@@ -45,6 +45,8 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentHapticsEnabledKey) private var workoutEquivalentHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.chartScrubHapticsEnabledKey) private var chartScrubHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.cardTapHapticsEnabledKey) private var cardTapHapticsEnabled = true
     @AppStorage(BodyNotificationPreferences.masterKey) private var notificationsEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
@@ -684,10 +686,17 @@ struct BodySettingsView: View {
         notificationsEnabled ? String(localized: "On") : String(localized: "Off")
     }
 
-    // Vibration holds only the Equivalent card's collision haptics today, so the
-    // row summarizes that one switch.
+    // Vibration holds the card tap, chart scrub, and Equivalent collision switches;
+    // the row reads On or Off when they agree and Partial otherwise.
     private var vibrationSummaryText: String {
-        workoutEquivalentHapticsEnabled ? String(localized: "On") : String(localized: "Off")
+        let switches = [cardTapHapticsEnabled, chartScrubHapticsEnabled, workoutEquivalentHapticsEnabled]
+        if switches.allSatisfy({ $0 }) {
+            return String(localized: "On")
+        }
+        if switches.allSatisfy({ !$0 }) {
+            return String(localized: "Off")
+        }
+        return String(localized: "Partial")
     }
 
     private var readinessAISummaryText: String {
@@ -964,7 +973,11 @@ struct BodySettingsView: View {
         case .notifications:
             BodyNotificationSettingsSheet()
         case .vibration:
-            BodyVibrationSettingsSheet(collisionHapticsEnabled: $workoutEquivalentHapticsEnabled)
+            BodyVibrationSettingsSheet(
+                cardTapHapticsEnabled: $cardTapHapticsEnabled,
+                chartScrubHapticsEnabled: $chartScrubHapticsEnabled,
+                collisionHapticsEnabled: $workoutEquivalentHapticsEnabled
+            )
         case .aiReadiness:
             BodyReadinessAISettingsSheet(
                 isEnabled: $showReadinessAIComment,
@@ -3262,43 +3275,89 @@ private struct BodyWorkoutEquivalentsSettingsSheet: View {
 }
 
 private struct BodyVibrationSettingsSheet: View {
+    @Binding var cardTapHapticsEnabled: Bool
+    @Binding var chartScrubHapticsEnabled: Bool
     @Binding var collisionHapticsEnabled: Bool
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "settings.general.vibration") {
             VStack(alignment: .leading, spacing: 12) {
-                BodyWorkoutEquivalentHapticsToggleRow(isEnabled: $collisionHapticsEnabled)
-                    .bodyCardBackground(translucent: true)
+                BodyVibrationToggleRow(
+                    iconName: "hand.tap.fill",
+                    color: .green,
+                    title: "Card Vibration",
+                    subtitle: "A light tap when you open a card",
+                    isEnabled: $cardTapHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
 
-                Text("Vibration plays a soft tap whenever two foods collide in the Equivalent card. Turn it off if you'd rather the card stay silent.")
-                    .font(.system(.footnote, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
+                vibrationFootnote(
+                    "Applies when you tap a card to open its page. Summary: the readiness hero, the metric cards, the Activity Rings card, and the trend cards. Workouts: each workout in the list. Metric detail pages: the Basics trend cards."
+                )
+
+                BodyVibrationToggleRow(
+                    iconName: "chart.xyaxis.line",
+                    color: .blue,
+                    title: "Chart Vibration",
+                    subtitle: "A tap when a chart callout appears and a tick per point",
+                    isEnabled: $chartScrubHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts."
+                )
+
+                BodyVibrationToggleRow(
+                    iconName: "fork.knife",
+                    color: .purple,
+                    title: "Collision Vibration",
+                    subtitle: "Light haptics when foods bump into each other",
+                    isEnabled: $collisionHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies to the Equivalent card on a workout's detail page: a soft tap whenever two foods collide. Turn it off if you'd rather the card stay silent."
+                )
             }
         }
     }
+
+    private func vibrationFootnote(_ text: LocalizedStringKey) -> some View {
+        Text(text)
+            .font(.system(.footnote, design: .rounded))
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 4)
+    }
 }
 
-private struct BodyWorkoutEquivalentHapticsToggleRow: View {
+private struct BodyVibrationToggleRow: View {
+    let iconName: String
+    let color: Color
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
     @Binding var isEnabled: Bool
 
     var body: some View {
         HStack(spacing: 14) {
             BodySettingsIconTile(
-                iconName: "fork.knife",
-                color: .purple
+                iconName: iconName,
+                color: color
             )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Collision Vibration")
+                Text(title)
                     .font(.system(.headline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
 
-                Text("Light haptics when foods bump into each other")
+                Text(subtitle)
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -3308,7 +3367,7 @@ private struct BodyWorkoutEquivalentHapticsToggleRow: View {
 
             Spacer(minLength: 12)
 
-            Toggle("Collision Vibration", isOn: $isEnabled)
+            Toggle(title, isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")
