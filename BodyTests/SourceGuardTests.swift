@@ -1275,8 +1275,17 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(homeSource.contains("proxy.scrollTo(card.id, anchor: .center)"))
         XCTAssertFalse(homeSource.contains(".id(card)"))
 
+        // The hero's ring, and with it the hero's height, are sized from the width Home
+        // hands it, and Home's first layout pass proposes a page width of zero. Without
+        // this fallback the hero renders collapsed for that pass and then springs open
+        // inside the pill's launch animation, flying the whole ring into place.
+        XCTAssertTrue(homeSource.contains("pageWidth: page.size.width > 0 ? page.size.width : homeContentWidth"))
+
         let heroSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyReadinessStarHero.swift")
         XCTAssertTrue(heroSource.contains("struct BodyReadinessHeroWarningBadge"))
+        // Only the pill animates on appear: its slide is a `withAnimation`, so a width
+        // landing in that same update would otherwise swing the ring's size along with it.
+        XCTAssertTrue(heroSource.contains(".transaction(value: width) { $0.animation = nil }"))
         XCTAssertTrue(heroSource.contains(".anchorPreference(key: BodyReadinessHeroBadgeAnchorKey.self, value: .bounds)"))
         // The badge's id is both its ForEach identity and its anchor key, and it shares
         // Home's one ScrollView with the card it points at, so it has to stay out of
@@ -3323,7 +3332,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.1 (build 2)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.1 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 11)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 10)**"))
@@ -3463,6 +3473,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.1 build 3."))
         XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 2)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.1 build 2."))
         XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 1)"))

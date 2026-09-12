@@ -1,5 +1,14 @@
 # Version History
 
+## 1.1.1 (build 3)
+
+- Switching between Summary and the other tabs no longer dissolves one page background into the other. Summary still carries the readiness glow and Workouts and Settings the app background, but each page now simply shows its own as it appears.
+- The readiness hero's ring now sizes itself to the screen it is on instead of holding one fixed width, so it is noticeably larger on a big iPhone (stopping a little inside the cards below it) and shrinks to fit a small one; the score, the warning signs and the hero's own height follow it.
+- The gap between the hero's bars and the comment under them is now the same spacing the cards keep from each other: the hero no longer reserves a band of empty space below the bars, and the warning signs sit under the score rather than on the hero's bottom edge.
+- The readiness score reads semibold instead of heavy.
+- The page's readiness glow is tighter, about four fifths of the reach it had, and is now sized from the ring itself, so it spreads a little past the bars instead of washing the comment and the first card row.
+- Updated the app, widget, watch, and test bundle version to 1.1.1 build 3.
+
 ## 1.1.1 (build 2)
 
 - Redesigned the Summary tab's Star Metric readiness hero as a gauge of five glass-styled bar segments, one per readiness band, sized proportionally to each band's score range and arranged in an arc over the score number, with a pill marking today's score that slides smoothly when the score changes, even across bands.
