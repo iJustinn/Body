@@ -2294,7 +2294,7 @@ final class HealthKitWorkoutStore {
             UserDefaults.standard.set(false, forKey: BodyAppearancePreference.autoApplyWorkoutEffortKey)
         }
         if !result.appliedIDs.isEmpty {
-            Task { await refreshAfterWrite(.trainingLoad) }
+            await healthChangeCoordinator?.captureAutomaticEffortWrite()
         }
     }
 
@@ -9045,24 +9045,100 @@ extension HealthKitWorkoutStore {
             }
         }
         if lease == nil, changed, mayApplyRefreshInputs(inputs), !Task.isCancelled {
-            // Recompute only on the foreground owner; background leaf success must
-            // not mint freshness for unverified derived dependencies.
-            let repairedKinds = Set(historyCandidates.map { $0.0 })
-            guard await updateHealthDashboardSnapshot(summary: healthSummary, trends: healthTrends,
-                activityRingHistory: activityRingHistory,
-                recomputesReadiness: !repairedKinds.isDisjoint(with: Self.readinessInputMetricKinds),
-                recomputesStress: repairedKinds.contains(.stress) || !repairedKinds.isDisjoint(with: Self.stressInputMetricKinds),
-                recomputesBodyRadar: !repairedKinds.isDisjoint(with: Self.bodyRadarInputMetricKinds), persists: false),
-                await persistDashboardSnapshotDurably(), mayApplyRefreshResults, !Task.isCancelled else { return changed }
-            for (_, receipt) in historyCandidates {
-                guard mayApplyRefreshResults, !Task.isCancelled, receipt.context == currentObserverLedgerContext() else { break }
-                _ = await ledger.acknowledge(receipt, current: false, history: true)
-            }
+            guard await completeObservedHistory(historyCandidates, ledger: ledger) else { return changed }
         }
         if changed, lease?.isValid ?? true, mayApplyRefreshInputs(inputs), !Task.isCancelled {
             await publishObservedCompanions()
         }
         return changed
+    }
+
+    /// Remaining real BGTask time can finish a full retained read. Current work
+    /// and notifications have already had their turn. No synthetic lease or UI slot.
+    func repairObservedHistory(_ kind: HealthMetricKind, ledger: BodyHealthDirtyWorkStore,
+                               lease: BodyBackgroundLease) async -> Bool {
+        guard !BodyAppRuntime.isForegroundActive, lease.isValid, !Task.isCancelled,
+              await ledger.flush(), await awaitRefreshSlotFree(background: true) else { return false }
+        let fence = HealthDashboardPublicationToken(isCurrent: { lease.isValid })
+        backgroundRefreshLease = lease
+        backgroundPublicationLease = lease
+        dashboardPublicationToken = fence
+        defer {
+            fence.invalidate()
+            if backgroundRefreshLease === lease { backgroundRefreshLease = nil }
+            releaseRefreshSlot()
+        }
+        return await lease.run {
+            await HealthDashboardPublicationToken.$quietCurrent.withValue(fence) {
+                await Self.$observedRefreshFence.withValue(fence) {
+                    guard await engine.backgroundReadEligibility(protectedDataAvailable: UIApplication.shared.isProtectedDataAvailable) == .eligible,
+                          mayPublishQuietMaintenance else { return false }
+                    let before = await ledger.snapshot()
+                    guard let entry = before.entries[kind.rawValue], entry.historyPending, !entry.currentPending else { return false }
+                    let sourceKind: HealthMetricKind = kind == .stress ? .heartRateVariability : kind
+                    guard await prepareObservedMetricSources([sourceKind], date: Date()).contains(sourceKind),
+                          mayPublishQuietMaintenance else { return false }
+                    let snapshot = await ledger.snapshot()
+                    guard let latest = snapshot.entries[kind.rawValue], latest.historyPending, !latest.currentPending,
+                          let receipt = await ledger.receipt(for: kind), receipt.context == currentObserverLedgerContext() else { return false }
+                    let inputs = captureRefreshInputs()
+                    await hydratePersistedDaySamplesIfNeeded()
+                    guard mayPublishQuietMaintenance, mayApplyRefreshInputs(inputs) else { return false }
+                    #if DEBUG
+                    let started = ContinuousClock.now
+                    defer { BodyObserverRefreshDiagnostics.log("backgroundHistory kind=\(kind.rawValue) duration=\(BodyObserverRefreshDiagnostics.elapsed(since: started)) leaseValid=\(lease.isValid)") }
+                    #endif
+                    let success: Bool
+                    if kind == .stress {
+                        success = await refreshObservedHeartbeatSamples(sourcesPrepared: true)
+                    } else {
+                        success = await performHealthMetricRefresh(kind, date: Date(), calendar: .bodyGregorian,
+                            intent: .userInitiated, observed: true, sourcesPrepared: true)
+                    }
+                    guard success, mayPublishQuietMaintenance, mayApplyRefreshInputs(inputs),
+                          await completeObservedHistory([(kind, receipt)], ledger: ledger, requiresSettledDependencies: true) else { return false }
+                    await publishObservedCompanions()
+                    return mayPublishQuietMaintenance
+                }
+            }
+        }
+    }
+
+    private func completeObservedHistory(_ candidates: [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)],
+        ledger: BodyHealthDirtyWorkStore, requiresSettledDependencies: Bool = false) async -> Bool {
+        let kinds = Set(candidates.map { $0.0 })
+        let readiness = !kinds.isDisjoint(with: Self.readinessInputMetricKinds)
+        let stress = !kinds.isDisjoint(with: Self.stressInputMetricKinds)
+        let radar = !kinds.isDisjoint(with: Self.bodyRadarInputMetricKinds)
+        var dependencies: Set<HealthMetricKind> = []
+        if readiness { dependencies.formUnion(Self.readinessInputMetricKinds) }
+        if stress { dependencies.formUnion(Self.stressInputMetricKinds.union([.trainingLoad])) }
+        if radar { dependencies.formUnion(Self.bodyRadarSignedSourceKinds) }
+        let before = await ledger.snapshot()
+        if requiresSettledDependencies,
+           before.entries.contains(where: { key, entry in
+               guard let kind = HealthMetricKind(rawValue: key), dependencies.contains(kind) else { return false }
+               // A clean ledger is not proof that a periodic dependency read
+               // succeeded. Keep derived completion pending when its current
+               // input coverage is stale or was never validated in this scope.
+               return entry.currentPending || observedMetricNeedsValidation(kind)
+           }) { return false }
+        guard mayPublishQuietMaintenance,
+              await updateHealthDashboardSnapshot(summary: healthSummary, trends: healthTrends,
+                activityRingHistory: activityRingHistory, recomputesReadiness: readiness,
+                recomputesStress: stress, recomputesBodyRadar: radar, persists: false),
+              await persistDashboardSnapshotDurably(), mayPublishQuietMaintenance else { return false }
+        if requiresSettledDependencies {
+            let after = await ledger.snapshot()
+            guard after.resetID == before.resetID, after.revision == before.revision else { return false }
+        }
+        var completed = candidates.isEmpty
+        for (_, receipt) in candidates {
+            guard mayPublishQuietMaintenance, receipt.context == currentObserverLedgerContext() else { break }
+            let accepted = await ledger.acknowledge(receipt, current: false, history: true)
+            completed = completed || accepted
+        }
+        return completed
     }
 
     func scanObservedWorkouts(lease: BodyBackgroundLease, scanOnly: Bool) async {

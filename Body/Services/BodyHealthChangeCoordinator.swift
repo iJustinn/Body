@@ -19,6 +19,7 @@ final class BodyHealthChangeCoordinator {
     private var quietWork: Task<Void, Never>?
     private var quietAttempts: [BodyHealthDirtyWorkStore.Receipt] = []
     private var followupNeeded = false
+    private var prefersQuietTrainingLoadRepair = false
     private lazy var observer = BodyHealthChangeObserver(observer: observing,
         suppressesInitialDelivery: suppressesInitialDelivery) { [weak self] identifier, failed in
         await self?.capture(identifier: identifier, failed: failed)
@@ -87,8 +88,27 @@ final class BodyHealthChangeCoordinator {
             guard let self else { return }
             self.debounce = nil
             self.firstWake = nil
+            // Automatic effort writes already updated the workout's visible
+            // rating. Coalesce their Training Load read into quiet maintenance;
+            // other current changes still use the normal freshness route.
+            let current = await self.pending(history: false)
+            if self.prefersQuietTrainingLoadRepair,
+               current.allSatisfy({ $0.0 == .trainingLoad }), !self.store.needsObservedRingRepair {
+                self.offerQuietRepair()
+                return
+            }
             await self.store.syncWhenAppBecomesActive()
         }
+    }
+
+    func captureAutomaticEffortWrite() async {
+        prefersQuietTrainingLoadRepair = true
+        store.invalidateObservedHealthChanges()
+        // Capture our own obligation even if HealthKit's callback is delayed or
+        // absent. The normal durable read/ack path owns its completion.
+        _ = await ledger.mark([.trainingLoad], context: context, reason: "automaticEffort")
+        offerQuietRepair()
+        BodyDataRefreshScheduler.schedule()
     }
 
     func enteredBackground() {
@@ -149,6 +169,7 @@ final class BodyHealthChangeCoordinator {
                 _ = await store.repairObservedMetricsQuietly([next], ledger: self.ledger)
             }
             let current = await self.pending(history: false)
+            if !current.contains(where: { $0.0 == .trainingLoad }) { self.prefersQuietTrainingLoadRepair = false }
             store.observedRepairDidSettle(pending: !current.isEmpty || store.needsObservedRingRepair)
         }
     }
@@ -205,13 +226,21 @@ final class BodyHealthChangeCoordinator {
         return await lease.run {
             await store.scanObservedWorkouts(lease: lease, scanOnly: true)
             guard lease.isValid else { return false }
-            let changed = await store.repairObservedMetrics(work, ledger: ledger, background: lease,
+            var changed = await store.repairObservedMetrics(work, ledger: ledger, background: lease,
                                                           revalidating: revalidationKinds)
             // Metadata is sufficient for workout delivery; do not make the alert
             // wait for enriched month/detail repair to consume the lease.
             if lease.isValid { await store.evaluateNewNotifications(lease: lease, includesStress: false) }
             if lease.isValid { await store.scanObservedWorkouts(lease: lease, scanOnly: false) }
             if lease.isValid { await store.evaluateNewNotifications(lease: lease) }
+            // One attempt per domain per opportunity. A delivery during a
+            // periodic read remains current-pending and cannot be consumed here.
+            let history = await pending(history: true)
+            for (kind, _) in history {
+                guard lease.isValid, !Task.isCancelled, !BodyAppRuntime.isForegroundActive else { break }
+                let repaired = await store.repairObservedHistory(kind, ledger: ledger, lease: lease)
+                changed = changed || repaired
+            }
             return changed
         }
     }

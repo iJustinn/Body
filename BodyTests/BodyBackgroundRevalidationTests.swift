@@ -84,6 +84,21 @@ final class BodyBackgroundRevalidationTests: XCTestCase {
         }
     }
 
+    func testAutomaticEffortWritePersistsRepairWithoutObserverOrVisibleRefresh() async throws {
+        try await withFixture { fixture in
+            await fixture.coordinator.captureAutomaticEffortWrite()
+            let first = try fixture.savedLedger()
+            XCTAssertEqual(first.entries["trainingLoad"]?.currentPending, true)
+            XCTAssertEqual(first.entries["trainingLoad"]?.historyPending, true)
+            await fixture.coordinator.captureAutomaticEffortWrite()
+            let second = try fixture.savedLedger()
+            XCTAssertGreaterThan(try XCTUnwrap(second.entries["trainingLoad"]?.generation),
+                                 try XCTUnwrap(first.entries["trainingLoad"]?.generation))
+            XCTAssertFalse(fixture.store.isRefreshing)
+            XCTAssertEqual(fixture.health.authorizationCalls.prompts, 0)
+        }
+    }
+
     func testHistoryOnlyActivationReturnsWhileQuietReadIsBlocked() async throws {
         try await withFixture { fixture in
             var envelope = fixture.baseline
@@ -172,7 +187,7 @@ final class BodyBackgroundRevalidationTests: XCTestCase {
         }
     }
 
-    func testBackgroundRepairRetainsRealHistoryObligation() async throws {
+    func testBackgroundRepairCompletesRealHistoryObligationDurably() async throws {
         try await withFixture { fixture in
             let id = try XCTUnwrap(fixture.observer.registrations.first { $0.value.type == fixture.types[0] }?.key)
             let captured = expectation(description: "delivery durably captured")
@@ -182,11 +197,56 @@ final class BodyBackgroundRevalidationTests: XCTestCase {
             XCTAssertTrue(changed)
             let after = try fixture.savedLedger()
             XCTAssertEqual(after.entries[HealthMetricKind.bodyFatPercentage.rawValue]?.currentPending, false)
-            XCTAssertEqual(after.entries[HealthMetricKind.bodyFatPercentage.rawValue]?.historyPending, true)
+            XCTAssertEqual(after.entries[HealthMetricKind.bodyFatPercentage.rawValue]?.historyPending, false)
             XCTAssertEqual(after.entries[HealthMetricKind.bodyMass.rawValue], fixture.baseline.entries[HealthMetricKind.bodyMass.rawValue])
-            // A later periodic opportunity must also preserve the real history.
+            let reload = BodyHealthDirtyWorkStore(file: fixture.file,
+                domains: [.bodyFatPercentage, .bodyMass, .bodyMassIndex], context: fixture.store.currentObserverLedgerContext())
+            let restarted = await reload.snapshot()
+            XCTAssertEqual(restarted, after)
+            // A later periodic opportunity must not manufacture new history.
             _ = await fixture.coordinator.runBackground(lease: BodyBackgroundLease())
             XCTAssertEqual(try fixture.savedLedger(), after)
+        }
+    }
+
+    func testHistoryOnlyBackgroundRepairCompletesFirstDomainBeforeNextExpires() async throws {
+        try await withFixture { fixture in
+            let ledger = BodyHealthDirtyWorkStore(file: fixture.file,
+                domains: [.bodyFatPercentage, .bodyMass, .bodyMassIndex], context: fixture.store.currentObserverLedgerContext())
+            for kind in [HealthMetricKind.bodyFatPercentage, .bodyMass] {
+                _ = await ledger.mark([kind], context: fixture.store.currentObserverLedgerContext())
+                let receipt = await ledger.receipt(for: kind)
+                _ = await ledger.acknowledge(try XCTUnwrap(receipt), current: true, history: false)
+            }
+            let lease = BodyBackgroundLease()
+            let first = await fixture.store.repairObservedHistory(.bodyFatPercentage, ledger: ledger, lease: lease)
+            XCTAssertTrue(first)
+            fixture.health.scriptSamples(for: fixture.types[1], .gated({ lease.invalidate() }, then: .samples([])))
+            let second = await fixture.store.repairObservedHistory(.bodyMass, ledger: ledger, lease: lease)
+            XCTAssertFalse(second)
+            let saved = try fixture.savedLedger()
+            XCTAssertEqual(saved.entries["bodyFatPercentage"]?.historyPending, false)
+            XCTAssertEqual(saved.entries["bodyMass"]?.historyPending, true)
+            XCTAssertFalse(fixture.store.isRefreshing)
+        }
+    }
+
+    func testForegroundTakeoverDuringDerivedCommitKeepsHistoryPending() async throws {
+        try await withFixture { fixture in
+            let ledger = BodyHealthDirtyWorkStore(file: fixture.file,
+                domains: [.bodyFatPercentage, .bodyMass, .bodyMassIndex], context: fixture.store.currentObserverLedgerContext())
+            _ = await ledger.mark([.bodyMass], context: fixture.store.currentObserverLedgerContext())
+            let receipt = await ledger.receipt(for: .bodyMass)
+            _ = await ledger.acknowledge(try XCTUnwrap(receipt), current: true, history: false)
+            fixture.store.beforeDashboardComputeCommit = {
+                BodyAppRuntime.setForegroundActive(true)
+                fixture.store.retireBackgroundRefresh()
+            }
+            defer { fixture.store.beforeDashboardComputeCommit = nil }
+            let changed = await fixture.store.repairObservedHistory(.bodyMass, ledger: ledger, lease: BodyBackgroundLease())
+            XCTAssertFalse(changed)
+            XCTAssertEqual(try fixture.savedLedger().entries["bodyMass"]?.historyPending, true)
+            XCTAssertFalse(fixture.store.isRefreshing)
         }
     }
 }

@@ -78,6 +78,29 @@ final class BodyObservedQuantityBatchTests: XCTestCase {
         XCTFail("Three quantity reads must start before any gated read completes")
     }
 
+    func testBackgroundHistoryWaitsForCurrentDerivedDependencies() async throws {
+        try await withFixture { fixture in
+            BodyAppRuntime.setForegroundActive(false)
+            let receipt = await fixture.ledger.receipt(for: .restingHeartRate)
+            _ = await fixture.ledger.acknowledge(try XCTUnwrap(receipt), current: true, history: false)
+            _ = await fixture.ledger.mark([.heartRateVariability], context: fixture.store.currentObserverLedgerContext())
+            let blocked = await fixture.store.repairObservedHistory(.restingHeartRate, ledger: fixture.ledger,
+                lease: BodyBackgroundLease())
+            XCTAssertFalse(blocked)
+            let pending = await fixture.ledger.snapshot()
+            XCTAssertEqual(pending.entries["restingHeartRate"]?.historyPending, true)
+            let dependency = await fixture.ledger.receipt(for: .heartRateVariability)
+            _ = await fixture.ledger.acknowledge(try XCTUnwrap(dependency), current: true, history: true)
+            let unvalidated = await fixture.store.repairObservedHistory(.restingHeartRate, ledger: fixture.ledger,
+                lease: BodyBackgroundLease())
+            XCTAssertFalse(unvalidated, "Clearing a receipt cannot substitute for a successful dependency read")
+            XCTAssertTrue(fixture.store.observedMetricNeedsValidation(.heartRateVariability))
+            let settled = await fixture.ledger.snapshot()
+            XCTAssertEqual(settled.entries["restingHeartRate"]?.historyPending, true)
+            XCTAssertFalse(fixture.store.isRefreshing)
+        }
+    }
+
     func testThreeReadsOverlapAndFourthWaitsForOrderedCommits() async throws {
         try await withFixture { fixture in
             let gate = ReadGate()
