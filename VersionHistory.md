@@ -2,11 +2,14 @@
 
 ## 1.1.1 (build 4)
 
+- The watch home screen now leads with the iPhone's readiness hero instead of a Readiness card: the five band segments on an arc over the score, the pill in today's band, the band color glow behind the page, the pull-down stretch, and the scroll-up flattening into a bar held at the top, all from the same geometry and animations as the phone, scaled to the watch. Tapping the hero opens the Readiness detail page.
+- The watch metrics are reordered to Readiness, Sleep, Training Load, then Heart Rate, HRV, Resting Heart Rate, and Skin Temperature as before.
 - Tapping the Week, Month, 6 Months, or Year pills on a metric detail page now plays a light tap. Settings > General > Vibration adds a **Range Vibration** toggle to turn it off, and the Vibration row reads Partial when only some of its four switches are on.
 - Settings > Appearance adds a **Navigation Bar** row (gray tile, above Icon) whose sheet has a **Tab Labels** toggle that shows each tab's name under its icon in the bottom bar. It is off by default, so the bar keeps showing icons only.
 - The sync badge remains continuous across scheduled foreground follow-ups and names Readiness, Stress, Training Load, and Body Radar calculations. It confirms completion once with “All done” followed by the completion time, with a partial-update message when required work fails after a successful update.
 - Quiet maintenance remains invisible, and intermediate badge phases no longer request frequent accessibility announcements.
 - Holding a single source line chart on a metric detail page shows the filled selection dot right on the touched day. It no longer flies in from off screen, and on release it fades where it stood instead of flying out.
+- Workouts calendar day cells now cross-fade when what they show changes, whether a date turns into a workout or one day's workouts change to another activity or count (after a filter, search, or refresh). Reduce Motion swaps them instantly.
 - Updated app, widget, watch, and test bundles to build 4.
 
 ## 1.1.1 (build 3)
