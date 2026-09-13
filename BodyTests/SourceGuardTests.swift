@@ -4253,13 +4253,13 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(badgeSource.contains(".glassEffect(.regular, in: .capsule)"))
         XCTAssertTrue(badgeSource.contains(".fill(.regularMaterial)"))
         XCTAssertTrue(badgeSource.contains(".allowsHitTesting(false)"))
-        XCTAssertTrue(badgeSource.contains("syncBadgeSuccessCount != successCountAtSyncStart"))
+        XCTAssertTrue(badgeSource.contains("workoutStore.syncPresentation"))
         XCTAssertTrue(storeSource.contains("private(set) var syncBadgeSuccessCount = 0"))
         XCTAssertTrue(badgeSource.contains("struct BodySyncStatusBadgeLabel"))
         XCTAssertTrue(badgeSource.contains("\"Loading data...\""))
         XCTAssertFalse(badgeSource.contains("Syncing health data"))
-        XCTAssertTrue(badgeSource.contains("\"Health data updated\""))
-        XCTAssertTrue(badgeSource.contains(".accessibilityAddTraits(.updatesFrequently)"))
+        XCTAssertTrue(badgeSource.contains("\"All done · "))
+        XCTAssertTrue(badgeSource.contains("updatesFrequently: false"))
 
         // The loading icon is the native white pixel-grid loader (SwiftPixelGrid
         // design), driven from wall-clock time via TimelineView (no
@@ -4283,23 +4283,23 @@ final class SourceGuardTests: XCTestCase {
 
         XCTAssertTrue(xcstrings.contains("\"Loading data...\" : {"))
         XCTAssertFalse(xcstrings.contains("\"Syncing health data…\" : {"))
-        XCTAssertTrue(xcstrings.contains("\"Health data updated\" : {"))
+        XCTAssertTrue(xcstrings.contains("\"All done · %@\" : {"))
 
         // The badge names the refresh phase that is actually running: the store
         // publishes a stage, the badge holds each one on screen for at least
         // 0.5 s so a fast phase stays readable, and a finished refresh (stage
         // back to nil) never snaps the label back to "Loading data...".
-        XCTAssertTrue(storeSource.contains("enum RefreshStage: Hashable"))
+        XCTAssertTrue(storeSource.contains("typealias RefreshStage = BodySyncPresentation.Stage"))
         XCTAssertTrue(storeSource.contains("private(set) var refreshStage: RefreshStage?"))
         XCTAssertTrue(storeSource.contains("refreshStage = nil"))
         XCTAssertTrue(storeSource.contains("setRefreshStage(.writingEffort)"))
-        XCTAssertTrue(badgeSource.contains(".task(id: pendingStage)"))
-        XCTAssertTrue(badgeSource.contains(".seconds(0.5)"))
+        XCTAssertTrue(badgeSource.contains(".task(id: presentation)"))
         XCTAssertTrue(badgeSource.contains("var textID: AnyHashable? = nil"))
-        XCTAssertTrue(badgeSource.contains(".animation(reduceMotion ? nil : .snappy(duration: 0.28), value: displayedStage)"))
+        XCTAssertTrue(badgeSource.contains(".animation(reduceMotion ? nil : .snappy(duration: 0.28), value: presentation.displayedStage)"))
         for stageKey in [
             "Checking Health access...",
-            "Calculating scores...",
+            "Calculating Stress...",
+            "Calculating Training Load...",
             "Saving workout effort...",
             "Finishing up..."
         ] {

@@ -13,6 +13,9 @@ final class BodyHealthChangeCoordinator {
     private var registrations: [BodyHealthObservation] = []
     private var context: BodyHealthObserverContext { store.currentObserverLedgerContext() }
     private var debounce: Task<Void, Never>?
+    private var debouncePresentationID: UUID?
+    private let foregroundNow: @MainActor () -> ContinuousClock.Instant
+    private let foregroundSleep: @MainActor (Duration) async throws -> Void
     private var firstWake: ContinuousClock.Instant?
     private var repairing = false
     private var foregroundWork: Task<Bool, Never>?
@@ -26,7 +29,11 @@ final class BodyHealthChangeCoordinator {
     }
 
     init(store: HealthKitWorkoutStore, file: URL, observing: (any BodyHealthObserving)? = nil,
-         suppressesInitialDelivery: @escaping @MainActor () -> Bool = { UIApplication.shared.applicationState != .background }) {
+         suppressesInitialDelivery: @escaping @MainActor () -> Bool = { UIApplication.shared.applicationState != .background },
+         foregroundNow: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
+         foregroundSleep: @escaping @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+        self.foregroundNow = foregroundNow
+        self.foregroundSleep = foregroundSleep
         self.store = store
         self.suppressesInitialDelivery = suppressesInitialDelivery
         self.observing = observing ?? BodyHealthKitObserver()
@@ -48,15 +55,21 @@ final class BodyHealthChangeCoordinator {
         #if DEBUG
         BodyObserverRefreshDiagnostics.log("coordinator contextDidChange repairing=\(repairing) busy=\(store.isRefreshing)")
         #endif
+        let token = store.queueForegroundContinuation()
         Task { @MainActor [weak self] in
-            await self?.configure()
-            self?.scheduleForeground()
+            guard let self else { return }
+            defer { self.store.settleForegroundContinuation(token) }
+            await self.configure()
+            self.scheduleForeground()
         }
     }
 
     func reset() async {
         debounce?.cancel()
         debounce = nil
+        if let token = debouncePresentationID { store.settleForegroundContinuation(token) }
+        debouncePresentationID = nil
+        firstWake = nil
         _ = await ledger.reset(domains: Set(registrations.flatMap(\.metrics)), context: context)
     }
 
@@ -67,6 +80,8 @@ final class BodyHealthChangeCoordinator {
         #endif
         // Bypass TTL admission before the first suspension. Capture failure keeps the
         // in-memory obligation and never withholds HealthKit's completion.
+        let token = BodyAppRuntime.isForegroundActive ? store.queueForegroundContinuation() : nil
+        defer { if let token { store.settleForegroundContinuation(token) } }
         store.invalidateObservedHealthChanges()
         _ = await ledger.mark(registration.metrics, context: context)
         if registration.invalidatesActivityRings { await store.captureRingObservation() }
@@ -78,15 +93,20 @@ final class BodyHealthChangeCoordinator {
 
     private func scheduleForeground() {
         guard BodyAppRuntime.isForegroundActive else { return }
-        let now = ContinuousClock.now
+        let now = foregroundNow()
         if firstWake == nil { firstWake = now }
         let ceiling = firstWake!.advanced(by: BodyHealthObservationPolicy.foregroundMaximumWait)
         let delay = min(BodyHealthObservationPolicy.foregroundDebounce, max(.zero, now.duration(to: ceiling)))
+        let token = store.queueForegroundContinuation(replacing: debouncePresentationID)
+        debouncePresentationID = token
         debounce?.cancel()
         debounce = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: delay) } catch { return }
             guard let self else { return }
+            defer { self.store.settleForegroundContinuation(token) }
+            do { try await self.foregroundSleep(delay) } catch { return }
+            guard !Task.isCancelled, self.debouncePresentationID == token else { return }
             self.debounce = nil
+            self.debouncePresentationID = nil
             self.firstWake = nil
             // Automatic effort writes already updated the workout's visible
             // rating. Coalesce their Training Load read into quiet maintenance;
@@ -118,6 +138,8 @@ final class BodyHealthChangeCoordinator {
         debounce = nil
         firstWake = nil
         foregroundWork?.cancel()
+        debouncePresentationID = nil
+        store.cancelSyncPresentation()
     }
 
     func refreshDidFinish() {

@@ -40,10 +40,12 @@ final class HealthKitWorkoutStoreRefreshStageTests: XCTestCase {
     /// an empty capsule mid-refresh.
     func testEveryStageHasBadgeText() {
         let stages: [HealthKitWorkoutStore.RefreshStage] = [
-            .authorizing, .fetching, .computing, .writingEffort, .finishing
+            .authorizing, .fetching, .syncing, .updatingHealth, .updatingRings,
+            .computing(.readiness), .computing(.stress), .computing(.trainingLoad), .computing(.bodyRadar),
+            .writingEffort, .finishing
         ]
 
-        for stage in stages {
+        for stage in stages + HealthMetricKind.allCases.map({ .updating($0) }) {
             XCTAssertNotEqual(stage.badgeText, "", "\(stage) has no badge text")
         }
 

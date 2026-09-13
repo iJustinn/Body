@@ -14,129 +14,112 @@ extension HealthKitWorkoutStore.RefreshStage {
         switch self {
         case .authorizing: "Checking Health access..."
         case .fetching: "Loading data..."
-        case .computing: "Calculating scores..."
+        case .syncing: "Syncing..."
+        case .updatingHealth: "Updating health data..."
+        case .updatingRings: "Updating Activity Rings..."
+        case .computing(let target):
+            switch target {
+            case .readiness: "Calculating Readiness..."
+            case .stress: "Calculating Stress..."
+            case .trainingLoad: "Calculating Training Load..."
+            case .bodyRadar: "Calculating Body Radar..."
+            }
+        case .updating(let kind):
+            switch kind {
+            case .readiness: "Updating Readiness..."
+            case .stress: "Updating Stress..."
+            case .bodyRadar: "Updating Body Radar..."
+            case .sleep: "Updating Sleep..."
+            case .basics: "Updating Body Measurements..."
+            case .heartRate: "Updating Heart Rate..."
+            case .restingHeartRate: "Updating Resting Heart Rate..."
+            case .bodyMass: "Updating Weight..."
+            case .bodyFatPercentage: "Updating Body Fat..."
+            case .heartRateVariability: "Updating Heart Rate Variability..."
+            case .respiratoryRate: "Updating Respiratory Rate..."
+            case .oxygenSaturation: "Updating Blood Oxygen..."
+            case .bodyMassIndex: "Updating Body Mass Index..."
+            case .activeEnergy: "Updating Active Energy..."
+            case .restingEnergy: "Updating Resting Energy..."
+            case .exerciseMinutes: "Updating Exercise Minutes..."
+            case .trainingLoad: "Updating Training Load..."
+            case .wristTemperature: "Updating Wrist Temperature..."
+            case .timeInDaylight: "Updating Time in Daylight..."
+            case .steps: "Updating Steps..."
+            case .vitals: "Updating Vitals..."
+            case .cardioFitness: "Updating Cardio Fitness..."
+            }
         case .writingEffort: "Saving workout effort..."
         case .finishing: "Finishing up..."
         }
     }
 }
 
-/// Floating capsule status badge (Apple Health-style "Syncing…" pill) shown
-/// top-center over all tabs while a HealthKit refresh runs, then briefly
-/// confirming completion before auto-dismissing.
+/// One visible session spans active work and already-scheduled foreground work.
+/// Execution and all time-dependent decisions live in the testable presentation
+/// state; this adapter only sleeps until its next deadline and renders it.
 struct BodyHealthSyncBadge: View {
     @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// True while the first-launch load overlay is presented; that modal
-    /// already narrates the initial load, so the badge suppresses the whole
-    /// refresh cycle (no late "updated" flash or announcement).
+    @Environment(\.locale) private var locale
     let isSuppressed: Bool
+    @State private var suppressedSessionID: UUID?
 
-    private enum Phase: Equatable { case hidden, syncing, updated }
-    @State private var phase: Phase = .hidden
-    /// The store's success count captured when syncing began; confirmation
-    /// shows only if the count advanced past this (i.e. the refresh actually
-    /// succeeded — finishRefresh() also runs on errors). The count, not
-    /// `lastSuccessfulRefreshDate`, because workout-month, single-metric, and
-    /// warm-resume refreshes deliberately leave that date alone.
-    @State private var successCountAtSyncStart = 0
-    /// The stage the store last reported, and the one actually on screen. They
-    /// differ only while a new stage waits out the dwell floor below.
-    @State private var pendingStage: HealthKitWorkoutStore.RefreshStage = .fetching
-    @State private var displayedStage: HealthKitWorkoutStore.RefreshStage = .fetching
-    @State private var displayedStageChangedAt = Date()
-    /// Minimum time a stage stays on screen, so a phase that flies past in
-    /// milliseconds is still readable instead of flickering.
-    private static let stageDwell = Duration.seconds(0.5)
+    private var presentation: BodySyncPresentation { workoutStore.syncPresentation }
+    private var showsBadge: Bool { !isSuppressed && presentation.sessionID != suppressedSessionID && presentation.phase != .hidden }
 
     var body: some View {
         ZStack(alignment: .top) {
-            if phase != .hidden {
-                badgeLabel
-                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+            if showsBadge {
+                BodySyncStatusBadgeLabel(
+                    icon: presentation.phase == .syncing ? .spinner : .checkmark,
+                    text: presentation.phase == .syncing ? presentation.displayedStage.badgeText : completionText,
+                    textID: AnyHashable(presentation.displayedStage),
+                    updatesFrequently: false
+                )
+                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
         }
-        // Animate presence and the syncing → updated morph: the capsule resizes
-        // smoothly while icon/text blur-replace in place (identity swap in
-        // BodySyncStatusBadgeLabel), so the change reads as one capsule
-        // transforming rather than two capsules crossfading.
-        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: phase)
-        // Same morph for the stage-to-stage text swap within .syncing.
-        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: displayedStage)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: showsBadge)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: presentation.phase)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: presentation.displayedStage)
         .allowsHitTesting(false)
+        .task(id: presentation) {
+            let expected = presentation
+            guard let deadline = expected.nextDeadline else { return }
+            let delay = max(0, deadline - ProcessInfo.processInfo.systemUptime)
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            guard !Task.isCancelled else { return }
+            workoutStore.advanceSyncPresentation(expected: expected)
+        }
         .onAppear {
-            if workoutStore.isRefreshing && !isSuppressed { beginSyncing() }
+            if isSuppressed { suppressedSessionID = presentation.sessionID }
+        }
+        .onChange(of: presentation.sessionID) { _, id in
+            if isSuppressed { suppressedSessionID = id }
         }
         .onChange(of: isSuppressed) { _, suppressed in
-            if suppressed {
-                phase = .hidden
-            } else if workoutStore.isRefreshing {
-                beginSyncing()
+            if suppressed { suppressedSessionID = presentation.sessionID }
+        }
+        .onChange(of: presentation.phase) { _, phase in
+            guard !isSuppressed, presentation.sessionID != suppressedSessionID else { return }
+            if phase == .updated {
+                AccessibilityNotification.Announcement(completionMessage).post()
+            } else if phase == .partial {
+                AccessibilityNotification.Announcement(String(localized: "Some health data updated")).post()
             }
-        }
-        .onChange(of: workoutStore.isRefreshing) { _, isRefreshing in
-            guard !isSuppressed, isRefreshing else { return }
-            beginSyncing()
-        }
-        // A nil stage (the refresh finishing) is ignored, so the label holds the
-        // last real phase through the falling edge instead of snapping back to
-        // "Loading data..." on its way to "Health data updated".
-        .onChange(of: workoutStore.refreshStage) { _, newStage in
-            if let newStage { pendingStage = newStage }
-        }
-        // Dwell floor: sleep out whatever is left of it since the last commit,
-        // then show the newest stage. task(id:) cancels a pending commit when a
-        // newer stage arrives, so the latest always wins with no queue.
-        .task(id: pendingStage) {
-            guard pendingStage != displayedStage else { return }
-            let remaining = Self.stageDwell - .seconds(Date().timeIntervalSince(displayedStageChangedAt))
-            if remaining > .zero { try? await Task.sleep(for: remaining) }
-            guard !Task.isCancelled, workoutStore.isRefreshing, phase == .syncing else { return }
-            displayedStage = pendingStage
-            displayedStageChangedAt = Date()
-        }
-        // Falling edge, debounced: a chained follow-up refresh cancels this
-        // (task id flips back to true) and the badge stays in .syncing; the
-        // 0.6 s floor also keeps the syncing state readable on fast refreshes.
-        .task(id: workoutStore.isRefreshing) {
-            guard !workoutStore.isRefreshing, phase == .syncing else { return }
-            try? await Task.sleep(for: .seconds(0.6))
-            guard !Task.isCancelled, !workoutStore.isRefreshing, phase == .syncing else { return }
-            if workoutStore.syncBadgeSuccessCount != successCountAtSyncStart {
-                phase = .updated
-                AccessibilityNotification.Announcement(String(localized: "Health data updated")).post()
-            } else {
-                phase = .hidden   // failed/no-op refresh: no false confirmation
-            }
-        }
-        // task(id:) cancels the pending dismiss if a new refresh flips back to .syncing.
-        .task(id: phase) {
-            guard phase == .updated else { return }
-            try? await Task.sleep(for: .seconds(1.8))
-            if !Task.isCancelled { phase = .hidden }
         }
     }
 
-    private func beginSyncing() {
-        if phase != .syncing {
-            successCountAtSyncStart = workoutStore.syncBadgeSuccessCount
-        }
-        // Start from whatever phase the store is already in (the badge can be
-        // inserted mid-refresh), and restart the dwell floor with it.
-        let stage = workoutStore.refreshStage ?? .fetching
-        pendingStage = stage
-        displayedStage = stage
-        displayedStageChangedAt = Date()
-        phase = .syncing
+    private var completionText: LocalizedStringKey {
+        LocalizedStringKey(completionMessage)
     }
 
-    private var badgeLabel: some View {
-        BodySyncStatusBadgeLabel(
-            icon: phase == .syncing ? .spinner : .checkmark,
-            text: phase == .syncing ? displayedStage.badgeText : "Health data updated",
-            textID: phase == .syncing ? AnyHashable(displayedStage) : nil
-        )
+    private var completionMessage: String {
+        if presentation.phase == .partial { return String(localized: "Some health data updated") }
+        guard let completedAt = presentation.completedAt else { return "" }
+        let time = completedAt.formatted(.dateTime.hour().minute().locale(locale))
+        return String(localized: "All done · \(time)", locale: locale)
     }
 }
 
@@ -153,6 +136,7 @@ struct BodySyncStatusBadgeLabel: View {
     /// (one syncing stage to the next) still blur-replaces. Defaults to the
     /// icon, which is what every other call site wants.
     var textID: AnyHashable? = nil
+    var updatesFrequently = true
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -195,7 +179,7 @@ struct BodySyncStatusBadgeLabel: View {
         .modifier(BodyHealthSyncBadgeBackground(colorScheme: colorScheme))
         .padding(.top, 8)
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.updatesFrequently)
+        .accessibilityAddTraits(updatesFrequently ? .updatesFrequently : [])
     }
 }
 

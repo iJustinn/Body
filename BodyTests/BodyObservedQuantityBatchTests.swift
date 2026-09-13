@@ -108,12 +108,16 @@ final class BodyObservedQuantityBatchTests: XCTestCase {
             let receipts = try await fixture.receipts()
             let task = Task { await fixture.store.repairObservedMetrics(receipts, ledger: fixture.ledger) }
             try await waitForFirstBatch(fixture)
+            XCTAssertEqual(fixture.store.refreshStage, .updatingHealth)
+            XCTAssertEqual(fixture.store.syncPresentation.stage, .updatingHealth)
             XCTAssertFalse(fixture.health.leafRequests.contains(.samples(fixture.types[3].identifier)))
             let before = await fixture.ledger.snapshot()
             XCTAssertTrue(before.entries.values.allSatisfy { $0.currentPending && $0.historyPending })
             await gate.release()
             let changed = await task.value
             XCTAssertTrue(changed)
+            XCTAssertTrue(fixture.store.syncPresentation.didPublish)
+            XCTAssertFalse(fixture.store.syncPresentation.hadFailure)
             let after = await fixture.ledger.snapshot()
             XCTAssertTrue(after.entries.values.allSatisfy { !$0.currentPending && !$0.historyPending })
             XCTAssertTrue(fixture.health.leafRequests.contains(.samples(fixture.types[3].identifier)))
@@ -206,6 +210,8 @@ final class BodyObservedQuantityBatchTests: XCTestCase {
             fixture.health.scriptSamples(for: fixture.types[1], .failure(nil))
             let receipts = try await fixture.receipts()
             _ = await fixture.store.repairObservedMetrics(receipts, ledger: fixture.ledger)
+            XCTAssertTrue(fixture.store.syncPresentation.didPublish)
+            XCTAssertTrue(fixture.store.syncPresentation.hadFailure)
             let after = await fixture.ledger.snapshot()
             for kind in fixture.kinds {
                 XCTAssertEqual(after.entries[kind.rawValue]?.historyPending, kind == .bodyMass)
