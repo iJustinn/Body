@@ -23,7 +23,7 @@ final class WorkoutJournalReconcilerTests: XCTestCase {
         try NSKeyedArchiver.archivedData(withRootObject: HKQueryAnchor(fromValue: value), requiringSecureCoding: true)
     }
     private func workout() -> HKWorkout {
-        .init(activityType: .running, start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 160))
+        makeTestWorkout(activityType: .running, start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 160), metadata: nil)
     }
 
     private actor CandidateRecorder {
@@ -217,10 +217,10 @@ final class WorkoutJournalReconcilerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let fake = FakeHealthStore(), file = directory.appendingPathComponent("journal.json")
         let fail = OSAllocatedUnfairLock(initialState: false)
-        let owner = WorkoutJournalReconciler(engine: engine(fake), file: file, scope: scope) { data, url in
+        let owner = WorkoutJournalReconciler(engine: engine(fake), file: file, scope: scope, write: { data, url in
             if fail.withLock({ $0 }) { throw CocoaError(.fileWriteUnknown) }
             try data.write(to: url, options: .atomic)
-        }
+        })
         let a = try anchor(1), b = try anchor(2)
         fake.scriptWorkoutChanges([.success(.init(workouts: [], deletedIDs: [], anchor: a))])
         let initial = await owner.scan()

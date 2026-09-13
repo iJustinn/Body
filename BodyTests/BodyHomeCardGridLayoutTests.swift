@@ -275,6 +275,7 @@ final class BodyHomeCardGridLayoutTests: XCTestCase {
         }
     }
 
+    @MainActor
     private struct ScrollHarness {
         let window: UIWindow
         let recorder: FrameRecorder
@@ -410,6 +411,7 @@ final class BodyHomeCardGridLayoutTests: XCTestCase {
         }
     }
 
+    @MainActor
     private struct Harness {
         let window: UIWindow
         let recorder: FrameRecorder

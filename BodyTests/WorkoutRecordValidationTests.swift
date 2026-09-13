@@ -12,7 +12,7 @@ final class WorkoutRecordValidationTests: XCTestCase {
     }
 
     func testDistanceFailureRetainsContributionAndCheckpointThenEmptyAndRetryRepair() async throws {
-        let workout = HKWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1800))
+        let workout = makeTestWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1800), metadata: nil)
         let distanceType = try XCTUnwrap(HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning))
         let effortType = try XCTUnwrap(HKQuantityType.quantityType(forIdentifier: .workoutEffortScore))
         let fake = FakeHealthStore()
@@ -74,7 +74,7 @@ final class WorkoutRecordValidationTests: XCTestCase {
     }
 
     func testCancelledDistanceReadCannotValidateChunk() async throws {
-        let workout = HKWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1800))
+        let workout = makeTestWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1800), metadata: nil)
         let distanceType = try XCTUnwrap(HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning))
         let effortType = try XCTUnwrap(HKQuantityType.quantityType(forIdentifier: .workoutEffortScore))
         let fake = FakeHealthStore()

@@ -10,8 +10,8 @@ final class WorkoutEffortValidationTests: XCTestCase {
             healthStore: fake, effortLedgerDirectoryURL: directory)
     }
     private func workout() -> HKWorkout {
-        HKWorkout(activityType: .running, start: now.addingTimeInterval(-150 * 86400),
-            end: now.addingTimeInterval(-150 * 86400 + 3600))
+        makeTestWorkout(activityType: .running, start: now.addingTimeInterval(-150 * 86400),
+            end: now.addingTimeInterval(-150 * 86400 + 3600), metadata: nil)
     }
     private func effort(_ score: Double) throws -> HKQuantitySample {
         .init(type: try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .workoutEffortScore)),

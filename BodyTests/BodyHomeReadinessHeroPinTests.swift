@@ -86,6 +86,7 @@ final class BodyHomeReadinessHeroPinTests: XCTestCase {
         @State private var scrollState = BodyHomeScrollState()
 
         var body: some View {
+            let viewportCoordinateSpace = BodyHomeView.viewportCoordinateSpace
             ScrollView(.vertical) {
                 VStack(spacing: 14) {
                     if let notice {
@@ -102,7 +103,7 @@ final class BodyHomeReadinessHeroPinTests: XCTestCase {
                             progress: progress
                         )
                             .onGeometryChange(for: CGRect.self) { proxy in
-                                proxy.frame(in: .named(BodyHomeView.viewportCoordinateSpace))
+                                proxy.frame(in: .named(viewportCoordinateSpace))
                             } action: { frame in
                                 recorder.frames["hero"] = frame
                             }
@@ -110,7 +111,7 @@ final class BodyHomeReadinessHeroPinTests: XCTestCase {
 
                     BodyReadinessHeroComment(readiness: Self.sample, morningScore: nil)
                         .onGeometryChange(for: CGRect.self) { proxy in
-                            proxy.frame(in: .named(BodyHomeView.viewportCoordinateSpace))
+                            proxy.frame(in: .named(viewportCoordinateSpace))
                         } action: { frame in
                             recorder.frames["card"] = frame
                         }
@@ -122,7 +123,7 @@ final class BodyHomeReadinessHeroPinTests: XCTestCase {
                     }
                     .modifier(BodyHomeGridPositionReporter(scrollState: scrollState))
                     .onGeometryChange(for: CGRect.self) { proxy in
-                        proxy.frame(in: .named(BodyHomeView.viewportCoordinateSpace))
+                        proxy.frame(in: .named(viewportCoordinateSpace))
                     } action: { frame in
                         recorder.frames["grid"] = frame
                     }

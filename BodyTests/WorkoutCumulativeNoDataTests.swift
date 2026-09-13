@@ -10,8 +10,7 @@ final class WorkoutCumulativeNoDataTests: XCTestCase {
         let fake = FakeHealthStore()
         // Indoor avoids the unrelated native VO2 callback path, which is outside
         // FakeHealthStore's seam. Cadence and distance still run for indoor runs.
-        let workout = HKWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1800),
-            workoutEvents: nil, totalEnergyBurned: nil, totalDistance: nil,
+        let workout = makeTestWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1800),
             metadata: [HKMetadataKeyIndoorWorkout: true])
         fake.scriptSamples(for: HKObjectType.workoutType(), .samples([workout]))
         for identifier: HKQuantityTypeIdentifier in [.workoutEffortScore, .vo2Max] {
