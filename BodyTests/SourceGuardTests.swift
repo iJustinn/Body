@@ -3173,6 +3173,10 @@ final class SourceGuardTests: XCTestCase {
         // The handler is optional and defaulted, so the widgets — which pass
         // none — keep their exact pre-existing layout.
         XCTAssertTrue(calendarSource.contains("onSwitchChart: (() -> Void)? = nil"))
+        // A day cell cross-fades when its face changes (date to workouts, or one
+        // workout set to another), keyed on what it shows and off under Reduce Motion.
+        XCTAssertTrue(calendarSource.contains(".id(contentKey)"))
+        XCTAssertTrue(calendarSource.contains(".animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: contentKey)"))
         XCTAssertTrue(breakdownSource.contains("onSwitchChart: (() -> Void)? = nil"))
         XCTAssertFalse(widgetSource.contains("onSwitchChart"))
 
