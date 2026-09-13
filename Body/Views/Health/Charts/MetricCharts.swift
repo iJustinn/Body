@@ -56,6 +56,7 @@ struct BodyHealthMetricTrendChart: View {
     private let placeholderBarYValue: Double
 
     @State private var selectedDate: Date?
+    @State private var lastSelectedTrendPoint: HealthTrendCalendarPoint?
     @GestureState private var isSelecting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -393,14 +394,22 @@ struct BodyHealthMetricTrendChart: View {
                             }
                         }
 
-                    if chartStyle == .line {
-                        PointMark(
-                            x: .value("Selected Date", selectedTrendPoint.date, unit: .day),
-                            y: .value(title, selectedTrendValue)
-                        )
-                        .foregroundStyle(symbolColor)
-                        .symbolSize(82)
-                    }
+                }
+
+                // Resident after the first scrub and hidden by opacity on
+                // release: removing it in the release transaction, which also
+                // unparks the current-value dot, flies it out to the plot origin.
+                if chartStyle == .line,
+                   let selectionDotPoint = selectedTrendPoint ?? lastSelectedTrendPoint,
+                   let selectionDotValue = selectionDotPoint.value {
+                    PointMark(
+                        x: .value("Selected Date", selectionDotPoint.date, unit: .day),
+                        y: .value(title, selectionDotValue)
+                    )
+                    .foregroundStyle(symbolColor)
+                    .symbolSize(82)
+                    .opacity(selectedTrendPoint == nil ? 0 : 1)
+                    .accessibilityHidden(selectedTrendPoint == nil)
                 }
             }
             .chartXScale(domain: chartXDomain)
@@ -491,7 +500,13 @@ struct BodyHealthMetricTrendChart: View {
             // is out of the callout's way promptly; on a range switch both keys
             // change and the inner range animation wins, keeping the dot on the
             // same curve as the marks it travels with.
-            .animation(reduceMotion ? nil : .smooth(duration: 0.3, extraBounce: 0), value: showsCurrentValueDot)
+            // Unpark only: parking happens as a scrub begins, and that
+            // transaction also inserts the selection dot, which Charts then
+            // flies in from the plot origin instead of popping in place.
+            .animation(
+                reduceMotion || !showsCurrentValueDot ? nil : .smooth(duration: 0.3, extraBounce: 0),
+                value: showsCurrentValueDot
+            )
             .onChange(of: selectedRange) {
                 selectedDate = nil
             }
@@ -503,6 +518,11 @@ struct BodyHealthMetricTrendChart: View {
             }
             .onChange(of: activeHighlightSourceValue) { _, _ in
                 syncActiveHighlightedValue()
+            }
+            .onChange(of: selectedTrendPoint?.date) { _, _ in
+                if let selectedTrendPoint {
+                    lastSelectedTrendPoint = selectedTrendPoint
+                }
             }
             .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedTrendPoint?.date) {
                 guard let point = selectedTrendPoint, let value = point.value else {
