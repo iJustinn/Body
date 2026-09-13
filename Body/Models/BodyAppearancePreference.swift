@@ -329,6 +329,12 @@ extension BodyAppearancePreference {
     /// Whether tapping a card to open its page plays a haptic (`BodyCardTapHaptics`). Default true.
     static let cardTapHapticsEnabledKey = "cardTapHapticsEnabled"
 
+    /// Whether tapping a trend range pill plays a haptic (`BodyHealthTrendRangeSelector`). Default true.
+    static let trendRangeHapticsEnabledKey = "trendRangeHapticsEnabled"
+
+    /// Whether the bottom tab bar shows each tab's name under its icon. Default false.
+    static let navigationBarShowsLabelsKey = "navigationBarShowsLabels"
+
     /// Comma-joined emoji of `EnergyEquivalent.Food`s hidden from the Equivalent card.
     /// Empty string means none are hidden.
     static let workoutEquivalentHiddenFoodsKey = "workoutEquivalentHiddenFoods"

@@ -15,6 +15,7 @@ struct BodyHealthTrendRangeSelector: View {
     }
 
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(BodyAppearancePreference.trendRangeHapticsEnabledKey) private var hapticsEnabled = true
     @Binding var selectedRange: BodyHealthTrendRange
     var appearance: Appearance = .standard
     /// When false, every range but the free `.recentWeek` is locked: its pill shows a
@@ -26,6 +27,9 @@ struct BodyHealthTrendRangeSelector: View {
         HStack(spacing: 8) {
             ForEach(BodyHealthTrendRange.allCases) { range in
                 Button {
+                    if hapticsEnabled {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
                     if isLocked(range) {
                         onLockedRangeTap()
                     } else {

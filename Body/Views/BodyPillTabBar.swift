@@ -10,6 +10,8 @@ import SwiftUI
 /// highlight that slides behind the selected tab.
 struct BodyPillTabBar: View {
     @Binding var selection: BodyMainTab
+    /// Settings > Appearance > Navigation Bar: shows each tab's name under its icon.
+    var showsLabels = false
     @Environment(\.colorScheme) private var colorScheme
     @Namespace private var pill
 
@@ -21,18 +23,26 @@ struct BodyPillTabBar: View {
                         selection = tab
                     }
                 } label: {
-                    Image(systemName: tab.systemImage)
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(selection == tab ? Color.primary : Color.secondary)
-                        .frame(width: 90, height: 44)
-                        .background {
-                            if selection == tab {
-                                Capsule(style: .continuous)
-                                    .fill(Color.primary.opacity(colorScheme == .light ? 0.08 : 0.16))
-                                    .matchedGeometryEffect(id: "selected", in: pill)
-                            }
+                    VStack(spacing: 2) {
+                        Image(systemName: tab.systemImage)
+                            .font(.system(size: showsLabels ? 18 : 20, weight: .bold))
+                        if showsLabels {
+                            Text(tab.accessibilityLabel)
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
                         }
-                        .contentShape(Capsule())
+                    }
+                    .foregroundStyle(selection == tab ? Color.primary : Color.secondary)
+                    .frame(width: 90, height: showsLabels ? 52 : 44)
+                    .background {
+                        if selection == tab {
+                            Capsule(style: .continuous)
+                                .fill(Color.primary.opacity(colorScheme == .light ? 0.08 : 0.16))
+                                .matchedGeometryEffect(id: "selected", in: pill)
+                        }
+                    }
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(tab.accessibilityLabel)

@@ -49,6 +49,7 @@ struct MainTabView: View {
     }
     @State private var summaryReselectCount = 0
     @State private var isFirstLaunchOverlayPresented = false
+    @AppStorage(BodyAppearancePreference.navigationBarShowsLabelsKey) private var navigationBarShowsLabels = false
     @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.updateOnboardingCompletedVersionKey) private var updateOnboardingCompletedVersion = ""
 
@@ -175,8 +176,12 @@ struct MainTabView: View {
                 ForEach(BodyMainTab.allCases, id: \.self) { tab in
                     tab.destination
                         .tabItem {
-                            Image(systemName: tab.systemImage)
-                                .accessibilityLabel(tab.accessibilityLabel)
+                            if navigationBarShowsLabels {
+                                Label(tab.accessibilityLabel, systemImage: tab.systemImage)
+                            } else {
+                                Image(systemName: tab.systemImage)
+                                    .accessibilityLabel(tab.accessibilityLabel)
+                            }
                         }
                         .tag(tab)
                 }
@@ -192,10 +197,10 @@ struct MainTabView: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear.frame(height: 64)
+                Color.clear.frame(height: navigationBarShowsLabels ? 72 : 64)
             }
             .overlay(alignment: .bottom) {
-                BodyPillTabBar(selection: tabSelection)
+                BodyPillTabBar(selection: tabSelection, showsLabels: navigationBarShowsLabels)
             }
         }
     }

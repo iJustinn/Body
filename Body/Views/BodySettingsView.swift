@@ -47,6 +47,8 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.workoutEquivalentHapticsEnabledKey) private var workoutEquivalentHapticsEnabled = true
     @AppStorage(BodyAppearancePreference.chartScrubHapticsEnabledKey) private var chartScrubHapticsEnabled = true
     @AppStorage(BodyAppearancePreference.cardTapHapticsEnabledKey) private var cardTapHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.trendRangeHapticsEnabledKey) private var trendRangeHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.navigationBarShowsLabelsKey) private var navigationBarShowsLabels = false
     @AppStorage(BodyNotificationPreferences.masterKey) private var notificationsEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
@@ -297,6 +299,21 @@ struct BodySettingsView: View {
                     value: workoutColorsSummaryText,
                     iconName: "figure.mixed.cardio",
                     tintColor: .teal,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
+                activeSheet = .navigationBar
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Navigation Bar",
+                    value: navigationBarShowsLabels ? String(localized: "Both") : String(localized: "Icons"),
+                    iconName: "rectangle.bottomthird.inset.filled",
+                    tintColor: .gray,
                     accessory: .chevron
                 )
             }
@@ -686,10 +703,10 @@ struct BodySettingsView: View {
         notificationsEnabled ? String(localized: "On") : String(localized: "Off")
     }
 
-    // Vibration holds the card tap, chart scrub, and Equivalent collision switches;
-    // the row reads On or Off when they agree and Partial otherwise.
+    // Vibration holds the card tap, range tap, chart scrub, and Equivalent collision
+    // switches; the row reads On or Off when they agree and Partial otherwise.
     private var vibrationSummaryText: String {
-        let switches = [cardTapHapticsEnabled, chartScrubHapticsEnabled, workoutEquivalentHapticsEnabled]
+        let switches = [cardTapHapticsEnabled, trendRangeHapticsEnabled, chartScrubHapticsEnabled, workoutEquivalentHapticsEnabled]
         if switches.allSatisfy({ $0 }) {
             return String(localized: "On")
         }
@@ -935,6 +952,8 @@ struct BodySettingsView: View {
             BodyHomeBackgroundSheet()
         case .workoutColors:
             BodyWorkoutColorsSheet()
+        case .navigationBar:
+            BodyNavigationBarSettingsSheet(showsLabels: $navigationBarShowsLabels)
         case .appIcon:
             BodyAppIconPickerSheet(
                 selectedIconName: selectedAppIconName,
@@ -975,6 +994,7 @@ struct BodySettingsView: View {
         case .vibration:
             BodyVibrationSettingsSheet(
                 cardTapHapticsEnabled: $cardTapHapticsEnabled,
+                trendRangeHapticsEnabled: $trendRangeHapticsEnabled,
                 chartScrubHapticsEnabled: $chartScrubHapticsEnabled,
                 collisionHapticsEnabled: $workoutEquivalentHapticsEnabled
             )
@@ -1072,6 +1092,7 @@ enum BodyProfileMotivation {
 enum BodySettingsSheet: String, Identifiable {
     case homeBackground
     case workoutColors
+    case navigationBar
     case appIcon
     case sleepDurationGoal
     case summaryCards
@@ -3276,6 +3297,7 @@ private struct BodyWorkoutEquivalentsSettingsSheet: View {
 
 private struct BodyVibrationSettingsSheet: View {
     @Binding var cardTapHapticsEnabled: Bool
+    @Binding var trendRangeHapticsEnabled: Bool
     @Binding var chartScrubHapticsEnabled: Bool
     @Binding var collisionHapticsEnabled: Bool
 
@@ -3293,6 +3315,20 @@ private struct BodyVibrationSettingsSheet: View {
 
                 vibrationFootnote(
                     "Applies when you tap a card to open its page. Summary: the readiness hero, the metric cards, the Activity Rings card, and the trend cards. Workouts: each workout in the list. Metric detail pages: the Basics trend cards."
+                )
+
+                BodyVibrationToggleRow(
+                    iconName: "calendar",
+                    color: .orange,
+                    title: "Range Vibration",
+                    subtitle: "A light tap when you pick a time range",
+                    isEnabled: $trendRangeHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies when you tap Week, Month, 6 Months, or Year at the top of a metric detail page, including a locked range that opens Body Pro."
                 )
 
                 BodyVibrationToggleRow(
@@ -3332,6 +3368,31 @@ private struct BodyVibrationSettingsSheet: View {
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 4)
+    }
+}
+
+private struct BodyNavigationBarSettingsSheet: View {
+    @Binding var showsLabels: Bool
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Navigation Bar") {
+            VStack(alignment: .leading, spacing: 12) {
+                BodyVibrationToggleRow(
+                    iconName: "rectangle.bottomthird.inset.filled",
+                    color: .gray,
+                    title: "Tab Labels",
+                    subtitle: "Show each tab's name under its icon",
+                    isEnabled: $showsLabels
+                )
+                .bodyCardBackground(translucent: true)
+
+                Text("Applies to the bar at the bottom of the screen. Off by default, so the bar shows only the Summary, Workouts, and Settings icons. Names appear right away when you turn this on, but because of a system limitation they can stay visible after you turn it off until Body restarts.")
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+        }
     }
 }
 
