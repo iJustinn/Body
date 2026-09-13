@@ -1,6 +1,11 @@
 //
 //  BodyReadinessArcGeometry.swift
-//  Body
+//  BodyWatchSnapshotKit
+//
+//  Shared by the iOS `Body` target and the `BodyWatch` target: the watch home
+//  screen draws the same readiness hero (`WatchReadinessHeroView`) from this
+//  geometry, so the two stay identical by construction. `heroWidth(pageWidth:)`
+//  is iOS-only and lives in `BodyReadinessStarHero.swift`.
 //
 
 import SwiftUI
@@ -196,12 +201,6 @@ enum BodyReadinessArcGeometry {
 
     static func glowRadius(width: CGFloat) -> CGFloat {
         arcRadius(width: width) * glowRadiusRatio
-    }
-
-    /// The hero's width inside Home's page padding, for the full-bleed backdrop, which
-    /// paints outside the content column but centers its glow on the ring.
-    static func heroWidth(pageWidth: CGFloat) -> CGFloat {
-        max(0, min(pageWidth, AppLayout.homeContentWidth) - 32)
     }
 
     static func flatInset(width: CGFloat) -> CGFloat {

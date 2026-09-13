@@ -534,3 +534,12 @@ private struct BodyReadinessTrackView: View, Animatable {
         .position(center)
     }
 }
+
+extension BodyReadinessArcGeometry {
+    /// The hero's width inside Home's page padding, for the full-bleed backdrop, which
+    /// paints outside the content column but centers its glow on the ring. iOS-only:
+    /// the geometry itself is shared with the watch, which has no content column.
+    static func heroWidth(pageWidth: CGFloat) -> CGFloat {
+        max(0, min(pageWidth, AppLayout.homeContentWidth) - 32)
+    }
+}
