@@ -306,9 +306,9 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testWatchMetricKindKeysMatchIOSWidgetStyling() throws {
         let pairs: [(kind: String, widgetMetric: HealthWidgetMetric)] = [
-            (WatchMetricKindKey.trainingLoad, .trainingLoad),
             (WatchMetricKindKey.readiness, .readiness),
             (WatchMetricKindKey.sleep, .sleep),
+            (WatchMetricKindKey.trainingLoad, .trainingLoad),
             (WatchMetricKindKey.heartRate, .heartRate),
             (WatchMetricKindKey.heartRateVariability, .heartRateVariability),
             (WatchMetricKindKey.restingHeartRate, .restingHeartRate),
