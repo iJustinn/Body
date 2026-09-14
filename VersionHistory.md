@@ -1,3 +1,8 @@
+## 1.1.2 (build 1)
+
+- Opened the 1.1.2 line. No behavior changes yet; the entries below describe 1.1.1.
+- Updated the app, widget, watch, and test bundle version to 1.1.2 build 1.
+
 ## 1.1.1 (build 6)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.1 build 6.
