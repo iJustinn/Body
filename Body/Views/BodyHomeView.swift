@@ -460,6 +460,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.homeCardOrderKey) private var homeCardOrderRawValue = BodyHomeCardKind.defaultRawValue
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
+    @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
@@ -804,7 +805,8 @@ struct BodyHomeView: View {
                         width: width,
                         progress: progress,
                         pull: pull,
-                        warningBadges: badges
+                        warningBadges: badges,
+                        showsLevel: readinessHeroShowsLevel
                     )
                 }
                 .buttonStyle(.plain)

@@ -80,7 +80,8 @@ struct BodyReadinessHeroBadgeAnchorKey: PreferenceKey {
 /// into a horizontal bar held under the status bar while the score and warning badges
 /// fade out, then leaves with the cards. Pure: no scroll state, so onboarding and tests
 /// render it as-is.
-/// The level title and explanation live in `BodyReadinessSummaryCard` beneath it.
+/// Today's level ("High readiness") sits under the score; the explanation lives in
+/// `BodyReadinessHeroComment` beneath the hero.
 struct BodyReadinessArcHero: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -94,7 +95,8 @@ struct BodyReadinessArcHero: View {
     /// 0 = full arc with the score, 1 = the flat pinned bar. Clamped here.
     let progress: Double
 
-    /// Points the page has been pulled down past rest. The score row is counter-offset so
+    /// Points the page has been pulled down past rest. The score, level and warning badges
+    /// are counter-offset so
     /// it stays put on screen while the ring, whose top is held the same way, is dragged
     /// open after the finger (bigger, wider sweep, bands pulling apart) and springs back
     /// on release. Zero everywhere but Home.
@@ -104,6 +106,10 @@ struct BodyReadinessArcHero: View {
     /// only: the taps are handled by buttons the host overlays on these glyphs,
     /// outside the hero's own button. Empty everywhere but Home.
     var warningBadges: [BodyReadinessHeroWarningBadge] = []
+
+    /// Whether today's level shows under the score (Settings > Star Metric > Readiness Level).
+    /// Off, the score sits centered in the ring as it does without a score.
+    var showsLevel = true
 
     /// Animated score for the big number: counts up from 0 on launch and rolls to each
     /// new value.
@@ -242,12 +248,34 @@ struct BodyReadinessArcHero: View {
             .animation(pillAnimation, value: presentedScore)
             .offset(y: -pull)
 
-            scoreText
-                .position(x: width / 2 + scoreCenterNudge, y: Geometry.numberCenterY(width: width))
-                .offset(y: -pull)
+            // The score and level move as one block: up a line for the level, down a
+            // little while no warning badge is showing. Each change glides with the badge
+            // fade's timing; the level itself fades in and out.
+            ZStack(alignment: .topLeading) {
+                scoreText
+                    .position(x: width / 2 + scoreCenterNudge, y: scoreCenterY(width: width))
 
+                if let levelText {
+                    Text(levelText)
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .shadow(color: .black.opacity(0.3), radius: 6, y: 1)
+                        .opacity(textOpacity)
+                        .position(x: width / 2, y: levelTextCenterY(width: width))
+                        .transition(.opacity)
+                }
+            }
+            .frame(width: width, height: Geometry.heroHeight(width: width), alignment: .topLeading)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: scoreBlockLayout)
+            .offset(y: -pull)
+
+            // Held still with the score during a pull. The host's tap targets read these
+            // glyphs' anchors, which carry the offset, so they stay on the glyphs.
             warningBadgeRow
                 .position(x: width / 2, y: Geometry.badgeRowCenterY(width: width))
+                .offset(y: -pull)
         }
         .frame(width: width, height: Geometry.heroHeight(width: width), alignment: .topLeading)
         .contentShape(BodyReadinessHeroHitShape(
@@ -345,9 +373,64 @@ struct BodyReadinessArcHero: View {
         .opacity(textOpacity)
     }
 
-    /// The rectangle the score and badges occupy, used as a tap target while visible.
+    /// Today's level under the score. Nil without a score, where `--` stays centered, and
+    /// when the Readiness Level setting is off.
+    private var levelText: String? {
+        guard showsLevel else { return nil }
+        switch status {
+        case .prime:
+            return String(localized: "Prime readiness")
+        case .high:
+            return String(localized: "High readiness")
+        case .moderate:
+            return String(localized: "Moderate readiness")
+        case .low:
+            return String(localized: "Low readiness")
+        case .poor:
+            return String(localized: "Poor readiness")
+        case .unavailable:
+            return nil
+        }
+    }
+
+    /// One line of the level text. The score lifts by this much and the level takes the
+    /// space it left, so the pair ends where the score alone did and the badge row and
+    /// the hero's height stay put. iOS only: the watch hero keeps the score centered.
+    private static let levelTextHeight: CGFloat = 18
+
+    /// How far the score and level drop while no warning badge is showing, so the block
+    /// doesn't float over an empty badge row: 40% of a badge's height.
+    private static let noBadgeDrop: CGFloat = Geometry.badgeRowHeight * 0.4
+
+    /// What the score block's position depends on, apart from width (a width change is
+    /// laid out, never animated). A change glides the block to its new place.
+    private struct ScoreBlockLayout: Equatable {
+        let showsLevel: Bool
+        let hasBadges: Bool
+    }
+
+    private var scoreBlockLayout: ScoreBlockLayout {
+        // Badges only move the block while the level shows.
+        ScoreBlockLayout(showsLevel: levelText != nil, hasBadges: levelText != nil && !warningBadges.isEmpty)
+    }
+
+    /// Without the level the score keeps its centered place whether or not badges show;
+    /// only the score-and-level block lifts for the level and drops without badges.
+    private func scoreCenterY(width: CGFloat) -> CGFloat {
+        guard levelText != nil else { return Geometry.numberCenterY(width: width) }
+        return Geometry.numberCenterY(width: width)
+            - Self.levelTextHeight
+            + (warningBadges.isEmpty ? Self.noBadgeDrop : 0)
+    }
+
+    private func levelTextCenterY(width: CGFloat) -> CGFloat {
+        scoreCenterY(width: width) + Geometry.numberHalfHeight + Self.levelTextHeight / 2
+    }
+
+    /// The rectangle the score, level and badges occupy, used as a tap target while visible.
     private func textRect(width: CGFloat) -> CGRect {
-        CGRect(x: width / 2 - 90, y: Geometry.numberCenterY(width: width) - 44, width: 180, height: Geometry.badgeRowCenterY(width: width) - Geometry.numberCenterY(width: width) + 44 + 22)
+        let top = scoreCenterY(width: width) - 44
+        return CGRect(x: width / 2 - 90, y: top, width: 180, height: Geometry.badgeRowCenterY(width: width) + 22 - top)
     }
 
     /// The width of one badge's box, and so of the tap target laid over it. Three

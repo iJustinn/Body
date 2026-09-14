@@ -6304,6 +6304,23 @@
         }
       }
     },
+    "High readiness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态良好"
+          }
+        }
+      }
+    },
     "Hour-by-hour chart for a chosen day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7349,6 +7366,23 @@
         }
       }
     },
+    "Low readiness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态偏低"
+          }
+        }
+      }
+    },
     "Manage Purchases" : {
       "localizations" : {
         "en" : {
@@ -7480,6 +7514,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "分钟"
+          }
+        }
+      }
+    },
+    "Moderate readiness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moderate readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态中等"
           }
         }
       }
@@ -10925,6 +10976,23 @@
         }
       }
     },
+    "Poor readiness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poor readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态较差"
+          }
+        }
+      }
+    },
     "Portrait 3:4" : {
       "localizations" : {
         "en" : {
@@ -11193,6 +11261,23 @@
         }
       }
     },
+    "Prime readiness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prime readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态极佳"
+          }
+        }
+      }
+    },
     "Privacy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11422,6 +11507,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复状态%1$lld%%，%2$@"
+          }
+        }
+      }
+    },
+    "Readiness Level" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness Level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "准备度等级"
+          }
+        }
+      }
+    },
+    "Readiness Ring" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness Ring"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态环"
           }
         }
       }
@@ -13159,6 +13278,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在运动详情页显示热量等价卡片。关闭后，卡片将不再显示，下方设置也不再生效。"
+          }
+        }
+      }
+    },
+    "Show today's level under the score" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show today's level under the score"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在分数下方显示今日等级"
           }
         }
       }

@@ -661,7 +661,7 @@ struct BodySettingsView: View {
     }
 
     private var starredMetricSummaryText: String {
-        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.title ?? String(localized: "None")
+        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.starMetricTitle ?? String(localized: "None")
     }
 
     // When the background is on, the row names the matching saved profile so the
@@ -1658,6 +1658,7 @@ private struct BodySummaryCardsSettingsSheet: View {
 
 private struct BodyStarMetricPickerSheet: View {
     @Binding var selection: BodyHomeCardKind?
+    @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Star Metric") {
@@ -1677,13 +1678,22 @@ private struct BodyStarMetricPickerSheet: View {
                         .padding(.leading, 76)
 
                     BodyStarMetricOptionRow(
-                        title: card.title,
+                        title: card.starMetricTitle,
                         subtitle: card.subtitle,
                         iconName: card.iconName,
                         tintColor: card.tintColor,
                         isSelected: selection == card
                     ) {
                         selection = card
+                    }
+
+                    // Its options show only while the ring is the one pinned.
+                    if card == .readiness, selection == .readiness {
+                        BodyStarMetricSubOptionToggleRow(
+                            title: "Readiness Level",
+                            subtitle: "Show today's level under the score",
+                            isEnabled: $readinessHeroShowsLevel
+                        )
                     }
                 }
             }
@@ -2914,6 +2924,47 @@ private struct BodyWorkoutColorWheel: View {
         if angle < 0 { angle += 1 }
         hue = angle
         saturation = radius > 0 ? dist / Double(radius) : 0
+    }
+}
+
+/// An option of the Star Metric row directly above it: no divider or icon tile, indented
+/// to that row's title and set in smaller type, so it reads as part of the metric rather
+/// than as another metric to pick.
+private struct BodyStarMetricSubOptionToggleRow: View {
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text(subtitle)
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle(title, isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.leading, 76)
+        .padding(.trailing, 18)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
