@@ -515,7 +515,7 @@ struct BodyHealthMetricDetailView: View {
             .padding(.bottom, 32)
             .readableContentColumn()
         }
-        .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+        .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing, onBusy: workoutStore.noteRefreshRequestedWhileBusy) {
             Task { await workoutStore.refreshHealthMetric(model.kind) }
         }
         // Keyed on entitlement, not bare: the Body Pro paywall is a sheet presented

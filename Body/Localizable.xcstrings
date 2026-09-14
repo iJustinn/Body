@@ -1216,6 +1216,38 @@
         }
       }
     },
+    "Background checks running" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background checks running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后台检查中"
+          }
+        }
+      }
+    },
+    "Try again later" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try again later"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请稍后再试"
+          }
+        }
+      }
+    },
     "accessibility.deleteProfile" : {
       "extractionState" : "manual",
       "localizations" : {

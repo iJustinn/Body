@@ -3132,7 +3132,18 @@ final class SourceGuardTests: XCTestCase {
         for source in [homeSource, workoutsSource, detailSource] {
             XCTAssertFalse(source.contains(".refreshable"))
             XCTAssertTrue(source.contains(".bodyPullToRefresh("))
+            // A pull that lands while a refresh or repair holds the slot tells the user
+            // through the sync badge instead of doing nothing.
+            XCTAssertTrue(source.contains("onBusy: workoutStore.noteRefreshRequestedWhileBusy"))
         }
+
+        let triggerSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyPullToRefreshTrigger.swift")
+        XCTAssertTrue(triggerSource.contains("if isRefreshing {\n                        onBusy()"))
+        XCTAssertFalse(triggerSource.contains("guard isArmed, isTouchDriven, !isRefreshing"))
+
+        let badgeSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyHealthSyncBadge.swift")
+        XCTAssertTrue(badgeSource.contains(".onChange(of: workoutStore.refreshBusyNoticeID)"))
+        XCTAssertTrue(badgeSource.contains("busyNoticeShowsRetry ? \"Try again later\" : \"Background checks running\""))
     }
 
     func testWorkoutsPageShowsOneChartAtATimeWithAPersistedSwitch() throws {

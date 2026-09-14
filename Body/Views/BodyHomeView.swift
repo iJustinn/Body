@@ -605,7 +605,7 @@ struct BodyHomeView: View {
                         // sideways under a diagonal drag.
                         .frame(width: page.size.width)
                     }
-                    .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+                    .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing, onBusy: workoutStore.noteRefreshRequestedWhileBusy) {
                         Task { await workoutStore.requestAuthorizationAndRefresh() }
                     }
                     .onScrollGeometryChange(for: CGFloat.self) { geometry in

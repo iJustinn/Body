@@ -281,7 +281,7 @@ struct BodyWorkoutsView: View {
                     } action: { _, scrolled in
                         isListScrolledFromTop = scrolled
                     }
-                    .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+                    .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing, onBusy: workoutStore.noteRefreshRequestedWhileBusy) {
                         Task { await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear) }
                     }
                     .opacity(isListLoaded ? 1 : 0)

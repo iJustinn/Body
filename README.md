@@ -18,7 +18,7 @@ Body is a privacy-focused iOS health visualization app built with SwiftUI. It tu
 
 Current app version: **1.1.1 (build 6)**
 
-The sync badge stays visible across scheduled foreground follow-ups, names the active Readiness, Stress, Training Load, or Body Radar calculation, and confirms completion once. If required follow-up work fails after an update, it reports “Some health data updated”. Quiet maintenance stays invisible.
+The sync badge stays visible across scheduled foreground follow-ups, names the active Readiness, Stress, Training Load, or Body Radar calculation, and confirms completion once. If required follow-up work fails after an update, it reports “Some health data updated”. Quiet maintenance stays invisible. Pulling to refresh during a regular refresh leaves that refresh alone with no extra message. Pulling while a background repair, a permission change refetch, or the predicted effort pass is blocking it no longer does nothing: the badge shows “Background checks running”, then “Try again later”, each for 2 seconds, even if that work's own badge is hidden. The notice goes away as soon as that work ends.
 
 Record-input validation is separate from workout display fallback. A failed associated-distance read preserves the existing record contribution and cannot advance baseline coverage. Successful empty reads remove the obsolete distance/rate values; successful month membership removes only absent workouts in that month. Unrelated effort or heart-data failures do not invalidate record inputs.
 

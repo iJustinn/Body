@@ -64,13 +64,31 @@ struct BodyHealthSyncBadge: View {
     @Environment(\.locale) private var locale
     let isSuppressed: Bool
     @State private var suppressedSessionID: UUID?
+    /// The busy notice is two short messages in turn, each shown for
+    /// `busyNoticeStepDuration`. The store owns its lifetime and clears it the moment the
+    /// blocking work ends, so a completion confirmation or the next refresh is never hidden
+    /// behind it; this only records a notice that ran its course or arrived while suppressed.
+    @State private var endedBusyNoticeID: UUID?
+    @State private var busyNoticeShowsRetry = false
+
+    private static let busyNoticeStepDuration: Duration = .seconds(2)
 
     private var presentation: BodySyncPresentation { workoutStore.syncPresentation }
+    private var busyNoticeID: UUID? { workoutStore.refreshBusyNoticeID }
+    private var showsBusyNotice: Bool { !isSuppressed && busyNoticeID != nil && busyNoticeID != endedBusyNoticeID }
     private var showsBadge: Bool { !isSuppressed && presentation.sessionID != suppressedSessionID && presentation.phase != .hidden }
 
     var body: some View {
         ZStack(alignment: .top) {
-            if showsBadge {
+            if showsBusyNotice {
+                BodySyncStatusBadgeLabel(
+                    icon: .spinner,
+                    text: busyNoticeShowsRetry ? "Try again later" : "Background checks running",
+                    textID: AnyHashable(busyNoticeShowsRetry),
+                    updatesFrequently: false
+                )
+                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+            } else if showsBadge {
                 BodySyncStatusBadgeLabel(
                     icon: presentation.phase == .syncing ? .spinner : .checkmark,
                     text: presentation.phase == .syncing ? presentation.displayedStage.badgeText : completionText,
@@ -81,6 +99,7 @@ struct BodyHealthSyncBadge: View {
             }
         }
         .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: showsBadge)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: showsBusyNotice)
         .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: presentation.phase)
         .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: presentation.displayedStage)
         .allowsHitTesting(false)
@@ -91,6 +110,27 @@ struct BodyHealthSyncBadge: View {
             do { try await Task.sleep(for: .seconds(delay)) } catch { return }
             guard !Task.isCancelled else { return }
             workoutStore.advanceSyncPresentation(expected: expected)
+        }
+        .task(id: busyNoticeID) {
+            guard let shown = busyNoticeID else { return }
+            busyNoticeShowsRetry = false
+            do { try await Task.sleep(for: Self.busyNoticeStepDuration) } catch { return }
+            guard busyNoticeID == shown else { return }
+            busyNoticeShowsRetry = true
+            do { try await Task.sleep(for: Self.busyNoticeStepDuration) } catch { return }
+            if busyNoticeID == shown { endedBusyNoticeID = shown }
+        }
+        .animation(reduceMotion ? nil : .snappy(duration: 0.28), value: busyNoticeShowsRetry)
+        .onChange(of: workoutStore.refreshBusyNoticeID) { _, id in
+            guard let id else { return }
+            busyNoticeShowsRetry = false
+            guard !isSuppressed else {
+                endedBusyNoticeID = id
+                return
+            }
+            AccessibilityNotification.Announcement(
+                String(localized: "Background checks running") + ". " + String(localized: "Try again later")
+            ).post()
         }
         .onAppear {
             if isSuppressed { suppressedSessionID = presentation.sessionID }

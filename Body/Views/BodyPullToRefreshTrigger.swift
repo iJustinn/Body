@@ -13,8 +13,10 @@ import UIKit
 private struct BodyPullToRefreshTrigger: ViewModifier {
     /// Pull distance (in points, past the resting top) that fires `action`.
     let threshold: CGFloat
-    /// When true the pull is ignored, so an in-flight refresh can't re-trigger.
+    /// When true the pull calls `onBusy` instead of `action`, so an in-flight
+    /// refresh can't re-trigger but the user still hears back.
     let isRefreshing: Bool
+    let onBusy: () -> Void
     let action: () -> Void
 
     /// Latch that lets a single pull fire once; re-armed when the content
@@ -35,10 +37,14 @@ private struct BodyPullToRefreshTrigger: ViewModifier {
                 geometry.contentOffset.y + geometry.contentInsets.top
             } action: { _, offset in
                 if offset < -threshold {
-                    guard isArmed, isTouchDriven, !isRefreshing else { return }
+                    guard isArmed, isTouchDriven else { return }
                     isArmed = false
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    action()
+                    if isRefreshing {
+                        onBusy()
+                    } else {
+                        action()
+                    }
                 } else if offset >= -1 {
                     isArmed = true
                 }
@@ -52,8 +58,9 @@ extension View {
     func bodyPullToRefresh(
         threshold: CGFloat = 70,
         isRefreshing: Bool = false,
+        onBusy: @escaping () -> Void = {},
         action: @escaping () -> Void
     ) -> some View {
-        modifier(BodyPullToRefreshTrigger(threshold: threshold, isRefreshing: isRefreshing, action: action))
+        modifier(BodyPullToRefreshTrigger(threshold: threshold, isRefreshing: isRefreshing, onBusy: onBusy, action: action))
     }
 }

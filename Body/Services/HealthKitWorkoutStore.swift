@@ -219,6 +219,12 @@ final class HealthKitWorkoutStore {
         willSet { if newValue { retireBackgroundRefresh() } }
         didSet {
             if isRefreshing, !oldValue { syncPresentation.begin(now: ProcessInfo.processInfo.systemUptime) }
+            // Every release path lands here, so the busy notice ends with the work that
+            // blocked the pull instead of covering its confirmation or the next refresh.
+            if !isRefreshing {
+                isRegularRefresh = false
+                refreshBusyNoticeID = nil
+            }
         }
     }
     @ObservationIgnored var healthChangeCoordinator: BodyHealthChangeCoordinator?
@@ -325,6 +331,21 @@ final class HealthKitWorkoutStore {
     func settleForegroundContinuation(_ token: UUID) {
         if foregroundContinuationID == token { foregroundContinuationID = nil }
         syncPresentation.release(token, now: ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// True while the slot is held by a regular refresh (launch, resume, pull, metric or
+    /// month refresh, settings context refresh) rather than a repair or other work.
+    private(set) var isRegularRefresh = false
+
+    /// Set each time a pull to refresh lands while a repair or other non refresh work
+    /// holds the slot, so the sync badge can say so instead of the pull doing nothing.
+    /// Shown even when the running session's badge is hidden. A pull during a regular
+    /// refresh sets nothing: that refresh already covers it.
+    private(set) var refreshBusyNoticeID: UUID?
+
+    func noteRefreshRequestedWhileBusy() {
+        guard isRefreshing, !isRegularRefresh else { return }
+        refreshBusyNoticeID = UUID()
     }
 
     func cancelSyncPresentation() {
@@ -760,8 +781,9 @@ final class HealthKitWorkoutStore {
     /// Test seam: holds the refresh slot for the duration of `body` exactly as the
     /// refresh entry points do, so waiter orchestration can be exercised without
     /// HealthKit.
-    func withRefreshSlotHeld(_ body: @MainActor () async -> Void) async {
+    func withRefreshSlotHeld(regularRefresh: Bool = false, _ body: @MainActor () async -> Void) async {
         isRefreshing = true
+        isRegularRefresh = regularRefresh
         defer { finishRefresh() }
         await body()
     }
@@ -903,6 +925,7 @@ final class HealthKitWorkoutStore {
                     await operation(intent)
                 } else if !requiresFetch {
                     self.isRefreshing = true
+                    self.isRegularRefresh = true
                     await self.runRefreshWithDeadline {
                         if await self.updateHealthDashboardSnapshot(
                             summary: self.healthSummary, trends: self.healthTrends,
@@ -1555,6 +1578,7 @@ final class HealthKitWorkoutStore {
         // second entry point arriving during the authorization round-trip
         // passes the `isRefreshing` guard and starts a concurrent refresh.
         isRefreshing = true
+        isRegularRefresh = true
         defer { finishRefresh() }
 
         // Only when a prompt can actually appear; otherwise the badge keeps its
@@ -1587,6 +1611,7 @@ final class HealthKitWorkoutStore {
         }
 
         isRefreshing = true
+        isRegularRefresh = true
         defer { finishRefresh() }
         await hydratePersistedDaySamplesIfNeeded()
         await engine.setHealthTrendAnchorDate(date)
@@ -3651,6 +3676,7 @@ final class HealthKitWorkoutStore {
         }
 
         isRefreshing = true
+        isRegularRefresh = true
         defer { finishRefresh() }
         // Same rule as `requestAuthorizationAndRefresh`: only when a prompt can
         // actually appear.

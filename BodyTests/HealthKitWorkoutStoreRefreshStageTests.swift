@@ -36,6 +36,32 @@ final class HealthKitWorkoutStoreRefreshStageTests: XCTestCase {
         XCTAssertNil(store.refreshStage)
     }
 
+    /// A pull during a regular refresh leaves it alone; only a repair or other work
+    /// holding the slot gets the badge's busy notice.
+    @MainActor
+    func testPullWhileBusyNotifiesOnlyForNonRefreshWork() async {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let store = emptyHealthDataStore()
+        store.noteRefreshRequestedWhileBusy()
+        XCTAssertNil(store.refreshBusyNoticeID)
+
+        await store.withRefreshSlotHeld(regularRefresh: true) {
+            store.noteRefreshRequestedWhileBusy()
+            XCTAssertNil(store.refreshBusyNoticeID)
+        }
+        XCTAssertFalse(store.isRegularRefresh)
+
+        await store.withRefreshSlotHeld {
+            store.noteRefreshRequestedWhileBusy()
+            XCTAssertNotNil(store.refreshBusyNoticeID)
+        }
+        // Dismissed the moment the blocking work ends, so the completion confirmation or
+        // the next refresh is never hidden behind it.
+        XCTAssertNil(store.refreshBusyNoticeID)
+    }
+
     /// Every case needs copy: a new stage without a badge string would render
     /// an empty capsule mid-refresh.
     func testEveryStageHasBadgeText() {

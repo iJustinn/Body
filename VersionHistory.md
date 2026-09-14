@@ -1,6 +1,7 @@
 ## 1.1.1 (build 6)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.1 build 6.
+- Pulling to refresh on Summary, Workouts, or a metric detail page while a background repair, a permission change refetch, or the predicted effort pass was running used to do nothing, with no badge, for as long as the work ran. It now plays the pull tap and the sync badge shows “Background checks running”, then “Try again later”, each for 2 seconds, or until that work ends, so its completion confirmation and the next refresh are never hidden behind the notice. A pull during a regular refresh still leaves that refresh alone with no extra message.
 
 # Version History
 

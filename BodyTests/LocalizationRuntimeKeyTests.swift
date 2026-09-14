@@ -816,6 +816,8 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Calculating Training Load...",
             "Calculating Body Radar...",
             "Some health data updated",
+            "Background checks running",
+            "Try again later",
             "Updating Readiness...",
             "Updating Stress...",
             "Updating Body Radar...",
