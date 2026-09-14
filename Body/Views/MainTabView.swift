@@ -37,9 +37,19 @@ enum BodyMainTab: Hashable, CaseIterable {
 }
 
 struct MainTabView: View {
-    @State private var selectedTab: BodyMainTab = .summary
+    @Bindable private var notificationRoute = BodyAppRuntime.shared.notificationRoute
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
+    @State private var showsNotificationExplainer = false
+    @State private var readinessHeroState = BodyReadinessHeroState()
+
+    private var selectedTab: BodyMainTab {
+        get { notificationRoute.selectedTab }
+        nonmutating set { notificationRoute.selectedTab = newValue }
+    }
     @State private var summaryReselectCount = 0
     @State private var isFirstLaunchOverlayPresented = false
+    @AppStorage(BodyAppearancePreference.navigationBarShowsLabelsKey) private var navigationBarShowsLabels = false
     @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.updateOnboardingCompletedVersionKey) private var updateOnboardingCompletedVersion = ""
 
@@ -102,9 +112,46 @@ struct MainTabView: View {
         }
     }
 
+    private var notificationReady: Bool {
+        scenePhase == .active && !showsOnboarding && !showsUpdateOnboarding && !isFirstLaunchOverlayPresented
+            && !workoutStore.needsInitialHealthDataLoad && !workoutStore.isRefreshing
+    }
+
+    /// A tapped notification navigates as soon as the cached dashboard has data: the
+    /// background pass that sent it already repaired and persisted that data, so the
+    /// page opens on it while the launch refresh updates in place. Only an empty cache
+    /// (first launch) still waits for the refresh to finish.
+    private var notificationRouteReady: Bool {
+        notificationReady || (scenePhase == .active && !showsOnboarding && !showsUpdateOnboarding
+            && !isFirstLaunchOverlayPresented && workoutStore.hasHealthDataToShow)
+    }
+
     var body: some View {
         content
+            .task(id: notificationRouteReady) {
+                notificationRoute.ready = notificationRouteReady
+            }
+            .task(id: notificationReady) {
+                guard notificationReady else { return }
+                if UserDefaults.standard.bool(forKey: BodyNotificationPreferences.onboardingPromptKey) {
+                    showsNotificationExplainer = true
+                } else if UserDefaults.standard.bool(forKey: BodyNotificationPreferences.automaticPromptKey) {
+                    await BodyNotificationPermission.shared.request()
+                    UserDefaults.standard.set(false, forKey: BodyNotificationPreferences.automaticPromptKey)
+                }
+            }
+            .alert("notifications.permission.title", isPresented: $showsNotificationExplainer) {
+                Button("notifications.permission.enable") {
+                    UserDefaults.standard.set(false, forKey: BodyNotificationPreferences.onboardingPromptKey)
+                    Task { await BodyNotificationPermission.shared.request() }
+                }
+                Button("notifications.permission.later", role: .cancel) {
+                    UserDefaults.standard.set(false, forKey: BodyNotificationPreferences.onboardingPromptKey)
+                }
+            } message: { Text("notifications.permission.explainer") }
             .environment(\.summaryReselectCount, summaryReselectCount)
+            .environment(\.selectedMainTab, selectedTab)
+            .environment(readinessHeroState)
             .accessibilityHidden(isFirstLaunchOverlayPresented || showsOnboarding || showsUpdateOnboarding)
             .overlay(alignment: .top) {
                 BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented || showsOnboarding || showsUpdateOnboarding)
@@ -129,8 +176,12 @@ struct MainTabView: View {
                 ForEach(BodyMainTab.allCases, id: \.self) { tab in
                     tab.destination
                         .tabItem {
-                            Image(systemName: tab.systemImage)
-                                .accessibilityLabel(tab.accessibilityLabel)
+                            if navigationBarShowsLabels {
+                                Label(tab.accessibilityLabel, systemImage: tab.systemImage)
+                            } else {
+                                Image(systemName: tab.systemImage)
+                                    .accessibilityLabel(tab.accessibilityLabel)
+                            }
                         }
                         .tag(tab)
                 }
@@ -146,10 +197,10 @@ struct MainTabView: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear.frame(height: 64)
+                Color.clear.frame(height: navigationBarShowsLabels ? 72 : 64)
             }
             .overlay(alignment: .bottom) {
-                BodyPillTabBar(selection: tabSelection)
+                BodyPillTabBar(selection: tabSelection, showsLabels: navigationBarShowsLabels)
             }
         }
     }

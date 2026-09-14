@@ -241,6 +241,7 @@ struct BodyHeartRateRangeTrendChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
+            .bodyChartScrubHaptics(selection: selectedRangePoint?.date)
             .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedRangePoint?.date) {
                 guard let point = selectedRangePoint,
                       let lowValue = point.lowValue,

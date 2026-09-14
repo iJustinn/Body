@@ -515,7 +515,7 @@ struct BodyHealthMetricDetailView: View {
             .padding(.bottom, 32)
             .readableContentColumn()
         }
-        .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+        .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing, onBusy: workoutStore.noteRefreshRequestedWhileBusy) {
             Task { await workoutStore.refreshHealthMetric(model.kind) }
         }
         // Keyed on entitlement, not bare: the Body Pro paywall is a sheet presented
@@ -686,6 +686,7 @@ struct BodyHealthMetricDetailView: View {
                 basicsTrendZoomSource(BodyHomeTrendCard(model: card), for: kind)
             }
             .buttonStyle(.plain)
+            .bodyCardTapHaptics()
         }
     }
 
@@ -2227,7 +2228,8 @@ struct BodyHealthMetricDetailView: View {
                         // Heart rate and respiratory rate plot min-max bars on their
                         // Week/Month/6M/Year chart, so their Day View carries the same
                         // bars per hour.
-                        showsHourlyRangeBars: model.kind == .heartRate || model.kind == .respiratoryRate
+                        showsHourlyRangeBars: model.kind == .heartRate || model.kind == .respiratoryRate,
+                        floatingCallout: floatingCallout
                     )
                     .frame(height: BodyHealthDetailChartLayout.dayChartHeight)
                     // Scoped so only day-series content changes animate: marks glide to

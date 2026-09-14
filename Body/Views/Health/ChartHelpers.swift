@@ -15,6 +15,7 @@ struct BodyHealthTrendRangeSelector: View {
     }
 
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(BodyAppearancePreference.trendRangeHapticsEnabledKey) private var hapticsEnabled = true
     @Binding var selectedRange: BodyHealthTrendRange
     var appearance: Appearance = .standard
     /// When false, every range but the free `.recentWeek` is locked: its pill shows a
@@ -26,6 +27,9 @@ struct BodyHealthTrendRangeSelector: View {
         HStack(spacing: 8) {
             ForEach(BodyHealthTrendRange.allCases) { range in
                 Button {
+                    if hapticsEnabled {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
                     if isLocked(range) {
                         onLockedRangeTap()
                     } else {
@@ -334,6 +338,10 @@ struct BodyChartFloatingCalloutLayer: View {
                 }
 
                 callout.content
+                    // Ideal size, as a chart's own `.annotation` proposes: the
+                    // layer spans the screen, and content with a `Divider` (the
+                    // Day View's sample breakdown) would stretch to fill it.
+                    .fixedSize()
                     .onGeometryChange(for: CGSize.self) { proxy in
                         proxy.size
                     } action: { size in
@@ -492,6 +500,30 @@ private struct BodyChartFloatingCalloutReporterModifier: ViewModifier {
             BodyChartFloatingCallout(anchor: anchor, content: calloutContent()),
             owner: ownerID
         )
+    }
+}
+
+/// Scrub haptics shared by every chart callout: a light tap as the callout
+/// appears, then a selection tick each time the scrub snaps to a different
+/// point. Keyed on the selected point's identity, so sliding within one point
+/// stays silent, and nothing plays on release. Gated by Settings > General >
+/// Vibration > Chart Vibration.
+struct BodyChartScrubHaptics: ViewModifier {
+    @AppStorage(BodyAppearancePreference.chartScrubHapticsEnabledKey) private var isEnabled = true
+
+    let selection: AnyHashable?
+
+    func body(content: Content) -> some View {
+        content.sensoryFeedback(trigger: selection) { oldValue, newValue in
+            guard isEnabled, newValue != nil else { return nil }
+            return oldValue == nil ? .impact(weight: .light) : .selection
+        }
+    }
+}
+
+extension View {
+    func bodyChartScrubHaptics(selection: AnyHashable?) -> some View {
+        modifier(BodyChartScrubHaptics(selection: selection))
     }
 }
 

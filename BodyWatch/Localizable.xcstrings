@@ -1,23 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "%lld MIN THIS WEEK" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld MIN THIS WEEK"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本周运动 %lld 分钟"
-          }
-        }
-      }
-    },
     "·" : {
       "localizations" : {
         "en" : {
@@ -47,6 +30,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@（构建 %@）"
+          }
+        }
+      }
+    },
+    "%lld MIN THIS WEEK" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld MIN THIS WEEK"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周运动 %lld 分钟"
           }
         }
       }
@@ -268,6 +268,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "分"
+          }
+        }
+      }
+    },
+    "Readiness %lld percent, %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness %lld percent, %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态%1$lld%%，%2$@"
+          }
+        }
+      }
+    },
+    "Readiness, needs more data" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness, needs more data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态，数据不足"
           }
         }
       }

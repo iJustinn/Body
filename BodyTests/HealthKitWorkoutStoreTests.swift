@@ -291,13 +291,15 @@ final class HealthKitWorkoutStoreTests: XCTestCase {
 
         let emptyStore = HealthKitWorkoutStore(
             initialMonthSnapshots: [initialSnapshot],
-            initialHealthDashboardSnapshot: .empty
+            initialHealthDashboardSnapshot: .empty,
+            initialPermissionSelection: .defaultValue
         )
         XCTAssertTrue(emptyStore.needsInitialHealthDataLoad)
 
         let cachedStore = HealthKitWorkoutStore(
             initialMonthSnapshots: [initialSnapshot],
-            initialHealthDashboardSnapshot: try cachedHealthDashboardSnapshot()
+            initialHealthDashboardSnapshot: try cachedHealthDashboardSnapshot(),
+            initialPermissionSelection: .defaultValue
         )
         XCTAssertFalse(cachedStore.needsInitialHealthDataLoad)
     }

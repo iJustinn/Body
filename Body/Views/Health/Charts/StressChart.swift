@@ -550,6 +550,7 @@ struct BodyStressIntradayPlot: View {
                 scrubX: scrubbedMarkID == nil ? nil : scrubX
             )
             .contentShape(Rectangle())
+            .bodyChartScrubHaptics(selection: scrubbedMarkID)
             .gesture(
                 // Scrubbing is ignored mid-morph: the marks under the finger are
                 // interpolated geometry that belongs to neither day.
@@ -671,7 +672,6 @@ struct BodyStressIntradayPlot: View {
         )
 
         if scrubX == nil {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
                 scrubX = centreX
                 scrubbedMarkID = mark.id

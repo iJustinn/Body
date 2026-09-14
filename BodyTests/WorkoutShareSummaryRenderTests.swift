@@ -294,12 +294,10 @@ final class WorkoutShareSummaryRenderTests: XCTestCase {
         let zoneTop: (CGSize) -> CGFloat = { $0.height - WorkoutShareCardGeometry.brandingZoneHeight }
 
         for aspectRatio in WorkoutShareSummaryCardGeometry.supportedAspectRatios {
-            for chartStyle in WorkoutSummaryChartStyle.allCases {
-                let geometry = WorkoutShareSummaryCardGeometry(aspectRatio: aspectRatio, metricCount: 3)
-                let limit = zoneTop(geometry.size)
-                XCTAssertLessThanOrEqual(geometry.metricsRect.maxY, limit, "metrics reach the branding zone on \(aspectRatio.rawValue)")
-                XCTAssertLessThanOrEqual(geometry.chartRect.maxY, limit, "chart reaches the branding zone on \(aspectRatio.rawValue)")
-            }
+            let geometry = WorkoutShareSummaryCardGeometry(aspectRatio: aspectRatio, metricCount: 3)
+            let limit = zoneTop(geometry.size)
+            XCTAssertLessThanOrEqual(geometry.metricsRect.maxY, limit, "metrics reach the branding zone on \(aspectRatio.rawValue)")
+            XCTAssertLessThanOrEqual(geometry.chartRect.maxY, limit, "chart reaches the branding zone on \(aspectRatio.rawValue)")
         }
 
         // Pixels: the branding row is centred, so the strip from the card's left edge to

@@ -393,6 +393,9 @@ final class HealthDashboardCacheScopeTests: XCTestCase {
             // A later passive observation must not downgrade the queued action.
             _ = store.captureRefreshInputs()
             await fulfillment(of: [corrected], timeout: 3)
+            // A queued context task can retain this fixture into the next edit
+            // or test. Retire its expectation before restoring shared defaults.
+            store.contextRefreshOverride = nil
         }
     }
 
@@ -512,8 +515,15 @@ final class HealthDashboardCacheScopeTests: XCTestCase {
         defer { store.beforePermissionDiskStrip = nil; store.contextRefreshOverride = nil }
         let first = Task { @MainActor in await store.updateHealthPermission(.heart, isEnabled: false) }
         await fulfillment(of: [firstStrip], timeout: 3)
-        let second = Task { @MainActor in await store.updateHealthPermission(.steps, isEnabled: false) }
-        for _ in 0..<100 where store.permissionSelection.includes(.steps) { await Task.yield() }
+        let secondStarted = expectation(description: "second permission transaction started")
+        let second = Task { @MainActor in
+            secondStarted.fulfill()
+            await store.updateHealthPermission(.steps, isEnabled: false)
+        }
+        // Await an actual scheduling barrier. A fixed number of yields does
+        // not guarantee the second task ran on a loaded parallel test host.
+        // Its synchronous invalidation runs before it yields the main actor.
+        await fulfillment(of: [secondStarted], timeout: 3)
         XCTAssertFalse(store.permissionSelection.includes(.steps), "Input invalidation must not wait for cleanup")
         releases.first?.resume()
         await fulfillment(of: [secondStrip], timeout: 3)

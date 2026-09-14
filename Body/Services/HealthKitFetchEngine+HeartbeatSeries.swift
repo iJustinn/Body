@@ -87,23 +87,21 @@ extension HealthKitFetchEngine {
     private func fetchHeartbeatSeriesSamples(predicate: NSPredicate?) async -> [HKHeartbeatSeriesSample]? {
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
 
-        // Cancellation resumes with `nil`, like a query failure, so the store
-        // keeps the cached series. See `runCancellableQuery`.
-        return await runCancellableQuery(cancelledValue: nil) { resume in
-            HKSampleQuery(
-                sampleType: HKSeriesType.heartbeat(),
-                predicate: predicate,
-                limit: Self.heartbeatSeriesFetchLimit,
-                sortDescriptors: [sort]
-            ) { _, samples, error in
-                guard let samples else {
-                    Self.logTrendQueryFailure(HKSeriesType.heartbeat().identifier, error: error)
-                    resume(nil)
-                    return
-                }
-
-                resume(samples.compactMap { $0 as? HKHeartbeatSeriesSample })
-            }
+        let semaphore = HealthKitQueryPool.current.semaphore
+        guard await semaphore.acquireForCurrentTask() else { return nil }
+        defer { semaphore.release() }
+        guard !Task.isCancelled, BodyBackgroundLease.current?.isValid != false else { return nil }
+        BodyRefreshProfile.shared.enterQuery()
+        defer { BodyRefreshProfile.shared.exitQuery() }
+        let outcome = await healthStore.samples(.init(sampleType: HKSeriesType.heartbeat(),
+            predicate: predicate, limit: Self.heartbeatSeriesFetchLimit, sortDescriptors: [sort]))
+        guard !Task.isCancelled else { return nil }
+        switch outcome {
+        case .success(let samples): return samples.compactMap { $0 as? HKHeartbeatSeriesSample }
+        case .failure(let error):
+            Self.logTrendQueryFailure(HKSeriesType.heartbeat().identifier, error: error)
+            return nil
+        case .cancelled: return nil
         }
     }
 

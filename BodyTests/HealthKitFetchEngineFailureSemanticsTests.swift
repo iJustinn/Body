@@ -354,7 +354,7 @@ final class HealthKitFetchEngineFailureSemanticsTests: XCTestCase {
     func testHeartRateBatchFailureReusesNonEmptyCachedPayload() throws {
         let calendar = Calendar.bodyGregorian
         let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 7)))
-        let workout = HKWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1_800))
+        let workout = makeTestWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1_800), metadata: nil)
         let samples = [
             WorkoutHeartRateSample(date: start, beatsPerMinute: 120),
             WorkoutHeartRateSample(date: start.addingTimeInterval(900), beatsPerMinute: 165)
@@ -384,7 +384,7 @@ final class HealthKitFetchEngineFailureSemanticsTests: XCTestCase {
     func testHeartRateBatchFailureWithEmptyCachedSamplesKeepsScalarAverageAndMax() throws {
         let calendar = Calendar.bodyGregorian
         let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 7)))
-        let workout = HKWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1_800))
+        let workout = makeTestWorkout(activityType: .running, start: start, end: start.addingTimeInterval(1_800), metadata: nil)
         let cached = WorkoutSummary(
             id: workout.uuid,
             type: .running,

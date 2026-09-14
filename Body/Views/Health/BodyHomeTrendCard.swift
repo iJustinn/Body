@@ -35,6 +35,7 @@ struct BodyHomeTrendsSection: View {
                             }
                     }
                     .buttonStyle(.plain)
+                    .bodyCardTapHaptics()
                 }
             }
 

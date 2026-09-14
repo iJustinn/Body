@@ -179,6 +179,7 @@ final class ActivityRingsDetailLayoutTests: XCTestCase {
 
     // MARK: - Harness
 
+    @MainActor
     private struct Harness {
         let window: UIWindow
         let host: UIViewController

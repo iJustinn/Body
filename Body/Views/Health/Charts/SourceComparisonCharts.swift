@@ -304,6 +304,7 @@ struct BodyHealthSourceComparisonLineChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
+        .bodyChartScrubHaptics(selection: selectedPoint?.date)
         .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedPoint?.date) {
             guard let selectedPoint else {
                 return AnyView(EmptyView())
@@ -734,6 +735,7 @@ struct BodyHealthSourceComparisonBarChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
+            .bodyChartScrubHaptics(selection: selectedPoint?.chartDate)
             // Paired bars select an exact offset timestamp, not a `.day`-unit mark.
             .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedPoint?.chartDate, centersOnDayInterval: false) {
                 guard let selectedPoint else {
@@ -1097,6 +1099,7 @@ struct BodyHealthSourceComparisonRangeChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
+            .bodyChartScrubHaptics(selection: selectedPoint?.chartDate)
             // Paired bars select an exact offset timestamp, not a `.day`-unit mark.
             .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedPoint?.chartDate, centersOnDayInterval: false) {
                 guard let selectedPoint else {

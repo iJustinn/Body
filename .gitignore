@@ -83,6 +83,9 @@ build/
 *.xcresult/
 *.log
 
+# Local observer-refresh device captures; reviewed findings live in Markdown
+/docs/ObserverRefresh*-20[0-9][0-9][0-9][0-9][0-9][0-9].txt
+
 # Local signing material and per-machine build settings
 *.mobileprovision
 *.provisionprofile
@@ -105,3 +108,6 @@ share-examples/
 
 ## Onboarding preview renders (generated locally by a throwaway test)
 /onboarding/
+
+# Design review captures (large PNG renders, kept out of the repo)
+hero-redesign/

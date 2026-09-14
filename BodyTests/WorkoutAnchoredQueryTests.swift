@@ -11,7 +11,7 @@ final class WorkoutAnchoredQueryTests: XCTestCase {
 
     func testScriptedAdditionDeletionEmptyFailureAndCancellationAreDistinct() async throws {
         let fake = FakeHealthStore(), date = Date(timeIntervalSince1970: 1000)
-        let workout = HKWorkout(activityType: .running, start: date, end: date.addingTimeInterval(60))
+        let workout = makeTestWorkout(activityType: .running, start: date, end: date.addingTimeInterval(60), metadata: nil)
         let bytes = try NSKeyedArchiver.archivedData(withRootObject: HKQueryAnchor(fromValue: 1), requiringSecureCoding: true)
         let deleted = UUID()
         fake.scriptWorkoutChanges([

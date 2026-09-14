@@ -97,7 +97,7 @@ extension HealthKitWorkoutStore {
     /// finalize an empty baseline.
     func scheduleRecordBaselineBackfillIfNeeded() {
         guard recordBackfillTask == nil,
-              !hasWorkoutJournalWork,
+              mayStartQuietMaintenance,
               !isClearingLocalCache,
               permissionSelection.includes(.workouts),
               authorizationState == .authorized else {
@@ -105,10 +105,19 @@ extension HealthKitWorkoutStore {
         }
 
         let epoch = currentCacheEpoch
+        let hadBaseline = recordLedger.baselineComplete
         recordBackfillTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                self.recordBackfillTask = nil
+                self.scheduleStressBackfillIfNeeded()
+                if !hadBaseline, self.recordLedger.baselineComplete { self.scheduleWorkoutJournalIfNeeded() }
+            }
             if self.recordLedger.baselineComplete {
-                await self.runRecordHistoricalRepair(capturedEpoch: epoch)
+                _ = await self.performQuietMaintenanceUnit(.records) { _ in
+                    await self.runRecordHistoricalRepair(capturedEpoch: epoch)
+                    return self.mayPublishQuietMaintenance
+                }
             } else {
                 await self.runRecordBaselineBackfill(capturedEpoch: epoch)
             }
@@ -116,10 +125,6 @@ extension HealthKitWorkoutStore {
     }
 
     private func runRecordHistoricalRepair(capturedEpoch: Int) async {
-        defer {
-            recordBackfillTask = nil
-            scheduleStressBackfillIfNeeded()
-        }
         guard !isRefreshing, !Task.isCancelled else { return }
         let inputs = captureRefreshInputs()
         let revision = recordLedgerRevision
@@ -148,7 +153,7 @@ extension HealthKitWorkoutStore {
         fetch.cancel()
         guard await engine.queryContextRevision == queryRevision,
               case .finished(let chunk?) = outcome, !Task.isCancelled,
-              !isRefreshing, recordLedgerRevision == revision,
+              !isRefreshing, mayPublishQuietMaintenance, recordLedgerRevision == revision,
               Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: currentCacheEpoch),
               mayApplyRefreshInputs(inputs),
               chunk.2.unvalidatedRecordIDs.isEmpty,
@@ -158,7 +163,7 @@ extension HealthKitWorkoutStore {
         ledger.historicalRepair = .completed(month: chunk.0, now: now, earliest: chunk.1,
             context: context, calendar: calendar)
         publishRecordLedger(ledger)
-        persistRecordLedger(ledger)
+        _ = await persistWorkoutJournalRecordLedger()
     }
 
     /// Cancels the scan and waits for it to actually exit, so a caller about to
@@ -177,82 +182,41 @@ extension HealthKitWorkoutStore {
     /// The fetch runs on the engine actor, so the only main-actor work here is the
     /// ledger fold itself — bounded by one year of workouts, once per install.
     private func runRecordBaselineBackfill(capturedEpoch: Int) async {
-        defer {
-            recordBackfillTask = nil
-            // Re-offer the Stress backfill slot on every exit — success, an
-            // early bail, or a fetch failure — mirroring how the Stress input
-            // load already does when it finishes. `finishRefresh` starts this
-            // scan before calling `scheduleStressBackfillIfNeeded()`, so that
-            // first call always stands down on `recordBackfillTask`, and the
-            // input load's own re-offer usually fires while this multi-year
-            // scan is still running. Without a re-offer here, nothing left
-            // re-checks the guard once both of those moments have passed.
-            scheduleStressBackfillIfNeeded()
-        }
-
         let calendar = Calendar.bodyGregorian
-        let inputs = captureRefreshInputs()
-        let queryRevision = await engine.queryContextRevision
-        // A nil earliest date means either "no workouts at all" or "reads we
-        // aren't allowed to see" — HealthKit doesn't distinguish them. Neither is
-        // a baseline worth finalizing, so bail and let the next launch retry.
-        guard let earliest = await engine.earliestWorkoutStartDate() else { return }
-
         let end = Date()
-        var cursor = max(recordLedger.scannedThrough ?? earliest, earliest)
-
-        while cursor < end {
-            guard !Task.isCancelled,
-                  mayApplyRefreshInputs(inputs),
-                  Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: currentCacheEpoch) else {
-                return
-            }
-
-            let chunkEnd = min(
-                calendar.date(byAdding: .year, value: Self.recordBaselineChunkYears, to: cursor) ?? end,
-                end
-            )
-
-            let revision = recordLedgerRevision
-            let result: HealthKitFetchEngine.WorkoutSummariesFetchResult
-            do {
-                // `includesHeartRateSamples: false` skips the expensive per-workout
-                // HR payload the ledger never reads. `includesDetailMetrics` must
-                // stay TRUE: it also gates `fetchWorkoutDistances`, which is the
-                // only way an associated-sample distance (no `totalDistance`
-                // aggregate) is resolved — without it the distance and pace records
-                // would permanently miss those workouts.
-                // Multi-year chunks of the same shared fetch the refresh runs,
-                // so the chunk spends the background budget: this scan must
-                // never queue ahead of a visible dashboard leaf.
-                result = try await withBackgroundQueryPool {
-                    try await engine.fetchWorkoutSummariesWithValidation(
-                        startDate: cursor,
-                        endDate: chunkEnd,
-                        includesHeartRateSamples: false,
-                        includesDetailMetrics: true
-                    )
+        var earliestWorkout: Date?
+        while !recordLedger.baselineComplete, !Task.isCancelled {
+            let completed = await performQuietMaintenanceUnit(.records) { [self] _ in
+                let inputs = captureRefreshInputs()
+                let queryRevision = await engine.queryContextRevision
+                guard mayPublishQuietMaintenance, mayApplyRefreshInputs(inputs),
+                      Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: currentCacheEpoch) else { return false }
+                if earliestWorkout == nil { earliestWorkout = await engine.earliestWorkoutStartDate() }
+                guard let earliest = earliestWorkout, mayPublishQuietMaintenance,
+                      mayApplyRefreshInputs(inputs), await engine.queryContextRevision == queryRevision else { return false }
+                let cursor = max(recordLedger.scannedThrough ?? earliest, earliest)
+                guard cursor < end else {
+                    guard mayPublishQuietMaintenance else { return false }
+                    finalizeRecordBaseline(capturedEpoch: capturedEpoch)
+                    return await persistWorkoutJournalRecordLedger()
                 }
-            } catch {
-                // A failed or cancelled chunk leaves `scannedThrough` where it is
-                // and never finalizes; the next refresh resumes from here.
-                return
+                let chunkEnd = min(calendar.date(byAdding: .year, value: Self.recordBaselineChunkYears, to: cursor) ?? end, end)
+                let revision = recordLedgerRevision
+                let result: HealthKitFetchEngine.WorkoutSummariesFetchResult
+                do {
+                    result = try await engine.fetchWorkoutSummariesWithValidation(
+                        startDate: cursor, endDate: chunkEnd, includesHeartRateSamples: false,
+                        includesDetailMetrics: true)
+                } catch { return false }
+                guard await engine.queryContextRevision == queryRevision,
+                      mayPublishQuietMaintenance, recordLedgerRevision == revision, mayApplyRefreshInputs(inputs),
+                      Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: currentCacheEpoch),
+                      applyRecordBackfillChunk(result: result, scannedThrough: chunkEnd) else { return false }
+                if chunkEnd >= end { finalizeRecordBaseline(capturedEpoch: capturedEpoch) }
+                return await persistWorkoutJournalRecordLedger()
             }
-
-            guard await engine.queryContextRevision == queryRevision,
-                  !Task.isCancelled, recordLedgerRevision == revision, mayApplyRefreshInputs(inputs),
-                  Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: currentCacheEpoch) else {
-                return
-            }
-
-            // A partial result remains displayable in month refreshes, but cannot
-            // move baseline coverage past a failed record input.
-            guard applyRecordBackfillChunk(result: result, scannedThrough: chunkEnd) else { return }
-            cursor = chunkEnd
-            await Task.yield()
+            if !completed { return }
         }
-
-        finalizeRecordBaseline(capturedEpoch: capturedEpoch)
     }
 
     private func applyRecordBackfillChunk(
@@ -270,7 +234,6 @@ extension HealthKitWorkoutStore {
         guard ledger.applyValidatedBaselineChunk(workouts: workouts, scannedThrough: scannedThrough,
             unvalidatedRecordIDs: result.unvalidatedRecordIDs) else { return false }
         publishRecordLedger(ledger)
-        persistRecordLedger(ledger)
         return true
     }
 
@@ -286,7 +249,6 @@ extension HealthKitWorkoutStore {
         var ledger = recordLedger
         ledger.baselineComplete = true
         publishRecordLedger(ledger)
-        persistRecordLedger(ledger)
     }
 
     // MARK: - Persistence
@@ -294,7 +256,9 @@ extension HealthKitWorkoutStore {
     /// Writes on the shared serial persist queue so ledger saves keep FIFO order
     /// with the snapshot saves and the Clear Cache delete barrier.
     private func persistRecordLedger(_ ledger: WorkoutRecordLedger) {
+        let token = maintenancePublicationToken
         Self.snapshotPersistQueue.async {
+            guard token?.isValid != false else { return }
             WorkoutRecordLedgerStore.save(ledger)
         }
     }

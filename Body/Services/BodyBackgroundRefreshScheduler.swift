@@ -26,22 +26,6 @@ enum BodyBackgroundRefreshScheduler {
 
     private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "BackgroundRefresh")
 
-    /// Reads the app's foreground state for the evaluator's skip gate.
-    /// `nonisolated(unsafe)` + MainActor writes only: a stale read is harmless
-    /// (the evaluator either skips a pass it could have run, or runs one the
-    /// foreground refresh will redo).
-    nonisolated(unsafe) private static var isForegroundActive = false
-
-    /// Read by `MetricWarningBackgroundEvaluator.shared`'s skip gate.
-    static var isAppForegroundActive: Bool {
-        isForegroundActive
-    }
-
-    @MainActor
-    static func setForegroundActive(_ isActive: Bool) {
-        isForegroundActive = isActive
-    }
-
     static func registerTask() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: taskIdentifier, using: nil) { task in
             handle(task)
@@ -49,7 +33,7 @@ enum BodyBackgroundRefreshScheduler {
     }
 
     static func schedule() {
-        guard UserDefaults.standard.bool(forKey: BodyAppearancePreference.metricWarningNotificationsKey) else {
+        guard BodyNotificationPreferences.enabled(BodyAppearancePreference.metricWarningNotificationsKey) else {
             return
         }
 
@@ -75,7 +59,12 @@ enum BodyBackgroundRefreshScheduler {
 
         let completion = TaskCompletion(task)
         let work = Task {
-            let outcome = await MetricWarningBackgroundEvaluator.shared.evaluate()
+            guard let lease = await BodyBackgroundAdmission.acquire(), completion.install(lease) else {
+                completion.complete(success: true)
+                return
+            }
+            defer { lease.invalidate() }
+            let outcome = await lease.run { await MetricWarningBackgroundEvaluator.shared.evaluate() }
             switch outcome {
             case .success, .skipped:
                 completion.complete(success: true)
@@ -99,15 +88,25 @@ enum BodyBackgroundRefreshScheduler {
     private final class TaskCompletion: @unchecked Sendable {
         private let lock = NSLock()
         private var task: BGTask?
+        private var lease: BodyBackgroundLease?
 
         init(_ task: BGTask) {
             self.task = task
+        }
+
+        func install(_ lease: BodyBackgroundLease) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard task != nil else { lease.invalidate(); return false }
+            self.lease = lease
+            return true
         }
 
         func complete(success: Bool) {
             lock.lock()
             let pending = task
             task = nil
+            lease?.invalidate()
             lock.unlock()
             pending?.setTaskCompleted(success: success)
         }

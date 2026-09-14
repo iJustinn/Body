@@ -27,6 +27,13 @@ final class BodyWidgetReloadCoalescer {
         self.reload = reload
     }
 
+    func flush() {
+        guard pendingReload != nil else { return }
+        pendingReload?.cancel()
+        pendingReload = nil
+        reload()
+    }
+
     func requestReload() {
         guard pendingReload == nil else {
             return
@@ -34,6 +41,7 @@ final class BodyWidgetReloadCoalescer {
 
         pendingReload = Task {
             try? await Task.sleep(nanoseconds: debounceNanoseconds)
+            guard !Task.isCancelled else { return }
             pendingReload = nil
             reload()
         }

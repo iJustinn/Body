@@ -45,6 +45,11 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsWorkoutRouteOnLoad = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentHapticsEnabledKey) private var workoutEquivalentHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.chartScrubHapticsEnabledKey) private var chartScrubHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.cardTapHapticsEnabledKey) private var cardTapHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.trendRangeHapticsEnabledKey) private var trendRangeHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.navigationBarShowsLabelsKey) private var navigationBarShowsLabels = false
+    @AppStorage(BodyNotificationPreferences.masterKey) private var notificationsEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
     @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
@@ -67,12 +72,12 @@ struct BodySettingsView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                BodyAppBackground()
-                    .ignoresSafeArea()
+                BodyTabPageBackground()
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {
                         profileEntryCard
+                        generalSection
                         appearanceSection
                         metricsSection
                         workoutsSection
@@ -302,6 +307,21 @@ struct BodySettingsView: View {
             settingsDivider
 
             Button {
+                activeSheet = .navigationBar
+            } label: {
+                BodySettingsRowLabel(
+                    title: "Navigation Bar",
+                    value: navigationBarShowsLabels ? String(localized: "Both") : String(localized: "Icons"),
+                    iconName: "rectangle.bottomthird.inset.filled",
+                    tintColor: .gray,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
                 activeSheet = .appIcon
             } label: {
                 BodySettingsRowLabel(
@@ -453,7 +473,7 @@ struct BodySettingsView: View {
                     title: "Summary Cards",
                     value: summaryCardsSummaryText,
                     iconName: "square.grid.2x2",
-                    tintColor: .pink,
+                    tintColor: .blue,
                     accessory: .chevron
                 )
             }
@@ -600,6 +620,38 @@ struct BodySettingsView: View {
         }
     }
 
+    private var generalSection: some View {
+        BodySettingsCardSection("settings.section.general") {
+            Button {
+                activeSheet = .notifications
+            } label: {
+                BodySettingsRowLabel(
+                    title: "notifications.section",
+                    value: notificationsSummaryText,
+                    iconName: "bell.badge.fill",
+                    tintColor: .red,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+
+            settingsDivider
+
+            Button {
+                activeSheet = .vibration
+            } label: {
+                BodySettingsRowLabel(
+                    title: "settings.general.vibration",
+                    value: vibrationSummaryText,
+                    iconName: "iphone.radiowaves.left.and.right",
+                    tintColor: .red,
+                    accessory: .chevron
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     private var starredMetric: Binding<BodyHomeCardKind?> {
         Binding {
             BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
@@ -609,7 +661,7 @@ struct BodySettingsView: View {
     }
 
     private var starredMetricSummaryText: String {
-        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.title ?? String(localized: "None")
+        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.starMetricTitle ?? String(localized: "None")
     }
 
     // When the background is on, the row names the matching saved profile so the
@@ -640,9 +692,28 @@ struct BodySettingsView: View {
     }
 
     // The row's summary reflects the card toggle — the sheet's master switch —
-    // not the vibration sub-setting.
+    // not the food and representation sub-settings.
     private var workoutEquivalentsSummaryText: String {
         workoutEquivalentCardEnabled ? String(localized: "On") : String(localized: "Off")
+    }
+
+    // The row's summary reflects the sheet's All Notifications master switch —
+    // the per-category choices it retains aren't summarized here.
+    private var notificationsSummaryText: String {
+        notificationsEnabled ? String(localized: "On") : String(localized: "Off")
+    }
+
+    // Vibration holds the card tap, range tap, chart scrub, and Equivalent collision
+    // switches; the row reads On or Off when they agree and Partial otherwise.
+    private var vibrationSummaryText: String {
+        let switches = [cardTapHapticsEnabled, trendRangeHapticsEnabled, chartScrubHapticsEnabled, workoutEquivalentHapticsEnabled]
+        if switches.allSatisfy({ $0 }) {
+            return String(localized: "On")
+        }
+        if switches.allSatisfy({ !$0 }) {
+            return String(localized: "Off")
+        }
+        return String(localized: "Partial")
     }
 
     private var readinessAISummaryText: String {
@@ -881,6 +952,8 @@ struct BodySettingsView: View {
             BodyHomeBackgroundSheet()
         case .workoutColors:
             BodyWorkoutColorsSheet()
+        case .navigationBar:
+            BodyNavigationBarSettingsSheet(showsLabels: $navigationBarShowsLabels)
         case .appIcon:
             BodyAppIconPickerSheet(
                 selectedIconName: selectedAppIconName,
@@ -908,13 +981,22 @@ struct BodySettingsView: View {
                 workoutStore: workoutStore
             )
         case .workoutEquivalents:
-            BodyWorkoutEquivalentsSettingsSheet(hapticsEnabled: $workoutEquivalentHapticsEnabled)
+            BodyWorkoutEquivalentsSettingsSheet()
         case .workoutRouteStyle:
             BodyWorkoutRouteStyleSettingsSheet(selection: workoutRouteStyle, drawsRoute: $drawsWorkoutRouteOnLoad)
         case .workoutMonthSwipe:
             BodyWorkoutMonthSwipeSettingsSheet(
                 isEnabled: $workoutsChartSwipeSwitchesMonth,
                 usesShortMonthNames: $workoutsMonthPickerUsesShortMonth
+            )
+        case .notifications:
+            BodyNotificationSettingsSheet()
+        case .vibration:
+            BodyVibrationSettingsSheet(
+                cardTapHapticsEnabled: $cardTapHapticsEnabled,
+                trendRangeHapticsEnabled: $trendRangeHapticsEnabled,
+                chartScrubHapticsEnabled: $chartScrubHapticsEnabled,
+                collisionHapticsEnabled: $workoutEquivalentHapticsEnabled
             )
         case .aiReadiness:
             BodyReadinessAISettingsSheet(
@@ -1010,6 +1092,7 @@ enum BodyProfileMotivation {
 enum BodySettingsSheet: String, Identifiable {
     case homeBackground
     case workoutColors
+    case navigationBar
     case appIcon
     case sleepDurationGoal
     case summaryCards
@@ -1022,6 +1105,8 @@ enum BodySettingsSheet: String, Identifiable {
     case workoutRouteStyle
     case workoutMonthSwipe
     case aiReadiness
+    case notifications
+    case vibration
     case units
     case source
     case permissions
@@ -1573,6 +1658,7 @@ private struct BodySummaryCardsSettingsSheet: View {
 
 private struct BodyStarMetricPickerSheet: View {
     @Binding var selection: BodyHomeCardKind?
+    @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Star Metric") {
@@ -1592,13 +1678,22 @@ private struct BodyStarMetricPickerSheet: View {
                         .padding(.leading, 76)
 
                     BodyStarMetricOptionRow(
-                        title: card.title,
+                        title: card.starMetricTitle,
                         subtitle: card.subtitle,
                         iconName: card.iconName,
                         tintColor: card.tintColor,
                         isSelected: selection == card
                     ) {
                         selection = card
+                    }
+
+                    // Its options show only while the ring is the one pinned.
+                    if card == .readiness, selection == .readiness {
+                        BodyStarMetricSubOptionToggleRow(
+                            title: "Readiness Level",
+                            subtitle: "Show today's level under the score",
+                            isEnabled: $readinessHeroShowsLevel
+                        )
                     }
                 }
             }
@@ -2832,6 +2927,47 @@ private struct BodyWorkoutColorWheel: View {
     }
 }
 
+/// An option of the Star Metric row directly above it: no divider or icon tile, indented
+/// to that row's title and set in smaller type, so it reads as part of the metric rather
+/// than as another metric to pick.
+private struct BodyStarMetricSubOptionToggleRow: View {
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
+    @Binding var isEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Text(subtitle)
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle(title, isOn: $isEnabled)
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityValue(isEnabled ? "On" : "Off")
+        }
+        .padding(.leading, 76)
+        .padding(.trailing, 18)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
 private struct BodyStarMetricOptionRow: View {
     let title: String
     let subtitle: String
@@ -3140,7 +3276,6 @@ struct BodyEffortSuggestionToggleRow: View {
 }
 
 private struct BodyWorkoutEquivalentsSettingsSheet: View {
-    @Binding var hapticsEnabled: Bool
     @AppStorage(BodyAppearancePreference.workoutEquivalentHiddenFoodsKey) private var hiddenFoodsRawValue = BodyEquivalentFoodSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.workoutEquivalentPrefersMoreItemsKey) private var prefersMoreItems = false
     @AppStorage(BodyAppearancePreference.workoutEquivalentUsesTotalEnergyKey) private var usesTotalEnergy = false
@@ -3169,15 +3304,6 @@ private struct BodyWorkoutEquivalentsSettingsSheet: View {
 
                 BodyWorkoutEquivalentEmojiSizeRow(scale: $emojiScale)
                     .bodyCardBackground(translucent: true)
-
-                BodyWorkoutEquivalentHapticsToggleRow(isEnabled: $hapticsEnabled)
-                    .bodyCardBackground(translucent: true)
-
-                Text("Vibration plays a soft tap whenever two foods collide in the Equivalent card. Turn it off if you'd rather the card stay silent.")
-                    .font(.system(.footnote, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
 
                 BodyWorkoutEquivalentTotalEnergyToggleRow(isEnabled: $usesTotalEnergy)
                     .bodyCardBackground(translucent: true)
@@ -3220,25 +3346,130 @@ private struct BodyWorkoutEquivalentsSettingsSheet: View {
     }
 }
 
-private struct BodyWorkoutEquivalentHapticsToggleRow: View {
+private struct BodyVibrationSettingsSheet: View {
+    @Binding var cardTapHapticsEnabled: Bool
+    @Binding var trendRangeHapticsEnabled: Bool
+    @Binding var chartScrubHapticsEnabled: Bool
+    @Binding var collisionHapticsEnabled: Bool
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "settings.general.vibration") {
+            VStack(alignment: .leading, spacing: 12) {
+                BodyVibrationToggleRow(
+                    iconName: "hand.tap.fill",
+                    color: .green,
+                    title: "Card Vibration",
+                    subtitle: "A light tap when you open a card",
+                    isEnabled: $cardTapHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+
+                vibrationFootnote(
+                    "Applies when you tap a card to open its page. Summary: the readiness hero, the metric cards, the Activity Rings card, and the trend cards. Workouts: each workout in the list. Metric detail pages: the Basics trend cards."
+                )
+
+                BodyVibrationToggleRow(
+                    iconName: "calendar",
+                    color: .orange,
+                    title: "Range Vibration",
+                    subtitle: "A light tap when you pick a time range",
+                    isEnabled: $trendRangeHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies when you tap Week, Month, 6 Months, or Year at the top of a metric detail page, including a locked range that opens Body Pro."
+                )
+
+                BodyVibrationToggleRow(
+                    iconName: "chart.xyaxis.line",
+                    color: .blue,
+                    title: "Chart Vibration",
+                    subtitle: "A tap when a chart callout appears and a tick per point",
+                    isEnabled: $chartScrubHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts."
+                )
+
+                BodyVibrationToggleRow(
+                    iconName: "fork.knife",
+                    color: .purple,
+                    title: "Collision Vibration",
+                    subtitle: "Light haptics when foods bump into each other",
+                    isEnabled: $collisionHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies to the Equivalent card on a workout's detail page: a soft tap whenever two foods collide. Turn it off if you'd rather the card stay silent."
+                )
+            }
+        }
+    }
+
+    private func vibrationFootnote(_ text: LocalizedStringKey) -> some View {
+        Text(text)
+            .font(.system(.footnote, design: .rounded))
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 4)
+    }
+}
+
+private struct BodyNavigationBarSettingsSheet: View {
+    @Binding var showsLabels: Bool
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Navigation Bar") {
+            VStack(alignment: .leading, spacing: 12) {
+                BodyVibrationToggleRow(
+                    iconName: "rectangle.bottomthird.inset.filled",
+                    color: .gray,
+                    title: "Tab Labels",
+                    subtitle: "Show each tab's name under its icon",
+                    isEnabled: $showsLabels
+                )
+                .bodyCardBackground(translucent: true)
+
+                Text("Applies to the bar at the bottom of the screen. Off by default, so the bar shows only the Summary, Workouts, and Settings icons. Names appear right away when you turn this on, but because of a system limitation they can stay visible after you turn it off until Body restarts.")
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+}
+
+private struct BodyVibrationToggleRow: View {
+    let iconName: String
+    let color: Color
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
     @Binding var isEnabled: Bool
 
     var body: some View {
         HStack(spacing: 14) {
             BodySettingsIconTile(
-                iconName: "fork.knife",
-                color: .purple
+                iconName: iconName,
+                color: color
             )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Collision Vibration")
+                Text(title)
                     .font(.system(.headline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
 
-                Text("Light haptics when foods bump into each other")
+                Text(subtitle)
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -3248,7 +3479,7 @@ private struct BodyWorkoutEquivalentHapticsToggleRow: View {
 
             Spacer(minLength: 12)
 
-            Toggle("Collision Vibration", isOn: $isEnabled)
+            Toggle(title, isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")
@@ -3888,50 +4119,16 @@ private struct BodyMetricWarningsSettingsSheet: View {
     @Binding var thresholds: BodyMetricWarningThresholds
     let workoutStore: HealthKitWorkoutStore
 
-    @AppStorage(BodyAppearancePreference.metricWarningNotificationsKey) private var metricWarningNotificationsEnabled = false
     @AppStorage(BodyAppearancePreference.metricWarningsOnReadinessHeroKey) private var showsWarningsOnReadinessHero = true
 
     /// Needed for the high heart rate default, which tracks zone 3's lower bound.
     @State private var resolvedMaxHeartRate: Double?
-
-    /// Set when the system denied the notification request, so the row can tell
-    /// the user to turn notifications on in Settings.
-    @State private var notificationsDenied = false
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Warnings") {
             VStack(alignment: .leading, spacing: 12) {
                 BodyMetricWarningReadinessHeroRow(isEnabled: $showsWarningsOnReadinessHero)
                     .bodyCardBackground(translucent: true)
-
-                BodyMetricWarningNotificationsRow(isEnabled: Binding {
-                    metricWarningNotificationsEnabled
-                } set: { isEnabled in
-                    metricWarningNotificationsEnabled = isEnabled
-                    if isEnabled {
-                        Task { await enableNotifications() }
-                    } else {
-                        notificationsDenied = false
-                        BodyBackgroundRefreshScheduler.cancelPending()
-                    }
-                })
-                .bodyCardBackground(translucent: true)
-
-                Text("When on, Body periodically checks in the background and sends a notification the first time a warning is detected each day. Checks are scheduled by the system and are not real-time.")
-                    .font(.system(.footnote, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
-
-                if notificationsDenied {
-                    Text("Notifications are turned off for Body. Enable them in Settings to get warning alerts.")
-                        .font(.system(.footnote, design: .rounded))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 4)
-                }
 
                 ForEach(MetricWarningKind.allCases) { kind in
                     VStack(spacing: 0) {
@@ -3973,31 +4170,6 @@ private struct BodyMetricWarningsSettingsSheet: View {
         }
         .task {
             resolvedMaxHeartRate = await workoutStore.userMaxHeartRate()
-            await reflectNotificationAuthorization()
-        }
-    }
-
-    /// Asks for notification permission; reverts the toggle when it is refused.
-    private func enableNotifications() async {
-        let center = UNUserNotificationCenter.current()
-        let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
-        if granted {
-            notificationsDenied = false
-            BodyBackgroundRefreshScheduler.schedule()
-        } else {
-            metricWarningNotificationsEnabled = false
-            notificationsDenied = true
-        }
-    }
-
-    /// Turns the toggle back off when the user revoked notifications elsewhere.
-    private func reflectNotificationAuthorization() async {
-        guard metricWarningNotificationsEnabled else { return }
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        if settings.authorizationStatus == .denied {
-            metricWarningNotificationsEnabled = false
-            notificationsDenied = true
-            BodyBackgroundRefreshScheduler.cancelPending()
         }
     }
 
@@ -4013,46 +4185,7 @@ private struct BodyMetricWarningsSettingsSheet: View {
     }
 }
 
-private struct BodyMetricWarningNotificationsRow: View {
-    @Binding var isEnabled: Bool
 
-    var body: some View {
-        HStack(spacing: 14) {
-            BodySettingsIconTile(iconName: "bell.badge.fill", color: .yellow)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Notify Me")
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-
-                Text("Send a notification when a warning is detected")
-                    .font(.system(.subheadline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 12)
-
-            Toggle("Notify Me", isOn: $isEnabled)
-                .labelsHidden()
-                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
-                .accessibilityValue(isEnabled ? "On" : "Off")
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-}
-
-/// Toggles the warning badges that sit next to the readiness level on the
-/// Home readiness hero. Off leaves the Home card and detail page warnings
-/// untouched, it only hides the badges on the hero.
 private struct BodyMetricWarningReadinessHeroRow: View {
     @Binding var isEnabled: Bool
 
@@ -4270,6 +4403,7 @@ private struct BodySourceSettingsSheet: View {
     @State private var updatingSelection: PendingSelection?
     @State private var showBodyProPaywall = false
     @State private var customSourceEditorTarget: BodyCustomSourceEditorTarget?
+    @State private var showsForceAlignConfirmation = false
 
     // Read through the store, not the `BodyProEntitlement` static: `isProUnlocked` also
     // reads the store's entitlement generation, which is what makes a flip re-run this
@@ -4308,6 +4442,11 @@ private struct BodySourceSettingsSheet: View {
             VStack(spacing: 18) {
                 BodySettingsCardSection("Options") {
                     combineSourcesToggle
+
+                    Divider()
+                        .padding(.leading, 76)
+
+                    forceAlignRow
                 }
 
                 customSourcesSection
@@ -4336,6 +4475,16 @@ private struct BodySourceSettingsSheet: View {
         }
         .sheet(item: $customSourceEditorTarget) { target in
             BodyCustomSourceEditorSheet(workoutStore: workoutStore, group: target.group)
+        }
+        .alert("Force Align Sources?", isPresented: $showsForceAlignConfirmation) {
+            Button("Align", role: .destructive) {
+                Task {
+                    await workoutStore.alignHealthDataSourcesToDefaults()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every metric's individual source choice will be replaced by the Primary and Secondary Data Source selected here.")
         }
     }
 
@@ -4439,6 +4588,43 @@ private struct BodySourceSettingsSheet: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var forceAlignRow: some View {
+        Button {
+            showsForceAlignConfirmation = true
+        } label: {
+            HStack(spacing: 14) {
+                BodySettingsIconTile(iconName: "arrow.triangle.merge", color: .cyan)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Force Align Sources")
+                        .font(.system(.headline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("Sets every metric to the Primary and Secondary Data Source chosen below")
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(.caption, weight: .bold))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -5404,4 +5590,116 @@ private struct BodySettingsInfoCard: View {
     BodySettingsView()
         .environment(HealthKitWorkoutStore())
         .environment(ReadinessCommentGenerator())
+}
+
+private struct BodyNotificationSettingsSheet: View {
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(HealthKitWorkoutStore.self) private var workoutStore
+    @AppStorage(BodyNotificationPreferences.masterKey) private var master = true
+    @AppStorage(BodyAppearancePreference.metricWarningNotificationsKey) private var warnings = false
+    @AppStorage(BodyNotificationPreferences.stressKey) private var stress = true
+    @AppStorage(BodyNotificationPreferences.workoutKey) private var workouts = true
+    @AppStorage(BodyNotificationPreferences.sleepKey) private var sleep = true
+    @AppStorage(BodyNotificationPreferences.readinessKey) private var readiness = true
+    @State private var authorization: UNAuthorizationStatus = .notDetermined
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "notifications.section") {
+            VStack(alignment: .leading, spacing: 12) {
+                BodySettingsCardSection("notifications.all") {
+                    row("notifications.all", subtitle: "notifications.all.footer", icon: "bell.badge.fill", color: .red,
+                        value: $master, key: BodyNotificationPreferences.masterKey)
+                }
+                BodySettingsCardSection("notifications.categories") {
+                    row("notifications.warnings", subtitle: "notifications.warnings.footer",
+                        icon: "exclamationmark.triangle.fill", color: .orange,
+                        value: $warnings, key: BodyAppearancePreference.metricWarningNotificationsKey)
+                    Divider()
+                        .padding(.leading, 18)
+                    row("notifications.stress", subtitle: "notifications.stress.footer",
+                        icon: "waveform.path.ecg", color: .purple,
+                        value: $stress, key: BodyNotificationPreferences.stressKey)
+                    Divider()
+                        .padding(.leading, 18)
+                    row("notifications.workouts", subtitle: "notifications.workouts.footer",
+                        icon: "figure.run", color: .green,
+                        value: $workouts, key: BodyNotificationPreferences.workoutKey)
+                    Divider()
+                        .padding(.leading, 18)
+                    row("notifications.sleep", subtitle: "notifications.sleep.footer",
+                        icon: "bed.double.fill", color: .indigo,
+                        value: $sleep, key: BodyNotificationPreferences.sleepKey)
+                    Divider()
+                        .padding(.leading, 18)
+                    row("notifications.readiness", subtitle: "notifications.readiness.footer",
+                        icon: "star.fill", color: .yellow,
+                        value: $readiness, key: BodyNotificationPreferences.readinessKey)
+                }
+                .disabled(!master)
+
+                Text("notifications.timing")
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+
+                if authorization == .denied {
+                    Button("notifications.permission.settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    }
+                } else if authorization == .notDetermined {
+                    Button("notifications.permission.enable") {
+                        Task { await BodyNotificationPermission.shared.request(); await reflectAuthorization() }
+                    }
+                    .disabled(!master)
+                }
+            }
+        }
+        .task(id: scenePhase) { await reflectAuthorization() }
+    }
+
+    private func row(_ title: LocalizedStringKey, subtitle: LocalizedStringKey, icon: String, color: Color,
+                     value: Binding<Bool>, key: String) -> some View {
+        HStack(spacing: 14) {
+            BodySettingsIconTile(iconName: icon, color: color)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(.headline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                Text(subtitle)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            Toggle(title, isOn: binding(value, key: key))
+                .labelsHidden()
+                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                .accessibilityLabel(title)
+                .accessibilityValue(Text(value.wrappedValue ? "On" : "Off"))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private func binding(_ value: Binding<Bool>, key: String) -> Binding<Bool> {
+        Binding(get: { value.wrappedValue }, set: { enabled in
+            value.wrappedValue = enabled
+            BodyNotificationPreferences.changed(key: key)
+            workoutStore.healthChangeCoordinator?.contextDidChange()
+            if enabled {
+                Task { await BodyNotificationPermission.shared.request(); await reflectAuthorization() }
+            }
+        })
+    }
+
+    private func reflectAuthorization() async {
+        authorization = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
 }

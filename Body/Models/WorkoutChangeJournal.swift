@@ -68,6 +68,9 @@ struct WorkoutChangeJournal: Codable, Equatable, Sendable {
     var dirtyIntervals: [String: DateInterval] = [:]
     var requiresFullRepair = true
     var repairProgress: WorkoutJournalRepairProgress?
+    /// Optional for existing schema-1 files. Cleared only by a durably committed
+    /// caught-up scan, never by a dependent payload repair.
+    var pendingObservation: UUID?
 
     var bootstrapComplete: Bool { staging == nil }
 

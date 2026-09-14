@@ -78,7 +78,7 @@ final class WorkoutShareRenderTests: XCTestCase {
         background: WorkoutShareCardBackground = .preset(.midnight),
         photoTransform: WorkoutSharePhotoTransform = .identity,
         fontDesign: Font.Design = .rounded,
-        routeColor: Color = BodyWorkoutShareCardView.defaultRouteColor,
+        routeColor: Color? = nil,
         aspectRatio: WorkoutShareAspectRatio = .portrait9x16,
         arrangement: WorkoutShareLandscapeArrangement = .stacked,
         centeredMetrics: [WorkoutShareMetric]? = nil,
@@ -112,7 +112,7 @@ final class WorkoutShareRenderTests: XCTestCase {
             infoTransform: infoTransform,
             photoTransform: photoTransform,
             fontDesign: fontDesign,
-            routeColor: routeColor,
+            routeColor: routeColor ?? BodyWorkoutShareCardView.defaultRouteColor,
             attribution: attribution
         )
         let renderer = ImageRenderer(

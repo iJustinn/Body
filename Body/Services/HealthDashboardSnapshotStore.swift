@@ -237,6 +237,8 @@ enum HealthDashboardSnapshotStore {
         var ringBackfill: ActivityRingBackfillState = .pending(resumeFrom: nil)
         var secondarySelectionSignature: String?
         var freshness: Freshness?
+        var observedMetricValidation: [String: Freshness]?
+        var observedRingChange: UUID?
         /// Missing in pre-day-identity envelopes. Progress is restarted once;
         /// subsequent partial repair checkpoints remain bound to their payload.
         var ringDayIdentityVersion: Int? = 1

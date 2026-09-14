@@ -13,6 +13,20 @@ final class ProjectConfigurationTests: XCTestCase {
         try BodyTestSupport.requireProjectRoot()
     }
 
+    func testNotificationDocumentationAndTaskOwnership() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let plan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        let version = try BodyTestSupport.sourceText(at: "VersionHistory.md")
+        XCTAssertTrue(readme.contains("Notification delivery"))
+        XCTAssertTrue(readme.contains("Notifications/workouts.json"))
+        XCTAssertTrue(plan.contains("Notification feature acceptance (1.1.1 build 1)"))
+        XCTAssertTrue(version.contains("Build remains 1"))
+        let coordinator = try BodyTestSupport.sourceText(at: "Body/Services/BodyHealthChangeCoordinator.swift")
+        XCTAssertTrue(coordinator.contains("evaluateNewNotifications(lease: lease)"))
+        let scheduler = try BodyTestSupport.sourceText(at: "Body/Services/BodyDataRefreshScheduler.swift")
+        XCTAssertFalse(scheduler.contains("metricWarningNotificationsKey"))
+    }
+
     func testSettingsAboutTabsMatchCoinAboutSet() {
         XCTAssertEqual(
             BodySettingsAboutTab.allCases.map(\.title),
@@ -277,13 +291,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 1.1.0;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 11;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 1.1.1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 6;"))
         // All six targets (app, widget, tests, watch app, watch complications, watch tests)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
-        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.1.0;"), 12)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 11;"), 12)
+        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.1.1;"), 12)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 6;"), 12)
         // Strict concurrency stays on project-wide (targeted for now; complete and
         // Swift 6 are separate migrations) so actor and Sendable annotations are checked.
         XCTAssertEqual(project.occurrenceCount(of: "SWIFT_STRICT_CONCURRENCY = targeted;"), 2)
@@ -292,9 +306,9 @@ final class ProjectConfigurationTests: XCTestCase {
 
     func testWatchMetricKindKeysMatchIOSWidgetStyling() throws {
         let pairs: [(kind: String, widgetMetric: HealthWidgetMetric)] = [
-            (WatchMetricKindKey.trainingLoad, .trainingLoad),
             (WatchMetricKindKey.readiness, .readiness),
             (WatchMetricKindKey.sleep, .sleep),
+            (WatchMetricKindKey.trainingLoad, .trainingLoad),
             (WatchMetricKindKey.heartRate, .heartRate),
             (WatchMetricKindKey.heartRateVariability, .heartRateVariability),
             (WatchMetricKindKey.restingHeartRate, .restingHeartRate),
@@ -444,7 +458,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(readme.contains("general statistics and permission handling are unchanged"))
         XCTAssertTrue(readme.contains("Failed or interrupted attempts never clear dirty obligations"))
         XCTAssertFalse(app.contains("BODY_WORKOUT_JOURNAL_DEVICE_VALIDATION"))
-        XCTAssertTrue(app.contains("State(initialValue: HealthKitWorkoutStore())"))
+        XCTAssertTrue(app.contains("State(initialValue: BodyAppRuntime.shared.workoutStore)"))
+        let runtime = try BodyTestSupport.sourceText(at: "Body/Services/BodyAppRuntime.swift")
+        XCTAssertTrue(runtime.contains("BodyHealthPermissionSelection.migrateIfNeeded()"))
+        XCTAssertTrue(runtime.contains("return HealthKitWorkoutStore()"))
     }
 
     func testRecordValidationDocumentationStaysInSync() throws {
@@ -496,13 +513,20 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v1.1.0`"))
+        XCTAssertTrue(testPlan.contains("branch `body-v1.1.1`"))
+        XCTAssertFalse(testPlan.contains("branch `body-v1.1.0`"))
         XCTAssertFalse(testPlan.contains("branch `body-v1.0.2`"))
         XCTAssertFalse(testPlan.contains("branch `body-1.0.1`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.1.0 build 10)"))
+        XCTAssertTrue(testPlan.contains("app version 1.1.1 build 6)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.1 build 5)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.1 build 4)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.1 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.1 build 1)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.0 build 11)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.0 build 10)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.0 build 9)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.0 build 8)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.0 build 7)"))

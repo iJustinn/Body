@@ -12,6 +12,25 @@ import HealthKit
 // predicate / interval / permission helpers that live on the main engine
 // file with internal access so this extension can reach them.
 extension HealthKitFetchEngine {
+    /// Notification-only read: current night's stages, without a historical
+    /// refresh or extra vital queries. A failed read never produces an event.
+    func fetchNotificationSleepSummary(now: Date, calendar: Calendar) async -> SleepSummary? {
+        guard permissionSelection.includes(.sleep), !sourceSelectionUnresolved(for: .sleep) else { return nil }
+        let start = calendar.startOfDay(for: now).addingTimeInterval(-86400)
+        nonisolated(unsafe) let predicate = combinedPredicate(startDate: start, endDate: now, sourceKind: .sleep)
+        nonisolated(unsafe) let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+        let store = healthStore
+        let outcome = await trackedExternalHealthQuery(cancelledValue: .failure) {
+            await BodySleepFetch.sleepSamples(store: store, predicate: predicate, sort: sort,
+                onFailure: { Self.logTrendQueryFailure("sleepAnalysis", error: $0) })
+        }
+        guard case .success(let samples) = outcome, !Task.isCancelled else { return nil }
+        return sleepDayGroupings(from: samples, calendar: calendar,
+            showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
+            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages())
+            .first { $0.day.summary.matchesDay(now, calendar: calendar) }?.day.summary
+    }
+
     func fetchSleepSummary(calendar: Calendar) async -> QueryOutcome<SleepSummary> {
         timeZoneLedger.recordCurrentZone()
         guard permissionSelection.includes(.sleep) else {

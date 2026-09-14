@@ -3,13 +3,21 @@ import Foundation
 /// Invalidates queued publications without making the main actor wait for IO.
 /// Writes already admitted retain FIFO order on the shared persistence queue.
 final class HealthDashboardPublicationToken: @unchecked Sendable {
+    /// Shared with engine-side setup so a retired quiet actor hop cannot mutate
+    /// source discovery or the foreground operation's training-load anchor.
+    @TaskLocal static var quietCurrent: HealthDashboardPublicationToken?
     private let lock = NSLock()
     private var valid = true
+    private let isCurrent: @Sendable () -> Bool
+
+    init(isCurrent: @escaping @Sendable () -> Bool = { true }) {
+        self.isCurrent = isCurrent
+    }
 
     var isValid: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return valid
+        return valid && isCurrent()
     }
 
     func invalidate() {
@@ -23,7 +31,7 @@ final class HealthDashboardPublicationToken: @unchecked Sendable {
 /// only a successful query may advance the existing freshness watermarks.
 /// Encoded in the dashboard's existing atomic summary-context field.
 struct HealthDashboardCacheScope: Codable, Equatable {
-    struct Source: Codable, Equatable {
+    struct Source: Codable, Equatable, Sendable {
         var request: String
         var members: [String]?
     }

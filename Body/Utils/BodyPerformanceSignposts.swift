@@ -16,6 +16,54 @@ enum BodyPerformanceSignposts {
     )
 }
 
+#if DEBUG
+/// Local observer diagnostics only. Never log scope strings, health values,
+/// source identities, or workout/sample identifiers.
+enum BodyObserverRefreshDiagnostics {
+    @TaskLocal static var passID: String?
+    private static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "Performance")
+
+    static func log(_ event: String, passID localPassID: String? = nil) {
+        logger.notice("ObserverRefresh pass=\(localPassID ?? passID ?? "none", privacy: .public) \(event, privacy: .public)")
+    }
+
+    static func elapsed(since start: ContinuousClock.Instant) -> String {
+        let duration = start.duration(to: .now).components
+        return String(format: "%.3fs", Double(duration.seconds) + Double(duration.attoseconds) / 1e18)
+    }
+
+    static func pending(_ envelope: BodyHealthDirtyWorkStore.Envelope) -> String {
+        envelope.entries.sorted { $0.key < $1.key }.compactMap { kind, entry in
+            guard entry.currentPending || entry.historyPending else { return nil }
+            return "\(kind):g\(entry.generation):c\(entry.currentPending ? 1 : 0)h\(entry.historyPending ? 1 : 0)"
+        }.joined(separator: ",")
+    }
+
+    static func contextDifference(from previous: String?, to next: String) -> String {
+        guard previous != next else { return "unchanged" }
+        if let nextObserver = BodyHealthObserverContext(signature: next) {
+            let oldObserver = previous.flatMap { BodyHealthObserverContext(signature: $0) }
+                ?? HealthDashboardCacheScope(signature: previous).map { BodyHealthObserverContext(scope: $0) }
+            guard let oldObserver else { return "unknown" }
+            var dimensions: [String] = []
+            if oldObserver.primary != nextObserver.primary { dimensions.append("primary") }
+            if oldObserver.secondary != nextObserver.secondary { dimensions.append("secondary") }
+            if oldObserver.aggregation != nextObserver.aggregation { dimensions.append("aggregation") }
+            return dimensions.isEmpty ? "representationOnly" : dimensions.joined(separator: ",")
+        }
+        guard let old = HealthDashboardCacheScope(signature: previous),
+              let new = HealthDashboardCacheScope(signature: next) else { return "unknown" }
+        var dimensions: [String] = []
+        if old.primary != new.primary { dimensions.append("primary") }
+        if old.secondary != new.secondary { dimensions.append("secondary") }
+        if old.aggregation != new.aggregation { dimensions.append("aggregation") }
+        if old.summaryDayStart != new.summaryDayStart { dimensions.append("day") }
+        if old.sleepGoal != new.sleepGoal || old.computeVersion != new.computeVersion { dimensions.append("compute") }
+        return dimensions.joined(separator: ",")
+    }
+}
+#endif
+
 /// Refresh-scoped measurement sink behind the per-leaf timings that the signpost
 /// intervals above only expose through Instruments. Accumulates one duration per
 /// dashboard fetch leaf plus the HealthKit concurrency high-water mark, and dumps
@@ -38,6 +86,7 @@ final class BodyRefreshProfile: Sendable {
         var queryDepth = 0
         var peakQueryDepth = 0
         var peakPoolDepth: [String: Int] = [:]
+        var queryStarts: UInt64 = 0
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -48,12 +97,11 @@ final class BodyRefreshProfile: Sendable {
     )
 
     /// Clears the table and starts the wall clock. Called at the top of a
-    /// full refresh; lighter refresh paths simply accumulate into whatever the
-    /// last full refresh left behind and dump that.
+    /// full refresh or foreground observed pass. Never reset per observed leaf.
     func beginRefresh() {
         #if DEBUG
         state.withLock { state in
-            state = State(startedAt: .now())
+            state = State(startedAt: .now(), queryStarts: state.queryStarts)
         }
         #endif
     }
@@ -85,10 +133,17 @@ final class BodyRefreshProfile: Sendable {
         #if DEBUG
         state.withLock { state in
             state.queryDepth += 1
+            state.queryStarts &+= 1
             state.peakQueryDepth = max(state.peakQueryDepth, state.queryDepth)
         }
         #endif
     }
+
+    #if DEBUG
+    /// Process-wide actual query starts through enterQuery, including concurrent
+    /// or abandoned work. Deltas supplement local timings, not receipt coverage.
+    var queryStarts: UInt64 { state.withLock { $0.queryStarts } }
+    #endif
 
     func exitQuery() {
         #if DEBUG
@@ -115,7 +170,7 @@ final class BodyRefreshProfile: Sendable {
         #if DEBUG
         let snapshot = state.withLock { state -> State in
             let current = state
-            state = State()
+            state = State(queryStarts: state.queryStarts)
             return current
         }
         guard !snapshot.leafDurations.isEmpty else {

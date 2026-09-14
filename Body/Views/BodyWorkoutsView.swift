@@ -101,6 +101,8 @@ struct BodyWorkoutsView: View {
     /// whose record standings intersect this set.
     @State private var selectedRecordStandings: Set<WorkoutRecordStanding> = []
     @State private var selectedWorkoutForDetails: WorkoutSummary?
+    @Bindable private var notificationRoute = BodyAppRuntime.shared.notificationRoute
+    @State private var notificationWorkoutUnavailable = false
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
     @State private var isListLoaded = false
     @State private var isListScrolledFromTop = false
@@ -174,8 +176,7 @@ struct BodyWorkoutsView: View {
 
         NavigationStack {
             ZStack {
-                BodyAppBackground()
-                    .ignoresSafeArea()
+                BodyTabPageBackground()
 
                 VStack(spacing: 0) {
                     BodyMonthYearPicker(
@@ -230,6 +231,7 @@ struct BodyWorkoutsView: View {
                                     LazyVStack(spacing: 12) {
                                         ForEach(visibleWorkouts) { workout in
                                             Button {
+                                                BodyCardTapHaptics.play()
                                                 selectedWorkoutForDetails = workout
                                             } label: {
                                                 BodyWorkoutExpenseStyleRow(
@@ -279,7 +281,7 @@ struct BodyWorkoutsView: View {
                     } action: { _, scrolled in
                         isListScrolledFromTop = scrolled
                     }
-                    .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing) {
+                    .bodyPullToRefresh(isRefreshing: workoutStore.isRefreshing, onBusy: workoutStore.noteRefreshRequestedWhileBusy) {
                         Task { await workoutStore.refreshWorkoutMonth(month: selectedMonth, year: selectedYear) }
                     }
                     .opacity(isListLoaded ? 1 : 0)
@@ -343,6 +345,22 @@ struct BodyWorkoutsView: View {
                 await workoutStore.loadRecentWorkoutMonthsIfNeeded()
                 await workoutStore.loadMonthIfNeeded(month: selectedMonth, year: selectedYear, allowPrompt: false)
                 animateListInIfNeeded()
+            }
+            .task(id: notificationRoute.ready ? notificationRoute.workout?.requestID : nil) {
+                guard notificationRoute.ready, let route = notificationRoute.workout else { return }
+                selectedWorkoutForDetails = nil
+                selectedMonth = Calendar.bodyGregorian.component(.month, from: route.start)
+                selectedYear = Calendar.bodyGregorian.component(.year, from: route.start)
+                _ = await workoutStore.loadMonthIfNeeded(month: selectedMonth, year: selectedYear, allowPrompt: false)
+                guard !Task.isCancelled, notificationRoute.workout == route else { return }
+                let workout = workoutStore.snapshot(month: selectedMonth, year: selectedYear).days
+                    .flatMap(\.workouts).first { $0.id == route.id }
+                selectedWorkoutForDetails = workout
+                notificationWorkoutUnavailable = workout == nil
+                notificationRoute.workout = nil
+            }
+            .alert("notifications.workout.unavailable", isPresented: $notificationWorkoutUnavailable) {
+                Button("notifications.ok", role: .cancel) { }
             }
             .onAppear {
                 advanceToNewMonthIfNeeded()
@@ -3734,6 +3752,7 @@ private struct BodyWorkoutBucketedSeriesPlot: View {
                 drawSelection(in: plotRect, context: &context)
             }
             .contentShape(Rectangle())
+            .bodyChartScrubHaptics(selection: scrubbedBarID)
             .gesture(
                 BodyChartScrubGesture(isEnabled: !presentation.bars.isEmpty) { location in
                     scrub(to: location, plotRect: plotRect, plotFrame: geometry.frame(in: .global))
@@ -3884,7 +3903,6 @@ private struct BodyWorkoutBucketedSeriesPlot: View {
         )
 
         if scrubX == nil {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
                 scrubX = centreX
                 scrubbedBarID = bar.id
@@ -4324,6 +4342,7 @@ private struct BodyWorkoutHeartRateChart: View, Animatable {
                 }
             }
             .contentShape(Rectangle())
+            .bodyChartScrubHaptics(selection: scrubbedPointIndex)
             .gesture(
                 BodyChartScrubGesture(isEnabled: !series.isEmpty) { location in
                     scrub(
@@ -4548,7 +4567,6 @@ private struct BodyWorkoutHeartRateChart: View, Animatable {
         )
 
         if scrubX == nil {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
                 scrubX = pointX
                 scrubbedPointIndex = index
@@ -4900,6 +4918,7 @@ private struct BodyWorkoutElevationLinePlot: View {
                 drawSelection(in: plotRect, context: &context)
             }
             .contentShape(Rectangle())
+            .bodyChartScrubHaptics(selection: scrubbedPointID)
             .gesture(
                 BodyChartScrubGesture(isEnabled: !presentation.points.isEmpty) { location in
                     scrub(to: location, plotRect: plotRect, plotFrame: geometry.frame(in: .global))
@@ -5050,7 +5069,6 @@ private struct BodyWorkoutElevationLinePlot: View {
         )
 
         if scrubX == nil {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) {
                 scrubX = pointX
                 scrubbedPointID = point.id

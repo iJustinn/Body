@@ -279,7 +279,7 @@ final class HealthKitWorkoutStoreTimeZoneTests: XCTestCase {
         let segments = HealthKitFetchEngine.sleepStageSegments(
             from: [
                 HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleepCore.rawValue, start: coreStart, end: coreEnd),
-                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleep.rawValue, start: unspecifiedStart, end: unspecifiedEnd)
+                HKCategorySample(type: sleepType, value: HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue, start: unspecifiedStart, end: unspecifiedEnd)
             ]
         )
 

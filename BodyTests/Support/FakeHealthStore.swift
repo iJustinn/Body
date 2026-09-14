@@ -40,6 +40,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
         /// `.cancelled`. The default for unscripted reads.
         case never
         indirect case delay(Duration, then: Script)
+        indirect case gated(@Sendable () async -> Void, then: Script)
     }
 
     /// Which leaf read a recorded request came from, with the queried type's
@@ -52,6 +53,26 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
     }
 
     private let lock = NSLock()
+    private var authorizationDecision: HKAuthorizationRequestStatus = .unnecessary
+    private var authorizationPromptCount = 0
+    private var authorizationStatusReadCount = 0
+
+    func scriptAuthorizationStatus(_ status: HKAuthorizationRequestStatus) {
+        lock.lock(); defer { lock.unlock() }
+        authorizationDecision = status
+    }
+
+    var authorizationCalls: (prompts: Int, statusReads: Int) {
+        lock.lock(); defer { lock.unlock() }
+        return (authorizationPromptCount, authorizationStatusReadCount)
+    }
+
+    private func recordedAuthorizationStatus() -> HKAuthorizationRequestStatus {
+        lock.lock(); defer { lock.unlock() }
+        authorizationStatusReadCount += 1
+        return authorizationDecision
+    }
+
     private var sampleScripts: [String: Script] = [:]
     private var sourceScripts: [String: Script] = [:]
     private var statisticsScripts: [String: Script] = [:]
@@ -216,7 +237,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
                 return .success(samples)
             case .failure(let error):
                 return .failure(error)
-            case .sources, .never, .delay:
+            case .sources, .never, .delay, .gated:
                 return nil
             }
         }
@@ -231,7 +252,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
                 return .success(sources)
             case .failure(let error):
                 return .failure(error)
-            case .samples, .never, .delay:
+            case .samples, .never, .delay, .gated:
                 return nil
             }
         }
@@ -246,7 +267,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
             switch script {
             case .failure(let error):
                 return .failure(error)
-            case .samples, .sources, .never, .delay:
+            case .samples, .sources, .never, .delay, .gated:
                 return nil
             }
         }
@@ -262,7 +283,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
             switch script {
             case .failure(let error):
                 return .failure(error)
-            case .samples, .sources, .never, .delay:
+            case .samples, .sources, .never, .delay, .gated:
                 return nil
             }
         }
@@ -275,6 +296,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
         read typesToRead: Set<HKObjectType>?,
         completion: @escaping @Sendable (Bool, (any Error)?) -> Void
     ) {
+        lock.lock(); authorizationPromptCount += 1; lock.unlock()
         completion(true, nil)
     }
 
@@ -286,7 +308,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
         toShare typesToShare: Set<HKSampleType>,
         read typesToRead: Set<HKObjectType>
     ) async throws -> HKAuthorizationRequestStatus {
-        .unnecessary
+        recordedAuthorizationStatus()
     }
 
     func save(_ objects: [HKObject], withCompletion completion: @escaping @Sendable (Bool, (any Error)?) -> Void) {
@@ -335,6 +357,10 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
         _ script: Script,
         _ map: (Script) -> BodyHealthReadOutcome<Value>?
     ) async -> BodyHealthReadOutcome<Value> {
+        if case .gated(let gate, let inner) = script {
+            await gate()
+            return await resolve(inner, map)
+        }
         if case .delay(let duration, let inner) = script {
             do {
                 try await Task.sleep(for: duration)

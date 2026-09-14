@@ -1,4 +1,64 @@
+## 1.1.1 (build 6)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.1 build 6.
+- Pulling to refresh on Summary, Workouts, or a metric detail page while a background repair, a permission change refetch, or the predicted effort pass was running used to do nothing, with no badge, for as long as the work ran. It now plays the pull tap and the sync badge shows “Background checks running”, then “Try again later”, each for 2 seconds, or until that work ends, so its completion confirmation and the next refresh are never hidden behind the notice. A pull during a regular refresh still leaves that refresh alone with no extra message.
+
 # Version History
+
+## 1.1.1 (build 5)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.1 build 5.
+- The Summary readiness hero now shows today's level, such as “High readiness”, in gray under the score, with the score moved up a line to make room. With no warning signs showing, the score and level sit a little lower and glide up when a sign appears. With the level turned off, the score stays centered and does not move.
+- The warning signs under the readiness score now hold still with the score when you pull the Summary page down, instead of sliding with the page.
+- Settings > Metrics > Star Metric now lists Readiness as **Readiness Ring**, and while it is selected a **Readiness Level** toggle, indented under it as a sub option, shows or hides the level under the score. It is on by default.
+
+## 1.1.1 (build 4)
+
+- The watch home screen now leads with the iPhone's readiness hero instead of a Readiness card: the five band segments on an arc over the score, the pill in today's band, the band color glow behind the page, the pull-down stretch, and the scroll-up flattening into a bar held at the top, all from the same geometry and animations as the phone, scaled to the watch. Tapping the hero opens the Readiness detail page.
+- The watch metrics are reordered to Readiness, Sleep, Training Load, then Heart Rate, HRV, Resting Heart Rate, and Skin Temperature as before.
+- Tapping the Week, Month, 6 Months, or Year pills on a metric detail page now plays a light tap. Settings > General > Vibration adds a **Range Vibration** toggle to turn it off, and the Vibration row reads Partial when only some of its four switches are on.
+- Settings > Appearance adds a **Navigation Bar** row (gray tile, above Icon) whose sheet has a **Tab Labels** toggle that shows each tab's name under its icon in the bottom bar. It is off by default, so the bar keeps showing icons only.
+- The sync badge remains continuous across scheduled foreground follow-ups and names Readiness, Stress, Training Load, and Body Radar calculations. It confirms completion once with “All done” followed by the completion time, with a partial-update message when required work fails after a successful update.
+- Quiet maintenance remains invisible, and intermediate badge phases no longer request frequent accessibility announcements.
+- Holding a single source line chart on a metric detail page shows the filled selection dot right on the touched day. It no longer flies in from off screen, and on release it fades where it stood instead of flying out.
+- Workouts calendar day cells now cross-fade when what they show changes, whether a date turns into a workout or one day's workouts change to another activity or count (after a filter, search, or refresh). Reduce Motion swaps them instantly.
+- Updated app, widget, watch, and test bundles to build 4.
+
+## 1.1.1 (build 3)
+
+- Settings > Data > Source gains a **Force Align Sources** row under Options. Tapping it asks for confirmation, then clears every metric's individual source choice so all metrics follow the Primary and Secondary Data Source chosen on that sheet; the affected charts refetch under the aligned sources.
+- Switching between Summary and the other tabs no longer dissolves one page background into the other. Summary still carries the readiness glow and Workouts and Settings the app background, but each page now simply shows its own as it appears.
+- The readiness hero's ring now sizes itself to the screen it is on instead of holding one fixed width, so it is noticeably larger on a big iPhone (stopping a little inside the cards below it) and shrinks to fit a small one; the score, the warning signs and the hero's own height follow it.
+- The gap between the hero's bars and the comment under them is now the same spacing the cards keep from each other: the hero no longer reserves a band of empty space below the bars, and the warning signs sit under the score rather than on the hero's bottom edge.
+- The readiness score reads semibold instead of heavy.
+- The page's readiness glow is tighter, about four fifths of the reach it had, and is now sized from the ring itself, so it spreads a little past the bars instead of washing the comment and the first card row.
+- The readiness pill no longer flips band colors back and forth when it lands on a band edge. Landing on the edge it enters through (65 coming up from Low, say) it now rushes a little past the mark into the new band and eases back, so the color changes once and it never waits against the previous band's cap; landing on the far edge of a band (64 coming up, or 65 coming down) it eases in with no overshoot; every other move keeps its bounce.
+- Pulling the Summary tab down past the top now holds the readiness score and percent sign still on screen while the ring is dragged open after your finger (the bands keep their size while the gaps between them open up, so the ring reaches further down the sides) and springs back into place when you let go; with Reduce Motion on the score still holds still but the ring does not stretch.
+- Updated the app, widget, watch, and test bundle version to 1.1.1 build 3.
+
+## 1.1.1 (build 2)
+
+- Redesigned the Summary tab's Star Metric readiness hero as a gauge of five glass-styled bar segments, one per readiness band, sized proportionally to each band's score range and arranged in an arc over the score number, with a pill marking today's score that slides smoothly when the score changes, even across bands.
+- Scrolling up now flattens the arc into a horizontal five-segment bar held under the status bar while the score number and warning badges fade out; the comment fades out as it climbs toward the bar, the glow dims to near the page color, and once the first card row has climbed up to sit the grid spacing under the flat bar, the bar scrolls away with the cards. Only the band the pill sits on carries its color, the rest stay neutral glass and crossfade when the pill arrives. Reduce Motion keeps the pill and background static while still tracking the scroll with your finger.
+- The page background now carries a soft glow of the current readiness band's color centered in the ring, which switches off as the pill sets off and fades back in on the new band shortly after; returning to the tab lands the pill in place with the glow already on.
+- The explanation or Apple Intelligence comment and the "Started today with N%" line sit as plain text directly under the hero; tapping either opens the Readiness detail.
+- Tapping a notification now opens its page on cached data right away instead of waiting for the launch refresh to finish.
+- Added Daily Readiness notifications that announce today's start-of-day readiness score once it includes the night's sleep, with a tap opening the Readiness detail.
+- Settings has a new **General** section, the first one, above Appearance. It holds the Notifications row, moved up from between AI and Data, and a new **Vibration** row that now carries the Equivalent card's Collision Vibration switch, taken out of Settings > Workouts > Workout Equivalents. Both rows use a red icon tile and read On/Off, the Notifications row from its All Notifications master switch.
+- The Summary Cards row in Settings > Metrics now uses the same blue icon tile as Units.
+- Updated the app, widget, watch, and test bundle version to 1.1.1 build 2.
+
+## 1.1.1 (build 1)
+
+- Added Sleep Data notifications for newly synced nights, with direct navigation to Sleep details.
+
+- Added Settings > Notifications, high-stress episode alerts, and synced-workout notifications that open workout details. Background delivery follows system scheduling. Existing warning preferences are preserved. Build remains 1.
+- Updated the app, widget, watch, and test bundle version to 1.1.1 build 1.
+
+## 1.1.0 (build 11)
+
+- **Settings > Appearance > Background now offers four more built-in presets.** Rose, Violet, Neutral, and Light join the app default and iJustin, each mixing three neighboring shades of one of the app icon's colors the way the existing profiles do. Built-in names are localized, so they read in the app's language, and the custom profile allowance is now four on top of the six built-ins instead of a shared cap.
+- Updated the app, widget, watch, and test bundle build number to 11.
 
 ## 1.1.0 (build 10)
 

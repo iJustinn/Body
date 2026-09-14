@@ -323,6 +323,21 @@ extension BodyAppearancePreference {
     /// Whether the workout detail Equivalent card's collision haptics fire. Default true.
     static let workoutEquivalentHapticsEnabledKey = "workoutEquivalentHapticsEnabled"
 
+    /// Whether the chart scrub callouts play haptics (`BodyChartScrubHaptics`). Default true.
+    static let chartScrubHapticsEnabledKey = "chartScrubHapticsEnabled"
+
+    /// Whether tapping a card to open its page plays a haptic (`BodyCardTapHaptics`). Default true.
+    static let cardTapHapticsEnabledKey = "cardTapHapticsEnabled"
+
+    /// Whether tapping a trend range pill plays a haptic (`BodyHealthTrendRangeSelector`). Default true.
+    static let trendRangeHapticsEnabledKey = "trendRangeHapticsEnabled"
+
+    /// Whether the bottom tab bar shows each tab's name under its icon. Default false.
+    static let navigationBarShowsLabelsKey = "navigationBarShowsLabels"
+
+    /// Whether the Readiness Ring hero shows today's level under the score. Default true.
+    static let readinessHeroShowsLevelKey = "readinessHeroShowsLevel"
+
     /// Comma-joined emoji of `EnergyEquivalent.Food`s hidden from the Equivalent card.
     /// Empty string means none are hidden.
     static let workoutEquivalentHiddenFoodsKey = "workoutEquivalentHiddenFoods"
@@ -1287,6 +1302,17 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
             return nil
         }
         return kind
+    }
+
+    /// The name the Star Metric picker and its Settings row give this metric: the hero
+    /// it pins rather than the card.
+    var starMetricTitle: String {
+        switch self {
+        case .readiness:
+            return String(localized: "Readiness Ring")
+        default:
+            return title
+        }
     }
 
     var id: String {

@@ -10,6 +10,8 @@ actor WorkoutJournalReconciler {
         case failed, invalidAnchor, cancelled
     }
 
+    typealias CandidateSink = @Sendable ([WorkoutJournalEntry], UUID, UInt64) async -> Bool
+    private let candidateSink: CandidateSink?
     private let engine: HealthKitFetchEngine
     private let file: URL
     private let write: @Sendable (Data, URL) throws -> Void
@@ -21,7 +23,9 @@ actor WorkoutJournalReconciler {
     private static let entryLimit = 10_000
 
     init(engine: HealthKitFetchEngine, file: URL, scope: WorkoutJournalScope? = nil, date: Date = Date(),
+         candidateSink: CandidateSink? = nil,
          write: @escaping @Sendable (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }) {
+        self.candidateSink = candidateSink
         self.engine = engine
         self.file = file
         self.write = write
@@ -41,6 +45,28 @@ actor WorkoutJournalReconciler {
     }
 
     func snapshot() -> WorkoutChangeJournal { journal }
+
+    /// A wake does not include affected dates. Persist its scan request in the
+    /// existing journal; do not create a second workout dirty ledger.
+    @discardableResult
+    func noteObservedChange() -> Bool {
+        var next = journal
+        next.pendingObservation = UUID()
+        next.revision &+= 1
+        // Even on write failure retain the invalidation and fence in-flight
+        // scans. The next scan first retries this pending state.
+        journal = next
+        needsSave = true
+        admissionEpoch &+= 1
+        return persistPendingRestart()
+    }
+
+    /// Headless callers pass the non-prompting decision explicitly; they must
+    /// not depend on the UI store's authorization state having been populated.
+    func scanInBackground(eligibility: BodyBackgroundReadEligibility, deadline: Duration) async -> Result {
+        guard eligibility == .eligible else { return .failed }
+        return await scan(maxPages: 1, deadline: deadline)
+    }
 
     /// Scope/anchor repair preserves canonical history but immediately fences work.
     @discardableResult
@@ -152,15 +178,25 @@ actor WorkoutJournalReconciler {
                           && $0.start.timeIntervalSince1970.isFinite && $0.end.timeIntervalSince1970.isFinite
                           && $0.duration.isFinite && $0.duration >= 0 }) else { return .failed }
                 let empty = entries.isEmpty && deleted.isEmpty
-                if empty && journal.bootstrapComplete && journal.anchor == anchor { return .caughtUp }
+                if empty && journal.bootstrapComplete && journal.anchor == anchor && journal.pendingObservation == nil { return .caughtUp }
                 var next = journal
                 next.apply(additions: entries, deletedIDs: deleted, nextAnchor: anchor)
+                if empty { next.pendingObservation = nil }
                 guard next.entries.count <= Self.entryLimit, (next.staging?.count ?? 0) <= Self.entryLimit else {
                     return .capacityExceeded
                 }
                 if next.dirtyIntervals.count > Self.entryLimit {
                     next.dirtyIntervals = [:]
                     next.requiresFullRepair = true
+                }
+                if journal.bootstrapComplete, let candidateSink {
+                    let added = entries.filter { journal.entries[$0.id.uuidString] == nil && !deleted.contains($0.id) }
+                    if !added.isEmpty {
+                        guard await candidateSink(added, next.generation, next.revision) else { return .failed }
+                        let latestContext = await engine.queryContextRevision
+                        guard latestContext == contextRevision, !Task.isCancelled,
+                              epoch == admissionEpoch, journal.revision == revision else { return .superseded }
+                    }
                 }
                 guard commit(next) else { return .failed }
                 if empty { return .caughtUp }

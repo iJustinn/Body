@@ -182,7 +182,7 @@ final class BodyHomeCardGridLayoutTests: XCTestCase {
         try assertScrollCenters(harness, on: Self.scrollTarget)
     }
 
-    /// The regression guard for the id collision. Renders the real `BodyReadinessHeroLabel`
+    /// The regression guard for the id collision. Renders the real `BodyReadinessArcHero`
     /// rather than a stand-in row, so deleting `BodyReadinessHeroWarningBadge.scrollIDPrefix`
     /// from the shipped view turns this red instead of leaving a copy of it green here.
     func testAHeroBadgeDoesNotShadowItsCardsScrollTarget() throws {
@@ -241,9 +241,10 @@ final class BodyHomeCardGridLayoutTests: XCTestCase {
             ScrollViewReader { proxy in
                 ScrollView(.vertical) {
                     VStack(spacing: 14) {
-                        BodyReadinessHeroLabel(
+                        BodyReadinessArcHero(
                             readiness: .unavailable,
-                            morningScore: nil,
+                            width: BodyReadinessArcGeometry.heroWidth(pageWidth: 393),
+                            progress: 0,
                             warningBadges: badges
                         )
 
@@ -274,6 +275,7 @@ final class BodyHomeCardGridLayoutTests: XCTestCase {
         }
     }
 
+    @MainActor
     private struct ScrollHarness {
         let window: UIWindow
         let recorder: FrameRecorder
@@ -409,6 +411,7 @@ final class BodyHomeCardGridLayoutTests: XCTestCase {
         }
     }
 
+    @MainActor
     private struct Harness {
         let window: UIWindow
         let recorder: FrameRecorder

@@ -222,13 +222,11 @@ final class HealthKitLeafFailureSemanticsTests: XCTestCase {
     func testSleepSamplesFailsSilentlyOnCancellation() async throws {
         let store = FakeHealthStore()
         let recorder = FailureRecorder()
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
-
         let outcome = await cancelling {
             await BodySleepFetch.sleepSamples(
                 store: store,
                 predicate: nil,
-                sort: sort,
+                sort: NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false),
                 onFailure: { recorder.record($0) }
             )
         }
@@ -405,7 +403,7 @@ final class HealthKitLeafFailureSemanticsTests: XCTestCase {
     /// Runs `work` in a task, cancels it, and returns its value — proving the
     /// leaf comes back rather than pinning the caller on a query that will
     /// never resume. `nil` means the leaf never returned in time.
-    private func cancelling<Value>(
+    private func cancelling<Value: Sendable>(
         _ work: @escaping @Sendable () async -> Value
     ) async -> Value? {
         let task = Task { await work() }
@@ -428,10 +426,11 @@ final class HealthKitLeafFailureSemanticsTests: XCTestCase {
     }
 
     private static func makeWorkout() -> HKWorkout {
-        HKWorkout(
+        makeTestWorkout(
             activityType: .running,
             start: Date(timeIntervalSince1970: 1_788_134_400),
-            end: Date(timeIntervalSince1970: 1_788_138_000)
+            end: Date(timeIntervalSince1970: 1_788_138_000),
+            metadata: nil
         )
     }
 }

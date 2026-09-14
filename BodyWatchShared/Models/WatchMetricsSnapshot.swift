@@ -59,10 +59,11 @@ enum WatchMetricKindKey {
     /// complication draws its own color + symbol.
     static let workoutMinutes = "workoutMinutes"
 
-    /// Dashboard ordering — Training Load leads. The watch complications are
-    /// independent widgets and don't read this.
+    /// Dashboard ordering — Readiness leads (drawn as the home screen's hero
+    /// rather than a card), then Sleep and Training Load. The watch
+    /// complications are independent widgets and don't read this.
     static let displayOrder: [String] = [
-        trainingLoad, readiness, sleep, heartRate,
+        readiness, sleep, trainingLoad, heartRate,
         heartRateVariability, restingHeartRate, wristTemperature
     ]
 

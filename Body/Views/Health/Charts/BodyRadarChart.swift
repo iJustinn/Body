@@ -209,6 +209,7 @@ struct BodyRadarChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
+        .bodyChartScrubHaptics(selection: selectedPoint?.id)
         .bodyFloatingCalloutReporter(
             floatingCallout,
             selectionDate: selectedPoint.map { slotCenter(for: $0) },

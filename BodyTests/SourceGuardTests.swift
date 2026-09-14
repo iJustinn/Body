@@ -1275,8 +1275,17 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(homeSource.contains("proxy.scrollTo(card.id, anchor: .center)"))
         XCTAssertFalse(homeSource.contains(".id(card)"))
 
+        // The hero's ring, and with it the hero's height, are sized from the width Home
+        // hands it, and Home's first layout pass proposes a page width of zero. Without
+        // this fallback the hero renders collapsed for that pass and then springs open
+        // inside the pill's launch animation, flying the whole ring into place.
+        XCTAssertTrue(homeSource.contains("pageWidth: page.size.width > 0 ? page.size.width : homeContentWidth"))
+
         let heroSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyReadinessStarHero.swift")
         XCTAssertTrue(heroSource.contains("struct BodyReadinessHeroWarningBadge"))
+        // Only the pill animates on appear: its slide is a `withAnimation`, so a width
+        // landing in that same update would otherwise swing the ring's size along with it.
+        XCTAssertTrue(heroSource.contains(".transaction(value: width) { $0.animation = nil }"))
         XCTAssertTrue(heroSource.contains(".anchorPreference(key: BodyReadinessHeroBadgeAnchorKey.self, value: .bounds)"))
         // The badge's id is both its ForEach identity and its anchor key, and it shares
         // Home's one ScrollView with the card it points at, so it has to stay out of
@@ -1568,7 +1577,7 @@ final class SourceGuardTests: XCTestCase {
     func testTrainingLoadTrendChartDrawsDynamicHorizontalCurrentIntervalBandWithoutInlineLabel() throws {
         let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricTrendChart")?.lowerBound)
-        let chartBlock = String(source[chartStart...].prefix(22_000))
+        let chartBlock = String(source[chartStart...].prefix(26_000))
 
         XCTAssertTrue(chartBlock.contains("let highlightedRange: BodyHealthMetricTrendHighlightedRange?"))
         XCTAssertTrue(chartBlock.contains("let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?"))
@@ -2314,15 +2323,15 @@ final class SourceGuardTests: XCTestCase {
 
     func testMetricRefreshDropsDaySamplesWhenSelectionChangesMidFetch() throws {
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
-        // Anchored on `performHealthMetricRefresh`, which now owns the fetch and
-        // the mid-fetch signature check: `refreshHealthMetric` keeps only the
-        // authorization step and the deadline wrapper, so slicing from there
-        // measured past these lines instead of guarding them.
+        // Include the read-context capture and shared commit helper used by
+        // detail pulls and observed batches; both must retain the same fence.
         let start = try XCTUnwrap(storeSource.range(of: "func performHealthMetricRefresh(")?.lowerBound)
         let end = try XCTUnwrap(storeSource.range(of: "let nextTrends =", range: start..<storeSource.endIndex)?.lowerBound)
         let block = String(storeSource[start..<end])
 
-        XCTAssertTrue(block.contains("let capturedDaySampleSignatures = currentDaySampleSignatures()"))
+        XCTAssertTrue(block.contains("let context = await captureHealthMetricReadContext(date: date, calendar: calendar)"))
+        XCTAssertTrue(block.contains("daySampleSignatures: currentDaySampleSignatures()"))
+        XCTAssertTrue(block.contains("let capturedDaySampleSignatures = context.daySampleSignatures"))
         XCTAssertTrue(block.contains("await engine.queryContextRevision == queryRevision"))
         XCTAssertTrue(block.contains("queryScope == currentDashboardCacheScope()"))
         XCTAssertTrue(block.contains("mayApplyRefreshInputs(inputs)"))
@@ -2699,7 +2708,9 @@ final class SourceGuardTests: XCTestCase {
         // One post-acquire bail and one cancellation resume per wrapper.
         XCTAssertEqual(engineSource.occurrenceCount(of: "if Task.isCancelled {"), 2)
         XCTAssertEqual(engineSource.occurrenceCount(of: "box.cancel(cancelledValue: cancelledValue())"), 2)
-        XCTAssertFalse(budgetSource.contains("Task.isCancelled"))
+        XCTAssertTrue(budgetSource.contains("while lease.isValid && !Task.isCancelled"))
+        XCTAssertTrue(budgetSource.contains("if tryAcquire() { return true }"))
+        XCTAssertTrue(engineSource.contains("guard await semaphore.acquireForCurrentTask() else { return cancelledValue() }"))
         // The external bodies must not reach back into engine state, or the
         // unstructured hop would be an actor-isolation violation.
         XCTAssertFalse(engineSource.contains("store: healthStore,"))
@@ -2802,7 +2813,7 @@ final class SourceGuardTests: XCTestCase {
                 "await reapplyActivityReadinessAfterWorkouts(date: date, calendar: calendar, persists: false)"
             )
         )
-        XCTAssertEqual(refreshBlock.components(separatedBy: "persistDashboardSnapshot()").count - 1, 1)
+        XCTAssertEqual(refreshBlock.components(separatedBy: "await persistDashboardSnapshotDurably()").count - 1, 1)
         XCTAssertEqual(refreshBlock.components(separatedBy: "saveHealthWidgetSnapshot()").count - 1, 1)
         XCTAssertTrue(
             updateBlock.contains(
@@ -2873,7 +2884,7 @@ final class SourceGuardTests: XCTestCase {
         }
         XCTAssertTrue(signatureBlock.contains("let sources = bodyRadarSignedSourceKinds"))
         // The recompute trigger stays on the narrower input set.
-        XCTAssertTrue(storeSource.contains("recomputesBodyRadar: Self.bodyRadarInputMetricKinds.contains(kind)"))
+        XCTAssertTrue(storeSource.contains("recomputesBodyRadar: !observed && Self.bodyRadarInputMetricKinds.contains(kind)"))
     }
 
     func testBodyRadarRecordContextSignatureTracksVitalSourceChanges() {
@@ -3046,7 +3057,8 @@ final class SourceGuardTests: XCTestCase {
         // metric warning threshold state).
         let detailViewBlock = String(homeSource[detailViewStart...].prefix(8_000))
         let refreshStart = try XCTUnwrap(storeSource.range(of: "func refreshHealthMetric(_ kind: HealthMetricKind")?.lowerBound)
-        let refreshBlock = String(storeSource[refreshStart...].prefix(8_000))
+        let refreshEnd = try XCTUnwrap(storeSource.range(of: "private func refreshAfterWrite(", range: refreshStart..<storeSource.endIndex)?.lowerBound)
+        let refreshBlock = String(storeSource[refreshStart..<refreshEnd])
 
         XCTAssertTrue(detailViewBlock.contains(".bodyPullToRefresh("))
         XCTAssertTrue(detailViewBlock.contains("await workoutStore.refreshHealthMetric(model.kind)"))
@@ -3120,7 +3132,18 @@ final class SourceGuardTests: XCTestCase {
         for source in [homeSource, workoutsSource, detailSource] {
             XCTAssertFalse(source.contains(".refreshable"))
             XCTAssertTrue(source.contains(".bodyPullToRefresh("))
+            // A pull that lands while a refresh or repair holds the slot tells the user
+            // through the sync badge instead of doing nothing.
+            XCTAssertTrue(source.contains("onBusy: workoutStore.noteRefreshRequestedWhileBusy"))
         }
+
+        let triggerSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyPullToRefreshTrigger.swift")
+        XCTAssertTrue(triggerSource.contains("if isRefreshing {\n                        onBusy()"))
+        XCTAssertFalse(triggerSource.contains("guard isArmed, isTouchDriven, !isRefreshing"))
+
+        let badgeSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyHealthSyncBadge.swift")
+        XCTAssertTrue(badgeSource.contains(".onChange(of: workoutStore.refreshBusyNoticeID)"))
+        XCTAssertTrue(badgeSource.contains("busyNoticeShowsRetry ? \"Try again later\" : \"Background checks running\""))
     }
 
     func testWorkoutsPageShowsOneChartAtATimeWithAPersistedSwitch() throws {
@@ -3161,6 +3184,10 @@ final class SourceGuardTests: XCTestCase {
         // The handler is optional and defaulted, so the widgets — which pass
         // none — keep their exact pre-existing layout.
         XCTAssertTrue(calendarSource.contains("onSwitchChart: (() -> Void)? = nil"))
+        // A day cell cross-fades when its face changes (date to workouts, or one
+        // workout set to another), keyed on what it shows and off under Reduce Motion.
+        XCTAssertTrue(calendarSource.contains(".id(contentKey)"))
+        XCTAssertTrue(calendarSource.contains(".animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: contentKey)"))
         XCTAssertTrue(breakdownSource.contains("onSwitchChart: (() -> Void)? = nil"))
         XCTAssertFalse(widgetSource.contains("onSwitchChart"))
 
@@ -3321,7 +3348,14 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.0 (build 10)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.1 (build 6)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 4)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 11)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 10)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 9)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 7)**"))
@@ -3458,6 +3492,18 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 6)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.1 build 6."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 5)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.1 build 5."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.1 build 3."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.1 build 2."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.1 build 1."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 11)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle build number to 11."))
         XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 10)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle build number to 10."))
         XCTAssertTrue(versionHistory.contains("## 1.1.0 (build 9)"))
@@ -4135,16 +4181,24 @@ final class SourceGuardTests: XCTestCase {
     }
 
     func testDaySampleSidecarIsPersistedFromEnoughCallSites() throws {
-        // `persistDaySampleSidecar()` is what makes the day-sample sidecar durable —
-        // including the lazily fetched intraday merge that lets the metric detail
-        // Day View render cached data instantly on the next launch. Guard the call
-        // count so a future refactor can't silently drop that persistence.
-        // Source-setting edits share `persistContextChange()`, which saves
-        // compatible series and their per-metric scope instead of truncating
-        // the entire sidecar. Lazy loads still persist their own merges.
-        let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
-
-        XCTAssertGreaterThanOrEqual(storeSource.occurrenceCount(of: "persistDaySampleSidecar()"), 6)
+        // Protect the actual owners, not a text count that includes comments
+        // and the declaration. Source edits were consolidated into one owner;
+        // each lazy input owner must still persist its successfully admitted data.
+        let source = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        for name in ["loadIntradayMetricSamplesIfNeeded", "loadStressInputSamples", "persistContextChange"] {
+            let start = try XCTUnwrap(source.range(of: "func \(name)("))
+            let tail = source[start.upperBound...]
+            let end = try XCTUnwrap(tail.range(of: "\n    (?:private )?func ", options: .regularExpression))
+            XCTAssertTrue(tail[..<end.lowerBound].contains("persistDaySampleSidecar()"), name)
+        }
+        let start = try XCTUnwrap(source.range(of: "private func persistDaySampleSidecar()"))
+        let tail = source[start.upperBound...]
+        let end = try XCTUnwrap(tail.range(of: "\n    private func "))
+        let persistence = tail[..<end.lowerBound]
+        XCTAssertTrue(persistence.contains("guard token.isValid"))
+        XCTAssertTrue(persistence.contains("HealthDashboardSnapshotStore.saveWithOutcome("))
+        XCTAssertTrue(persistence.contains("metadata: persistenceMetadata"))
+        XCTAssertTrue(persistence.contains("authoritativeDaySampleSeries: daySampleWriteIntent"))
     }
 
     func testBackgroundWarningRefreshIsRegisteredAndScoped() throws {
@@ -4221,13 +4275,13 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(badgeSource.contains(".glassEffect(.regular, in: .capsule)"))
         XCTAssertTrue(badgeSource.contains(".fill(.regularMaterial)"))
         XCTAssertTrue(badgeSource.contains(".allowsHitTesting(false)"))
-        XCTAssertTrue(badgeSource.contains("syncBadgeSuccessCount != successCountAtSyncStart"))
+        XCTAssertTrue(badgeSource.contains("workoutStore.syncPresentation"))
         XCTAssertTrue(storeSource.contains("private(set) var syncBadgeSuccessCount = 0"))
         XCTAssertTrue(badgeSource.contains("struct BodySyncStatusBadgeLabel"))
         XCTAssertTrue(badgeSource.contains("\"Loading data...\""))
         XCTAssertFalse(badgeSource.contains("Syncing health data"))
-        XCTAssertTrue(badgeSource.contains("\"Health data updated\""))
-        XCTAssertTrue(badgeSource.contains(".accessibilityAddTraits(.updatesFrequently)"))
+        XCTAssertTrue(badgeSource.contains("\"All done · "))
+        XCTAssertTrue(badgeSource.contains("updatesFrequently: false"))
 
         // The loading icon is the native white pixel-grid loader (SwiftPixelGrid
         // design), driven from wall-clock time via TimelineView (no
@@ -4251,23 +4305,23 @@ final class SourceGuardTests: XCTestCase {
 
         XCTAssertTrue(xcstrings.contains("\"Loading data...\" : {"))
         XCTAssertFalse(xcstrings.contains("\"Syncing health data…\" : {"))
-        XCTAssertTrue(xcstrings.contains("\"Health data updated\" : {"))
+        XCTAssertTrue(xcstrings.contains("\"All done · %@\" : {"))
 
         // The badge names the refresh phase that is actually running: the store
         // publishes a stage, the badge holds each one on screen for at least
         // 0.5 s so a fast phase stays readable, and a finished refresh (stage
         // back to nil) never snaps the label back to "Loading data...".
-        XCTAssertTrue(storeSource.contains("enum RefreshStage: Hashable"))
+        XCTAssertTrue(storeSource.contains("typealias RefreshStage = BodySyncPresentation.Stage"))
         XCTAssertTrue(storeSource.contains("private(set) var refreshStage: RefreshStage?"))
         XCTAssertTrue(storeSource.contains("refreshStage = nil"))
         XCTAssertTrue(storeSource.contains("setRefreshStage(.writingEffort)"))
-        XCTAssertTrue(badgeSource.contains(".task(id: pendingStage)"))
-        XCTAssertTrue(badgeSource.contains(".seconds(0.5)"))
+        XCTAssertTrue(badgeSource.contains(".task(id: presentation)"))
         XCTAssertTrue(badgeSource.contains("var textID: AnyHashable? = nil"))
-        XCTAssertTrue(badgeSource.contains(".animation(reduceMotion ? nil : .snappy(duration: 0.28), value: displayedStage)"))
+        XCTAssertTrue(badgeSource.contains(".animation(reduceMotion ? nil : .snappy(duration: 0.28), value: presentation.displayedStage)"))
         for stageKey in [
             "Checking Health access...",
-            "Calculating scores...",
+            "Calculating Stress...",
+            "Calculating Training Load...",
             "Saving workout effort...",
             "Finishing up..."
         ] {
@@ -4363,10 +4417,15 @@ final class SourceGuardTests: XCTestCase {
         let stackStart = try XCTUnwrap(
             settingsSource.range(of: "VStack(alignment: .leading, spacing: 22) {")?.lowerBound
         )
-        let settingsStack = String(settingsSource[stackStart...].prefix(400))
+        let settingsStack = String(settingsSource[stackStart...].prefix(600))
         let appearanceSectionRange = try XCTUnwrap(settingsStack.range(of: "appearanceSection"))
         let metricsSectionRange = try XCTUnwrap(settingsStack.range(of: "metricsSection"))
         let dataSectionRange = try XCTUnwrap(settingsStack.range(of: "dataSection"))
+        let aiRange = try XCTUnwrap(settingsStack.range(of: "aiSection"))
+        let generalRange = try XCTUnwrap(settingsStack.range(of: "generalSection"))
+        XCTAssertLessThan(generalRange.lowerBound, appearanceSectionRange.lowerBound)
+        XCTAssertLessThan(generalRange.lowerBound, metricsSectionRange.lowerBound)
+        XCTAssertLessThan(aiRange.lowerBound, dataSectionRange.lowerBound)
         let iconRange = try XCTUnwrap(appearanceBlock.range(of: #"title: "Icon""#))
         let sleepRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Sleep""#))
         let unitsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Units""#))

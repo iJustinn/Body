@@ -56,6 +56,7 @@ struct BodyHealthMetricTrendChart: View {
     private let placeholderBarYValue: Double
 
     @State private var selectedDate: Date?
+    @State private var lastSelectedTrendPoint: HealthTrendCalendarPoint?
     @GestureState private var isSelecting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -393,14 +394,22 @@ struct BodyHealthMetricTrendChart: View {
                             }
                         }
 
-                    if chartStyle == .line {
-                        PointMark(
-                            x: .value("Selected Date", selectedTrendPoint.date, unit: .day),
-                            y: .value(title, selectedTrendValue)
-                        )
-                        .foregroundStyle(symbolColor)
-                        .symbolSize(82)
-                    }
+                }
+
+                // Resident after the first scrub and hidden by opacity on
+                // release: removing it in the release transaction, which also
+                // unparks the current-value dot, flies it out to the plot origin.
+                if chartStyle == .line,
+                   let selectionDotPoint = selectedTrendPoint ?? lastSelectedTrendPoint,
+                   let selectionDotValue = selectionDotPoint.value {
+                    PointMark(
+                        x: .value("Selected Date", selectionDotPoint.date, unit: .day),
+                        y: .value(title, selectionDotValue)
+                    )
+                    .foregroundStyle(symbolColor)
+                    .symbolSize(82)
+                    .opacity(selectedTrendPoint == nil ? 0 : 1)
+                    .accessibilityHidden(selectedTrendPoint == nil)
                 }
             }
             .chartXScale(domain: chartXDomain)
@@ -475,6 +484,7 @@ struct BodyHealthMetricTrendChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
+            .bodyChartScrubHaptics(selection: selectedTrendPoint?.date)
             .id(chartIdentity)
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
@@ -490,7 +500,13 @@ struct BodyHealthMetricTrendChart: View {
             // is out of the callout's way promptly; on a range switch both keys
             // change and the inner range animation wins, keeping the dot on the
             // same curve as the marks it travels with.
-            .animation(reduceMotion ? nil : .smooth(duration: 0.3, extraBounce: 0), value: showsCurrentValueDot)
+            // Unpark only: parking happens as a scrub begins, and that
+            // transaction also inserts the selection dot, which Charts then
+            // flies in from the plot origin instead of popping in place.
+            .animation(
+                reduceMotion || !showsCurrentValueDot ? nil : .smooth(duration: 0.3, extraBounce: 0),
+                value: showsCurrentValueDot
+            )
             .onChange(of: selectedRange) {
                 selectedDate = nil
             }
@@ -502,6 +518,11 @@ struct BodyHealthMetricTrendChart: View {
             }
             .onChange(of: activeHighlightSourceValue) { _, _ in
                 syncActiveHighlightedValue()
+            }
+            .onChange(of: selectedTrendPoint?.date) { _, _ in
+                if let selectedTrendPoint {
+                    lastSelectedTrendPoint = selectedTrendPoint
+                }
             }
             .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedTrendPoint?.date) {
                 guard let point = selectedTrendPoint, let value = point.value else {
@@ -853,6 +874,11 @@ struct BodyHealthMetricDayChart: View {
     /// domain never moves across day switches.
     private static let referenceDayStart = Calendar.bodyGregorian.startOfDay(for: Date(timeIntervalSinceReferenceDate: 0))
 
+    /// Optional report-out of the scrub callout, so the detail page can float it on
+    /// its topmost layer (see `BodyChartFloatingCallout`) instead of the in-chart
+    /// annotation.
+    let floatingCallout: BodyChartFloatingCalloutState?
+
     @State private var selectedDate: Date?
     @GestureState private var isSelecting = false
 
@@ -876,8 +902,10 @@ struct BodyHealthMetricDayChart: View {
         aggregationLabel: String = String(localized: "HOURLY AVG"),
         includesSampleBreakdown: Bool = true,
         collapsesUnchangedPoints: Bool = false,
-        showsHourlyRangeBars: Bool = false
+        showsHourlyRangeBars: Bool = false,
+        floatingCallout: BodyChartFloatingCalloutState? = nil
     ) {
+        self.floatingCallout = floatingCallout
         self.day = day
         self.title = title
         self.color = color
@@ -1055,13 +1083,9 @@ struct BodyHealthMetricDayChart: View {
                         spacing: 8,
                         overflowResolution: bodyChartSelectionOverflowResolution
                     ) {
-                        BodyHealthMetricDayAnnotation(
-                            bucket: selectedBucket.bucket,
-                            values: selectedValues(for: selectedBucket.plotDate),
-                            valueFormatter: valueFormatter,
-                            aggregationLabel: aggregationLabel,
-                            includesSampleBreakdown: includesSampleBreakdown
-                        )
+                        if floatingCallout == nil {
+                            selectionAnnotation(for: selectedBucket)
+                        }
                     }
 
                 ForEach(selectedEntries(for: selectedBucket.plotDate)) { entry in
@@ -1108,6 +1132,27 @@ struct BodyHealthMetricDayChart: View {
         }
         .chartXSelection(value: $selectedDate)
         .simultaneousGesture(chartPressGesture)
+        .bodyChartScrubHaptics(selection: selectedBucket?.plotDate)
+        .bodyFloatingCalloutReporter(
+            floatingCallout,
+            selectionDate: selectedBucket.map { normalizedDate($0.plotDate) },
+            centersOnDayInterval: false
+        ) {
+            guard let selectedBucket else {
+                return AnyView(EmptyView())
+            }
+            return AnyView(selectionAnnotation(for: selectedBucket))
+        }
+    }
+
+    private func selectionAnnotation(for selectedBucket: BodyHealthMetricDayChartEntry) -> BodyHealthMetricDayAnnotation {
+        BodyHealthMetricDayAnnotation(
+            bucket: selectedBucket.bucket,
+            values: selectedValues(for: selectedBucket.plotDate),
+            valueFormatter: valueFormatter,
+            aggregationLabel: aggregationLabel,
+            includesSampleBreakdown: includesSampleBreakdown
+        )
     }
 
     private var selectedBucket: BodyHealthMetricDayChartEntry? {

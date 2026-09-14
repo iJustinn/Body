@@ -7,6 +7,7 @@ import SwiftUI
 
 @main
 struct BodyApp: App {
+    @UIApplicationDelegateAdaptor(BodyNotificationAppDelegate.self) private var notificationDelegate
     @Environment(\.scenePhase) private var scenePhase
     @State private var workoutStore: HealthKitWorkoutStore
     @State private var proStore: BodyProStore
@@ -19,14 +20,9 @@ struct BodyApp: App {
     private var workoutColorOverridesRawValue = ""
 
     init() {
-        // The permission-selection migrations run exactly once here, before
-        // anything reads the selection. `workoutStore` is built on the line below
-        // rather than in its declaration, so the `BodyHealthPermissionSelection.load()`
-        // default argument inside `HealthKitWorkoutStore.init` runs after the
-        // migration. Do not move the assignment above this line, and do not give the
-        // property an inline default, which would construct the store first.
-        BodyHealthPermissionSelection.migrateIfNeeded()
-        _workoutStore = State(initialValue: HealthKitWorkoutStore())
+        // The app-lifetime holder migrates preferences before constructing the
+        // one store shared by SwiftUI and headless handlers.
+        _workoutStore = State(initialValue: BodyAppRuntime.shared.workoutStore)
 
         // Configure RevenueCat before constructing BodyProStore so the store's async
         // entitlement work always runs against a configured SDK.
@@ -40,6 +36,8 @@ struct BodyApp: App {
         // BGTask handlers must be registered before launch finishes, so this
         // belongs in `init()` rather than in a `.task`.
         BodyBackgroundRefreshScheduler.registerTask()
+        BodyDataRefreshScheduler.registerTask()
+        BodyAppRuntime.shared.startObserving()
     }
 
     var body: some Scene {
@@ -57,8 +55,8 @@ struct BodyApp: App {
                     BodyWidgetReloadCoalescer.shared.requestReload()
                 }
                 .task(priority: .utility) {
-                    BodyBackgroundRefreshScheduler.setForegroundActive(true)
-                    BodyBackgroundRefreshScheduler.schedule()
+                    BodyAppRuntime.setForegroundActive(scenePhase == .active)
+                    BodyDataRefreshScheduler.schedule()
                     // The intraday day-sample sidecar is the only cached series not
                     // restored synchronously in the store's init, so the Day View
                     // charts would otherwise stay empty until a full refresh or a
@@ -72,12 +70,15 @@ struct BodyApp: App {
                     if !workoutStore.needsInitialHealthDataLoad {
                         await workoutStore.hydratePersistedDaySamplesIfNeeded()
                     }
+                    guard scenePhase == .active else { return }
+                    BodyBackgroundRefreshScheduler.schedule()
                     await workoutStore.syncWhenAppBecomesActive()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     // The background evaluator skips a pass while the app is on
                     // screen, where the foreground refresh owns detection.
-                    BodyBackgroundRefreshScheduler.setForegroundActive(newPhase == .active)
+                    BodyAppRuntime.setForegroundActive(newPhase == .active)
+                    BodyDataRefreshScheduler.schedule()
                     if newPhase == .background {
                         workoutStore.noteAppDidEnterBackground()
                     }
@@ -87,6 +88,11 @@ struct BodyApp: App {
 
                     BodyBackgroundRefreshScheduler.schedule()
                     Task(priority: .utility) {
+                        // Activation can beat the launch task (or follow its
+                        // inactive early return). Hydration is memoized.
+                        if !workoutStore.needsInitialHealthDataLoad {
+                            await workoutStore.hydratePersistedDaySamplesIfNeeded()
+                        }
                         await workoutStore.syncWhenAppBecomesActive()
                         // RevenueCat doesn't push backend changes; re-resolve on foreground
                         // so refunds / other-device purchases update Pro and the widgets.

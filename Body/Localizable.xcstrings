@@ -954,6 +954,22 @@
         }
       }
     },
+    "A light tap when you open a card" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A light tap when you open a card"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开卡片时轻震一下"
+          }
+        }
+      }
+    },
     "A periodic check found a blood oxygen level of %lld%% today, below your %lld%% limit." : {
       "localizations" : {
         "en" : {
@@ -1015,6 +1031,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "训练时间越长、你越用力、运动对全身的负担越大，这次训练所占的分量就越重，因此同样时长下，轻松散步的影响远不及一次高强度跑步。用力程度取自你为该次训练保存的评分。若没有评分，Body 会根据你的平均心率和能量消耗进行估算。非常长的训练带来的影响会趋于平缓，而不会无止境地累加。"
+          }
+        }
+      }
+    },
+    "A tap when a chart callout appears and a tick per point" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A tap when a chart callout appears and a tick per point"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图表标注出现时轻震一下，每切换一个数据点再轻触一次"
           }
         }
       }
@@ -1180,6 +1212,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于你的评分"
+          }
+        }
+      }
+    },
+    "Background checks running" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background checks running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后台检查中"
+          }
+        }
+      }
+    },
+    "Try again later" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try again later"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请稍后再试"
           }
         }
       }
@@ -1497,6 +1561,22 @@
         }
       }
     },
+    "Align" : {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Align"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "统一"
+          }
+        }
+      }
+    },
     "All Apple Health data permissions are turned off in Settings." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1510,6 +1590,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "设置中已关闭所有健康 App 数据权限。"
+          }
+        }
+      }
+    },
+    "All done · %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All done · %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部完成 · %@"
           }
         }
       }
@@ -1745,6 +1842,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apple Watch"
+          }
+        }
+      }
+    },
+    "Applies to the Equivalent card on a workout's detail page: a soft tap whenever two foods collide. Turn it off if you'd rather the card stay silent." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to the Equivalent card on a workout's detail page: a soft tap whenever two foods collide. Turn it off if you'd rather the card stay silent."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作用于体能训练详情页的热量等价卡片：每当两种食物碰撞时轻轻震动一下。如果希望卡片保持安静，可将其关闭。"
+          }
+        }
+      }
+    },
+    "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在图表上按住并拖动时生效。指标详情页：顶部趋势图、日视图、睡眠阶段、体征、身体雷达、趋势对比卡片，以及过高或过低提醒卡片。体能训练详情页：心率、海拔、配速、速度、步频、功率、步幅、触地时间和垂直振幅图表。"
+          }
+        }
+      }
+    },
+    "Applies when you tap a card to open its page. Summary: the readiness hero, the metric cards, the Activity Rings card, and the trend cards. Workouts: each workout in the list. Metric detail pages: the Basics trend cards." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies when you tap a card to open its page. Summary: the readiness hero, the metric cards, the Activity Rings card, and the trend cards. Workouts: each workout in the list. Metric detail pages: the Basics trend cards."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "轻点卡片打开其页面时生效。概览：准备度主区、指标卡片、活动圆环卡片和趋势卡片。体能训练：列表中的每条训练。指标详情页：身体基础趋势卡片。"
           }
         }
       }
@@ -2961,7 +3106,40 @@
         }
       }
     },
+    "Calculating Body Radar..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculating Body Radar..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在计算身体雷达..."
+          }
+        }
+      }
+    },
+    "Calculating Readiness..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculating Readiness..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在计算准备度..."
+          }
+        }
+      }
+    },
     "Calculating scores..." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2973,6 +3151,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在计算评分…"
+          }
+        }
+      }
+    },
+    "Calculating Stress..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculating Stress..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在计算压力..."
+          }
+        }
+      }
+    },
+    "Calculating Training Load..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calculating Training Load..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在计算训练负荷..."
           }
         }
       }
@@ -3043,6 +3253,22 @@
         }
       }
     },
+    "Card Vibration" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Card Vibration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卡片震动"
+          }
+        }
+      }
+    },
     "Cardio Fitness" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3105,6 +3331,166 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "图表样式"
+          }
+        }
+      }
+    },
+    "Chart Vibration" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chart Vibration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图表震动"
+          }
+        }
+      }
+    },
+    "Range Vibration" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Range Vibration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "时间范围震动"
+          }
+        }
+      }
+    },
+    "Navigation Bar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigation Bar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导航栏"
+          }
+        }
+      }
+    },
+    "Icons" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Icons"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图标"
+          }
+        }
+      }
+    },
+    "Both" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Both"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图标和文字"
+          }
+        }
+      }
+    },
+    "Tab Labels" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tab Labels"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标签文字"
+          }
+        }
+      }
+    },
+    "Show each tab's name under its icon" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show each tab's name under its icon"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在每个标签图标下方显示名称"
+          }
+        }
+      }
+    },
+    "Applies to the bar at the bottom of the screen. Off by default, so the bar shows only the Summary, Workouts, and Settings icons. Names appear right away when you turn this on, but because of a system limitation they can stay visible after you turn it off until Body restarts." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to the bar at the bottom of the screen. Off by default, so the bar shows only the Summary, Workouts, and Settings icons. Names appear right away when you turn this on, but because of a system limitation they can stay visible after you turn it off until Body restarts."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作用于屏幕底部的导航栏。默认关闭，导航栏只显示概览、体能训练和设置的图标。开启后名称会立即显示，但受系统限制，关闭后名称可能会保留，直到 Body 重新启动。"
+          }
+        }
+      }
+    },
+    "A light tap when you pick a time range" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A light tap when you pick a time range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择时间范围时轻震一下"
+          }
+        }
+      }
+    },
+    "Applies when you tap Week, Month, 6 Months, or Year at the top of a metric detail page, including a locked range that opens Body Pro." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies when you tap Week, Month, 6 Months, or Year at the top of a metric detail page, including a locked range that opens Body Pro."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在指标详情页顶部轻点周、月、6个月或年时生效，包括会打开 Body Pro 的锁定范围。"
           }
         }
       }
@@ -5193,6 +5579,22 @@
         }
       }
     },
+    "Every metric's individual source choice will be replaced by the Primary and Secondary Data Source selected here." : {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every metric's individual source choice will be replaced by the Primary and Secondary Data Source selected here."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每项指标的单独数据源设置都将替换为此处选择的主要和次要数据源。"
+          }
+        }
+      }
+    },
     "Every session counts." : {
       "localizations" : {
         "en" : {
@@ -5506,6 +5908,38 @@
         }
       }
     },
+    "Force Align Sources" : {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Align Sources"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强制统一数据源"
+          }
+        }
+      }
+    },
+    "Force Align Sources?" : {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Align Sources?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强制统一数据源？"
+          }
+        }
+      }
+    },
     "Full Day History" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5686,23 +6120,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "健康仪表盘缓存为空。"
-          }
-        }
-      }
-    },
-    "Health data updated" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Health data updated"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "健康数据已更新"
           }
         }
       }
@@ -5915,6 +6332,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高心率警告"
+          }
+        }
+      }
+    },
+    "High readiness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态良好"
           }
         }
       }
@@ -6964,6 +7398,23 @@
         }
       }
     },
+    "Low readiness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态偏低"
+          }
+        }
+      }
+    },
     "Manage Purchases" : {
       "localizations" : {
         "en" : {
@@ -7095,6 +7546,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "分钟"
+          }
+        }
+      }
+    },
+    "Moderate readiness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moderate readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态中等"
           }
         }
       }
@@ -8057,6 +8525,7 @@
       }
     },
     "Notifications are turned off for Body. Enable them in Settings to get warning alerts." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8072,7 +8541,518 @@
         }
       }
     },
+    "notifications.all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All Notifications"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有通知"
+          }
+        }
+      }
+    },
+    "notifications.all.footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn every Body notification on or off. Your choices below are kept while this is off."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一键开启或关闭 Body 的全部通知。关闭时仍会保留下方各项的选择。"
+          }
+        }
+      }
+    },
+    "notifications.categories" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alerts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提醒类型"
+          }
+        }
+      }
+    },
+    "notifications.ok" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "好"
+          }
+        }
+      }
+    },
+    "notifications.permission.enable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable Notifications"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启通知"
+          }
+        }
+      }
+    },
+    "notifications.permission.explainer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow Body to notify you about metric warnings, high-stress episodes, synced workouts, and sleep data. You can change each category in Settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "允许 Body 发送指标预警、高压力时段、运动同步和睡眠数据通知。您可以在设置中分别调整各类通知。"
+          }
+        }
+      }
+    },
+    "notifications.permission.later" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Now"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂不"
+          }
+        }
+      }
+    },
+    "notifications.permission.settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Notification Settings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开通知设置"
+          }
+        }
+      }
+    },
+    "notifications.permission.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stay informed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "及时了解身体状态"
+          }
+        }
+      }
+    },
+    "notifications.readiness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daily Readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日就绪状态"
+          }
+        }
+      }
+    },
+    "notifications.readiness.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You're starting today at %lld%% (%@). Tap to see what shaped it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "您今天的起始就绪状态为 %lld%%（%@）。轻点查看影响因素。"
+          }
+        }
+      }
+    },
+    "notifications.readiness.footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notify me when my readiness for the day is ready"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当日就绪状态计算完成后通知我"
+          }
+        }
+      }
+    },
+    "notifications.readiness.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's readiness is ready"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今日就绪状态已就绪"
+          }
+        }
+      }
+    },
+    "notifications.section" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notifications"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通知"
+          }
+        }
+      }
+    },
+    "notifications.sleep" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠数据"
+          }
+        }
+      }
+    },
+    "notifications.sleep.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your sleep data has synced: %@ asleep. Tap to view Sleep."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "您的睡眠数据已同步：睡眠时长 %@。轻点查看睡眠。"
+          }
+        }
+      }
+    },
+    "notifications.sleep.footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notify me when my nightly sleep data syncs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "夜间睡眠数据同步后通知我"
+          }
+        }
+      }
+    },
+    "notifications.sleep.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep data is ready"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠数据已就绪"
+          }
+        }
+      }
+    },
+    "notifications.stress" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Stress"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高压力"
+          }
+        }
+      }
+    },
+    "notifications.stress.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your stress score reached %lld at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "您的压力评分在 %2$@ 达到 %1$lld。"
+          }
+        }
+      }
+    },
+    "notifications.stress.footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get notified when a new period of high stress is detected from your heart data while Body checks in the background."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当 Body 在后台检查时，根据心脏数据检测到新的高压力时段时通知您。"
+          }
+        }
+      }
+    },
+    "notifications.stress.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High stress detected earlier"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此前检测到高压力"
+          }
+        }
+      }
+    },
+    "notifications.timing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background checks follow the system’s schedule. Stress alerts report new high-stress episodes, at most once per check. Workout alerts arrive after syncing. Metric warnings notify once per kind each day."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后台检查由系统安排。压力通知报告新的高压力时段，每次检查最多一次。运动通知在同步后发送。每种指标预警每天最多通知一次。"
+          }
+        }
+      }
+    },
+    "notifications.warnings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Metric Warnings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "指标预警"
+          }
+        }
+      }
+    },
+    "notifications.warnings.footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get notified the first time a day a metric crosses one of your warning thresholds, such as low heart rate or low blood oxygen."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当指标当天首次超出您设定的预警阈值时通知您，例如心率过低或血氧过低。"
+          }
+        }
+      }
+    },
+    "notifications.workout.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@. Finished %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@。结束于 %@。"
+          }
+        }
+      }
+    },
+    "notifications.workout.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout synced"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动已同步"
+          }
+        }
+      }
+    },
+    "notifications.workout.unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This workout is no longer available."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此运动已不可用。"
+          }
+        }
+      }
+    },
+    "notifications.workouts" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout Finished"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动完成"
+          }
+        }
+      }
+    },
+    "notifications.workouts.footer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get notified after a workout syncs from Apple Health. Tap the notification to open its details."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动从 Apple Health 同步后通知您。点按通知即可查看详情。"
+          }
+        }
+      }
+    },
     "Notify Me" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9801,6 +10781,22 @@
         }
       }
     },
+    "Partial" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partial"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分开启"
+          }
+        }
+      }
+    },
     "Pct." : {
       "localizations" : {
         "en" : {
@@ -10008,6 +11004,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "粉色"
+          }
+        }
+      }
+    },
+    "Poor readiness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poor readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态较差"
           }
         }
       }
@@ -10280,6 +11293,23 @@
         }
       }
     },
+    "Prime readiness" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prime readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态极佳"
+          }
+        }
+      }
+    },
     "Privacy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -10509,6 +11539,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复状态%1$lld%%，%2$@"
+          }
+        }
+      }
+    },
+    "Readiness Level" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness Level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "准备度等级"
+          }
+        }
+      }
+    },
+    "Readiness Ring" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness Ring"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态环"
           }
         }
       }
@@ -11725,6 +12789,7 @@
       }
     },
     "Send a notification when a warning is detected" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -11773,6 +12838,22 @@
         }
       }
     },
+    "Sets every metric to the Primary and Secondary Data Source chosen below" : {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sets every metric to the Primary and Secondary Data Source chosen below"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所有指标设置为下方选择的主要和次要数据源"
+          }
+        }
+      }
+    },
     "Settings" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11790,6 +12871,23 @@
         }
       }
     },
+    "settings.general.vibration" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vibration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "震动"
+          }
+        }
+      }
+    },
     "settings.section.ai" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11803,6 +12901,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "AI"
+          }
+        }
+      }
+    },
+    "settings.section.general" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "General"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通用"
           }
         }
       }
@@ -12199,6 +13314,23 @@
         }
       }
     },
+    "Show today's level under the score" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show today's level under the score"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在分数下方显示今日等级"
+          }
+        }
+      }
+    },
     "Show up for yourself today." : {
       "localizations" : {
         "en" : {
@@ -12492,23 +13624,6 @@
         }
       }
     },
-    "Sleep duration, stages, and consistency" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sleep duration, stages, and consistency"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "睡眠时长、阶段与规律性"
-          }
-        }
-      }
-    },
     "Sleep duration trend" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12522,6 +13637,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "睡眠时长趋势"
+          }
+        }
+      }
+    },
+    "Sleep duration, stages, and consistency" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep duration, stages, and consistency"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠时长、阶段与规律性"
           }
         }
       }
@@ -12705,6 +13837,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "部分缓存的体能训练变更无法移除。请尝试再次清除缓存。"
+          }
+        }
+      }
+    },
+    "Some health data updated" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some health data updated"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分健康数据已更新"
           }
         }
       }
@@ -13253,6 +14401,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在阶段时长和最佳范围之间切换"
+          }
+        }
+      }
+    },
+    "Syncing..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Syncing..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在同步..."
           }
         }
       }
@@ -14257,6 +15421,390 @@
         }
       }
     },
+    "Updating Active Energy..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Active Energy..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新活动能量..."
+          }
+        }
+      }
+    },
+    "Updating Activity Rings..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Activity Rings..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新健身圆环..."
+          }
+        }
+      }
+    },
+    "Updating Blood Oxygen..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Blood Oxygen..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新血氧..."
+          }
+        }
+      }
+    },
+    "Updating Body Fat..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Body Fat..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新体脂..."
+          }
+        }
+      }
+    },
+    "Updating Body Mass Index..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Body Mass Index..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新身体质量指数..."
+          }
+        }
+      }
+    },
+    "Updating Body Measurements..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Body Measurements..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新身体测量..."
+          }
+        }
+      }
+    },
+    "Updating Body Radar..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Body Radar..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新身体雷达..."
+          }
+        }
+      }
+    },
+    "Updating Cardio Fitness..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Cardio Fitness..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新心肺适能..."
+          }
+        }
+      }
+    },
+    "Updating Exercise Minutes..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Exercise Minutes..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新锻炼分钟数..."
+          }
+        }
+      }
+    },
+    "Updating health data..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating health data..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新健康数据..."
+          }
+        }
+      }
+    },
+    "Updating Heart Rate Variability..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Heart Rate Variability..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新心率变异性..."
+          }
+        }
+      }
+    },
+    "Updating Heart Rate..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Heart Rate..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新心率..."
+          }
+        }
+      }
+    },
+    "Updating Readiness..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Readiness..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新准备度..."
+          }
+        }
+      }
+    },
+    "Updating Respiratory Rate..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Respiratory Rate..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新呼吸频率..."
+          }
+        }
+      }
+    },
+    "Updating Resting Energy..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Resting Energy..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新静息能量..."
+          }
+        }
+      }
+    },
+    "Updating Resting Heart Rate..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Resting Heart Rate..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新静息心率..."
+          }
+        }
+      }
+    },
+    "Updating Sleep..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Sleep..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新睡眠..."
+          }
+        }
+      }
+    },
+    "Updating Steps..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Steps..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新步数..."
+          }
+        }
+      }
+    },
+    "Updating Stress..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Stress..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新压力..."
+          }
+        }
+      }
+    },
+    "Updating Time in Daylight..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Time in Daylight..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新日照时间..."
+          }
+        }
+      }
+    },
+    "Updating Training Load..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Training Load..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新训练负荷..."
+          }
+        }
+      }
+    },
+    "Updating Vitals..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Vitals..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新生命体征..."
+          }
+        }
+      }
+    },
+    "Updating Weight..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Weight..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新体重..."
+          }
+        }
+      }
+    },
+    "Updating Wrist Temperature..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Wrist Temperature..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新手腕温度..."
+          }
+        }
+      }
+    },
     "Use Body widgets to keep workout and metric context on the Home Screen." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14436,22 +15984,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "版本"
-          }
-        }
-      }
-    },
-    "Vibration plays a soft tap whenever two foods collide in the Equivalent card. Turn it off if you'd rather the card stay silent." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vibration plays a soft tap whenever two foods collide in the Equivalent card. Turn it off if you'd rather the card stay silent."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每当两种食物在热量等价卡片中碰撞时，都会轻轻震动一下。如果你希望卡片保持安静，可以关闭它。"
           }
         }
       }
@@ -14804,6 +16336,7 @@
       }
     },
     "When on, Body periodically checks in the background and sends a notification the first time a warning is detected each day. Checks are scheduled by the system and are not real-time." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

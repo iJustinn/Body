@@ -102,6 +102,8 @@ struct WorkoutCalendarView: View {
     /// therefore lay out exactly as they did before this control existed.
     let onSwitchChart: (() -> Void)?
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     init(
         snapshot: WorkoutMonthSnapshot,
         palette: BodyWorkoutColorPalette,
@@ -214,7 +216,28 @@ struct WorkoutCalendarView: View {
         .accessibilitySortPriority(1)
     }
 
+    /// What a day cell shows: its date number, or its primary workout and count.
+    /// A change in either cross-fades the cell's old face into its new one.
+    private struct CellContentKey: Hashable {
+        let primaryWorkoutType: BodyWorkoutType?
+        let workoutCount: Int
+    }
+
     private func calendarCellContent(_ day: WorkoutDaySummary, glyphScale: CGFloat) -> some View {
+        let contentKey = CellContentKey(primaryWorkoutType: day.primaryWorkoutType, workoutCount: day.workoutCount)
+
+        return ZStack {
+            calendarCellFace(day, glyphScale: glyphScale)
+                .id(contentKey)
+                .transition(.opacity)
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: contentKey)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel(for: day))
+        .accessibilityHint(WorkoutCalendarDaySelection.isSelectable(day, hasSelectionHandler: onSelectDay != nil) ? String(localized: "Open workouts for this day", table: "BodyShared") : "")
+    }
+
+    private func calendarCellFace(_ day: WorkoutDaySummary, glyphScale: CGFloat) -> some View {
         let markerRowHeight = 9 * glyphScale
 
         return ZStack {
@@ -246,9 +269,6 @@ struct WorkoutCalendarView: View {
                 }
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabel(for: day))
-        .accessibilityHint(WorkoutCalendarDaySelection.isSelectable(day, hasSelectionHandler: onSelectDay != nil) ? String(localized: "Open workouts for this day", table: "BodyShared") : "")
     }
 
     private var calendarCells: [WorkoutCalendarCellKind] {

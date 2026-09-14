@@ -447,7 +447,7 @@ final class HealthKitWorkoutStoreSourceResolutionTests: XCTestCase {
         let calendar = Calendar.bodyGregorian
         let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 1, hour: 8)))
         let end = start.addingTimeInterval(1_800)
-        let workout = HKWorkout(activityType: .running, start: start, end: end)
+        let workout = makeTestWorkout(activityType: .running, start: start, end: end, metadata: nil)
         let cached = WorkoutSummary(
             id: workout.uuid,
             type: .cycling,
