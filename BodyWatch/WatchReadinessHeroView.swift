@@ -269,7 +269,7 @@ struct WatchReadinessHeroView: View {
                 .animation(reduceMotion ? nil : .smooth(duration: 0.4, extraBounce: 0), value: displayedScore)
 
             if score != nil {
-                Text("%")
+                Text(verbatim: "%")
                     .font(.system(size: 30 * scale, weight: .semibold, design: .rounded))
                     .opacity(0.9)
             }

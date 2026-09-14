@@ -17,9 +17,6 @@
         }
       }
     },
-    "%" : {
-
-    },
     "%@ (build %@)" : {
       "extractionState" : "manual",
       "localizations" : {
