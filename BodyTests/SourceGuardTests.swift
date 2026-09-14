@@ -1577,7 +1577,7 @@ final class SourceGuardTests: XCTestCase {
     func testTrainingLoadTrendChartDrawsDynamicHorizontalCurrentIntervalBandWithoutInlineLabel() throws {
         let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "struct BodyHealthMetricTrendChart")?.lowerBound)
-        let chartBlock = String(source[chartStart...].prefix(22_000))
+        let chartBlock = String(source[chartStart...].prefix(26_000))
 
         XCTAssertTrue(chartBlock.contains("let highlightedRange: BodyHealthMetricTrendHighlightedRange?"))
         XCTAssertTrue(chartBlock.contains("let highlightedRangeResolver: ((Double?) -> BodyHealthMetricTrendHighlightedRange?)?"))
@@ -3337,7 +3337,9 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.1 (build 3)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.1 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 4)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.0 (build 11)**"))
@@ -3478,6 +3480,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 5)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.1 build 5."))
         XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.1 build 3."))
         XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 2)"))

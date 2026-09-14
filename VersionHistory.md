@@ -1,5 +1,12 @@
 # Version History
 
+## 1.1.1 (build 5)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.1 build 5.
+- The Summary readiness hero now shows today's level, such as “High readiness”, in gray under the score, with the score moved up a line to make room. With no warning signs showing, the score and level sit a little lower and glide up when a sign appears. With the level turned off, the score stays centered and does not move.
+- The warning signs under the readiness score now hold still with the score when you pull the Summary page down, instead of sliding with the page.
+- Settings > Metrics > Star Metric now lists Readiness as **Readiness Ring**, and while it is selected a **Readiness Level** toggle, indented under it as a sub option, shows or hides the level under the score. It is on by default.
+
 ## 1.1.1 (build 4)
 
 - The watch home screen now leads with the iPhone's readiness hero instead of a Readiness card: the five band segments on an arc over the score, the pill in today's band, the band color glow behind the page, the pull-down stretch, and the scroll-up flattening into a bar held at the top, all from the same geometry and animations as the phone, scaled to the watch. Tapping the hero opens the Readiness detail page.
