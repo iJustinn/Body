@@ -1,3 +1,7 @@
+## 1.1.1 (build 6)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.1 build 6.
+
 # Version History
 
 ## 1.1.1 (build 5)

@@ -16,7 +16,7 @@ RP-03 Phase 5 transaction coverage: `WorkoutChangeJournalTests` checks staged bo
 
 RP-03 Phase 4 review regressions: `WorkoutEffortValidationTests` overlaps expired gathers in both score/absence orders and checks that both succeed while the earlier-admitted value survives. Existing failure, rollback, clear, and Training Load failure tests remain binding. `HistoricalMonthRepairTests` checks that unchanged publication and an empty month fold preserve the repair revision, while progress, cursor changes, and deletion advance it. The navigation source guard verifies a stale loaded month uses immediate selection plus background revalidation without creating pending selection. Manually revisit a previously fetched empty month after five minutes: it must appear immediately and update in place if HealthKit later adds a workout. Unknown, cleared, and empty disk-only months must still use the loading path.
 
-Generated 2026-09-08 against branch `body-v1.1.1` (app version 1.1.1 build 5).
+Generated 2026-09-08 against branch `body-v1.1.1` (app version 1.1.1 build 6).
 
 RP-03 build 8 regression gates: `HealthDashboardCacheScopeTests` verifies anchor cleanup after rejected commits in both dashboard refresh bodies, protects a newer anchor from an abandoned body, and checks user-initiated refresh intent for default/per-metric primary and comparison sources, grouping, combine-by-name, and sleep parsing. Goal-only corrections remain query-free. The coalescing fixture uses a weak store capture and releases its override after the assertion so it cannot leak an expectation into later tests. Run the full BodyTests suite, not only isolated cancellation tests, before accepting Phase 1.
 
