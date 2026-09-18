@@ -49,6 +49,7 @@ final class BodyCompanionPublisherTests: XCTestCase {
             selectedTemperatureUnitRaw: BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue,
             showsSubMinuteAwakeStages: false,
             showsLeadingTrailingAwakeStages: false,
+            readinessHeroShowsLevel: true,
             healthDataSourceSelectionRaw: "",
             customHealthSourceGroupsRaw: nil,
             combinesByName: false

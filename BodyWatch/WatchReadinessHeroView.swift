@@ -7,9 +7,10 @@
 //  glow in the band's color, the pull-down stretch, and the scroll-driven
 //  flattening into a bar held at the top of the page. It is the iPhone hero
 //  (`BodyReadinessArcHero` in `Body/Views/BodyReadinessStarHero.swift`) drawn
-//  from the same shared `BodyReadinessArcGeometry`, at the width the hero has
-//  on an iPhone (`referenceWidth`) and then scaled down uniformly to the watch,
-//  so every proportion, distance and animation is the phone's. The state
+//  from the same shared `BodyReadinessArcGeometry`, laid out close to the width
+//  the hero has on an iPhone (`referenceWidth`, a little narrower so the bars
+//  read slightly thicker) and then scaled down uniformly to the watch, so the
+//  distances and animations are the phone's. The state
 //  machine below (launch slide, pill moves, glow delay, stretch release) is a
 //  line-for-line mirror of the iOS hero's: keep the two in step.
 //
@@ -38,10 +39,12 @@ final class WatchDashboardScrollState {
 }
 
 enum WatchReadinessHero {
-    /// The iPhone hero's width (a 393 pt page inside Home's 16 pt padding): the
-    /// geometry is laid out at this width and scaled to the watch, so the ring
-    /// and bars keep the phone's proportions.
-    static let referenceWidth: CGFloat = 361
+    /// The width the geometry is laid out at before it is scaled to the watch.
+    /// The iPhone hero is 361 pt wide (a 393 pt page inside Home's 16 pt
+    /// padding); the geometry's bar, gap, and pill sizes are absolute, so a
+    /// slightly narrower layout makes them about 9 percent heavier against the
+    /// arc once scaled, which reads better at the watch's size.
+    static let referenceWidth: CGFloat = 330
 
     static func scale(width: CGFloat) -> CGFloat {
         max(0, width / referenceWidth)
@@ -78,6 +81,8 @@ struct WatchReadinessHeroView: View {
 
     /// Today's readiness score; nil shows `--` over neutral bands.
     let score: Int?
+    /// The phone's Readiness Level switch: name today's level under the score.
+    var showsLevel: Bool = true
     /// The width the hero draws at on the watch.
     let width: CGFloat
     /// 0 = full arc with the score, 1 = the flat pinned bar. Clamped here.
@@ -190,7 +195,7 @@ struct WatchReadinessHeroView: View {
             .offset(y: -pull)
 
             scoreText
-                .position(x: width / 2 + scoreCenterNudge, y: Geometry.numberCenterY(width: referenceWidth) * scale)
+                .position(x: width / 2, y: (Geometry.numberCenterY(width: referenceWidth) - levelLineOffset) * scale)
                 .offset(y: -pull)
         }
         .frame(width: width, height: WatchReadinessHero.height(width: width), alignment: .topLeading)
@@ -258,7 +263,40 @@ struct WatchReadinessHeroView: View {
         score == nil ? 0 : 6 * scale
     }
 
+    /// Height of the level line under the score, in phone points.
+    private static let levelLineHeight: CGFloat = 26
+    /// Pulls the level up into the number's own line spacing, so the pair reads
+    /// as one block. Phone points; negative tightens.
+    private static let levelLineSpacing: CGFloat = -6
+
+    /// The score and its level line are centered together, so raising that
+    /// center by half of what the line adds lifts the number by the whole
+    /// line's height whatever the spacing between the two.
+    private var levelLineOffset: CGFloat {
+        showsLevelLine ? (Self.levelLineHeight - Self.levelLineSpacing) / 2 : 0
+    }
+
+    private var showsLevelLine: Bool { showsLevel && score != nil }
+
     private var scoreText: some View {
+        VStack(spacing: Self.levelLineSpacing * scale) {
+            scoreNumber
+                .offset(x: scoreCenterNudge)
+
+            if showsLevelLine {
+                Text(status.title)
+                    .font(.system(size: 20 * scale, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(height: Self.levelLineHeight * scale)
+            }
+        }
+        .fixedSize()
+        .shadow(color: .black.opacity(0.3), radius: 6 * scale, y: 1 * scale)
+        .opacity(textOpacity)
+    }
+
+    private var scoreNumber: some View {
         HStack(alignment: .firstTextBaseline, spacing: 2 * scale) {
             Text(numberText)
                 .font(.system(size: 66 * scale, weight: .semibold, design: .rounded))
@@ -276,8 +314,6 @@ struct WatchReadinessHeroView: View {
         }
         .fixedSize()
         .foregroundStyle(.primary)
-        .shadow(color: .black.opacity(0.3), radius: 6 * scale, y: 1 * scale)
-        .opacity(textOpacity)
     }
 
     private var accessibilityLabel: String {

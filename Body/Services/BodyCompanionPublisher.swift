@@ -63,6 +63,7 @@ struct BodyCompanionPublishInput: Sendable {
     let selectedTemperatureUnitRaw: String
     let showsSubMinuteAwakeStages: Bool
     let showsLeadingTrailingAwakeStages: Bool
+    let readinessHeroShowsLevel: Bool
     let healthDataSourceSelectionRaw: String
     let customHealthSourceGroupsRaw: String?
     let combinesByName: Bool
@@ -238,6 +239,7 @@ final class BodyCompanionPublisher {
                 }
             )
             snapshot.source = "phone"
+            snapshot.readinessHeroShowsLevel = input.readinessHeroShowsLevel
 
             // Build the compute seed off-actor too (trend trimming + zlib
             // compression are the expensive parts). `nil` when no full

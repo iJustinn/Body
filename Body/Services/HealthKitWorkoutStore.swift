@@ -8043,6 +8043,9 @@ final class HealthKitWorkoutStore {
             ) ?? BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue,
             showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
             showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(),
+            readinessHeroShowsLevel: UserDefaults.standard.object(
+                forKey: BodyAppearancePreference.readinessHeroShowsLevelKey
+            ) as? Bool ?? true,
             healthDataSourceSelectionRaw: isProUnlocked
                 ? healthDataSourceSelection.rawValue
                 : Self.selectionNeutralizingCustomSources(healthDataSourceSelection).rawValue,

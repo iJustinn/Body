@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import WatchKit
 
 struct WatchDashboardView: View {
     @EnvironmentObject private var model: WatchMetricsModel
@@ -21,6 +22,7 @@ struct WatchDashboardView: View {
     /// they'd swiped to instead of the tapped one.
     @State private var deepLinkToken = 0
     @State private var isRefreshing = false
+    @AppStorage(WatchSettingsView.hapticsEnabledKey) private var hapticsEnabled = true
     @State private var scrollState = WatchDashboardScrollState()
     @State private var heroState = WatchReadinessHeroState()
     /// The hero's resting top in screen coordinates, measured by the pin, so the
@@ -90,6 +92,7 @@ struct WatchDashboardView: View {
                                         NavigationLink(value: heroMetric.kind) {
                                             WatchReadinessHeroView(
                                                 score: heroMetric.score,
+                                                showsLevel: model.snapshot.readinessHeroShowsLevel ?? true,
                                                 width: heroWidth,
                                                 progress: progress,
                                                 pull: pull
@@ -136,9 +139,11 @@ struct WatchDashboardView: View {
                     Button {
                         guard !isRefreshing else { return }
                         isRefreshing = true
+                        if hapticsEnabled { WKInterfaceDevice.current().play(.click) }
                         Task {
                             await model.refresh()
                             isRefreshing = false
+                            if hapticsEnabled { WKInterfaceDevice.current().play(.success) }
                         }
                     } label: {
                         if isRefreshing {
