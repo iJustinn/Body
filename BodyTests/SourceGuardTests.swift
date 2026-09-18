@@ -3348,7 +3348,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 2)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 5)**"))
@@ -3494,6 +3495,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 3."))
         XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 1)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 1."))
         XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 6)"))
@@ -4936,6 +4939,11 @@ final class SourceGuardTests: XCTestCase {
         let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
         let complicationSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/ReadinessComplicationView.swift")
         let geometrySource = try BodyTestSupport.sourceText(at: "BodyWatchShared/Views/BodyReadinessArcGeometry.swift")
+
+        // A tap lands on the home page, where the hero is, not the detail page.
+        let dashboard = try BodyTestSupport.sourceText(at: "BodyWatch/WatchDashboardView.swift")
+        XCTAssertTrue(watchBundle.contains("? WatchMetricDeepLink.homeURL"))
+        XCTAssertTrue(dashboard.contains("WatchMetricDeepLink.isHome(url)"))
 
         // Readiness is routed to the hero arc view; the kind is unchanged so
         // complications already on a face upgrade in place.
