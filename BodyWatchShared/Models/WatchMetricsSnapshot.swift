@@ -121,6 +121,15 @@ enum WatchMetricDeepLink {
         URL(string: "\(scheme)://\(host)/\(kind)")
     }
 
+    /// Opens the watch home page rather than a metric's detail page. The
+    /// Readiness complication uses it: Readiness is the home page's hero.
+    static let homeHost = "home"
+    static let homeURL = URL(string: "\(scheme)://\(homeHost)")
+
+    static func isHome(_ url: URL) -> Bool {
+        url.scheme == scheme && url.host == homeHost
+    }
+
     static func kind(from url: URL) -> String? {
         guard url.scheme == scheme, url.host == host else { return nil }
         let kind = url.lastPathComponent

@@ -50,8 +50,13 @@ private func metricComplication(
                 WatchComplicationView(metricKind: metricKind, entry: entry)
             }
         }
-        // Tapping the complication opens this metric's detail page directly.
-        .widgetURL(WatchMetricDeepLink.url(forKind: metricKind))
+        // Tapping the complication opens this metric's detail page directly,
+        // except Readiness, which opens the home page where its hero lives.
+        .widgetURL(
+            metricKind == WatchMetricKindKey.readiness
+                ? WatchMetricDeepLink.homeURL
+                : WatchMetricDeepLink.url(forKind: metricKind)
+        )
     }
     .configurationDisplayName(displayName)
     .description(description)

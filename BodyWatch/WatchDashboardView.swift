@@ -172,6 +172,10 @@ struct WatchDashboardView: View {
             if let kind = WatchMetricDeepLink.kind(from: url) {
                 deepLinkToken += 1
                 path = [kind]
+            } else if WatchMetricDeepLink.isHome(url) {
+                // The Readiness complication: back out of any detail page to
+                // the home page and its hero.
+                path = []
             }
         }
     }
