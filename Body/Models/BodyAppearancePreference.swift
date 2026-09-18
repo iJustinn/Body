@@ -320,6 +320,10 @@ extension BodyAppearancePreference {
     /// The user's on-device avatar, stored as a small JPEG. Empty `Data` means none.
     static let profileAvatarDataKey = "profileAvatarData"
 
+    /// The app wide vibration switch (`BodyHaptics`): off silences every haptic Body plays,
+    /// whatever the switches below say. Default true.
+    static let allHapticsEnabledKey = "allHapticsEnabled"
+
     /// Whether the workout detail Equivalent card's collision haptics fire. Default true.
     static let workoutEquivalentHapticsEnabledKey = "workoutEquivalentHapticsEnabled"
 
@@ -331,6 +335,15 @@ extension BodyAppearancePreference {
 
     /// Whether tapping a trend range pill plays a haptic (`BodyHealthTrendRangeSelector`). Default true.
     static let trendRangeHapticsEnabledKey = "trendRangeHapticsEnabled"
+
+    /// Whether the Workouts month carousel ticks as the month changes (`BodyMonthYearPicker`). Default true.
+    static let monthPickerHapticsEnabledKey = "monthPickerHapticsEnabled"
+
+    /// Whether result haptics play (`BodyConfirmationHaptics`). Default true.
+    static let confirmationHapticsEnabledKey = "confirmationHapticsEnabled"
+
+    /// Whether Settings choices and the Summary card reorder tick (`BodySelectionHaptics`). Default true.
+    static let selectionHapticsEnabledKey = "selectionHapticsEnabled"
 
     /// Whether the bottom tab bar shows each tab's name under its icon. Default false.
     static let navigationBarShowsLabelsKey = "navigationBarShowsLabels"

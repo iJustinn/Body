@@ -147,6 +147,7 @@ struct BodyWorkoutsView: View {
     }
 
     private func switchChart() {
+        BodyCardTapHaptics.play()
         withAnimation(chartSwitchAnimation) {
             workoutsChartShowsTypeBreakdown.toggle()
         }
@@ -617,6 +618,7 @@ struct BodyWorkoutsView: View {
             style: .widgetLarge,
             fillsAvailableHeight: false,
             onSelectDay: { day in
+                BodyCardTapHaptics.play()
                 selectedWorkoutListSelection = .day(day)
             },
             onSwitchChart: switchChart
@@ -645,6 +647,7 @@ struct BodyWorkoutsView: View {
                 palette: workoutColorPalette,
                 style: .app,
                 onSelectType: { type in
+                    BodyCardTapHaptics.play()
                     selectedWorkoutListSelection = .type(
                         type,
                         workouts: workoutsForType(type, in: workouts)
@@ -1315,6 +1318,7 @@ struct BodyWorkoutDetailSheet: View {
     @AppStorage(BodyAppearancePreference.workoutRouteStyleKey) private var workoutRouteStyleRawValue = BodyWorkoutRouteStyle.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.drawsWorkoutRouteOnLoadKey) private var drawsRouteOnLoad = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentHapticsEnabledKey) private var workoutEquivalentHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.allHapticsEnabledKey) private var allHapticsEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentHiddenFoodsKey) private var workoutEquivalentHiddenFoodsRawValue = BodyEquivalentFoodSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.workoutEquivalentPrefersMoreItemsKey) private var workoutEquivalentPrefersMoreItems = false
     @AppStorage(BodyAppearancePreference.workoutEquivalentUsesTotalEnergyKey) private var workoutEquivalentUsesTotalEnergy = false
@@ -2414,7 +2418,7 @@ struct BodyWorkoutDetailSheet: View {
 
             EnergyEquivalentCardContent(
                 emojis: emojis,
-                hapticsEnabled: workoutEquivalentHapticsEnabled,
+                hapticsEnabled: workoutEquivalentHapticsEnabled && allHapticsEnabled,
                 emojiScale: workoutEquivalentEmojiScale
             )
         }
@@ -4342,7 +4346,10 @@ private struct BodyWorkoutHeartRateChart: View, Animatable {
                 }
             }
             .contentShape(Rectangle())
-            .bodyChartScrubHaptics(selection: scrubbedPointIndex)
+            .bodyChartScrubHaptics(
+                selection: scrubbedPointIndex,
+                isEmphasized: scrubbedPointIndex.map { isExtreme(series[$0].value, in: series) } ?? false
+            )
             .gesture(
                 BodyChartScrubGesture(isEnabled: !series.isEmpty) { location in
                     scrub(
@@ -4586,6 +4593,12 @@ private struct BodyWorkoutHeartRateChart: View, Animatable {
             scrubbedPointIndex = nil
             floatingCallout?.callout = nil
         }
+    }
+
+    /// Whether `value` is the smoothed line's peak or trough, which scrub with a firmer tick.
+    private func isExtreme(_ value: Double, in series: [BodyWorkoutHeartRateChartMetrics.SmoothedPoint]) -> Bool {
+        guard let low = series.map(\.value).min(), let high = series.map(\.value).max(), low < high else { return false }
+        return value == low || value == high
     }
 
     private func nearestPointIndex(

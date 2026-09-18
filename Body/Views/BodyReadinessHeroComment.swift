@@ -198,7 +198,7 @@ private struct BodyReadinessCommentRegenerateGesture: UIGestureRecognizerReprese
 
     func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
         guard recognizer.state == .began else { return }
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        if BodyHaptics.isMasterEnabled { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
         onRecognized()
     }
 }

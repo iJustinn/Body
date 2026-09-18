@@ -125,6 +125,7 @@ struct BodyWorkoutListSheet: View {
                     } else {
                         ForEach(selection.workouts) { workout in
                             Button {
+                                BodyCardTapHaptics.play()
                                 selectedWorkout = workout
                             } label: {
                                 BodyWorkoutRecordRow(

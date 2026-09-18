@@ -869,7 +869,9 @@ private struct BodyActivityRingCalendarDayCell: View {
     }
 
     private func showCallout(in cellFrame: CGRect) {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if BodyHaptics.isMasterEnabled {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
         let callout = BodyChartFloatingCallout(
             anchor: CGPoint(x: cellFrame.midX, y: cellFrame.minY),
             content: AnyView(calloutContent),

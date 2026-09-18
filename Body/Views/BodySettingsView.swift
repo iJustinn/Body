@@ -21,6 +21,8 @@ struct BodySettingsView: View {
     // Observed here (its toggle lives in a sub-view sharing this key) so a change
     // re-publishes the phone-owned watch prefs immediately.
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    // Same: toggled in the Star Metric sheet, mirrored by the watch hero.
+    @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
     @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
     @AppStorage(BodyAppearancePreference.showsLeadingTrailingAwakeSleepStagesKey) private var showsLeadingTrailingAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsLeadingTrailingAwakeStages
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
@@ -47,6 +49,10 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.chartScrubHapticsEnabledKey) private var chartScrubHapticsEnabled = true
     @AppStorage(BodyAppearancePreference.cardTapHapticsEnabledKey) private var cardTapHapticsEnabled = true
     @AppStorage(BodyAppearancePreference.trendRangeHapticsEnabledKey) private var trendRangeHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.allHapticsEnabledKey) private var allHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.monthPickerHapticsEnabledKey) private var monthPickerHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.confirmationHapticsEnabledKey) private var confirmationHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.selectionHapticsEnabledKey) private var selectionHapticsEnabled = true
     @AppStorage(BodyAppearancePreference.navigationBarShowsLabelsKey) private var navigationBarShowsLabels = false
     @AppStorage(BodyNotificationPreferences.masterKey) private var notificationsEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
@@ -144,6 +150,7 @@ struct BodySettingsView: View {
             .onChange(of: selectedTemperatureUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: followsSystemUnits) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: showSleepScore) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: readinessHeroShowsLevel) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedEnergyUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedWeightUnitRawValue) { workoutStore.republishCompanionSnapshots() }
         }
@@ -676,10 +683,12 @@ struct BodySettingsView: View {
         notificationsEnabled ? String(localized: "On") : String(localized: "Off")
     }
 
-    // Vibration holds the card tap, range tap, chart scrub, and Equivalent collision
-    // switches; the row reads On or Off when they agree and Partial otherwise.
+    // Vibration holds the card tap, range tap, month change, chart scrub, Equivalent
+    // collision, confirmation, and selection switches; the row reads On or Off when they agree
+    // and Partial otherwise. The All Vibrations switch off reads Off whatever they say.
     private var vibrationSummaryText: String {
-        let switches = [cardTapHapticsEnabled, trendRangeHapticsEnabled, chartScrubHapticsEnabled, workoutEquivalentHapticsEnabled]
+        guard allHapticsEnabled else { return String(localized: "Off") }
+        let switches = [cardTapHapticsEnabled, trendRangeHapticsEnabled, monthPickerHapticsEnabled, chartScrubHapticsEnabled, workoutEquivalentHapticsEnabled, confirmationHapticsEnabled, selectionHapticsEnabled]
         if switches.allSatisfy({ $0 }) {
             return String(localized: "On")
         }
@@ -966,10 +975,14 @@ struct BodySettingsView: View {
             BodyNotificationSettingsSheet()
         case .vibration:
             BodyVibrationSettingsSheet(
+                allHapticsEnabled: $allHapticsEnabled,
                 cardTapHapticsEnabled: $cardTapHapticsEnabled,
                 trendRangeHapticsEnabled: $trendRangeHapticsEnabled,
+                monthPickerHapticsEnabled: $monthPickerHapticsEnabled,
                 chartScrubHapticsEnabled: $chartScrubHapticsEnabled,
-                collisionHapticsEnabled: $workoutEquivalentHapticsEnabled
+                collisionHapticsEnabled: $workoutEquivalentHapticsEnabled,
+                confirmationHapticsEnabled: $confirmationHapticsEnabled,
+                selectionHapticsEnabled: $selectionHapticsEnabled
             )
         case .aiReadiness:
             BodyReadinessAISettingsSheet(
@@ -1581,6 +1594,7 @@ private struct BodyUnitChoiceButton: View {
                 .stroke(effectiveTintColor.opacity(isSelected ? 0.9 : 0.24), lineWidth: 1.5)
         )
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .bodySelectionHaptics(isSelected: isSelected && isEnabled)
     }
 }
 
@@ -2984,6 +2998,7 @@ private struct BodyStarMetricOptionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .bodySelectionHaptics(isSelected: isSelected)
     }
 }
 
@@ -3320,14 +3335,40 @@ private struct BodyWorkoutEquivalentsSettingsSheet: View {
 }
 
 private struct BodyVibrationSettingsSheet: View {
+    @Binding var allHapticsEnabled: Bool
     @Binding var cardTapHapticsEnabled: Bool
     @Binding var trendRangeHapticsEnabled: Bool
+    @Binding var monthPickerHapticsEnabled: Bool
     @Binding var chartScrubHapticsEnabled: Bool
     @Binding var collisionHapticsEnabled: Bool
+    @Binding var confirmationHapticsEnabled: Bool
+    @Binding var selectionHapticsEnabled: Bool
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "settings.general.vibration") {
             VStack(alignment: .leading, spacing: 12) {
+                BodyVibrationToggleRow(
+                    iconName: "iphone.radiowaves.left.and.right",
+                    color: .red,
+                    title: "All Vibrations",
+                    subtitle: "Turn every vibration in Body on or off",
+                    isEnabled: $allHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+
+                vibrationFootnote(
+                    "Off silences every vibration Body plays, including the pull to refresh tap, the hold to regenerate tap on the Readiness comment, and the share card centering snap. The switches below keep their choices for when you turn it back on. The watch app has its own Vibration switch."
+                )
+
+                categoryRows
+                    .disabled(!allHapticsEnabled)
+                    .opacity(allHapticsEnabled ? 1 : 0.5)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var categoryRows: some View {
                 BodyVibrationToggleRow(
                     iconName: "hand.tap.fill",
                     color: .green,
@@ -3336,9 +3377,10 @@ private struct BodyVibrationSettingsSheet: View {
                     isEnabled: $cardTapHapticsEnabled
                 )
                 .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
 
                 vibrationFootnote(
-                    "Applies when you tap a card to open its page. Summary: the readiness hero, the metric cards, the Activity Rings card, and the trend cards. Workouts: each workout in the list. Metric detail pages: the Basics trend cards."
+                    "Applies when you tap a card to open its page. Summary: the readiness hero, the metric cards, the Activity Rings card, and the trend cards. Workouts: each workout in the list, a calendar day with workouts, a workout type row, the chart switch, and each workout in the sheet a day or a type opens. Metric detail pages: the Basics trend cards."
                 )
 
                 BodyVibrationToggleRow(
@@ -3356,6 +3398,20 @@ private struct BodyVibrationSettingsSheet: View {
                 )
 
                 BodyVibrationToggleRow(
+                    iconName: "calendar.badge.clock",
+                    color: .indigo,
+                    title: "Month Vibration",
+                    subtitle: "A tick when the Workouts month changes",
+                    isEnabled: $monthPickerHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies on Workouts when the month changes: a swipe or a tap on the month bar, a swipe across the chart, a triple tap back to this month, and Go to Month."
+                )
+
+                BodyVibrationToggleRow(
                     iconName: "chart.xyaxis.line",
                     color: .blue,
                     title: "Chart Vibration",
@@ -3366,7 +3422,7 @@ private struct BodyVibrationSettingsSheet: View {
                 .padding(.top, 8)
 
                 vibrationFootnote(
-                    "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts."
+                    "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts. The highest and lowest points of a trend chart or a workout's Heart Rate chart, and each Sleep stage change, play a firmer tick."
                 )
 
                 BodyVibrationToggleRow(
@@ -3382,8 +3438,34 @@ private struct BodyVibrationSettingsSheet: View {
                 vibrationFootnote(
                     "Applies to the Equivalent card on a workout's detail page: a soft tap whenever two foods collide. Turn it off if you'd rather the card stay silent."
                 )
-            }
-        }
+
+                BodyVibrationToggleRow(
+                    iconName: "checkmark.circle.fill",
+                    color: .teal,
+                    title: "Confirmation Vibration",
+                    subtitle: "Feedback when something finishes or needs attention",
+                    isEnabled: $confirmationHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies when a refresh you pulled finishes or fails, when a workout share card is saved to Photos or cannot be saved, when a Body Pro purchase or restore succeeds or fails, when the Readiness score lands on Summary or drops sharply, and the first time a High or Low warning card appears."
+                )
+
+                BodyVibrationToggleRow(
+                    iconName: "checklist",
+                    color: .pink,
+                    title: "Selection Vibration",
+                    subtitle: "A tick when you pick an option or move a card",
+                    isEnabled: $selectionHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies in Settings when you pick a unit, a Star Metric, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it."
+                )
     }
 
     private func vibrationFootnote(_ text: LocalizedStringKey) -> some View {
@@ -5347,6 +5429,7 @@ private struct BodyAppIconSelectionTile: View {
         .bodyCardBackground(translucent: true)
         .scaleEffect(isSelected ? 1.03 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: isSelected)
+        .bodySelectionHaptics(isSelected: isSelected)
     }
 }
 

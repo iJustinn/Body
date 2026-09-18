@@ -27,7 +27,7 @@ struct BodyHealthTrendRangeSelector: View {
         HStack(spacing: 8) {
             ForEach(BodyHealthTrendRange.allCases) { range in
                 Button {
-                    if hapticsEnabled {
+                    if hapticsEnabled, BodyHaptics.isMasterEnabled {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
                     if isLocked(range) {
@@ -506,24 +506,27 @@ private struct BodyChartFloatingCalloutReporterModifier: ViewModifier {
 /// Scrub haptics shared by every chart callout: a light tap as the callout
 /// appears, then a selection tick each time the scrub snaps to a different
 /// point. Keyed on the selected point's identity, so sliding within one point
-/// stays silent, and nothing plays on release. Gated by Settings > General >
-/// Vibration > Chart Vibration.
+/// stays silent, and nothing plays on release. A point the chart marks as
+/// emphasized (its highest or lowest reading, a Sleep stage change) plays a firmer
+/// tick instead. Gated by Settings > General > Vibration > Chart Vibration.
 struct BodyChartScrubHaptics: ViewModifier {
     @AppStorage(BodyAppearancePreference.chartScrubHapticsEnabledKey) private var isEnabled = true
 
     let selection: AnyHashable?
+    var isEmphasized = false
 
     func body(content: Content) -> some View {
         content.sensoryFeedback(trigger: selection) { oldValue, newValue in
-            guard isEnabled, newValue != nil else { return nil }
-            return oldValue == nil ? .impact(weight: .light) : .selection
+            guard isEnabled, BodyHaptics.isMasterEnabled, newValue != nil else { return nil }
+            if oldValue == nil { return .impact(weight: .light) }
+            return isEmphasized ? .impact(flexibility: .rigid, intensity: 0.8) : .selection
         }
     }
 }
 
 extension View {
-    func bodyChartScrubHaptics(selection: AnyHashable?) -> some View {
-        modifier(BodyChartScrubHaptics(selection: selection))
+    func bodyChartScrubHaptics(selection: AnyHashable?, isEmphasized: Bool = false) -> some View {
+        modifier(BodyChartScrubHaptics(selection: selection, isEmphasized: isEmphasized))
     }
 }
 

@@ -86,6 +86,12 @@ struct BodyProView: View {
         }
         .navigationTitle("Body Pro")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: isPro) { _, unlocked in
+            if unlocked { BodyConfirmationHaptics.play(.success) }
+        }
+        .onChange(of: purchaseState) { _, state in
+            if case .failed = state { BodyConfirmationHaptics.play(.error) }
+        }
     }
 
     private var purchaseOptions: some View {
@@ -302,6 +308,7 @@ private struct BodyProFlippableIcon: View {
     }
 
     private func playFlipHaptic() {
+        guard BodyHaptics.isMasterEnabled else { return }
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.prepare()
         generator.impactOccurred(intensity: 0.75)

@@ -180,7 +180,8 @@ struct BodyReadinessArcHero: View {
     /// Slides the pill to `score`. The page glow switches off as the pill sets off and
     /// fades back in on the target band a fixed `glowDelay` later, so the color never
     /// leads the pill. A newer move cancels an older one's pending fade-in.
-    private func movePill(to score: Int?) {
+    private func movePill(to score: Int?, from oldScore: Int? = nil, isLaunchSlide: Bool = false) {
+        let dropsSharply = (oldScore ?? 0) - (score ?? 0) >= Self.sharpDropPoints
         let target = Double(score ?? 0)
         let landedStatus: ReadinessStatus? = score.map { Geometry.segmentOrder[Geometry.segmentIndex(forScore: $0)] }
         if reduceMotion {
@@ -219,8 +220,18 @@ struct BodyReadinessArcHero: View {
             try? await Task.sleep(for: Self.glowDelay)
             guard !Task.isCancelled else { return }
             heroState?.activeStatus = landedStatus
+            // Home only: the launch slide lands softly, a sharp live drop warns.
+            guard heroState != nil, score != nil else { return }
+            if dropsSharply {
+                BodyConfirmationHaptics.play(.warning)
+            } else if isLaunchSlide {
+                BodyConfirmationHaptics.playScoreReveal()
+            }
         }
     }
+
+    /// A fall this large between two live scores buzzes as a warning.
+    private static let sharpDropPoints = 10
 
     /// Lands the pill on `score` with no slide and the glow on immediately.
     private func placePill(at score: Int?) {
@@ -300,14 +311,15 @@ struct BodyReadinessArcHero: View {
             displayedScore = readiness.score ?? 0
             if heroState == nil || !Self.hasPlayedLaunchSlide {
                 if heroState != nil { Self.hasPlayedLaunchSlide = true }
-                movePill(to: readiness.score)
+                movePill(to: readiness.score, isLaunchSlide: true)
             } else {
                 placePill(at: readiness.score)
             }
         }
-        .onChange(of: readiness.score) { _, newScore in
+        .onChange(of: readiness.score) { oldScore, newScore in
             displayedScore = newScore ?? 0
-            movePill(to: newScore)
+            // A first score arriving after launch reveals like the launch slide.
+            movePill(to: newScore, from: oldScore, isLaunchSlide: oldScore == nil)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
@@ -396,8 +408,12 @@ struct BodyReadinessArcHero: View {
 
     /// One line of the level text. The score lifts by this much and the level takes the
     /// space it left, so the pair ends where the score alone did and the badge row and
-    /// the hero's height stay put. iOS only: the watch hero keeps the score centered.
+    /// the hero's height stay put. The watch hero does the same in `WatchReadinessHeroView`.
     private static let levelTextHeight: CGFloat = 18
+
+    /// Breathing room between the score's digits and the level. The score lifts by this
+    /// much too, so the level and the badge row under it stay where they were.
+    private static let levelTextGap: CGFloat = 4
 
     /// How far the score and level drop while no warning badge is showing, so the block
     /// doesn't float over an empty badge row: 40% of a badge's height.
@@ -421,11 +437,12 @@ struct BodyReadinessArcHero: View {
         guard levelText != nil else { return Geometry.numberCenterY(width: width) }
         return Geometry.numberCenterY(width: width)
             - Self.levelTextHeight
+            - Self.levelTextGap
             + (warningBadges.isEmpty ? Self.noBadgeDrop : 0)
     }
 
     private func levelTextCenterY(width: CGFloat) -> CGFloat {
-        scoreCenterY(width: width) + Geometry.numberHalfHeight + Self.levelTextHeight / 2
+        scoreCenterY(width: width) + Geometry.numberHalfHeight + Self.levelTextGap + Self.levelTextHeight / 2
     }
 
     /// The rectangle the score, level and badges occupy, used as a tap target while visible.

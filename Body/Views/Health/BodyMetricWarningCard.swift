@@ -121,6 +121,7 @@ struct BodyMetricWarningCard: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .bodyCardBackground(translucent: true)
+        .onAppear { BodyConfirmationHaptics.playWarningAppeared(event) }
     }
 
     @ViewBuilder

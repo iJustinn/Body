@@ -39,10 +39,11 @@ private struct BodyPullToRefreshTrigger: ViewModifier {
                 if offset < -threshold {
                     guard isArmed, isTouchDriven else { return }
                     isArmed = false
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    if BodyHaptics.isMasterEnabled { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
                     if isRefreshing {
                         onBusy()
                     } else {
+                        BodyConfirmationHaptics.awaitsRefreshResult = true
                         action()
                     }
                 } else if offset >= -1 {

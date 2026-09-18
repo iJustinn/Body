@@ -1239,6 +1239,9 @@ struct BodyWorkoutShareSheet: View {
             .alert(Text("Couldn't Create Video"), isPresented: $showVideoExportError) {
                 Button("OK", role: .cancel) {}
             }
+            .onChange(of: showSaveError || showVideoSaveError || showRenderError) { _, failed in
+                if failed { BodyConfirmationHaptics.play(.error) }
+            }
             .alert(Text("Couldn't Save Video"), isPresented: $showVideoSaveError) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -1417,7 +1420,7 @@ struct BodyWorkoutShareSheet: View {
                             .scaleEffect(previewScale, anchor: .topLeading)
                             .allowsHitTesting(false)
                             .sensoryFeedback(.alignment, trigger: activeCenterSnap) { _, new in
-                                new.vertical || new.horizontal
+                                BodyHaptics.isMasterEnabled && (new.vertical || new.horizontal)
                             }
 
                         if isMediaMode {
@@ -3098,6 +3101,7 @@ struct BodyWorkoutShareSheet: View {
     @MainActor
     private func finishSave() {
         didSave = true
+        BodyConfirmationHaptics.play(.success)
         Task {
             try? await Task.sleep(for: .seconds(1))
             dismiss()

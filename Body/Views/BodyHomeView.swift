@@ -2447,6 +2447,7 @@ private struct BodyHomeCardDropDelegate: DropDelegate {
             return
         }
 
+        BodySelectionHaptics.playTick()
         withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
             saveOrder(reordered)
         }
@@ -2457,6 +2458,7 @@ private struct BodyHomeCardDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        if dragState.card != nil { BodySelectionHaptics.playDrop() }
         dragState.card = nil
         return true
     }

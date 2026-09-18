@@ -47,6 +47,9 @@ struct BodyHealthMetricTrendChart: View {
     let hidesYAxisLabels: Bool
 
     private let visibleFinitePoints: [HealthTrendCalendarPoint]
+    /// Dates of the visible range's highest and lowest readings; scrubbing onto one
+    /// plays the firmer tick. Empty when every reading is the same.
+    private let extremePointDates: Set<Date>
     private let markEntries: [BodyHealthTrendMarkEntry]
     private let lineSegments: [BodyHealthTrendLineSegmentMark]
     private let chartXDomain: ClosedRange<Date>
@@ -113,7 +116,14 @@ struct BodyHealthMetricTrendChart: View {
             usesSparseReadings: usesSparseReadings
         )
         let calendarPoints = pointsByRange[selectedRange] ?? []
-        self.visibleFinitePoints = calendarPoints.filter { $0.value?.isFinite == true }
+        let finitePoints = calendarPoints.filter { $0.value?.isFinite == true }
+        self.visibleFinitePoints = finitePoints
+        let finiteValues = finitePoints.compactMap(\.value)
+        if let low = finiteValues.min(), let high = finiteValues.max(), low < high {
+            self.extremePointDates = Set(finitePoints.filter { $0.value == low || $0.value == high }.map(\.date))
+        } else {
+            self.extremePointDates = []
+        }
         let markEntries = Self.makeTrendMarkEntries(
             selectedRange: selectedRange,
             pointsByRange: pointsByRange
@@ -484,7 +494,10 @@ struct BodyHealthMetricTrendChart: View {
             }
             .chartXSelection(value: $selectedDate)
             .simultaneousGesture(chartPressGesture)
-            .bodyChartScrubHaptics(selection: selectedTrendPoint?.date)
+            .bodyChartScrubHaptics(
+                selection: selectedTrendPoint?.date,
+                isEmphasized: selectedTrendPoint.map { extremePointDates.contains($0.date) } ?? false
+            )
             .id(chartIdentity)
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
