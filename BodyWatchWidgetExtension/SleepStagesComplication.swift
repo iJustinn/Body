@@ -62,6 +62,7 @@ private struct SleepStagesComplicationView: View {
                     .minimumScaleFactor(0.8)
             }
         }
+        .rectangularComplicationBorder(verticalPadding: 5)
         .containerBackground(.clear, for: .widget)
     }
 

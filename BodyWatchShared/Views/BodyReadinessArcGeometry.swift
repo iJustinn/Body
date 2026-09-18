@@ -1,11 +1,14 @@
 //
 //  BodyReadinessArcGeometry.swift
-//  BodyWatchSnapshotKit
+//  BodyWatchShared
 //
-//  Shared by the iOS `Body` target and the `BodyWatch` target: the watch home
-//  screen draws the same readiness hero (`WatchReadinessHeroView`) from this
-//  geometry, so the two stay identical by construction. `heroWidth(pageWidth:)`
-//  is iOS-only and lives in `BodyReadinessStarHero.swift`.
+//  Shared by the iOS `Body` target, the `BodyWatch` target, and the watch widget
+//  extension: the watch home screen (`WatchReadinessHeroView`) and the Readiness
+//  complication (`ReadinessComplicationView`) draw the same readiness hero from
+//  this geometry, so they stay identical by construction. SwiftUI only: the
+//  extension does not compile BodyMetricsKit, so `segmentOrder` (which names
+//  `ReadinessStatus`) lives in `BodyWatchSnapshotKit/BodyReadinessArcGeometry+Status.swift`.
+//  `heroWidth(pageWidth:)` is iOS-only and lives in `BodyReadinessStarHero.swift`.
 //
 
 import SwiftUI
@@ -85,8 +88,6 @@ enum BodyReadinessArcGeometry {
     /// SwiftUI's y grows downward, so -90 degrees is the top of the circle. The sweep runs
     /// from -190 to 10: poor at the left, prime at the right, centered on the top.
     static let arcStartAngle = Angle.degrees(-190), arcEndAngle = Angle.degrees(10)
-
-    static let segmentOrder: [ReadinessStatus] = [.poor, .low, .moderate, .high, .prime]
 
     /// Half-open score ranges over 0..<101, in `segmentOrder`.
     static let bandScoreRanges: [Range<Int>] = [0..<30, 30..<65, 65..<80, 80..<95, 95..<101]

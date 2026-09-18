@@ -333,6 +333,14 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// this field decode.
     var sleepStages: [WatchSleepStageSegment]? = nil
 
+    /// The phone's Settings ▸ Star Metric ▸ Readiness Level switch: whether the
+    /// readiness hero names today's level under the score. A display
+    /// preference, so it rides the display payload rather than the compute
+    /// seed (whose settings signature would invalidate computed values on a
+    /// toggle). Optional so an older phone's payload decodes; nil reads as on,
+    /// the phone's default.
+    var readinessHeroShowsLevel: Bool? = nil
+
     /// Identifies the phone install that produced this snapshot: a UUID
     /// persisted in phone UserDefaults, regenerated on reinstall / data reset.
     /// Together with `revision` it lets the watch order snapshots WITHOUT
@@ -374,7 +382,7 @@ struct WatchMetricsSnapshot: Codable, Equatable {
         generatedAt: .distantPast,
         lastRefreshDate: nil,
         metrics: [
-            WatchMetric(kind: WatchMetricKindKey.readiness, title: String(localized: "Readiness", table: "BodyWatchShared"), displayValue: "78", unit: "%", score: 78, fillFraction: 0.78, rawValue: 78, rangeMin: 0, rangeMax: 100, levelMin: 65, levelMax: 79, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
+            WatchMetric(kind: WatchMetricKindKey.readiness, title: String(localized: "Readiness", table: "BodyWatchShared"), displayValue: "78", unit: "%", score: 78, fillFraction: 0.78, rawValue: 78, rangeMin: 0, rangeMax: 100, levelMin: 65, levelMax: 79, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20), statusBand: WatchStatusBand(min: 65, max: 80, label: String(localized: "Moderate", table: "BodyWatchShared"))),
             WatchMetric(kind: WatchMetricKindKey.sleep, title: String(localized: "Sleep", table: "BodyWatchShared"), displayValue: "7h 32m", unit: "", score: 85, fillFraction: 0.85, rawValue: 85, rangeMin: 0, rangeMax: 100),
             WatchMetric(kind: WatchMetricKindKey.heartRate, title: String(localized: "Heart Rate", table: "BodyWatchShared"), displayValue: "62", unit: "bpm", score: nil, fillFraction: 0.45, rawValue: 62, rangeMin: 54, rangeMax: 72),
             WatchMetric(kind: WatchMetricKindKey.heartRateVariability, title: String(localized: "HRV", table: "BodyWatchShared"), displayValue: "48", unit: "ms", score: nil, fillFraction: 0.60, rawValue: 48, rangeMin: 30, rangeMax: 60),
