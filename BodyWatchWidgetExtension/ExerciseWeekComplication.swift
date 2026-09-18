@@ -72,7 +72,6 @@ private struct ExerciseWeekComplicationView: View {
                 .frame(maxHeight: .infinity)
             weekdayRow
         }
-        .rectangularComplicationBorder(verticalPadding: 5)
         .containerBackground(.clear, for: .widget)
     }
 

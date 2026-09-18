@@ -53,7 +53,7 @@ struct WatchMetricRingView: View {
                 // Centered value (+ optional unit).
                 VStack(spacing: 0) {
                     Text(value)
-                        .font(.system(size: side * valueFontScale, weight: .bold, design: .rounded))
+                        .font(.system(size: side * valueFontScale, weight: .semibold, design: .rounded))
                         .minimumScaleFactor(0.4)
                         .lineLimit(1)
                     if showsUnit, !unit.isEmpty {

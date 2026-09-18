@@ -13,11 +13,18 @@ import Foundation
 import SwiftUI
 import WidgetKit
 
-/// Value font scale for text inside a complication ring. Two digits keep the
-/// base scale; from three digits up ("100", "1.05", "93.4") the text steps down
-/// so it clears the ring instead of leaning on `minimumScaleFactor`.
-func complicationRingFontScale(for text: String, base: Double) -> Double {
-    text.filter(\.isNumber).count >= 3 ? base * 0.85 : base
+/// Value font scale for text inside a complication ring. Two digits use
+/// `base`; from three digits up ("100", "1.05", "93.4") the text uses the
+/// smaller `compact` so it clears the ring instead of leaning on
+/// `minimumScaleFactor`.
+func complicationRingFontScale(for text: String, base: Double, compact: Double) -> Double {
+    text.filter(\.isNumber).count >= 3 ? compact : base
+}
+
+/// Ring text scales per family: (two digits, three or more digits).
+enum ComplicationRingFontScale {
+    static let circular = (base: 0.35, compact: 0.255)
+    static let rectangular = (base: 0.40, compact: 0.34)
 }
 
 struct WatchComplicationView: View {
@@ -67,7 +74,7 @@ struct WatchComplicationView: View {
                     tint: metric.resolvedTint,
                     showsUnit: false,
                     showsGlyph: true,
-                    valueFontScale: complicationRingFontScale(for: ringText(metric), base: 0.30)
+                    valueFontScale: complicationRingFontScale(for: ringText(metric), base: ComplicationRingFontScale.circular.base, compact: ComplicationRingFontScale.circular.compact)
                 )
                 .padding(1)
             } else {
@@ -165,7 +172,7 @@ struct WatchComplicationView: View {
                     tint: metric.resolvedTint,
                     showsUnit: false,
                     showsGlyph: false,
-                    valueFontScale: complicationRingFontScale(for: ringText(metric), base: 0.40)
+                    valueFontScale: complicationRingFontScale(for: ringText(metric), base: ComplicationRingFontScale.rectangular.base, compact: ComplicationRingFontScale.rectangular.compact)
                 )
                 .frame(width: 46, height: 46)
                 // The ring is open at the bottom, so its drawn part sits high
@@ -205,7 +212,6 @@ struct WatchComplicationView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .rectangularComplicationBorder()
         .containerBackground(.clear, for: .widget)
     }
 }

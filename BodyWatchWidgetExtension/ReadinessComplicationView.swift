@@ -39,7 +39,7 @@ struct ReadinessComplicationView: View {
     private var circular: some View {
         ZStack {
             AccessoryWidgetBackground()
-            ReadinessComplicationRing(score: metric?.score, tint: tint, valueFontScale: 0.30)
+            ReadinessComplicationRing(score: metric?.score, tint: tint, fontScale: ComplicationRingFontScale.circular)
                 .padding(1)
         }
         .containerBackground(.clear, for: .widget)
@@ -80,7 +80,6 @@ struct ReadinessComplicationView: View {
             }
             Spacer(minLength: 0)
         }
-        .rectangularComplicationBorder()
         .containerBackground(.clear, for: .widget)
     }
 
@@ -95,7 +94,7 @@ private struct ReadinessComplicationRing: View {
     @Environment(\.widgetRenderingMode) private var renderingMode
     let score: Int?
     let tint: Color
-    var valueFontScale: Double = 0.40
+    var fontScale = ComplicationRingFontScale.rectangular
 
     private typealias Geometry = BodyReadinessArcGeometry
 
@@ -148,7 +147,7 @@ private struct ReadinessComplicationRing: View {
 
                 if let score {
                     Text(verbatim: "\(score)")
-                        .font(.system(size: side * complicationRingFontScale(for: "\(score)", base: valueFontScale), weight: .bold, design: .rounded))
+                        .font(.system(size: side * complicationRingFontScale(for: "\(score)", base: fontScale.base, compact: fontScale.compact), weight: .semibold, design: .rounded))
                         .minimumScaleFactor(0.4)
                         .lineLimit(1)
                         .frame(width: side - 2 * lineWidth - 4)
