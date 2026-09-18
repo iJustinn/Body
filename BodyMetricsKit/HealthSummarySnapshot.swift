@@ -569,6 +569,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         if !selection.includes(.respiratory) {
             filtered.respiratoryRate = HealthSummarySnapshot.empty.respiratoryRate
             filtered.sleep.vitals.respiratoryRate = nil
+            filtered.metricWarnings.removeAll { $0.kind.metric == .respiratoryRate }
         }
         if !selection.includes(.energy) {
             filtered.activeEnergy = HealthSummarySnapshot.empty.activeEnergy
@@ -583,6 +584,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         if !selection.includes(.wristTemperature) {
             filtered.wristTemperature = HealthSummarySnapshot.empty.wristTemperature
             filtered.sleep.vitals.wristTemperatureCelsius = nil
+            filtered.metricWarnings.removeAll { $0.kind.metric == .wristTemperature }
         }
         if !selection.includes(.timeInDaylight) {
             filtered.timeInDaylight = HealthSummarySnapshot.empty.timeInDaylight
@@ -634,6 +636,10 @@ struct HealthSummarySnapshot: Codable, Equatable {
             next.heartRateVariability = refreshed.heartRateVariability
         case .respiratoryRate:
             next.respiratoryRate = refreshed.respiratoryRate
+            next = next.replacingWarnings(
+                for: .respiratoryRate,
+                with: refreshed.metricWarnings.filter { $0.kind.metric == .respiratoryRate }
+            )
         case .oxygenSaturation:
             next.oxygenSaturation = refreshed.oxygenSaturation
             next = next.replacingWarnings(
@@ -652,6 +658,10 @@ struct HealthSummarySnapshot: Codable, Equatable {
             next.trainingLoad = refreshed.trainingLoad
         case .wristTemperature:
             next.wristTemperature = refreshed.wristTemperature
+            next = next.replacingWarnings(
+                for: .wristTemperature,
+                with: refreshed.metricWarnings.filter { $0.kind.metric == .wristTemperature }
+            )
         case .timeInDaylight:
             next.timeInDaylight = refreshed.timeInDaylight
         case .steps:

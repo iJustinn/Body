@@ -868,13 +868,29 @@ struct BodyMetricWarningSelection: Equatable {
 /// The user's custom limits for the metric threshold warnings. Only overrides
 /// are stored, so a kind the user never touched keeps following its default —
 /// which for high heart rate tracks their max HR rather than a fixed number.
+/// Wrist temperature thresholds and readings are stored in °C; every place
+/// that prints one (the Settings row, the warning card, the notification)
+/// shows it in the user's temperature unit through this one formatter.
+enum BodyMetricWarningTemperatureText {
+    static func text(
+        celsius: Double,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
+    ) -> String {
+        let display = BodyValueFormat.temperatureDisplay(
+            celsius: celsius,
+            temperatureUnitPreference: temperatureUnitPreference
+        )
+        return "\(display.value)°\(display.unit)"
+    }
+}
+
 struct BodyMetricWarningThresholds: Equatable {
     static let defaultValue = BodyMetricWarningThresholds(overrides: [:])
     static var defaultRawValue: String {
         defaultValue.rawValue
     }
 
-    var overrides: [MetricWarningKind: Int]
+    var overrides: [MetricWarningKind: Double]
 
     var rawValue: String {
         guard !overrides.isEmpty else {
@@ -890,15 +906,15 @@ struct BodyMetricWarningThresholds: Equatable {
         return string
     }
 
-    func override(for kind: MetricWarningKind) -> Int? {
+    func override(for kind: MetricWarningKind) -> Double? {
         overrides[kind]
     }
 
     /// `nil` clears the override so the kind falls back to its default.
-    func setting(_ kind: MetricWarningKind, to value: Int?) -> BodyMetricWarningThresholds {
+    func setting(_ kind: MetricWarningKind, to value: Double?) -> BodyMetricWarningThresholds {
         var nextOverrides = overrides
         if let value {
-            nextOverrides[kind] = Self.clamped(value, to: kind)
+            nextOverrides[kind] = kind.quantizedThreshold(value)
         } else {
             nextOverrides.removeValue(forKey: kind)
         }
@@ -910,7 +926,7 @@ struct BodyMetricWarningThresholds: Equatable {
     /// zone 3's lower bound for high heart rate, the fixed value otherwise.
     func threshold(for kind: MetricWarningKind, maxHeartRate: Double? = nil) -> Double {
         if let override = overrides[kind] {
-            return Double(override)
+            return override
         }
 
         guard kind == .highHeartRate,
@@ -930,30 +946,26 @@ struct BodyMetricWarningThresholds: Equatable {
         }
 
         let fraction = WorkoutHeartRateZones.lowerBoundFractions[2]
-        return Double(clamped(Int((maxHeartRate * fraction).rounded()), to: .highHeartRate))
+        return MetricWarningKind.highHeartRate.quantizedThreshold(maxHeartRate * fraction)
     }
 
     static func storedValue(from rawValue: String) -> BodyMetricWarningThresholds {
         let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedValue.isEmpty,
               let data = trimmedValue.data(using: .utf8),
-              let object = try? JSONDecoder().decode([String: Int].self, from: data) else {
+              let object = try? JSONDecoder().decode([String: Double].self, from: data) else {
             return defaultValue
         }
 
-        var overrides: [MetricWarningKind: Int] = [:]
-        for (key, value) in object {
+        var overrides: [MetricWarningKind: Double] = [:]
+        for (key, value) in object where value.isFinite {
             guard let kind = MetricWarningKind(rawValue: key) else {
                 continue
             }
-            overrides[kind] = clamped(value, to: kind)
+            overrides[kind] = kind.quantizedThreshold(value)
         }
 
         return BodyMetricWarningThresholds(overrides: overrides)
-    }
-
-    private static func clamped(_ value: Int, to kind: MetricWarningKind) -> Int {
-        min(max(value, kind.thresholdRange.lowerBound), kind.thresholdRange.upperBound)
     }
 }
 

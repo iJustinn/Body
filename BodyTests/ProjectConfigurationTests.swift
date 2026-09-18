@@ -619,6 +619,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(testPlan.contains("Low Heart Rate"))
         XCTAssertTrue(testPlan.contains("High Heart Rate"))
         XCTAssertTrue(testPlan.contains("Low Blood Oxygen"))
+        XCTAssertTrue(testPlan.contains("High Respiratory Rate"))
+        XCTAssertTrue(testPlan.contains("High Skin Temperature"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.9`"))
         XCTAssertFalse(testPlan.contains("app version 0.9.9 build 13)"))
         XCTAssertFalse(testPlan.contains("app version 0.9.9 build 12)"))

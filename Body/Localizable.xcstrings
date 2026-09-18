@@ -36,6 +36,86 @@
         }
       }
     },
+    "Any overnight reading above %@ today" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Any overnight reading above %@ today"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天任一夜间读数高于 %@"
+          }
+        }
+      }
+    },
+    "Any reading above %lld br/min today" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Any reading above %lld br/min today"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天任一读数高于 %lld 次/分钟"
+          }
+        }
+      }
+    },
+    "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的呼吸频率为 %lld 次/分钟，高于您设定的 %lld 次/分钟限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a skin temperature of %@ today, above your %@ limit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a skin temperature of %@ today, above your %@ limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的皮肤温度为 %@，高于您设定的 %@ 限值。"
+          }
+        }
+      }
+    },
+    "br/min" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "br/min"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次/分钟"
+          }
+        }
+      }
+    },
     ", completed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -49,6 +129,102 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "，已完成"
+          }
+        }
+      }
+    },
+    "High Respiratory Rate" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Respiratory Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "呼吸频率过高"
+          }
+        }
+      }
+    },
+    "High Respiratory Rate Warning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Respiratory Rate Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高呼吸频率警告"
+          }
+        }
+      }
+    },
+    "High Skin Temperature" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Skin Temperature"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "皮肤温度过高"
+          }
+        }
+      }
+    },
+    "High Skin Temperature Warning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Skin Temperature Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高皮肤温度警告"
+          }
+        }
+      }
+    },
+    "%lld br/min" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld br/min"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 次/分钟"
+          }
+        }
+      }
+    },
+    "Manage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理"
           }
         }
       }
@@ -17329,6 +17505,22 @@
         }
       }
     },
+    "Your respiratory rate rose above %lld br/min starting at %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your respiratory rate rose above %lld br/min starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的呼吸频率升至 %1$lld 次/分钟以上。"
+          }
+        }
+      }
+    },
     "Your resting energy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17376,6 +17568,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的皮肤温度"
+          }
+        }
+      }
+    },
+    "Your skin temperature rose above %@ starting at %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your skin temperature rose above %@ starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的皮肤温度升至 %1$@ 以上。"
           }
         }
       }

@@ -982,6 +982,28 @@ struct BodyHealthMetricDetailView: View {
             return []
         }
 
+        // Skin temperature has no intraday series: the nightly trend holds
+        // midnight-stamped daily averages, not readings, so detecting from it
+        // would invent an onset time. The refresh's own HealthKit query keeps
+        // the real sample timestamps in the summary event, so today's card reads
+        // that; past days have nothing truthful to show and get no card.
+        if model.kind == .wristTemperature {
+            let calendar = Calendar.bodyGregorian
+            guard calendar.isDateInToday(selectedMetricDay) else {
+                return []
+            }
+
+            // A failed refresh keeps yesterday's event in the summary, so the
+            // event's own date is checked too, as the Home badge does.
+            return kinds.compactMap { kind in
+                guard let event = workoutStore.healthSummary.warning(kind),
+                      calendar.isDate(event.startDate, inSameDayAs: selectedMetricDay) else {
+                    return nil
+                }
+                return event
+            }
+        }
+
         // Apple's high heart rate notification only counts inactive readings, so
         // the day's workouts are dropped from the samples for those kinds.
         let workoutIntervals: [DateInterval] = kinds.contains(where: \.excludesWorkouts)
@@ -2273,6 +2295,8 @@ struct BodyHealthMetricDetailView: View {
 
             BodyMetricWarningCard(
                 event: event,
+                // Empty for skin temperature (no intraday readings), which hides
+                // the chart and leaves the sentence with its real onset time.
                 samples: selectedMetricDaySeries.points.filter { window.contains($0.date) },
                 window: window,
                 tint: model.symbolColor,

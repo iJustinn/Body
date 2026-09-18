@@ -35,7 +35,8 @@ struct BodyReadinessHeroWarningBadge: Identifiable, Equatable {
     /// grid's own order, so a card the user turned off contributes nothing and
     /// there is nowhere for a badge to point that isn't on screen.
     ///
-    /// Only three cards can ever set `warningSymbolName`, so the row is capped by
+    /// Only five cards can ever set `warningSymbolName` (Heart Rate, Blood
+    /// Oxygen, Respiratory Rate, Skin Temp, Body Radar), so the row is capped by
     /// construction rather than by a `prefix` here.
     static func badges(
         visibleCards: [BodyHomeCardKind],

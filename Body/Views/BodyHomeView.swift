@@ -1129,6 +1129,7 @@ struct BodyHomeView: View {
             wristTemperatureMetric(
                 summary: summary,
                 chartPreview: trends.series(for: .wristTemperature),
+                warningSelection: warningSelection,
                 previewDayCount: previewDayCount
             ),
             metric(
@@ -1194,6 +1195,7 @@ struct BodyHomeView: View {
                 summary: summary.respiratoryRate,
                 chartPreviewStyle: .range,
                 chartRangePreview: trends.rangeSeries(for: .respiratoryRate),
+                warningSymbolName: warningSymbolName(for: .respiratoryRate, summary: summary, selection: warningSelection),
                 previewDayCount: previewDayCount
             ),
             energyMetric(
@@ -1524,6 +1526,7 @@ struct BodyHomeView: View {
     private func wristTemperatureMetric(
         summary: HealthSummarySnapshot,
         chartPreview: HealthTrendSeries,
+        warningSelection: BodyMetricWarningSelection,
         previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let display = summary.wristTemperature.value.map {
@@ -1557,6 +1560,7 @@ struct BodyHomeView: View {
             prominentMetrics: [deviationDisplay, actualDisplay],
             chartPreviewStyle: .line,
             chartPreview: chartPreview,
+            warningSymbolName: warningSymbolName(for: .wristTemperature, summary: summary, selection: warningSelection),
             previewDayCount: previewDayCount
         )
     }

@@ -5,13 +5,15 @@
 
 import Foundation
 
-/// The Apple-style threshold warnings Body detects: a reading past a limit
-/// today. The default limit and its editable range live here so the HealthKit
+/// The Apple-style threshold warnings Body detects (plus Body's own for
+/// respiratory rate and wrist temperature): a reading past a limit today. The default limit and its editable range live here so the HealthKit
 /// predicate, the chart rule and the copy all read the same numbers.
 enum MetricWarningKind: String, Codable, CaseIterable, Sendable, Identifiable {
     case lowHeartRate
     case highHeartRate
     case lowBloodOxygen
+    case highRespiratoryRate
+    case highWristTemperature
 
     var id: String {
         rawValue
@@ -23,6 +25,10 @@ enum MetricWarningKind: String, Codable, CaseIterable, Sendable, Identifiable {
             return .heartRate
         case .lowBloodOxygen:
             return .oxygenSaturation
+        case .highRespiratoryRate:
+            return .respiratoryRate
+        case .highWristTemperature:
+            return .wristTemperature
         }
     }
 
@@ -36,11 +42,17 @@ enum MetricWarningKind: String, Codable, CaseIterable, Sendable, Identifiable {
             return 120
         case .lowBloodOxygen:
             return 90
+        case .highRespiratoryRate:
+            return 20
+        case .highWristTemperature:
+            // Wrist skin temperature, always in °C: cooler than core temperature,
+            // so a night above this is well past a typical baseline.
+            return 38
         }
     }
 
     /// Bounds of the Settings wheel picker for a custom threshold.
-    var thresholdRange: ClosedRange<Int> {
+    var thresholdRange: ClosedRange<Double> {
         switch self {
         case .lowHeartRate:
             return 30...60
@@ -48,26 +60,63 @@ enum MetricWarningKind: String, Codable, CaseIterable, Sendable, Identifiable {
             return 100...200
         case .lowBloodOxygen:
             return 80...95
+        case .highRespiratoryRate:
+            return 12...30
+        case .highWristTemperature:
+            return 35...40
         }
     }
 
-    var thresholdStep: Int {
-        1
+    /// The picker's granularity: whole units, except tenths of a degree for
+    /// wrist temperature, whose readings only move by tenths.
+    var thresholdStep: Double {
+        self == .highWristTemperature ? 0.1 : 1
     }
 
-    /// Unit shown next to a threshold value. `"bpm"` is a localization key in the
-    /// app catalog; `"%"` is symbol-only and needs no translation.
+    /// Decimal places a threshold of this kind carries (see `thresholdStep`).
+    var thresholdDecimals: Int {
+        self == .highWristTemperature ? 1 : 0
+    }
+
+    /// Every value the picker offers, built by index rather than by striding
+    /// so a 0.1 step never drifts into 37.300000000000004.
+    var thresholdValues: [Double] {
+        let count = Int(((thresholdRange.upperBound - thresholdRange.lowerBound) / thresholdStep).rounded())
+        return (0...count).map { quantizedThreshold(thresholdRange.lowerBound + Double($0) * thresholdStep) }
+    }
+
+    /// The value snapped to the picker's step and clamped into its range, so a
+    /// stored override always matches one of `thresholdValues` exactly.
+    func quantizedThreshold(_ value: Double) -> Double {
+        let clamped = min(max(value, thresholdRange.lowerBound), thresholdRange.upperBound)
+        let scale = pow(10, Double(thresholdDecimals))
+        return (clamped * scale).rounded() / scale
+    }
+
+    /// Unit shown next to a threshold value. `"bpm"` and `"br/min"` are
+    /// localization keys in the app catalog; `"%"` and `"°C"` are symbol-only
+    /// and need no translation. Wrist temperature thresholds are stored in °C
+    /// and converted for display when the user prefers Fahrenheit.
     var unitLabelKey: String {
         switch self {
         case .lowHeartRate, .highHeartRate:
             return "bpm"
         case .lowBloodOxygen:
             return "%"
+        case .highRespiratoryRate:
+            return "br/min"
+        case .highWristTemperature:
+            return "°C"
         }
     }
 
     var isAbove: Bool {
-        self == .highHeartRate
+        switch self {
+        case .highHeartRate, .highRespiratoryRate, .highWristTemperature:
+            return true
+        case .lowHeartRate, .lowBloodOxygen:
+            return false
+        }
     }
 
     /// Apple's high heart rate notification only counts readings taken while

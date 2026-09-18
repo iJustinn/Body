@@ -2050,6 +2050,14 @@ actor HealthKitFetchEngine {
             identifier = .oxygenSaturation
             unit = .percent()
             valueTransform = { Self.normalizedPercentDisplayValue($0) }
+        case .respiratoryRate:
+            identifier = .respiratoryRate
+            unit = HKUnit.count().unitDivided(by: .minute())
+            valueTransform = { $0 }
+        case .wristTemperature:
+            identifier = .appleSleepingWristTemperature
+            unit = .degreeCelsius()
+            valueTransform = { $0 }
         default:
             return .success(nil)
         }
@@ -2071,7 +2079,9 @@ actor HealthKitFetchEngine {
         // threshold filtering. Blood oxygen is sparse AND stored either as a 0–1
         // fraction or as 0–100 depending on the source, so a native-unit
         // threshold predicate would silently miss whole sources: fetch the day
-        // and normalise (`valueTransform`) before comparing.
+        // and normalise (`valueTransform`) before comparing. Respiratory rate and
+        // wrist temperature are sparse too (a handful of overnight readings), so
+        // they take the same in-memory path.
         let thresholdPredicate: NSPredicate? = kind.metric == .heartRate
             ? HKQuery.predicateForQuantitySamples(
                 with: kind.isAbove ? .greaterThan : .lessThan,
@@ -3506,6 +3516,9 @@ actor HealthKitFetchEngine {
         async let respiratoryRate: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.respiratoryRate, selection: selection, default: .success(nil), leaf: "summary.respiratoryRate") {
             await summaryLeaf(.respiratoryRate, calendar: calendar)
         }
+        async let highRespiratoryRateWarning: QueryOutcome<MetricWarningEvent> = fetchDashboardMetricIfNeeded(.respiratoryRate, selection: selection, default: .success(nil), leaf: "summary.highRespiratoryRateWarning") {
+            await fetchTodayMetricWarning(.highRespiratoryRate, calendar: calendar)
+        }
         async let oxygenSaturation: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.oxygenSaturation, selection: selection, default: .success(nil), leaf: "summary.oxygenSaturation") {
             await summaryLeaf(.oxygenSaturation, calendar: calendar)
         }
@@ -3529,6 +3542,9 @@ actor HealthKitFetchEngine {
         }
         async let wristTemperature: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.wristTemperature, selection: selection, default: .success(nil), leaf: "summary.wristTemperature") {
             await summaryLeaf(.wristTemperature, calendar: calendar)
+        }
+        async let highWristTemperatureWarning: QueryOutcome<MetricWarningEvent> = fetchDashboardMetricIfNeeded(.wristTemperature, selection: selection, default: .success(nil), leaf: "summary.highWristTemperatureWarning") {
+            await fetchTodayMetricWarning(.highWristTemperature, calendar: calendar)
         }
         async let timeInDaylight: QueryOutcome<HealthMetricSummary> = fetchDashboardMetricIfNeeded(.timeInDaylight, selection: selection, default: .success(nil), leaf: "summary.timeInDaylight") {
             await summaryLeaf(.timeInDaylight, calendar: calendar)
@@ -3570,6 +3586,8 @@ actor HealthKitFetchEngine {
         let resolvedHeartRateLowWarning = resolve(await lowHeartRateWarning, cachedSummary?.warning(.lowHeartRate), kind: .heartRate)
         let resolvedHeartRateHighWarning = resolve(await highHeartRateWarning, cachedSummary?.warning(.highHeartRate), kind: .heartRate)
         let resolvedBloodOxygenLowWarning = resolve(await lowBloodOxygenWarning, cachedSummary?.warning(.lowBloodOxygen), kind: .oxygenSaturation)
+        let resolvedRespiratoryRateHighWarning = resolve(await highRespiratoryRateWarning, cachedSummary?.warning(.highRespiratoryRate), kind: .respiratoryRate)
+        let resolvedWristTemperatureHighWarning = resolve(await highWristTemperatureWarning, cachedSummary?.warning(.highWristTemperature), kind: .wristTemperature)
         let resolvedRestingHeartRate = resolve(await restingHeartRate, cachedSummary?.restingHeartRate, kind: .restingHeartRate)
         let resolvedBodyMass = resolve(await bodyMass, cachedSummary?.bodyMass, kind: .bodyMass)
         let resolvedBodyFatPercentage = resolve(await bodyFatPercentage, cachedSummary?.bodyFatPercentage, kind: .bodyFatPercentage)
@@ -3610,7 +3628,9 @@ actor HealthKitFetchEngine {
             metricWarnings: [
                 resolvedHeartRateLowWarning,
                 resolvedHeartRateHighWarning,
-                resolvedBloodOxygenLowWarning
+                resolvedBloodOxygenLowWarning,
+                resolvedRespiratoryRateHighWarning,
+                resolvedWristTemperatureHighWarning
             ].compactMap { $0 }
         )
         return HealthSummaryFetchResult(summary: snapshot, hadQueryFailure: anyLeafFailed, currentCoverage: attempted.subtracting(failed))
@@ -4420,6 +4440,7 @@ actor HealthKitFetchEngine {
             trends.heartRateVariabilityDaySamplesSecondary = resolvedDaySamples(await heartRateVariabilityDaySamplesSecondary, cached: existing.trends.heartRateVariabilityDaySamplesSecondary, series: .heartRateVariabilityDaySamplesSecondary)
         case .respiratoryRate:
             async let respiratoryRate = summaryLeaf(.respiratoryRate, calendar: calendar)
+            async let highRespiratoryRateWarning = fetchTodayMetricWarning(.highRespiratoryRate, calendar: calendar)
             async let respiratoryRatePair: (HealthTrendSeries, HealthTrendRangeSeries)? = trendPairLeaf(.respiratoryRate, calendar: calendar)
             async let respiratoryRateDaySamples = fetchIncrementalPrimaryDaySamples(
                 for: .respiratoryRate,
@@ -4429,6 +4450,12 @@ actor HealthKitFetchEngine {
             )
 
             summary.respiratoryRate = resolvedDashboardSummary(fetched: await respiratoryRate, cached: existing.summary.respiratoryRate) ?? HealthSummarySnapshot.empty.respiratoryRate
+            summary = summary.replacingWarnings(
+                for: .respiratoryRate,
+                with: [
+                    resolvedDashboardSummary(fetched: await highRespiratoryRateWarning, cached: existing.summary.warning(.highRespiratoryRate))
+                ].compactMap { $0 }
+            )
             let fetchedRespiratoryRatePair = await respiratoryRatePair
             trends.respiratoryRate = resolvedTrend(fetchedRespiratoryRatePair?.0, cached: existing.trends.respiratoryRate)
             trends.respiratoryRateRanges = resolvedTrend(fetchedRespiratoryRatePair?.1, cached: existing.trends.respiratoryRateRanges)
@@ -4519,9 +4546,16 @@ actor HealthKitFetchEngine {
             trends.trainingLoad = resolvedTrend(await trainingLoadTrend, cached: existing.trends.trainingLoad)
         case .wristTemperature:
             async let wristTemperature = summaryLeaf(.wristTemperature, calendar: calendar)
+            async let highWristTemperatureWarning = fetchTodayMetricWarning(.highWristTemperature, calendar: calendar)
             async let wristTemperatureTrend: HealthTrendSeries? = trendLeaf(.wristTemperature, calendar: calendar)
 
             summary.wristTemperature = resolvedDashboardSummary(fetched: await wristTemperature, cached: existing.summary.wristTemperature) ?? HealthSummarySnapshot.empty.wristTemperature
+            summary = summary.replacingWarnings(
+                for: .wristTemperature,
+                with: [
+                    resolvedDashboardSummary(fetched: await highWristTemperatureWarning, cached: existing.summary.warning(.highWristTemperature))
+                ].compactMap { $0 }
+            )
             trends.wristTemperature = resolvedTrend(await wristTemperatureTrend, cached: existing.trends.wristTemperature)
         case .timeInDaylight:
             async let timeInDaylight = summaryLeaf(.timeInDaylight, calendar: calendar)

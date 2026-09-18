@@ -4093,9 +4093,20 @@ private struct BodyMetricWarningsSettingsSheet: View {
     let workoutStore: HealthKitWorkoutStore
 
     @AppStorage(BodyAppearancePreference.metricWarningsOnReadinessHeroKey) private var showsWarningsOnReadinessHero = true
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
 
     /// Needed for the high heart rate default, which tracks zone 3's lower bound.
     @State private var resolvedMaxHeartRate: Double?
+
+    /// The skin temperature threshold is stored in °C and shown in this unit.
+    private var temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.TemperatureUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
+    }
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Warnings") {
@@ -4108,6 +4119,7 @@ private struct BodyMetricWarningsSettingsSheet: View {
                         BodyMetricWarningToggleRow(
                             kind: kind,
                             threshold: threshold(for: kind),
+                            temperatureUnitPreference: temperatureUnitPreference,
                             isEnabled: Binding {
                                 selection.includes(kind)
                             } set: { isEnabled in
@@ -4121,6 +4133,7 @@ private struct BodyMetricWarningsSettingsSheet: View {
                         BodyMetricWarningThresholdRow(
                             kind: kind,
                             threshold: threshold(for: kind),
+                            temperatureUnitPreference: temperatureUnitPreference,
                             isDefault: thresholds.override(for: kind) == nil,
                             defaultValue: defaultThreshold(for: kind),
                             isEnabled: selection.includes(kind),
@@ -4147,14 +4160,14 @@ private struct BodyMetricWarningsSettingsSheet: View {
     }
 
     /// The limit currently in effect: the user's override, else the default.
-    private func threshold(for kind: MetricWarningKind) -> Int {
-        Int(thresholds.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate).rounded())
+    private func threshold(for kind: MetricWarningKind) -> Double {
+        kind.quantizedThreshold(thresholds.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate))
     }
 
-    private func defaultThreshold(for kind: MetricWarningKind) -> Int {
-        Int(BodyMetricWarningThresholds.defaultValue
-            .threshold(for: kind, maxHeartRate: resolvedMaxHeartRate)
-            .rounded())
+    private func defaultThreshold(for kind: MetricWarningKind) -> Double {
+        kind.quantizedThreshold(
+            BodyMetricWarningThresholds.defaultValue.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate)
+        )
     }
 }
 
@@ -4198,7 +4211,8 @@ private struct BodyMetricWarningReadinessHeroRow: View {
 
 private struct BodyMetricWarningToggleRow: View {
     let kind: MetricWarningKind
-    let threshold: Int
+    let threshold: Double
+    let temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
     @Binding var isEnabled: Bool
 
     private var title: LocalizedStringKey {
@@ -4209,17 +4223,30 @@ private struct BodyMetricWarningToggleRow: View {
             return "High Heart Rate"
         case .lowBloodOxygen:
             return "Low Blood Oxygen"
+        case .highRespiratoryRate:
+            return "High Respiratory Rate"
+        case .highWristTemperature:
+            return "High Skin Temperature"
         }
     }
 
     private var subtitle: String {
+        let wholeThreshold = Int(threshold.rounded())
         switch kind {
         case .lowHeartRate:
-            return String(localized: "Any reading below \(threshold) bpm today")
+            return String(localized: "Any reading below \(wholeThreshold) bpm today")
         case .highHeartRate:
-            return String(localized: "Any reading above \(threshold) bpm today, outside workouts")
+            return String(localized: "Any reading above \(wholeThreshold) bpm today, outside workouts")
         case .lowBloodOxygen:
-            return String(localized: "Any reading below \(threshold)% today")
+            return String(localized: "Any reading below \(wholeThreshold)% today")
+        case .highRespiratoryRate:
+            return String(localized: "Any reading above \(wholeThreshold) br/min today")
+        case .highWristTemperature:
+            let temperature = BodyMetricWarningTemperatureText.text(
+                celsius: threshold,
+                temperatureUnitPreference: temperatureUnitPreference
+            )
+            return String(localized: "Any overnight reading above \(temperature) today")
         }
     }
 
@@ -4261,30 +4288,35 @@ private struct BodyMetricWarningToggleRow: View {
 /// wheel picker, plus a way back to the default.
 private struct BodyMetricWarningThresholdRow: View {
     let kind: MetricWarningKind
-    let threshold: Int
+    let threshold: Double
+    let temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
     let isDefault: Bool
-    let defaultValue: Int
+    let defaultValue: Double
     let isEnabled: Bool
-    let onChange: (Int?) -> Void
+    let onChange: (Double?) -> Void
 
     @State private var showingPicker = false
-    @State private var pickedValue = 0
+    @State private var pickedValue = 0.0
     @State private var skipsDismissCommit = false
 
-    private var thresholdValues: [Int] {
-        Array(stride(
-            from: kind.thresholdRange.lowerBound,
-            through: kind.thresholdRange.upperBound,
-            by: kind.thresholdStep
-        ))
+    private var thresholdValues: [Double] {
+        kind.thresholdValues
     }
 
-    private func valueText(_ value: Int) -> String {
+    private func valueText(_ value: Double) -> String {
+        let wholeValue = Int(value.rounded())
         switch kind {
         case .lowHeartRate, .highHeartRate:
-            return String(localized: "\(value) bpm")
+            return String(localized: "\(wholeValue) bpm")
         case .lowBloodOxygen:
-            return String(localized: "\(value)%")
+            return String(localized: "\(wholeValue)%")
+        case .highRespiratoryRate:
+            return String(localized: "\(wholeValue) br/min")
+        case .highWristTemperature:
+            return BodyMetricWarningTemperatureText.text(
+                celsius: value,
+                temperatureUnitPreference: temperatureUnitPreference
+            )
         }
     }
 

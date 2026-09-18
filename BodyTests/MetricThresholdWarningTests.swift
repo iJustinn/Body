@@ -31,6 +31,8 @@ final class MetricThresholdWarningTests: XCTestCase {
     func testKindsForMetric() {
         XCTAssertEqual(MetricThresholdWarning.kinds(for: .heartRate), [.lowHeartRate, .highHeartRate])
         XCTAssertEqual(MetricThresholdWarning.kinds(for: .oxygenSaturation), [.lowBloodOxygen])
+        XCTAssertEqual(MetricThresholdWarning.kinds(for: .respiratoryRate), [.highRespiratoryRate])
+        XCTAssertEqual(MetricThresholdWarning.kinds(for: .wristTemperature), [.highWristTemperature])
         XCTAssertTrue(MetricThresholdWarning.kinds(for: .steps).isEmpty)
     }
 
@@ -38,26 +40,49 @@ final class MetricThresholdWarningTests: XCTestCase {
         XCTAssertEqual(MetricWarningKind.lowHeartRate.defaultThreshold, 40)
         XCTAssertEqual(MetricWarningKind.highHeartRate.defaultThreshold, 120)
         XCTAssertEqual(MetricWarningKind.lowBloodOxygen.defaultThreshold, 90)
+        XCTAssertEqual(MetricWarningKind.highRespiratoryRate.defaultThreshold, 20)
+        XCTAssertEqual(MetricWarningKind.highWristTemperature.defaultThreshold, 38)
         XCTAssertFalse(MetricWarningKind.lowHeartRate.isAbove)
         XCTAssertTrue(MetricWarningKind.highHeartRate.isAbove)
+        XCTAssertTrue(MetricWarningKind.highRespiratoryRate.isAbove)
+        XCTAssertTrue(MetricWarningKind.highWristTemperature.isAbove)
         XCTAssertTrue(MetricWarningKind.highHeartRate.excludesWorkouts)
         XCTAssertFalse(MetricWarningKind.lowBloodOxygen.excludesWorkouts)
+        XCTAssertFalse(MetricWarningKind.highRespiratoryRate.excludesWorkouts)
+        XCTAssertFalse(MetricWarningKind.highWristTemperature.excludesWorkouts)
     }
 
     func testKindThresholdRangesContainTheirDefaults() {
         for kind in MetricWarningKind.allCases {
             XCTAssertTrue(
-                kind.thresholdRange.contains(Int(kind.defaultThreshold)),
+                kind.thresholdRange.contains(kind.defaultThreshold),
                 "\(kind.rawValue) default sits outside its picker range"
             )
-            XCTAssertEqual(kind.thresholdStep, 1)
+            XCTAssertTrue(
+                kind.thresholdValues.contains(kind.defaultThreshold),
+                "\(kind.rawValue) default is not a picker value"
+            )
+            XCTAssertEqual(kind.thresholdValues.first, kind.thresholdRange.lowerBound)
+            XCTAssertEqual(kind.thresholdValues.last, kind.thresholdRange.upperBound)
         }
+
+        XCTAssertEqual(MetricWarningKind.highHeartRate.thresholdStep, 1)
+        XCTAssertEqual(MetricWarningKind.highWristTemperature.thresholdStep, 0.1)
+        XCTAssertEqual(MetricWarningKind.highWristTemperature.thresholdValues.count, 51)
+        XCTAssertEqual(MetricWarningKind.highWristTemperature.thresholdValues[23], 37.3)
+        XCTAssertEqual(MetricWarningKind.highWristTemperature.quantizedThreshold(37.26), 37.3)
+        XCTAssertEqual(MetricWarningKind.highWristTemperature.quantizedThreshold(41), 40)
+        XCTAssertEqual(MetricWarningKind.lowHeartRate.quantizedThreshold(45.6), 46)
 
         XCTAssertEqual(MetricWarningKind.lowHeartRate.thresholdRange, 30...60)
         XCTAssertEqual(MetricWarningKind.highHeartRate.thresholdRange, 100...200)
         XCTAssertEqual(MetricWarningKind.lowBloodOxygen.thresholdRange, 80...95)
+        XCTAssertEqual(MetricWarningKind.highRespiratoryRate.thresholdRange, 12...30)
+        XCTAssertEqual(MetricWarningKind.highWristTemperature.thresholdRange, 35...40)
         XCTAssertEqual(MetricWarningKind.highHeartRate.unitLabelKey, "bpm")
         XCTAssertEqual(MetricWarningKind.lowBloodOxygen.unitLabelKey, "%")
+        XCTAssertEqual(MetricWarningKind.highRespiratoryRate.unitLabelKey, "br/min")
+        XCTAssertEqual(MetricWarningKind.highWristTemperature.unitLabelKey, "°C")
     }
 
     // MARK: - Custom thresholds

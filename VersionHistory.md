@@ -1,6 +1,9 @@
 ## 1.1.2 (build 1)
 
-- Opened the 1.1.2 line. No behavior changes yet; the entries below describe 1.1.1.
+- Opened the 1.1.2 line; the entries below this section describe 1.1.1.
+- **Two new metric warnings: High Respiratory Rate and High Skin Temperature.** They work like the existing three: any reading today past the threshold shows the yellow warning glyph on the metric's Home card (and its readiness hero badge), a warning card with a chart on the detail page, and a background notification. Respiratory Rate defaults to above 20 br/min (picker 12 to 30). Skin Temperature defaults to above 38.0 °C (picker 35.0 to 40.0 °C in 0.1 °C steps; the threshold store now keeps decimals, and whole-unit kinds still snap to whole numbers), reads the overnight wrist temperature, and shows its threshold and readings in your temperature unit; its detail card appears for today only, reads the episode the refresh detected from the real HealthKit samples, and has no chart because there is no intraday series. Both have their own toggle and threshold row in Settings > Metrics > Warnings, so that sheet now counts 5 warnings, and both are gated by their metric's Health permission.
+- Moved **Manage Purchases** out of Settings ▸ About and onto the Body Pro page: the bottom row now reads **Redeem · Restore · Manage**, and **Manage** opens the RevenueCat Customer Center.
+- The Summary tab's health notice banner (like “Loading Apple Health data is taking longer than expected”) moved from the top of the page to between the hero text and the metric cards, with the same gap as between two cards, so the sync badge no longer covers it. Under the readiness hero it fades away with the hero comment as the page scrolls.
 - Updated the app, widget, watch, and test bundle version to 1.1.2 build 1.
 
 ## 1.1.1 (build 6)
