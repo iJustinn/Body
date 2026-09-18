@@ -3348,7 +3348,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 1)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 4)**"))
@@ -4929,6 +4930,87 @@ final class SourceGuardTests: XCTestCase {
         let readinessIndex = try XCTUnwrap(watchBundle.range(of: "ReadinessComplication()")?.lowerBound)
         XCTAssertLessThan(exerciseWeekIndex, sleepStagesIndex)
         XCTAssertLessThan(sleepStagesIndex, readinessIndex)
+    }
+
+    func testReadinessComplicationDrawsTheHeroArc() throws {
+        let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
+        let complicationSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/ReadinessComplicationView.swift")
+        let geometrySource = try BodyTestSupport.sourceText(at: "BodyWatchShared/Views/BodyReadinessArcGeometry.swift")
+
+        // Readiness is routed to the hero arc view; the kind is unchanged so
+        // complications already on a face upgrade in place.
+        XCTAssertTrue(watchBundle.contains("ReadinessComplicationView(entry: entry)"))
+        XCTAssertTrue(watchBundle.contains("widgetKind: \"BodyWatchReadiness\""))
+
+        // Bands and active band come from the home hero's geometry, not a copy.
+        XCTAssertTrue(complicationSource.contains("Geometry = BodyReadinessArcGeometry"))
+        XCTAssertTrue(complicationSource.contains("Geometry.bandScoreRanges"))
+        XCTAssertTrue(complicationSource.contains("Geometry.segmentIndex(forScore:"))
+        XCTAssertFalse(complicationSource.contains("WatchMetricRingView("))
+
+        // The ring already shows the score, so the rectangular row names the level.
+        XCTAssertTrue(complicationSource.contains("metric.statusBand?.label"))
+
+        // Tinted faces: only the active band and the pill take the accent.
+        XCTAssertTrue(complicationSource.contains("@Environment(\\.widgetRenderingMode)"))
+        XCTAssertTrue(complicationSource.contains(".widgetAccentable(isActive)"))
+
+        // The corner family keeps the system bezel gauge.
+        XCTAssertTrue(complicationSource.contains("case .accessoryCorner:\n            WatchComplicationView("))
+
+        // The watch widget extension compiles the geometry but not
+        // BodyMetricsKit, so the geometry file must not name ReadinessStatus.
+        XCTAssertFalse(geometrySource.contains("[ReadinessStatus]"))
+        XCTAssertFalse(geometrySource.contains("ReadinessStatus."))
+    }
+
+    func testEveryRectangularWatchComplicationDrawsTheBorderLine() throws {
+        // One shared border, so the rectangular complications match on a face.
+        for file in ["WatchComplicationView", "ReadinessComplicationView", "ExerciseWeekComplication", "SleepStagesComplication"] {
+            let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/\(file).swift")
+            XCTAssertEqual(source.components(separatedBy: ".rectangularComplicationBorder(").count - 1, 1, file)
+        }
+
+        // The metric row: the reading over the title, both lines the same
+        // size, and a banded metric names its level like Readiness does.
+        let metricSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/WatchComplicationView.swift")
+        XCTAssertTrue(metricSource.contains("metric.statusBand?.label"))
+        XCTAssertFalse(metricSource.contains(".font(.title3)"))
+
+        // Ring text steps down from three digits up, in every ring.
+        let readinessSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/ReadinessComplicationView.swift")
+        XCTAssertTrue(metricSource.contains("text.filter(\\.isNumber).count >= 3"))
+        XCTAssertEqual(metricSource.components(separatedBy: "valueFontScale: complicationRingFontScale(for:").count - 1, 2)
+        XCTAssertTrue(readinessSource.contains("complicationRingFontScale(for:"))
+    }
+
+    func testWatchReadinessHeroLevelFollowsThePhoneSwitch() throws {
+        let snapshot = try BodyTestSupport.sourceText(at: "BodyWatchShared/Models/WatchMetricsSnapshot.swift")
+        let publisher = try BodyTestSupport.sourceText(at: "Body/Services/BodyCompanionPublisher.swift")
+        let store = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let settings = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
+        let dashboard = try BodyTestSupport.sourceText(at: "BodyWatch/WatchDashboardView.swift")
+        let hero = try BodyTestSupport.sourceText(at: "BodyWatch/WatchReadinessHeroView.swift")
+
+        // Optional, so an older phone's payload still decodes (and reads as on).
+        XCTAssertTrue(snapshot.contains("var readinessHeroShowsLevel: Bool? = nil"))
+        XCTAssertTrue(publisher.contains("snapshot.readinessHeroShowsLevel = input.readinessHeroShowsLevel"))
+        XCTAssertTrue(store.contains("forKey: BodyAppearancePreference.readinessHeroShowsLevelKey"))
+        XCTAssertTrue(settings.contains(".onChange(of: readinessHeroShowsLevel) { workoutStore.republishCompanionSnapshots() }"))
+        XCTAssertTrue(dashboard.contains("showsLevel: model.snapshot.readinessHeroShowsLevel ?? true"))
+        XCTAssertTrue(hero.contains("private var showsLevelLine: Bool { showsLevel && score != nil }"))
+        XCTAssertTrue(hero.contains("Text(status.title)"))
+    }
+
+    func testTrainingLoadRingDropsTheLeadingZeroUnderOne() throws {
+        let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/WatchComplicationView.swift")
+
+        // Only Training Load, only inside the ring: both ring call sites use
+        // the shortened text while the corner keeps the full value.
+        XCTAssertTrue(source.contains("metric.kind == WatchMetricKindKey.trainingLoad"))
+        XCTAssertEqual(source.components(separatedBy: "value: ringText(metric),").count - 1, 2)
+        XCTAssertTrue(source.contains("Text(ringValue(metric))"))
+        XCTAssertTrue(source.contains("Text(metric.displayValue)"))
     }
 
     func testSleepStagesLockScreenWidgetMirrorsTheWatchComplication() throws {
