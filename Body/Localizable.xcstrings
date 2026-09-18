@@ -7415,22 +7415,6 @@
         }
       }
     },
-    "Manage Purchases" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Manage Purchases"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "管理会员"
-          }
-        }
-      }
-    },
     "Map" : {
       "extractionState" : "manual",
       "localizations" : {
