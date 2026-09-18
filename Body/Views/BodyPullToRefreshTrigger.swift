@@ -57,7 +57,7 @@ extension View {
     /// Custom pull-to-refresh with no system refresh control (and therefore no
     /// system spinner). See `BodyPullToRefreshTrigger`.
     func bodyPullToRefresh(
-        threshold: CGFloat = 70,
+        threshold: CGFloat = 100,
         isRefreshing: Bool = false,
         onBusy: @escaping () -> Void = {},
         action: @escaping () -> Void

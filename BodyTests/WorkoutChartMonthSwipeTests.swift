@@ -35,7 +35,7 @@ final class WorkoutChartMonthSwipeTests: XCTestCase {
 
     /// A drag that is far enough sideways but also travels downward must not
     /// switch months: the chart lives inside the scroll view whose pull-to-refresh
-    /// fires at ~70 pt down, and one drag doing both is the failure mode.
+    /// fires at ~100 pt down, and one drag doing both is the failure mode.
     func testDiagonalDragIsRejected() {
         XCTAssertNil(BodyWorkoutChartSwipe.direction(forTranslation: CGSize(width: -100, height: 80)))
         XCTAssertNil(BodyWorkoutChartSwipe.direction(forTranslation: CGSize(width: 100, height: -50)))

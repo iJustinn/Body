@@ -31,7 +31,7 @@ enum BodyWorkoutChartSwipe {
 
     /// The month switch a finished drag asks for, or nil when it was too short
     /// or too diagonal. The angle test matters as much as the distance one: the
-    /// chart sits inside the scroll view whose pull-to-refresh fires at ~70 pt
+    /// chart sits inside the scroll view whose pull-to-refresh fires at ~100 pt
     /// down, so a diagonal drag must not do both.
     static func direction(forTranslation translation: CGSize) -> Direction? {
         guard abs(translation.width) > commitDistance,

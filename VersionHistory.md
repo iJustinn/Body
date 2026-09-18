@@ -14,6 +14,7 @@
 - **Card Vibration** now also covers the Workouts calendar: tapping a day that has workouts, a workout type row, or the chart switch cell plays the light tap, and so does tapping a workout in the sheet a day or a type opens.
 - **Chart Vibration** now plays a firmer tick on the highest and lowest points of a metric's top trend chart and of a workout's Heart Rate chart, and on every Sleep stage change.
 - The watch app plays a click when you tap refresh and a success tap when the refresh finishes. A new **Vibration** toggle on the watch Settings page, on by default, turns both off.
+- Pull to refresh on the iPhone now needs a slightly longer pull, about 100 pt instead of 70 pt, on Summary, Workouts, and every metric detail page, so a casual scroll past the top is less likely to start a refresh. Build remains 2.
 
 ## 1.1.2 (build 1)
 
