@@ -6,6 +6,7 @@
 - Moved **Manage Purchases** out of Settings ▸ About and onto the Body Pro page: the bottom row now reads **Redeem · Restore · Manage**, and **Manage** opens the RevenueCat Customer Center.
 - The Summary tab's health notice banner (like “Loading Apple Health data is taking longer than expected”) moved from the top of the page to between the hero text and the metric cards, with the same gap as between two cards, so the sync badge no longer covers it. Under the readiness hero it fades away with the hero comment as the page scrolls.
 - Updated the app, widget, watch, and test bundle version to 1.1.2 build 1.
+- **Siri and Shortcuts support via App Intents.** Ask Siri or the Shortcuts app for your readiness, a health metric such as sleep or HRV, your active health warnings, or your workouts this week. Answers come from Body's cached snapshots, never a live HealthKit query, and each one reports whether it is current, stale, partial, or unavailable. The actions require an unlocked device, and Body keeps a protected, on-device Spotlight index of today's metric values so Siri and Spotlight can find them, cleared whenever you clear the local cache. Build remains 1.
 
 ## 1.1.1 (build 6)
 

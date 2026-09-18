@@ -616,6 +616,15 @@ Sleep notification acceptance: verify the Sleep Data row in Notifications, migra
 Daily Readiness notification acceptance: verify the Daily Readiness row in Notifications, migration on an existing install, master/category off, no alert while today's morning record lacks sleep, exactly one alert per day once the sleep-inclusive record freezes (about ten minutes after wake), failed submission retry, foreground-seen suppression, no replay of yesterday's record, and cold/warm taps opening the Readiness detail both with Readiness starred (overlay) and unstarred (pushed page).
 
 
+## Siri and App Intents acceptance (1.1.2 build 1)
+
+- Confirm the Shortcuts app lists Body's four actions: Get Readiness, Get Health Metric, Get Health Warnings, and Get Recent Workouts.
+- Run each action with and without cached data. With cached data, each answer reports one of four states, available, stale, partial, or unavailable, and the wording names the time the data is from. With no cached data at all, the answer says to open Body first.
+- Lock the device and invoke an action; the request is refused rather than returning cached values, matching each intent's `authenticationPolicy`.
+- Search Spotlight for a Body metric such as HRV; the Body metric entities appear with today's date named in their description. Use Clear Local Cache in Settings and confirm those entities no longer appear.
+- On an iOS 27 device with Apple Intelligence enabled, ask Siri "What's my readiness in Body" and "Any health warnings in Body" and verify Siri answers using Body's cached data.
+- Automated coverage: `BodySiriAnswerBuilderTests` covers the availability rules and wording per data source; `BodySiriIndexCoordinatorTests` covers indexing, coalescing, retry after a failure, and cache clearing.
+
 ## Continuous sync badge (1.1.1 build 4)
 
 - Replay a full refresh followed by one or more scheduled observer passes. The badge stays visible through the debounce gap and confirms completion once. A no-op continuation must settle without another refresh starting.
