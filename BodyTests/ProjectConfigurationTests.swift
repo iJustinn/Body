@@ -230,6 +230,10 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(appEntitlements["com.apple.developer.healthkit"] as? Bool, true)
         // The watch app runs its own HR/HRV HealthKit queries on the live path.
         XCTAssertEqual(watchEntitlements["com.apple.developer.healthkit"] as? Bool, true)
+        // The watch's workout observer (`WatchWorkoutObserver`) relies on
+        // background delivery; without the entitlement `enableBackgroundDelivery`
+        // fails and a closed watch app never learns a workout ended.
+        XCTAssertEqual(watchEntitlements["com.apple.developer.healthkit.background-delivery"] as? Bool, true)
     }
 
     func testPrivacyManifestsDeclareUserDefaultsAndNoTracking() throws {

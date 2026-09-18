@@ -3,7 +3,6 @@
 //  BodyWatch
 //
 
-import HealthKit
 import SwiftUI
 import WatchKit
 
@@ -22,9 +21,10 @@ struct BodyWatchApp: App {
             // `onAppear` doesn't reliably re-fire when watchOS returns the app
             // to the foreground, so re-check staleness here too. Compute first,
             // then the live HR/HRV fallback — see `WatchMetricsModel.onAppear`.
-            // This (plus app open and the manual refresh) is the ONLY thing that
-            // triggers a compute: no HealthKit background delivery, which is
-            // what made the first standalone-compute attempt a battery problem.
+            // This, app open and the manual refresh are the only triggers for
+            // an ORDINARY compute. The workout observer, a pushed context and a
+            // scheduled refresh can run one too, but only for a detected
+            // workout change (see `WatchMetricsModel.recomputeIfStale`).
             if phase == .active {
                 Task {
                     await model.recomputeIfStale()
@@ -39,29 +39,18 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
     func applicationDidFinishLaunching() {
         MainActor.assumeIsolated {
             WatchMetricsModel.shared.activate()
-        }
-        disableLegacyStandaloneBackgroundDelivery()
-    }
-
-    /// One-time cleanup for installs upgraded from a build that ran standalone
-    /// compute: that feature enabled HealthKit background delivery for its
-    /// observers (now removed). Disable any lingering registrations so watchOS
-    /// stops waking the app for samples nothing consumes anymore.
-    private func disableLegacyStandaloneBackgroundDelivery() {
-        let key = "didDisableStandaloneBackgroundDelivery"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        guard HKHealthStore.isHealthDataAvailable() else { return }
-        HKHealthStore().disableAllBackgroundDelivery { success, _ in
-            // Latch only on success so a failed first attempt retries on the next
-            // launch instead of leaving legacy registrations active forever.
-            guard success else { return }
-            UserDefaults.standard.set(true, forKey: key)
+            // Here rather than from the UI: watchOS can launch the app straight
+            // into the background for a workout, and the observer has to be
+            // executing again before that wake is delivered. It also owns the
+            // one time legacy background delivery cleanup, so the two can't race.
+            WatchMetricsModel.shared.startWorkoutObserver()
         }
     }
 
     /// Holds WatchConnectivity background-refresh tasks open until the session
     /// delivers the pushed content (see `handleConnectivityBackgroundTask`);
-    /// other task kinds are completed immediately — the app doesn't use them.
+    /// an application refresh runs the pending workout compute; other task
+    /// kinds are completed immediately — the app doesn't use them.
     func handle(_ backgroundTasks: Set<WKRefreshBackgroundTask>) {
         for task in backgroundTasks {
             if let wcTask = task as? WKWatchConnectivityRefreshBackgroundTask {
@@ -70,6 +59,14 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
                 // drains it, dropping background phone updates.
                 Task { @MainActor in
                     WatchMetricsModel.shared.handleConnectivityBackgroundTask(wcTask)
+                }
+            } else if task is WKApplicationRefreshBackgroundTask {
+                // Requested by the model for pending workout work that had to
+                // wait out its retry spacing. `apply` reloads the complication
+                // timelines itself, so no snapshot is requested.
+                Task { @MainActor in
+                    await WatchMetricsModel.shared.recomputeIfStale(trigger: .background)
+                    task.setTaskCompletedWithSnapshot(false)
                 }
             } else {
                 task.setTaskCompletedWithSnapshot(false)
