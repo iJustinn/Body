@@ -548,10 +548,6 @@ struct BodyHomeView: View {
                 ScrollViewReader { scrollProxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 14) {
-                            if let healthDataNotice = workoutStore.healthDataNotice {
-                                BodyHealthNoticeBanner(message: healthDataNotice)
-                            }
-
                             starMetricHero(
                                 proxy: scrollProxy,
                                 lookup: metricCardLookup,
@@ -565,6 +561,19 @@ struct BodyHomeView: View {
                                     pageWidth: page.size.width > 0 ? page.size.width : homeContentWidth
                                 )
                             )
+
+                            // Between the hero text and the grid, one card gap from each.
+                            // Under the readiness hero it fades with the comment, so it
+                            // never slides beneath the held bar.
+                            if let healthDataNotice = workoutStore.healthDataNotice {
+                                if starredHomeCard == .readiness {
+                                    BodyReadinessHeroCommentFade {
+                                        BodyHealthNoticeBanner(message: healthDataNotice)
+                                    }
+                                } else {
+                                    BodyHealthNoticeBanner(message: healthDataNotice)
+                                }
+                            }
 
                             if horizontalSizeClass == .regular {
                                 HStack(alignment: .top, spacing: 14) {

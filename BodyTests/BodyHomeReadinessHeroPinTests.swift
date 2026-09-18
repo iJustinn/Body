@@ -50,8 +50,12 @@ final class BodyHomeReadinessHeroPinTests: XCTestCase {
         defer { harness.tearDown() }
 
         let resting = try XCTUnwrap(harness.recorder.frames["hero"])
-        XCTAssertGreaterThan(resting.minY, 10 + 14, "A notice above the hero pushes its resting position down")
+        XCTAssertEqual(resting.minY, 10, accuracy: 1, "The notice sits under the hero text, so the hero rests where it does without one")
         let gridAtRest = try XCTUnwrap(harness.recorder.frames["grid"])
+        let notice = try XCTUnwrap(harness.recorder.frames["notice"])
+        let comment = try XCTUnwrap(harness.recorder.frames["card"])
+        XCTAssertEqual(notice.minY - comment.maxY, 14, accuracy: 1, "One card gap under the hero text")
+        XCTAssertEqual(gridAtRest.minY - notice.maxY, 14, accuracy: 1, "One card gap above the first card row")
 
         try harness.scroll(to: resting.minY + BodyReadinessArcGeometry.morphDistance(width: Self.heroWidth) / 2)
         let pinned = try XCTUnwrap(harness.recorder.frames["hero"])
@@ -89,10 +93,6 @@ final class BodyHomeReadinessHeroPinTests: XCTestCase {
             let viewportCoordinateSpace = BodyHomeView.viewportCoordinateSpace
             ScrollView(.vertical) {
                 VStack(spacing: 14) {
-                    if let notice {
-                        BodyHealthNoticeBanner(message: notice)
-                    }
-
                     BodyReadinessHeroScrollPin(
                         scrollState: scrollState,
                         width: BodyHomeReadinessHeroPinTests.heroWidth
@@ -115,6 +115,15 @@ final class BodyHomeReadinessHeroPinTests: XCTestCase {
                         } action: { frame in
                             recorder.frames["card"] = frame
                         }
+
+                    if let notice {
+                        BodyHealthNoticeBanner(message: notice)
+                            .onGeometryChange(for: CGRect.self) { proxy in
+                                proxy.frame(in: .named(viewportCoordinateSpace))
+                            } action: { frame in
+                                recorder.frames["notice"] = frame
+                            }
+                    }
 
                     VStack(spacing: 14) {
                         ForEach(0..<8, id: \.self) { _ in
