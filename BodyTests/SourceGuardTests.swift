@@ -4964,11 +4964,11 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(geometrySource.contains("ReadinessStatus."))
     }
 
-    func testEveryRectangularWatchComplicationDrawsTheBorderLine() throws {
-        // One shared border, so the rectangular complications match on a face.
+    func testRectangularWatchComplicationRowsLeadWithTheReading() throws {
+        // No drawn border: the system owns a rectangular slot's outline.
         for file in ["WatchComplicationView", "ReadinessComplicationView", "ExerciseWeekComplication", "SleepStagesComplication"] {
             let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/\(file).swift")
-            XCTAssertEqual(source.components(separatedBy: ".rectangularComplicationBorder(").count - 1, 1, file)
+            XCTAssertFalse(source.contains("strokeBorder"), file)
         }
 
         // The metric row: the reading over the title, both lines the same
@@ -4979,7 +4979,7 @@ final class SourceGuardTests: XCTestCase {
 
         // Ring text steps down from three digits up, in every ring.
         let readinessSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/ReadinessComplicationView.swift")
-        XCTAssertTrue(metricSource.contains("text.filter(\\.isNumber).count >= 3"))
+        XCTAssertTrue(metricSource.contains("text.filter(\\.isNumber).count >= 3 ? compact : base"))
         XCTAssertEqual(metricSource.components(separatedBy: "valueFontScale: complicationRingFontScale(for:").count - 1, 2)
         XCTAssertTrue(readinessSource.contains("complicationRingFontScale(for:"))
     }
