@@ -51,6 +51,10 @@ enum WorkoutShareCardBackground {
 /// and deriving from that would flash the centered layout before the map arrives.
 enum WorkoutShareCardLayout {
     case classic
+    /// Map background only, like `.classic`: the title centered at the top, one big
+    /// number (distance, or duration without one) centered at the bottom, and no
+    /// header columns or metric row.
+    case mapCentered
     case centered
     /// Explicit rather than "`.centered` with no route points": a route that projects
     /// to nothing (GPS jitter on a treadmill) still gets the plain centered stack, and
@@ -65,6 +69,9 @@ struct BodyWorkoutShareCardView: View {
     /// The centered layout's stack — a different selection (distance and time are
     /// blocks here, not header numbers), so both are passed in and the layout picks.
     let centeredMetrics: [WorkoutShareMetric]
+    /// The centered map layout's line under its big number. Defaulted so existing
+    /// call sites (tests, previews) compile unchanged.
+    var mapCenteredMetrics: [WorkoutShareMetric] = []
     /// Already normalized to the unit square by `WorkoutShareRouteProjection`. `nil`
     /// collapses the trace into a metrics-only card.
     let routePoints: [CGPoint]?
@@ -175,7 +182,7 @@ struct BodyWorkoutShareCardView: View {
             backgroundLayer
             scrims
             switch layout {
-            case .classic:
+            case .classic, .mapCentered:
                 if showsTrace {
                     // Pinned to the same geometry as the map background's route —
                     // `classicRouteRect` is sized off the scrims' clear band — so the
@@ -186,7 +193,11 @@ struct BodyWorkoutShareCardView: View {
                         .frame(width: geometry.classicRouteRect.width, height: geometry.classicRouteRect.height)
                         .position(x: geometry.classicRouteRect.midX, y: geometry.classicRouteRect.midY)
                 }
-                content
+                if layout == .mapCentered {
+                    mapCenteredContent
+                } else {
+                    content
+                }
             case .centered, .routeless:
                 centeredContent
             }
@@ -271,6 +282,87 @@ struct BodyWorkoutShareCardView: View {
         .padding(.horizontal, 24)
         .padding(.top, 28)
         .padding(.bottom, WorkoutShareCardGeometry.brandingBottomPadding)
+    }
+
+    // MARK: - Centered map layout (title on top, one big number at the bottom)
+
+    private var mapCenteredContent: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 4) {
+                Text(presentation.title.uppercased())
+                    .font(.system(size: 26, weight: .heavy, design: fontDesign))
+                    .foregroundColor(ink.primary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .multilineTextAlignment(.center)
+                Text("\(presentation.dateTitle) - \(presentation.timeRangeText)")
+                    .font(.system(size: 14, weight: .medium, design: fontDesign))
+                    .foregroundColor(ink.primary(0.7))
+                    .lineLimit(1)
+                if let locality {
+                    HStack(spacing: 4) {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(locality)
+                            .font(.system(size: 14, weight: .medium, design: fontDesign))
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(ink.primary(0.7))
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            VStack(spacing: 6) {
+                if !personalRecords.isEmpty {
+                    recordBadge
+                }
+                mapCenteredHero
+                if !mapCenteredDetailTexts.isEmpty {
+                    Text(mapCenteredDetailTexts.joined(separator: "  \u{00B7}  "))
+                        .font(.system(size: 17, weight: .medium, design: fontDesign))
+                        .foregroundColor(ink.primary(0.85))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                }
+            }
+            .padding(.bottom, 22)
+
+            branding
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.top, 28)
+        .padding(.bottom, WorkoutShareCardGeometry.brandingBottomPadding)
+    }
+
+    /// Distance leads when the workout has one; otherwise the duration takes the slot.
+    private var mapCenteredHero: some View {
+        let hasDistance = presentation.heroDistanceValue != nil && presentation.heroDistanceUnit != nil
+        let value = hasDistance ? presentation.heroDistanceValue ?? "" : presentation.durationClockText
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(value)
+                .font(.system(size: 64, weight: .bold, design: fontDesign))
+                .foregroundColor(ink.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            Group {
+                if hasDistance {
+                    Text((presentation.heroDistanceUnit ?? "").uppercased())
+                } else {
+                    Text("Duration")
+                }
+            }
+            .font(.system(size: 20, weight: .semibold, design: fontDesign))
+            .tracking(1)
+            .foregroundColor(ink.primary(0.7))
+        }
+    }
+
+    /// The line under the big number: the user's picked metric values, minus the one
+    /// the big number shows.
+    private var mapCenteredDetailTexts: [String] {
+        mapCenteredMetrics.map(\.value)
     }
 
     // MARK: - Header (mirrors the detail page's top arrangement)

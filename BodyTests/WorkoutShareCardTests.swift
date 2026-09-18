@@ -1175,6 +1175,39 @@ final class WorkoutShareCardTests: XCTestCase {
         XCTAssertEqual(metrics.map(\.title), [energyTile.title, paceTile.title])
     }
 
+    func testMapCenteredLineMetricsFollowThePicksMinusTheHero() throws {
+        let hike = workout(type: .hiking, duration: 5400, distance: 9000, activeEnergy: 600, avgHR: 128, elevation: 540)
+        let presentation = presentation(for: hike)
+        let available = WorkoutShareMetricsBuilder.availableMetrics(for: presentation, type: .hiking)
+        let energyTile = try XCTUnwrap(tile(.activeEnergy, in: presentation))
+        XCTAssertNotNil(presentation.heroDistanceValue)
+
+        // Distance is the big number, so it drops out; everything else shows in pick
+        // order with no cap and no backfill, and a pick of nothing stays nothing.
+        let line = WorkoutShareMetricsBuilder.mapCenteredLineMetrics(
+            selectedIDs: ["distance", "activeEnergy", "time"],
+            available: available,
+            presentation: presentation
+        )
+        XCTAssertEqual(line.map(\.title), [energyTile.title, String(localized: "Time")])
+        XCTAssertTrue(WorkoutShareMetricsBuilder.mapCenteredLineMetrics(
+            selectedIDs: [], available: available, presentation: presentation
+        ).isEmpty)
+
+        // Without a hero distance the duration takes the big slot instead, so time is
+        // what drops out and distance survives.
+        let row = workout(type: .rowing, distance: 3000, activeEnergy: 250, avgHR: 130)
+        let rowPresentation = self.presentation(for: row)
+        let rowAvailable = WorkoutShareMetricsBuilder.availableMetrics(for: rowPresentation, type: .rowing)
+        let distanceTile = try XCTUnwrap(tile(.distance, in: rowPresentation))
+        let rowLine = WorkoutShareMetricsBuilder.mapCenteredLineMetrics(
+            selectedIDs: ["time", "distance"],
+            available: rowAvailable,
+            presentation: rowPresentation
+        )
+        XCTAssertEqual(rowLine.map(\.title), [distanceTile.title])
+    }
+
     // MARK: - Projection
 
     func testAntimeridianRouteUnwrapsWithoutInvertingOrder() throws {
@@ -1340,6 +1373,9 @@ final class WorkoutShareCardTests: XCTestCase {
         // round trip through @AppStorage that the gradients do.
         XCTAssertEqual(BodyWorkoutShareBackgroundChoice.map.rawValue, "map")
         XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map", hasRoute: true), .map)
+        // The centered map layout is a second map choice with its own key.
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.mapCentered.rawValue, "mapCentered")
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "mapCentered", hasRoute: true), .mapCentered)
     }
 
     func testStoredFallsBackToMidnightForNilOrGarbage() {
@@ -1358,6 +1394,7 @@ final class WorkoutShareCardTests: XCTestCase {
         // earlier routed share resolves to Midnight for this session without rewriting
         // the key, so the next routed share still opens on the map.
         XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "map", hasRoute: false), .preset(.midnight))
+        XCTAssertEqual(BodyWorkoutShareBackgroundChoice.stored(rawValue: "mapCentered", hasRoute: false), .preset(.midnight))
     }
 
     func testStoredPresetsAreUnaffectedByHasRoute() {

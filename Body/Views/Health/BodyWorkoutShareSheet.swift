@@ -261,6 +261,9 @@ struct BodyWorkoutShareSheet: View {
     private struct MapSnapshotKey: Hashable {
         let dimension: WorkoutShareRouteDimension
         let aspectRatio: WorkoutShareAspectRatio
+        /// `.classic` or `.mapCentered`: each frames its route into its own clear
+        /// band, so the two map tiles hold separate snapshots.
+        let layout: WorkoutShareCardLayout
         /// The resolved workout tint's hex at snapshot time, so a color customization
         /// mid-session can't serve a stale-tinted cached bitmap for an otherwise-identical
         /// dimension/ratio pair.
@@ -577,9 +580,15 @@ struct BodyWorkoutShareSheet: View {
     /// The snapshot the card would draw right now — dimension *and* ratio; no other
     /// key's cached image ever stands in for it.
     private var activeMapKey: MapSnapshotKey {
+        mapKey(for: selectedChoice)
+    }
+
+    /// Read off the stored choice rather than `cardLayout`, which depends on this key.
+    private func mapKey(for choice: BodyWorkoutShareBackgroundChoice) -> MapSnapshotKey {
         MapSnapshotKey(
             dimension: activeDimension,
             aspectRatio: activeAspectRatio,
+            layout: choice == .mapCentered ? .mapCentered : .classic,
             tintHex: BodyWorkoutColorOverrides.hexText(from: workoutColorPalette.resolvedHex(for: workout.type))
         )
     }
@@ -708,7 +717,7 @@ struct BodyWorkoutShareSheet: View {
         guard hasRoute else { return .routeless }
         switch activeSelection {
         case .preset, .photo, .video, .transparent: return .centered
-        case .map: return .classic
+        case .map: return selectedChoice == .mapCentered ? .mapCentered : .classic
         }
     }
 
@@ -823,6 +832,11 @@ struct BodyWorkoutShareSheet: View {
             centeredMetrics: ids.compactMap { id in
                 availableMetricOptions.first { $0.id == id }?.centeredMetric
             },
+            mapCenteredMetrics: route == nil ? [] : WorkoutShareMetricsBuilder.mapCenteredLineMetrics(
+                selectedIDs: ids,
+                available: availableMetricOptions,
+                presentation: presentation
+            ),
             // Hidden is the traceless centered card: the metrics stand alone, exactly
             // as they do for a route that projects to nothing.
             routePoints: isRouteHidden ? nil : routePoints,
@@ -1311,6 +1325,7 @@ struct BodyWorkoutShareSheet: View {
                 isMapActive: activeSelection == .map,
                 dimension: activeDimension,
                 aspectRatio: activeAspectRatio,
+                layout: activeMapKey.layout,
                 tintHex: activeMapKey.tintHex
             )) {
                 let key = activeMapKey
@@ -2015,7 +2030,10 @@ struct BodyWorkoutShareSheet: View {
                     .disabled(isLongMode)
                 // Nothing to snapshot without a route, so the tile isn't offered.
                 if hasRoute {
-                    mapTile()
+                    mapTile(choice: .map)
+                        .opacity(isLongMode ? 0.4 : 1)
+                        .disabled(isLongMode)
+                    mapTile(choice: .mapCentered)
                         .opacity(isLongMode ? 0.4 : 1)
                         .disabled(isLongMode)
                 }
@@ -2696,15 +2714,17 @@ struct BodyWorkoutShareSheet: View {
     }
 
     /// Free route-map background: a dark map snapshot with the pace-colored route
-    /// composited in, generated once per dimension+ratio on first selection.
-    private func mapTile() -> some View {
-        let key = activeMapKey
-        let isSelected = activeSelection == .map
+    /// composited in, generated once per dimension+ratio on first selection. Two
+    /// tiles share the snapshot: `.map` draws the classic header over it and
+    /// `.mapCentered` the centered map layout.
+    private func mapTile(choice: BodyWorkoutShareBackgroundChoice) -> some View {
+        let key = mapKey(for: choice)
+        let isSelected = activeSelection == .map && selectedChoice == choice
         let snapshot = mapSnapshots[key]
         return Button {
             closeTray()
             replaceMedia(with: nil)
-            storedBackground = BodyWorkoutShareBackgroundChoice.map.rawValue
+            storedBackground = choice.rawValue
             // Tapping Map is also how the user retries this snapshot after a failure.
             failedMapKeys.remove(key)
             if mapSnapshots[key] == nil, !loadingMapKeys.contains(key) {
@@ -2718,9 +2738,16 @@ struct BodyWorkoutShareSheet: View {
                         .scaledToFill()
                 } else {
                     Circle().fill(Color.white.opacity(0.1))
-                    Image(systemName: "map")
+                    Image(systemName: choice == .mapCentered ? "map.fill" : "map")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.8))
+                }
+                if choice == .mapCentered, snapshot != nil {
+                    // Tells the two map tiles apart once both show the same snapshot.
+                    Image(systemName: "textformat.size")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.6), radius: 2)
                 }
                 if loadingMapKeys.contains(key) {
                     Circle().fill(Color.black.opacity(0.35))
@@ -2733,7 +2760,7 @@ struct BodyWorkoutShareSheet: View {
             .overlay { selectionRing(isSelected: isSelected) }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text("Map"))
+        .accessibilityLabel(choice == .mapCentered ? Text("Map, Centered") : Text("Map"))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
@@ -3316,7 +3343,8 @@ struct BodyWorkoutShareSheet: View {
             for: route,
             tint: UIColor(workoutColorPalette.color(for: workout.type)),
             dimension: key.dimension,
-            aspectRatio: key.aspectRatio
+            aspectRatio: key.aspectRatio,
+            layout: key.layout
         )
         if let image {
             // Cache even if the user switched away meanwhile — re-selecting this
@@ -3356,7 +3384,8 @@ struct BodyWorkoutShareSheet: View {
         for route: WorkoutRoute,
         tint: UIColor,
         dimension: WorkoutShareRouteDimension,
-        aspectRatio: WorkoutShareAspectRatio
+        aspectRatio: WorkoutShareAspectRatio,
+        layout: WorkoutShareCardLayout = .classic
     ) async -> UIImage? {
         // Drop non-finite/out-of-range fixes before any bounds math (matching
         // WorkoutShareRouteProjection) — one NaN latitude would otherwise poison
@@ -3376,7 +3405,7 @@ struct BodyWorkoutShareSheet: View {
         // the landscape arrangement — so `.stacked` here is a constant, not a choice.
         let geometry = WorkoutShareCardGeometry(
             aspectRatio: aspectRatio,
-            layout: .classic,
+            layout: layout,
             arrangement: .stacked
         )
 
@@ -3552,6 +3581,7 @@ private struct MapLoadKey: Equatable {
     let isMapActive: Bool
     let dimension: WorkoutShareRouteDimension
     let aspectRatio: WorkoutShareAspectRatio
+    let layout: WorkoutShareCardLayout
     /// Mirrors `MapSnapshotKey.tintHex`: a colour customization mid-session mints a new
     /// snapshot key, so the loading task has to restart for it too. Without this the
     /// sheet would wait forever on a snapshot nobody is fetching, leaving Share and Save

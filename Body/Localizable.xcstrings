@@ -7608,6 +7608,23 @@
         }
       }
     },
+    "Map, Centered" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Map, Centered"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "地图，居中"
+          }
+        }
+      }
+    },
     "Metabolic equivalents, a measure of intensity where 1 MET is roughly the energy you use sitting still. An average of 8 METs means the session took about eight times that." : {
       "extractionState" : "manual",
       "localizations" : {
