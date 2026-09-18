@@ -215,6 +215,19 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// the schema-evolution note below.
     var weeklyCurrentValue: Double? = nil
 
+    /// Readiness only: the PUBLISHER's own same-day drain report, the workouts
+    /// it drained and the undrained score it started from. Stamped by the
+    /// shared builder on both the phone's publish and the watch's compute; nil
+    /// for every other metric, when Workouts isn't readable, and for payloads
+    /// from before this field (an unknown report, never an empty one).
+    var drain: WatchReadinessDrainReport? = nil
+
+    /// Readiness only, WATCH SIDE only (the phone never sets it): the latest
+    /// drain report received from each device, kept by the merge so the
+    /// displayed score can carry the union of both. See
+    /// `WatchReadinessDrainReconciler`.
+    var drainReports: WatchReadinessDrainReports? = nil
+
     /// Whether `displayValue`/`unit` are in Fahrenheit, stamped by the builder
     /// for Skin Temp only (`nil` for every other metric, and for snapshots from
     /// a phone build before this field). Lets the corner gauge convert its
@@ -250,6 +263,33 @@ struct WatchMetric: Codable, Equatable, Identifiable {
         metric.weeklyCurrentValue = nil
         return metric
     }
+}
+
+/// What one device knew about today's activity drain when it produced a
+/// readiness value. Self-contained (no BodyMetricsKit types) because this file
+/// is also compiled into the watch widget extension.
+struct WatchReadinessDrainReport: Codable, Equatable {
+    struct Contribution: Codable, Equatable {
+        /// The workout's HealthKit UUID string, identical on both devices.
+        var id: String
+        var start: Date
+        /// Drain points before the total cap.
+        var points: Double
+    }
+
+    /// The readiness score before any drain.
+    var undrainedScore: Int
+    /// Start of the wake cycle the workouts were read over.
+    var cycleStart: Date
+    var contributions: [Contribution]
+}
+
+struct WatchReadinessDrainReports: Codable, Equatable {
+    var phone: WatchReadinessDrainReport?
+    var watch: WatchReadinessDrainReport?
+    /// Workouts the watch reported and then stopped finding (deleted), which
+    /// the phone's report may keep listing until the deletion replicates.
+    var watchRemovedIDs: [String]?
 }
 
 /// One stage segment of the night's main sleep session, for the watch

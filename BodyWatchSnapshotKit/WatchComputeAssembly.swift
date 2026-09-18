@@ -212,6 +212,13 @@ enum WatchComputeAssembly {
                     sleepEnd: sleepEnd,
                     calendar: calendar
                 ),
+                // The watch's own drain report (see `WatchReadinessDrainReconciler`).
+                // Only when the workout query SUCCEEDED: a failed one leaves
+                // `fetchedWorkouts` empty for lack of an answer, which must not
+                // be reported as "no workouts this wake cycle".
+                wakeCycleStart: delta.workouts.isSuccess
+                    ? ReadinessComputeSupport.wakeCycleStart(now: now, sleepEnd: sleepEnd, calendar: calendar)
+                    : nil,
                 wakeTime: nil,
                 // DELIBERATE DEVIATIONS from the phone's call, both documented
                 // in the plan:

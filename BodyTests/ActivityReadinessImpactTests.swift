@@ -203,6 +203,38 @@ final class ActivityReadinessImpactTests: XCTestCase {
         )
     }
 
+    func testDrainReportListsEachWorkoutAndLeavesTheScoreMathUnchanged() {
+        let morning = readiness(score: 70)
+        let hard = workout(.running, minutes: 60, effort: 9)
+        let easy = workout(.walking, minutes: 20, effort: 3)
+        let cycleStart = Date(timeIntervalSince1970: 1_000)
+
+        let plain = HealthDashboardSnapshot.draining(morning, with: [hard, easy])
+        let reported = HealthDashboardSnapshot.draining(morning, with: [hard, easy], wakeCycleStart: cycleStart)
+
+        // Asking for a report changes nothing about the drain itself.
+        XCTAssertEqual(reported.score, plain.score)
+        XCTAssertEqual(reported.activityDrainPoints, plain.activityDrainPoints)
+        XCTAssertNil(plain.activityDrainCycleStart, "no cycle start supplied means no report: unknown, not empty")
+        XCTAssertNil(plain.activityDrainContributions)
+
+        XCTAssertEqual(reported.activityDrainCycleStart, cycleStart)
+        XCTAssertEqual(reported.activityDrainContributions?.map(\.id), [hard.id, easy.id])
+        XCTAssertEqual(
+            reported.activityDrainContributions?.map(\.points),
+            [ActivityReadinessImpact.perWorkoutDrain(hard), ActivityReadinessImpact.perWorkoutDrain(easy)]
+        )
+    }
+
+    func testDrainReportIsEmptyNotMissingWhenNothingDrained() {
+        let cycleStart = Date(timeIntervalSince1970: 1_000)
+        let reported = HealthDashboardSnapshot.draining(readiness(score: 70), with: [], wakeCycleStart: cycleStart)
+        XCTAssertEqual(reported.score, 70)
+        XCTAssertNil(reported.activityDrainMorningScore)
+        XCTAssertEqual(reported.activityDrainCycleStart, cycleStart)
+        XCTAssertEqual(reported.activityDrainContributions, [])
+    }
+
     func testWorkoutDroppingBandAttributesDropToTraining() {
         let morning = readiness(score: 70) // Moderate
         let hard = workout(.running, minutes: 60, effort: 9) // heavy drain → into Low

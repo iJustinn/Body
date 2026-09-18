@@ -788,6 +788,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
         calendar: Calendar = .bodyGregorian,
         todaysWorkouts: [WorkoutSummary] = [],
+        wakeCycleStart: Date? = nil,
         wakeTime: Date? = nil,
         now: Date = Date(),
         freezesRecordedReadiness: Bool = false,
@@ -828,7 +829,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         )
 
         // Live tile = undrained − same-day activity drain (display only).
-        next.summary.readiness = Self.draining(undrained, with: todaysWorkouts)
+        next.summary.readiness = Self.draining(undrained, with: todaysWorkouts, wakeCycleStart: wakeCycleStart)
 
         // History series: deterministic recompute overlaid with frozen records.
         let oldestTrendDate = next.trends.readinessSourceSeries.compactMap { series in
@@ -863,6 +864,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         idealSleepDuration: TimeInterval = BodySleepDurationGoal.defaultDuration,
         calendar: Calendar = .bodyGregorian,
         todaysWorkouts: [WorkoutSummary] = [],
+        wakeCycleStart: Date? = nil,
         wakeTime: Date? = nil,
         now: Date = Date(),
         freezesRecordedReadiness: Bool = false,
@@ -894,7 +896,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             freezes: freezesRecordedReadiness,
             calendar: calendar
         )
-        next.summary.readiness = Self.draining(undrained, with: todaysWorkouts)
+        next.summary.readiness = Self.draining(undrained, with: todaysWorkouts, wakeCycleStart: wakeCycleStart)
         next.trends.readiness = next.trends.readiness.applyingRecordedOverrides(
             next.trends.recordedReadiness,
             calendar: calendar
@@ -1559,31 +1561,41 @@ struct HealthDashboardSnapshot: Codable, Equatable {
     /// once the raw score reaches 0 we show 5% and ease toward 0% only past a −25
     /// deficit, capped so drain never lifts an already-low baseline. Status recomputed.
     /// Display only. `internal` (not `private`) so tests can exercise the cap directly.
+    ///
+    /// `wakeCycleStart` is the start of the window `workouts` was filtered to.
+    /// When supplied, the summary also carries this publisher's drain report
+    /// (`activityDrainCycleStart` + `activityDrainContributions`), drained or not.
     static func draining(
         _ summary: ReadinessSummary,
-        with workouts: [WorkoutSummary]
+        with workouts: [WorkoutSummary],
+        wakeCycleStart: Date? = nil
     ) -> ReadinessSummary {
         guard let score = summary.score else {
             return summary
         }
-        let drain = ActivityReadinessImpact.drainPoints(workouts: workouts)
-        guard drain >= 0.5 else {
-            return summary
-        }
         var drained = summary
-        // Soften the very low end: once the raw (possibly negative) score reaches 0 we
-        // show 5% and ease 1% per further 5% of deficit, hitting 0% only at −25 or lower.
-        // Cap at the undrained score so drain can never lift an already-low baseline.
-        let roundedDrain = Int(drain.rounded())
-        let raw = score - roundedDrain
-        let newScore = min(score, ActivityReadinessImpact.displayedScore(forRawScore: raw))
-        drained.score = newScore
-        drained.status = ReadinessStatus.status(for: newScore)
+        let contributions = workouts.compactMap { workout -> ActivityDrainContribution? in
+            let points = ActivityReadinessImpact.perWorkoutDrain(workout)
+            guard points > 0 else { return nil }
+            return ActivityDrainContribution(id: workout.id, start: workout.startDate, points: points)
+        }
+        if let wakeCycleStart {
+            drained.activityDrainCycleStart = wakeCycleStart
+            drained.activityDrainContributions = contributions
+        }
+        guard let result = ActivityReadinessImpact.drainedScore(
+            undrained: score,
+            contributionPoints: contributions.reduce(0) { $0 + $1.points }
+        ) else {
+            return drained
+        }
+        drained.score = result.score
+        drained.status = ReadinessStatus.status(for: result.score)
         // Record the pre-drain score (for the pre-drain band) and the actual drain magnitude,
         // so the hero sizes the drop from the real effort even when the display clamps the score
         // (a hard session on an already-low morning would otherwise look like a light activity).
         drained.activityDrainMorningScore = score
-        drained.activityDrainPoints = roundedDrain
+        drained.activityDrainPoints = result.drain
         return drained
     }
 

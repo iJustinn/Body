@@ -7034,6 +7034,12 @@ final class HealthKitWorkoutStore {
         let sleepEnd = summary.sleep.stageSnapshot.wakeCycleEnd
         let wakeTime = Self.freezeWakeTime(sleepEnd: sleepEnd, scoringDay: anchorDate, now: now, calendar: calendar)
         let todaysWorkouts = currentWakeCycleWorkouts(now: now, sleepEnd: sleepEnd, calendar: calendar)
+        // The drain report the watch reconciles against. Only with Workouts
+        // permitted: without it `todaysWorkouts` is empty for lack of access,
+        // which is not a claim that the wake cycle has no workouts.
+        let wakeCycleStart = permissionSelection.includes(.workouts)
+            ? ReadinessComputeSupport.wakeCycleStart(now: now, sleepEnd: sleepEnd, calendar: calendar)
+            : nil
         let recordedReadinessContext = readinessRecordContextSignature()
         let recordedStressContext = stressRecordContextSignature()
         let stressWorkouts = stressWindowWorkouts(through: anchorDate, calendar: calendar)
@@ -7058,6 +7064,7 @@ final class HealthKitWorkoutStore {
                     idealSleepDuration: idealSleepDuration,
                     calendar: calendar,
                     todaysWorkouts: todaysWorkouts,
+                    wakeCycleStart: wakeCycleStart,
                     wakeTime: wakeTime,
                     now: now,
                     freezesRecordedReadiness: recomputesReadiness,
@@ -7605,6 +7612,7 @@ final class HealthKitWorkoutStore {
             idealSleepDuration: Self.storedIdealSleepDuration(),
             calendar: calendar,
             todaysWorkouts: todaysWorkouts,
+            wakeCycleStart: ReadinessComputeSupport.wakeCycleStart(now: now, sleepEnd: sleepEnd, calendar: calendar),
             wakeTime: wakeTime,
             now: now,
             freezesRecordedReadiness: true,

@@ -98,6 +98,10 @@ extension WatchMetric {
         // keeping the old one would pair the adopted reading with the replaced
         // reading's measurement time.
         adopted.measuredAt = other.measuredAt
+        // The publisher's drain report describes the VALUE too (its undrained
+        // score and the workouts behind it). `drainReports` deliberately stays
+        // this metric's own: it is the watch's bookkeeping, not display.
+        adopted.drain = other.drain
         return adopted
     }
 }
@@ -244,7 +248,37 @@ enum WatchComputeMerge {
             merged.sleepNight = computed.sleepNight
             merged.sleepStages = computed.sleepStages
         }
+
+        // Readiness drain: record the watch's report, but only from a compute
+        // that STAMPED readiness. An unstamped one mixed fresh and seed-carried
+        // inputs (its workout query may have failed outright), so its report is
+        // no more trustworthy than its score. Then reconcile whichever metric
+        // won above, so a workout only the phone has seen survives a watch
+        // compute that adopted its own score.
+        var reports = current.metric(forKind: WatchMetricKindKey.readiness)?.drainReports
+        if result.dataAsOf[WatchMetricKindKey.readiness] != nil,
+           let candidate = computed.metric(forKind: WatchMetricKindKey.readiness) {
+            reports = WatchReadinessDrainReconciler.receivingWatchReport(candidate.drain, into: reports)
+        }
+        merged.metrics = reconcilingReadiness(in: merged.metrics, reports: reports)
         return merged
+    }
+
+    /// Applies `WatchReadinessDrainReconciler` to the readiness metric a merge
+    /// settled on. No reports yet (nothing received since this field shipped)
+    /// leaves the metrics untouched.
+    private static func reconcilingReadiness(
+        in metrics: [WatchMetric],
+        reports: WatchReadinessDrainReports?
+    ) -> [WatchMetric] {
+        guard let reports else { return metrics }
+        return metrics.map { metric in
+            WatchReadinessDrainReconciler.reconciled(
+                metric,
+                reports: reports,
+                winnerIsWatchComputed: isWatchComputed(metric)
+            )
+        }
     }
 
     // MARK: - Phone push → displayed snapshot
@@ -357,6 +391,19 @@ enum WatchComputeMerge {
             merged.sleepNight = current.sleepNight
             merged.sleepStages = current.sleepStages
         }
+
+        // Readiness drain: the push's own report replaces the phone's previous
+        // one, then whichever metric won above is reconciled against the other
+        // side's report. This is what stops a push that has not seen a watch
+        // workout yet from removing its drain. A blank incoming readiness stays
+        // blank (see `WatchReadinessDrainReconciler.reconciled`).
+        if let receivedReadiness = received.metric(forKind: WatchMetricKindKey.readiness) {
+            let reports = WatchReadinessDrainReconciler.receivingPhoneReport(
+                receivedReadiness.drain,
+                into: current.metric(forKind: WatchMetricKindKey.readiness)?.drainReports
+            )
+            merged.metrics = reconcilingReadiness(in: merged.metrics, reports: reports)
+        }
         return merged
     }
 
@@ -389,8 +436,11 @@ enum WatchComputeMerge {
     ) -> WatchMetricsSnapshot {
         var stripped = snapshot
         stripped.metrics = snapshot.metrics.map { metric in
-            guard metric.liveUpdatedAt != nil else { return metric }
             var cleared = metric
+            // The kept drain reports were derived under the old selection too,
+            // whichever side's value is on screen.
+            cleared.drainReports = nil
+            guard metric.liveUpdatedAt != nil else { return cleared }
             cleared.liveUpdatedAt = nil
             // Only the compute's own stamp is a local claim; a live-read metric
             // keeps the phone's original `computedAt`.

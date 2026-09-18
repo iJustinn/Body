@@ -155,6 +155,62 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         XCTAssertNil(readiness?.weeklyCurrentValue)
     }
 
+    // MARK: - Readiness drain report (`drain`)
+
+    func testReadinessCarriesThePublishersDrainReport() throws {
+        let workoutID = UUID()
+        var drained = ReadinessSummary(
+            score: 72,
+            status: ReadinessStatus.status(for: 72),
+            confidence: .high,
+            components: [],
+            drivers: [],
+            activityDrainMorningScore: 80
+        )
+        drained.activityDrainCycleStart = day(4)
+        drained.activityDrainContributions = [
+            ActivityDrainContribution(id: workoutID, start: day(4).addingTimeInterval(3_600), points: 8)
+        ]
+
+        let report = try XCTUnwrap(
+            snapshot(readiness: drained, now: day(4)).metric(forKind: WatchMetricKindKey.readiness)?.drain
+        )
+        XCTAssertEqual(report.undrainedScore, 80, "the score BEFORE the drain, not the displayed one")
+        XCTAssertEqual(report.cycleStart, day(4))
+        XCTAssertEqual(report.contributions.map(\.id), [workoutID.uuidString])
+        XCTAssertEqual(report.contributions.map(\.points), [8])
+    }
+
+    func testReadinessWithNoWorkoutsReportsAnEmptyDrainNotAnUnknownOne() throws {
+        var undrained = ReadinessSummary(
+            score: 80,
+            status: ReadinessStatus.status(for: 80),
+            confidence: .high,
+            components: [],
+            drivers: []
+        )
+        undrained.activityDrainCycleStart = day(4)
+        undrained.activityDrainContributions = []
+
+        let report = try XCTUnwrap(
+            snapshot(readiness: undrained, now: day(4)).metric(forKind: WatchMetricKindKey.readiness)?.drain
+        )
+        XCTAssertEqual(report.undrainedScore, 80)
+        XCTAssertTrue(report.contributions.isEmpty)
+    }
+
+    func testReadinessWithoutACycleStartCarriesNoDrainReport() {
+        // Workouts not readable, or a summary from before the field: unknown.
+        let summary = ReadinessSummary(
+            score: 80,
+            status: ReadinessStatus.status(for: 80),
+            confidence: .high,
+            components: [],
+            drivers: []
+        )
+        XCTAssertNil(snapshot(readiness: summary, now: day(4)).metric(forKind: WatchMetricKindKey.readiness)?.drain)
+    }
+
     // MARK: - Weekly Workout Time (complication-only kind)
 
     private func workoutSnapshot(

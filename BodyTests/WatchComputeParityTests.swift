@@ -306,6 +306,7 @@ final class WatchComputeParityTests: XCTestCase {
             idealSleepDuration: fixture.idealSleepDuration,
             calendar: calendar,
             todaysWorkouts: todaysWorkouts,
+            wakeCycleStart: ReadinessComputeSupport.wakeCycleStart(now: now, sleepEnd: sleepEnd, calendar: calendar),
             wakeTime: wakeTime,
             now: now,
             freezesRecordedReadiness: true,
@@ -542,6 +543,15 @@ final class WatchComputeParityTests: XCTestCase {
         )
 
         assertMetricsMatch(phone, watch)
+
+        // The drain REPORT has to match too, workout for workout: the watch
+        // merge reconciles the two devices' reports by workout identity
+        // (`WatchReadinessDrainReconciler`), so a report that differed for
+        // identical data would double count or drop a workout's drain.
+        let phoneDrain = try XCTUnwrap(phone.metric(forKind: WatchMetricKindKey.readiness)?.drain)
+        let watchDrain = try XCTUnwrap(watch.metric(forKind: WatchMetricKindKey.readiness)?.drain)
+        XCTAssertEqual(phoneDrain, watchDrain)
+        XCTAssertEqual(phoneDrain.contributions.count, 1, "the fixture's one wake cycle workout")
 
         // Wrist temperature: the watch's SUMMARY headline is carried from the
         // seed unconditionally (`WatchComputeCoordinator` never overlays a

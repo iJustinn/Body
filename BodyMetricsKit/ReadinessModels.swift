@@ -276,6 +276,19 @@ struct ReadinessSummary: Codable, Equatable {
     /// snapshots decode as nil.
     var activityDrainPoints: Int?
 
+    /// Start of the wake cycle the drain window was read over, set whenever the
+    /// caller supplied one (Workouts permitted), INCLUDING when nothing drained:
+    /// with `activityDrainContributions` it is this publisher's drain report, and
+    /// an empty report ("no workouts this cycle") has to stay distinguishable
+    /// from an unknown one (nil, e.g. a snapshot from before this field). The
+    /// watch merge reconciles the phone's and the watch's reports by workout, so
+    /// a publish that has not seen a workout yet can't remove its drain.
+    var activityDrainCycleStart: Date?
+
+    /// One entry per wake cycle workout that contributed drain, pre-cap. nil
+    /// exactly when `activityDrainCycleStart` is nil.
+    var activityDrainContributions: [ActivityDrainContribution]?
+
     static let unavailable = ReadinessSummary(
         score: nil,
         status: .unavailable,
