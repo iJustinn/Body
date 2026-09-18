@@ -2099,42 +2099,48 @@ actor HealthKitFetchEngine {
         }
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
 
-        // Cancellation resumes with `.failure`, like a query failure, so the
+        // The shared samples seam is the scriptable read every other sample
+        // fetch goes through, and it stops its HKSampleQuery on cancellation.
+        // Same pool permit and query-depth telemetry as `runCancellableQuery`.
+        let semaphore = HealthKitQueryPool.current.semaphore
+        guard await semaphore.acquireForCurrentTask() else { return .failure }
+        defer { semaphore.release() }
+        guard BodyBackgroundLease.current?.isValid != false else { return .failure }
+        guard !Task.isCancelled else { return .failure }
+        BodyRefreshProfile.shared.enterQuery()
+        defer { BodyRefreshProfile.shared.exitQuery() }
+        let outcome = await healthStore.samples(.init(sampleType: quantityType, predicate: predicate,
+            limit: HKObjectQueryNoLimit, sortDescriptors: [sort]))
+        // Cancellation counts as a failure, like a query failure, so the
         // resolver keeps the cached event instead of clearing the badge from a
-        // partial result. See `runCancellableQuery`.
-        return await runCancellableQuery(cancelledValue: .failure) { resume in
-            HKSampleQuery(
-                sampleType: quantityType,
-                predicate: predicate,
-                limit: HKObjectQueryNoLimit,
-                sortDescriptors: [sort]
-            ) { _, samples, error in
-                guard let samples else {
-                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
-                    resume(.failure)
-                    return
+        // partial result.
+        switch outcome {
+        case .failure(let error):
+            Self.logTrendQueryFailure(identifier.rawValue, error: error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let samples):
+            let points = samples.compactMap { sample -> HealthTrendDataPoint? in
+                guard let quantitySample = sample as? HKQuantitySample else {
+                    return nil
                 }
-                let points = samples.compactMap { sample -> HealthTrendDataPoint? in
-                    guard let quantitySample = sample as? HKQuantitySample else {
-                        return nil
-                    }
-                    let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
-                    guard value.isFinite else {
-                        return nil
-                    }
-
-                    return HealthTrendDataPoint(date: quantitySample.endDate, value: value)
+                let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
+                guard value.isFinite else {
+                    return nil
                 }
 
-                // Nothing past the threshold → `.success(nil)`, which clears a
-                // stale cached event rather than keeping yesterday's badge.
-                resume(.success(MetricThresholdWarning.detect(
-                    kind,
-                    inSamples: points,
-                    threshold: thresholdValue,
-                    excluding: intervals
-                )))
+                return HealthTrendDataPoint(date: quantitySample.endDate, value: value)
             }
+
+            // Nothing past the threshold → `.success(nil)`, which clears a
+            // stale cached event rather than keeping yesterday's badge.
+            return .success(MetricThresholdWarning.detect(
+                kind,
+                inSamples: points,
+                threshold: thresholdValue,
+                excluding: intervals
+            ))
         }
     }
 
