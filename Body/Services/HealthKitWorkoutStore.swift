@@ -5531,6 +5531,12 @@ final class HealthKitWorkoutStore {
         // Drop the generated readiness comment too — it describes the summary
         // this clear just wiped, and would otherwise reappear on relaunch.
         ReadinessCommentCache.clear()
+        // Drop Siri's Spotlight copy too. The coordinator orders the delete
+        // after any donation still mid-write; detached so a slow or absent
+        // Spotlight service can never hold up the clear itself.
+        Task.detached(priority: .utility) {
+            await BodySiriIndexCoordinator.shared.clear()
+        }
 
         // Cancel and AWAIT the baseline record scan before the file deletions
         // below. The epoch bump already stops it republishing, but the scan owns

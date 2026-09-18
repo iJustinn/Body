@@ -1,0 +1,72 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Any health warnings in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "Any health warnings in ${applicationName}"
+            ]
+          }
+        }
+      }
+    },
+    "How did I sleep in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "How did I sleep in ${applicationName}"
+            ]
+          }
+        }
+      }
+    },
+    "My workouts this week in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "My workouts this week in ${applicationName}"
+            ]
+          }
+        }
+      }
+    },
+    "What's my ${metric} in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "What's my ${metric} in ${applicationName}"
+            ]
+          }
+        }
+      }
+    },
+    "What's my readiness in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "What's my readiness in ${applicationName}",
+              "How ready am I in ${applicationName}"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

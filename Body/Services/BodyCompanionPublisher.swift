@@ -150,6 +150,12 @@ final class BodyCompanionPublisher {
             let changed = isCurrent() && HealthWidgetSnapshotStore.save(snapshot)
             Task { @MainActor in
                 if changed, isCurrent() { BodyWidgetReloadCoalescer.shared.requestReload() }
+                // Unconditional: dashboard-only changes such as warnings never
+                // touch the widget file. Detached so it can never delay
+                // `completion()`, and so the load stays off the main actor.
+                Task.detached(priority: .utility) {
+                    await BodySiriIndexCoordinator.shared.requestReindex()
+                }
                 completion()
             }
         }

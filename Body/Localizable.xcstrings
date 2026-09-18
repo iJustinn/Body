@@ -20,6 +20,38 @@
         }
       }
     },
+    "%@, %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@，%@。"
+          }
+        }
+      }
+    },
+    "%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@"
+          }
+        }
+      }
+    },
     "--/100" : {
       "localizations" : {
         "en" : {
@@ -1738,17 +1770,17 @@
       }
     },
     "Align" : {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Align"
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Align"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "统一"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "统一"
           }
         }
       }
@@ -1800,6 +1832,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "时长"
+          }
+        }
+      }
+    },
+    "%@ and %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ and %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@和%@"
           }
         }
       }
@@ -2547,6 +2595,22 @@
         }
       }
     },
+    "Body" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        }
+      }
+    },
     "Body Blue" : {
       "localizations" : {
         "en" : {
@@ -2716,6 +2780,22 @@
         }
       }
     },
+    "Body has only part of this week's workouts cached. Open Body to refresh." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body has only part of this week's workouts cached. Open Body to refresh."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 仅缓存了本周的部分运动记录。请打开 Body 刷新。"
+          }
+        }
+      }
+    },
     "Body is for personal health awareness and visualization." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2763,6 +2843,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body 需要添加照片的权限。请前往设置 › Body › 照片中允许后再试。"
+          }
+        }
+      }
+    },
+    "Body %@ on %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body %@ on %@: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body %@，%@：%@"
           }
         }
       }
@@ -2897,6 +2993,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body 在本地读取健康 App 数据，为 App 和小组件提供支持。"
+          }
+        }
+      }
+    },
+    "Body's cached data shows %@ today." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body's cached data shows %@ today."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 的缓存数据显示今天有%@。"
           }
         }
       }
@@ -4233,6 +4345,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法存储视频"
+          }
+        }
+      }
+    },
+    "Counts the workouts Body has cached for this week." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Counts the workouts Body has cached for this week."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "统计 Body 本周已缓存的运动次数。"
           }
         }
       }
@@ -5756,17 +5884,17 @@
       }
     },
     "Every metric's individual source choice will be replaced by the Primary and Secondary Data Source selected here." : {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Every metric's individual source choice will be replaced by the Primary and Secondary Data Source selected here."
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every metric's individual source choice will be replaced by the Primary and Secondary Data Source selected here."
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每项指标的单独数据源设置都将替换为此处选择的主要和次要数据源。"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每项指标的单独数据源设置都将替换为此处选择的主要和次要数据源。"
           }
         }
       }
@@ -5953,6 +6081,22 @@
         }
       }
     },
+    "Fitness" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fitness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "健身"
+          }
+        }
+      }
+    },
     "Fitness Band" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6085,33 +6229,33 @@
       }
     },
     "Force Align Sources" : {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Force Align Sources"
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Force Align Sources"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "强制统一数据源"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "强制统一数据源"
           }
         }
       }
     },
     "Force Align Sources?" : {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Force Align Sources?"
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Force Align Sources?"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "强制统一数据源？"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "强制统一数据源？"
           }
         }
       }
@@ -6179,6 +6323,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在生成点评…"
+          }
+        }
+      }
+    },
+    "Get Health Metric" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get Health Metric"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获取健康指标"
+          }
+        }
+      }
+    },
+    "Get Health Warnings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get Health Warnings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获取健康警告"
+          }
+        }
+      }
+    },
+    "Get Readiness" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get Readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获取恢复状态"
+          }
+        }
+      }
+    },
+    "Get Workouts This Week" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get Workouts This Week"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获取本周运动"
           }
         }
       }
@@ -6266,6 +6474,38 @@
         }
       }
     },
+    "health" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "health"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "健康"
+          }
+        }
+      }
+    },
+    "Health" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Health"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "健康"
+          }
+        }
+      }
+    },
     "Health access was denied. Review Body's permissions in Apple Health or iOS Settings." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6300,6 +6540,22 @@
         }
       }
     },
+    "Health Metric" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Health Metric"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "健康指标"
+          }
+        }
+      }
+    },
     "Health summary, trend, or Activity Ring data is available in the local dashboard cache." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6313,6 +6569,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本地仪表盘缓存中已有健康摘要、趋势或活动圆环数据。"
+          }
+        }
+      }
+    },
+    "Health Warnings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Health Warnings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "健康警告"
           }
         }
       }
@@ -7248,6 +7520,38 @@
         }
       }
     },
+    "Lists the health warnings in Body's cached data for today." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lists the health warnings in Body's cached data for today."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "列出 Body 缓存数据中今天的健康警告。"
+          }
+        }
+      }
+    },
+    "live readiness" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "live readiness"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实时恢复状态"
+          }
+        }
+      }
+    },
     "Load Health Data" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7625,6 +7929,22 @@
         }
       }
     },
+    "Measured" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Measured"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测量时间"
+          }
+        }
+      }
+    },
     "Metabolic equivalents, a measure of intensity where 1 MET is roughly the energy you use sitting still. An average of 8 METs means the session took about eight times that." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7643,7 +7963,6 @@
       }
     },
     "Metric" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9245,6 +9564,38 @@
         }
       }
     },
+    "No warnings in Body's cached data for today." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No warnings in Body's cached data for today."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 的缓存数据中今天没有警告。"
+          }
+        }
+      }
+    },
+    "No workouts logged in Body this week yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No workouts logged in Body this week yet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周 Body 中还没有记录运动。"
+          }
+        }
+      }
+    },
     "Nutrition" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -10773,6 +11124,22 @@
         }
       }
     },
+    "Open Body once to load your health data, then ask again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Body once to load your health data, then ask again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先打开 Body 加载健康数据，然后再问一次。"
+          }
+        }
+      }
+    },
     "Open month, six-month, and year views for metric charts." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11869,6 +12236,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复状态，数据不足"
+          }
+        }
+      }
+    },
+    "Reads one of Body's cached health metrics, like HRV, resting heart rate or sleep." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reads one of Body's cached health metrics, like HRV, resting heart rate or sleep."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取 Body 缓存的一项健康指标，如心率变异性、静息心率或睡眠。"
+          }
+        }
+      }
+    },
+    "Reads today's readiness score from Body's cached health data." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reads today's readiness score from Body's cached health data."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 Body 缓存的健康数据中读取今天的恢复状态分数。"
           }
         }
       }
@@ -13016,17 +13415,17 @@
       }
     },
     "Sets every metric to the Primary and Secondary Data Source chosen below" : {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sets every metric to the Primary and Secondary Data Source chosen below"
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sets every metric to the Primary and Secondary Data Source chosen below"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将所有指标设置为下方选择的主要和次要数据源"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将所有指标设置为下方选择的主要和次要数据源"
           }
         }
       }
@@ -14002,6 +14401,22 @@
         }
       }
     },
+    "%@, snapshot from %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, snapshot from %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@，快照时间 %@"
+          }
+        }
+      }
+    },
     "Some cached workout changes could not be removed. Try clearing the cache again." : {
       "localizations" : {
         "en" : {
@@ -14645,6 +15060,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "感谢你的支持。所有 Pro 功能均已解锁。"
+          }
+        }
+      }
+    },
+    "That is as of %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That is as of %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数据截至 %@。"
+          }
+        }
+      }
+    },
+    "That is from the snapshot taken %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That is from the snapshot taken %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数据来自 %@ 的快照。"
           }
         }
       }
@@ -15323,6 +15770,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "不可用"
+          }
+        }
+      }
+    },
+    "Unit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unit"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "单位"
           }
         }
       }
@@ -16148,6 +16611,22 @@
         }
       }
     },
+    "Value" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Value"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数值"
+          }
+        }
+      }
+    },
     "Version" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -16559,6 +17038,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "开启后，健身记录页顶部的月份轮播和搜索栏旁的月份选择器会以大写简短形式显示月份，例如 SEP 而非 September。此选项仅在应用以英文运行时可用。"
+          }
+        }
+      }
+    },
+    "Which metric?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Which metric?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "哪项指标？"
           }
         }
       }
@@ -17103,6 +17598,22 @@
         }
       }
     },
+    "%@ workouts, %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ workouts, %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 次运动，%@。"
+          }
+        }
+      }
+    },
     "Workouts Chart" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17116,6 +17627,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "运动图表"
+          }
+        }
+      }
+    },
+    "Workouts This Week" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workouts This Week"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周运动"
           }
         }
       }
@@ -17166,6 +17693,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你已拥有 Body Pro"
+          }
+        }
+      }
+    },
+    "You have logged %@ workouts in Body this week, %@ in total." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have logged %@ workouts in Body this week, %@ in total."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周你在 Body 中记录了 %@ 次运动，共 %@。"
+          }
+        }
+      }
+    },
+    "You have logged %@ workouts in Body this week, %@ in total, including %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have logged %@ workouts in Body this week, %@ in total, including %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周你在 Body 中记录了 %@ 次运动，共 %@，包括%@。"
           }
         }
       }
@@ -17422,6 +17981,22 @@
         }
       }
     },
+    "Your %@ in Body is %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your %@ in Body is %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你在 Body 中的%@为 %@。"
+          }
+        }
+      }
+    },
     "Your name and photo are used only to personalize your workout share cards. Both are stored locally on this device and nothing is ever uploaded." : {
       "localizations" : {
         "en" : {
@@ -17484,6 +18059,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的购买正在等待批准。批准后即可解锁 Body Pro。"
+          }
+        }
+      }
+    },
+    "Your readiness in Body is %@, %@. %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your readiness in Body is %@, %@. %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你在 Body 中的恢复状态为 %@，%@。%@"
           }
         }
       }
