@@ -27,6 +27,22 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(scheduler.contains("metricWarningNotificationsKey"))
     }
 
+    func testSiriDocumentationStaysInSync() throws {
+        let readme = try BodyTestSupport.sourceText(at: "README.md")
+        let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
+        let version = try BodyTestSupport.sourceText(at: "VersionHistory.md")
+        XCTAssertTrue(readme.contains("Siri and Shortcuts"))
+        XCTAssertTrue(readme.contains("BodySiriEntities"))
+        XCTAssertTrue(testPlan.contains("Siri and App Intents acceptance (1.1.2 build 1)"))
+        XCTAssertTrue(testPlan.contains("BodySiriAnswerBuilderTests"))
+        XCTAssertTrue(version.contains("Siri"))
+        let intents = try BodyTestSupport.sourceText(at: "Body/Intents/BodySiriIntents.swift")
+        XCTAssertTrue(intents.contains("authenticationPolicy"))
+        XCTAssertTrue(intents.contains("AppShortcutsProvider"))
+        let coordinator = try BodyTestSupport.sourceText(at: "Body/Intents/BodySiriIndexCoordinator.swift")
+        XCTAssertTrue(coordinator.contains("deleteAppEntities"))
+    }
+
     func testSettingsAboutTabsMatchCoinAboutSet() {
         XCTAssertEqual(
             BodySettingsAboutTab.allCases.map(\.title),
