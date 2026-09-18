@@ -1,3 +1,8 @@
+## 1.1.2 (build 3)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.2 build 3.
+- Tapping the Readiness complication now opens the watch home page, where the Readiness hero lives, instead of jumping straight to the Readiness detail page. The other complications still open their own metric.
+
 ## 1.1.2 (build 2)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.2 build 2.
