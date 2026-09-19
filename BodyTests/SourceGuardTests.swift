@@ -332,7 +332,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(source.contains("AnnotationOverflowResolution("))
         XCTAssertTrue(source.contains("x: .fit(to: .chart)"))
         XCTAssertTrue(source.contains("y: .disabled"))
-        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 12)
+        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 13)
         XCTAssertFalse(source.contains(".annotation(position: .top, spacing: 8) {"))
         // The scrub-callout background uses the shared glass-chip recipe (flat
         // translucent fill + thin white rim) instead of a bespoke fill + shadow.
@@ -370,6 +370,8 @@ final class SourceGuardTests: XCTestCase {
             // The readiness Impact by Activity explainer, likewise in its own file so the
             // metric detail view keeps no backdrop of its own.
             ("Body/Views/Health/BodyReadinessImpactExplanationSheet.swift", 1, 0),
+            // The Basics Difference Range explainer, same reasoning.
+            ("Body/Views/Health/BodyBasicsRangeExplanationSheet.swift", 1, 0),
             ("Body/Views/Health/BodyWorkoutShareSheet.swift", 0, 1)
         ]
 
@@ -3348,7 +3350,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 3)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 4)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 6)**"))
@@ -3495,6 +3498,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 4)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 4."))
         XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 3)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 3."))
         XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 1)"))

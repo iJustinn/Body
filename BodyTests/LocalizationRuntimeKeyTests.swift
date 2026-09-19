@@ -643,6 +643,28 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    func testBasicsRangeExplanationKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // Same shape as the Details sheet's guard above.
+        let source = try String(
+            contentsOf: projectRoot.appendingPathComponent("Body/Views/Health/BodyBasicsRangeExplanationSheet.swift"),
+            encoding: .utf8
+        )
+        let pattern = try NSRegularExpression(pattern: #"String\(localized: "((?:[^"\\]|\\.)*)"\)"#)
+        let matches = pattern.matches(in: source, range: NSRange(source.startIndex..., in: source))
+        let keys = matches.compactMap { match -> String? in
+            guard let range = Range(match.range(at: 1), in: source) else { return nil }
+            return String(source[range])
+        }
+
+        XCTAssertFalse(keys.contains { $0.contains("\\") }, "escaped literal needs unescaping before lookup")
+        // Guards the regex itself: the sheet title, three bodies, and two card titles.
+        XCTAssertGreaterThanOrEqual(keys.count, 6)
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
     func testReadinessImpactExplanationKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
