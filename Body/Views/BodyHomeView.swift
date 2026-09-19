@@ -2102,7 +2102,15 @@ struct BodyHomeView: View {
                         ).value
                     },
                     bodyFat: trends.bodyFatPercentage,
-                    bodyMassIndex: trends.bodyMassIndex
+                    bodyMassIndex: trends.bodyMassIndex,
+                    weightSamples: trends.bodyMassSamples.mapValues {
+                        BodyValueFormat.massValue(
+                            kilograms: $0,
+                            weightUnitPreference: selectedWeightUnitPreference
+                        ).value
+                    },
+                    bodyFatSamples: trends.bodyFatPercentageSamples,
+                    bodyMassIndexSamples: trends.bodyMassIndexSamples
                 ),
                 sleepStageSnapshot: nil,
                 sleepScore: nil,

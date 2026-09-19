@@ -3461,6 +3461,28 @@ actor HealthKitFetchEngine {
         }
     }
 
+    /// Every sample of a Basics kind at its own measurement time, over the same
+    /// window as its daily `trendLeaf`, for the time of day chart.
+    private func trendSamplesLeaf(
+        _ kind: HealthMetricKind,
+        calendar: Calendar,
+        maxDays: Int? = nil
+    ) async -> HealthTrendSeries? {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind) else {
+            return .empty
+        }
+        let interval = recentHealthTrendInterval(calendar: calendar)
+        return await fetchQuantitySampleSeries(
+            for: descriptor.quantityType,
+            unit: descriptor.unit,
+            calendar: calendar,
+            sourceKind: descriptor.querySourceKind,
+            valueTransform: descriptor.valueTransform,
+            startDate: Self.clampedTrendStart(interval: interval, maxDays: maxDays, calendar: calendar),
+            endDate: interval.end
+        )
+    }
+
     /// The average + range trend leaf for the four kinds whose chart draws a
     /// daily band. Both series come out of ONE statistics collection, so they
     /// are fetched together and resolved together by the caller.
@@ -3794,6 +3816,20 @@ actor HealthKitFetchEngine {
                 maxDays: cachedTrends.bodyFatPercentage.isEmpty ? nil : trendWindowDays
             )
         }
+        // Windowed on the SAMPLES cache, so a cache written before these series
+        // existed backfills the full window once.
+        let bodyMassSamplesWindowed = !cachedTrends.bodyMassSamples.isEmpty
+        let bodyFatPercentageSamplesWindowed = !cachedTrends.bodyFatPercentageSamples.isEmpty
+        let bodyMassIndexSamplesWindowed = !cachedTrends.bodyMassIndexSamples.isEmpty
+        async let bodyMassSamples: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.bodyMass, selection: selection, default: HealthTrendSeries.empty, leaf: "trend.bodyMassSamples") {
+            await trendSamplesLeaf(.bodyMass, calendar: calendar, maxDays: bodyMassSamplesWindowed ? trendWindowDays : nil)
+        }
+        async let bodyFatPercentageSamples: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.bodyFatPercentage, selection: selection, default: HealthTrendSeries.empty, leaf: "trend.bodyFatPercentageSamples") {
+            await trendSamplesLeaf(.bodyFatPercentage, calendar: calendar, maxDays: bodyFatPercentageSamplesWindowed ? trendWindowDays : nil)
+        }
+        async let bodyMassIndexSamples: HealthTrendSeries? = fetchDashboardMetricIfNeeded(.bodyMassIndex, selection: selection, default: HealthTrendSeries.empty, leaf: "trend.bodyMassIndexSamples") {
+            await trendSamplesLeaf(.bodyMassIndex, calendar: calendar, maxDays: bodyMassIndexSamplesWindowed ? trendWindowDays : nil)
+        }
         // Input-capable: Stress scoring, its history backfill context, and the
         // Stress detail all read the primary HRV points, which this pair query
         // produces inseparably from the range series. An input-only fetch still
@@ -4064,6 +4100,9 @@ actor HealthKitFetchEngine {
             oxygenSaturationRanges: fetchedOxygenSaturationRanges,
             oxygenSaturationRangesSecondary: resolved(await oxygenSaturationRangesSecondary, cached: cachedTrends.oxygenSaturationRangesSecondary, leaf: .oxygenSaturationRangesSecondary),
             bodyMassIndex: merged(await bodyMassIndex, cached: cachedTrends.bodyMassIndex, from: windowMergeStart(for: .bodyMassIndex), leaf: .bodyMassIndex),
+            bodyMassSamples: merged(await bodyMassSamples, cached: cachedTrends.bodyMassSamples, from: bodyMassSamplesWindowed ? windowMergeStart(for: .bodyMass) : nil, leaf: .bodyMass),
+            bodyFatPercentageSamples: merged(await bodyFatPercentageSamples, cached: cachedTrends.bodyFatPercentageSamples, from: bodyFatPercentageSamplesWindowed ? windowMergeStart(for: .bodyFatPercentage) : nil, leaf: .bodyFatPercentage),
+            bodyMassIndexSamples: merged(await bodyMassIndexSamples, cached: cachedTrends.bodyMassIndexSamples, from: bodyMassIndexSamplesWindowed ? windowMergeStart(for: .bodyMassIndex) : nil, leaf: .bodyMassIndex),
             activeEnergy: merged(await activeEnergy, cached: cachedTrends.activeEnergy, from: windowMergeStart(for: .activeEnergy), leaf: .activeEnergy),
             activeEnergySecondary: resolved(await activeEnergySecondary, cached: cachedTrends.activeEnergySecondary, leaf: .activeEnergySecondary),
             restingEnergy: merged(await restingEnergy, cached: cachedTrends.restingEnergy, from: windowMergeStart(for: .restingEnergy), leaf: .restingEnergy),
@@ -4351,6 +4390,9 @@ actor HealthKitFetchEngine {
             async let bodyMassTrend: HealthTrendSeries? = trendLeaf(.bodyMass, calendar: calendar)
             async let bodyFatPercentageTrend: HealthTrendSeries? = trendLeaf(.bodyFatPercentage, calendar: calendar)
             async let bodyMassIndexTrend: HealthTrendSeries? = trendLeaf(.bodyMassIndex, calendar: calendar)
+            async let bodyMassSamples: HealthTrendSeries? = trendSamplesLeaf(.bodyMass, calendar: calendar)
+            async let bodyFatPercentageSamples: HealthTrendSeries? = trendSamplesLeaf(.bodyFatPercentage, calendar: calendar)
+            async let bodyMassIndexSamples: HealthTrendSeries? = trendSamplesLeaf(.bodyMassIndex, calendar: calendar)
 
             summary.bodyMass = resolvedDashboardSummary(fetched: await bodyMass, cached: existing.summary.bodyMass) ?? HealthSummarySnapshot.empty.bodyMass
             summary.bodyFatPercentage = resolvedDashboardSummary(fetched: await bodyFatPercentage, cached: existing.summary.bodyFatPercentage) ?? HealthSummarySnapshot.empty.bodyFatPercentage
@@ -4358,6 +4400,9 @@ actor HealthKitFetchEngine {
             trends.bodyMass = resolvedTrend(await bodyMassTrend, cached: existing.trends.bodyMass)
             trends.bodyFatPercentage = resolvedTrend(await bodyFatPercentageTrend, cached: existing.trends.bodyFatPercentage)
             trends.bodyMassIndex = resolvedTrend(await bodyMassIndexTrend, cached: existing.trends.bodyMassIndex)
+            trends.bodyMassSamples = resolvedTrend(await bodyMassSamples, cached: existing.trends.bodyMassSamples)
+            trends.bodyFatPercentageSamples = resolvedTrend(await bodyFatPercentageSamples, cached: existing.trends.bodyFatPercentageSamples)
+            trends.bodyMassIndexSamples = resolvedTrend(await bodyMassIndexSamples, cached: existing.trends.bodyMassIndexSamples)
         case .heartRate:
             async let heartRate = summaryLeaf(.heartRate, calendar: calendar)
             async let lowHeartRateWarning = fetchTodayMetricWarning(.lowHeartRate, calendar: calendar)
@@ -4408,15 +4453,19 @@ actor HealthKitFetchEngine {
         case .bodyMass:
             async let bodyMass = summaryLeaf(.bodyMass, calendar: calendar)
             async let bodyMassTrend: HealthTrendSeries? = trendLeaf(.bodyMass, calendar: calendar)
+            async let bodyMassSamples: HealthTrendSeries? = trendSamplesLeaf(.bodyMass, calendar: calendar)
 
             summary.bodyMass = resolvedDashboardSummary(fetched: await bodyMass, cached: existing.summary.bodyMass) ?? HealthSummarySnapshot.empty.bodyMass
             trends.bodyMass = resolvedTrend(await bodyMassTrend, cached: existing.trends.bodyMass)
+            trends.bodyMassSamples = resolvedTrend(await bodyMassSamples, cached: existing.trends.bodyMassSamples)
         case .bodyFatPercentage:
             async let bodyFatPercentage = summaryLeaf(.bodyFatPercentage, calendar: calendar)
             async let bodyFatPercentageTrend: HealthTrendSeries? = trendLeaf(.bodyFatPercentage, calendar: calendar)
+            async let bodyFatPercentageSamples: HealthTrendSeries? = trendSamplesLeaf(.bodyFatPercentage, calendar: calendar)
 
             summary.bodyFatPercentage = resolvedDashboardSummary(fetched: await bodyFatPercentage, cached: existing.summary.bodyFatPercentage) ?? HealthSummarySnapshot.empty.bodyFatPercentage
             trends.bodyFatPercentage = resolvedTrend(await bodyFatPercentageTrend, cached: existing.trends.bodyFatPercentage)
+            trends.bodyFatPercentageSamples = resolvedTrend(await bodyFatPercentageSamples, cached: existing.trends.bodyFatPercentageSamples)
         case .heartRateVariability:
             async let heartRateVariability = summaryLeaf(.heartRateVariability, calendar: calendar)
             async let heartRateVariabilityPair: (HealthTrendSeries, HealthTrendRangeSeries)? = trendPairLeaf(.heartRateVariability, calendar: calendar)
@@ -4503,9 +4552,11 @@ actor HealthKitFetchEngine {
         case .bodyMassIndex:
             async let bodyMassIndex = summaryLeaf(.bodyMassIndex, calendar: calendar)
             async let bodyMassIndexTrend: HealthTrendSeries? = trendLeaf(.bodyMassIndex, calendar: calendar)
+            async let bodyMassIndexSamples: HealthTrendSeries? = trendSamplesLeaf(.bodyMassIndex, calendar: calendar)
 
             summary.bodyMassIndex = resolvedDashboardSummary(fetched: await bodyMassIndex, cached: existing.summary.bodyMassIndex) ?? HealthSummarySnapshot.empty.bodyMassIndex
             trends.bodyMassIndex = resolvedTrend(await bodyMassIndexTrend, cached: existing.trends.bodyMassIndex)
+            trends.bodyMassIndexSamples = resolvedTrend(await bodyMassIndexSamples, cached: existing.trends.bodyMassIndexSamples)
         case .activeEnergy:
             async let activeEnergy = summaryLeaf(.activeEnergy, calendar: calendar)
             async let activeEnergyTrend: HealthTrendSeries? = trendLeaf(.activeEnergy, calendar: calendar)
