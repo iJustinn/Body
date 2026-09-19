@@ -2,6 +2,7 @@
 
 - Updated the app, widget, watch, and test bundle version to 1.1.2 build 3.
 - Tapping the Readiness complication now opens the watch home page, where the Readiness hero lives, instead of jumping straight to the Readiness detail page. The other complications still open their own metric.
+- Letting go of a pull down on the Readiness hero, on iPhone and watch, now bounces the ring home like a row of bubbles: the bands draw out thinner as you pull, then squeeze shorter and fatter and wobble a few times, the bounce rippling from the middle band out to the ends, instead of keeping a fixed shape. Build remains 3.
 
 ## 1.1.2 (build 2)
 
