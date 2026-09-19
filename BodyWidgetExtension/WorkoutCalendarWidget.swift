@@ -11,14 +11,42 @@ enum BodyWidgetBackgroundSelection: String, AppEnum, Codable, CaseIterable {
     case system
     case black
     case white
+    /// The metric's theme color washing down into the system background, like
+    /// the app's metric detail page. Offered by the metric widgets only.
+    case gradient
 
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Background")
 
     static var caseDisplayRepresentations: [BodyWidgetBackgroundSelection: DisplayRepresentation] = [
         .system: "System",
         .black: "Black",
+        .white: "White",
+        .gradient: "Gradient"
+    ]
+}
+
+/// The workout widgets' background choices: no Gradient, since a month of mixed
+/// workout types has no single theme color to wash with.
+enum BodyWorkoutWidgetBackgroundSelection: String, AppEnum, Codable, CaseIterable {
+    case system
+    case black
+    case white
+
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Background")
+
+    static var caseDisplayRepresentations: [BodyWorkoutWidgetBackgroundSelection: DisplayRepresentation] = [
+        .system: "System",
+        .black: "Black",
         .white: "White"
     ]
+
+    var widgetBackground: BodyWidgetBackgroundSelection {
+        switch self {
+        case .system: return .system
+        case .black: return .black
+        case .white: return .white
+        }
+    }
 }
 
 struct BodyWidgetConfigurationIntent: WidgetConfigurationIntent {
@@ -31,6 +59,20 @@ struct BodyWidgetConfigurationIntent: WidgetConfigurationIntent {
     init() {}
 
     init(background: BodyWidgetBackgroundSelection?) {
+        self.background = background
+    }
+}
+
+struct BodyWorkoutWidgetConfigurationIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Widget Appearance"
+    static var description = IntentDescription("Choose the widget background.")
+
+    @Parameter(title: "Background")
+    var background: BodyWorkoutWidgetBackgroundSelection?
+
+    init() {}
+
+    init(background: BodyWorkoutWidgetBackgroundSelection?) {
         self.background = background
     }
 }
@@ -58,7 +100,7 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
     }
 
     func snapshot(
-        for configuration: BodyWidgetConfigurationIntent,
+        for configuration: BodyWorkoutWidgetConfigurationIntent,
         in context: Context
     ) async -> WorkoutCalendarEntry {
         loadEntry(
@@ -70,7 +112,7 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
     }
 
     func timeline(
-        for configuration: BodyWidgetConfigurationIntent,
+        for configuration: BodyWorkoutWidgetConfigurationIntent,
         in context: Context
     ) async -> Timeline<WorkoutCalendarEntry> {
         let now = Date()
@@ -96,14 +138,14 @@ struct WorkoutCalendarProvider: AppIntentTimelineProvider {
     }
 
     private func loadEntry(
-        configuration: BodyWidgetConfigurationIntent,
+        configuration: BodyWorkoutWidgetConfigurationIntent,
         usePlaceholderWhenEmpty: Bool,
         isPro: Bool,
         now: Date
     ) -> WorkoutCalendarEntry {
         WorkoutCalendarEntry(
             date: now,
-            background: configuration.background ?? .system,
+            background: (configuration.background ?? .system).widgetBackground,
             snapshot: WorkoutSnapshotStore.loadCurrentOrPreviousIfEmpty(usePlaceholderWhenEmpty: usePlaceholderWhenEmpty, now: now),
             isPro: isPro,
             workoutColorsRawValue: BodyWorkoutColorStore.rawOverrides
@@ -117,7 +159,7 @@ struct BodyWorkoutCalendarWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(
             kind: kind,
-            intent: BodyWidgetConfigurationIntent.self,
+            intent: BodyWorkoutWidgetConfigurationIntent.self,
             provider: WorkoutCalendarProvider()
         ) { entry in
             Group {
@@ -142,7 +184,7 @@ struct BodyWorkoutTypeBreakdownWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(
             kind: kind,
-            intent: BodyWidgetConfigurationIntent.self,
+            intent: BodyWorkoutWidgetConfigurationIntent.self,
             provider: WorkoutCalendarProvider()
         ) { entry in
             Group {
@@ -200,7 +242,7 @@ private struct WorkoutTypeBreakdownWidgetView: View {
 
 extension View {
     @ViewBuilder
-    func bodyWidgetBackground(_ background: BodyWidgetBackgroundSelection) -> some View {
+    func bodyWidgetBackground(_ background: BodyWidgetBackgroundSelection, tint: Color? = nil) -> some View {
         switch background {
         case .system:
             self.containerBackground(.widgetBackground, for: .widget)
@@ -212,6 +254,21 @@ extension View {
             self
                 .environment(\.colorScheme, .light)
                 .containerBackground(Color.white, for: .widget)
+        case .gradient:
+            // The metric detail page's backdrop: the tint at 45% fading out by the
+            // page's midpoint, so the color reads as a wash at the top rather than
+            // tinting the whole widget.
+            self.containerBackground(for: .widget) {
+                LinearGradient(
+                    stops: [
+                        .init(color: (tint ?? .clear).opacity(0.45), location: 0),
+                        .init(color: .clear, location: 0.5)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .background(Color.widgetBackground)
+            }
         }
     }
 }

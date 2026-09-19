@@ -8,7 +8,7 @@
 //  Group snapshot as the medium Sleep Stages widget (today's main session
 //  only, empty until today's own sleep is recorded). No configuration, so this
 //  is a plain StaticConfiguration like the Weekly Workout Time widget: a Lock
-//  Screen widget has no background of its own for BodyWidgetConfigurationIntent
+//  Screen widget has no background of its own for a configuration intent
 //  to pick. Pro-gated, matching the other Body widgets on iOS.
 //
 

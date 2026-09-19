@@ -11,9 +11,25 @@
 
 import Charts
 import SwiftUI
+import WidgetKit
 
 struct HealthWidgetSleepStagesView: View {
     let sleep: HealthWidgetSleepStages
+
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    /// The Home Screen's Clear and Tinted appearances keep only each view's
+    /// opacity, so every stage would draw the same flat color; give each stage
+    /// its own opacity there instead (legend dots match the bars).
+    private func stageStyle(_ stage: HealthWidgetSleepStage) -> Color {
+        guard renderingMode == .accented else { return stage.color }
+        switch stage {
+        case .deep: return stage.color
+        case .core: return stage.color.opacity(0.7)
+        case .rem: return stage.color.opacity(0.45)
+        case .awake: return stage.color.opacity(0.3)
+        }
+    }
 
     private var hasData: Bool {
         !sleep.isEmpty
@@ -43,6 +59,7 @@ struct HealthWidgetSleepStagesView: View {
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(HealthWidgetSleepStage.core.color)
+                .widgetAccentable()
                 .accessibilityHidden(true)
 
             Text(String(localized: "Sleep Stages", table: "BodyShared"))
@@ -50,6 +67,7 @@ struct HealthWidgetSleepStagesView: View {
                 .foregroundColor(HealthWidgetSleepStage.core.color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                .widgetAccentable()
 
             Spacer(minLength: 6)
 
@@ -71,9 +89,10 @@ struct HealthWidgetSleepStagesView: View {
                     yStart: .value("Stage Start", segment.stage.chartPosition - 0.32),
                     yEnd: .value("Stage End", segment.stage.chartPosition + 0.32)
                 )
-                .foregroundStyle(segment.stage.color)
+                .foregroundStyle(stageStyle(segment.stage))
             }
         }
+        .widgetAccentable()
         .chartXScale(domain: chartXDomain)
         .chartYScale(domain: 0.5...4.5)
         .chartXAxis(.hidden)
@@ -108,8 +127,9 @@ struct HealthWidgetSleepStagesView: View {
             ForEach(legendStages, id: \.self) { stage in
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(stage.color)
+                        .fill(stageStyle(stage))
                         .frame(width: 7, height: 7)
+                        .widgetAccentable()
 
                     Text(stage.displayName)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))

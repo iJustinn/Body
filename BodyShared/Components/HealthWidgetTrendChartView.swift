@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import WidgetKit
 
 struct HealthWidgetTrendChartView: View {
     let metric: HealthWidgetMetric
@@ -32,7 +33,8 @@ struct HealthWidgetTrendChartView: View {
                     style: metric.chartStyle,
                     points: series.points,
                     average: series.average,
-                    color: metric.tintColor
+                    color: metric.tintColor,
+                    scale: 1.2
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -50,6 +52,7 @@ struct HealthWidgetTrendChartView: View {
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(metric.tintColor)
+                .widgetAccentable()
                 .accessibilityHidden(true)
 
             Text(metric.title)
@@ -57,6 +60,7 @@ struct HealthWidgetTrendChartView: View {
                 .foregroundColor(metric.tintColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                .widgetAccentable()
 
             Spacer(minLength: 6)
 
@@ -133,11 +137,28 @@ struct HealthWidgetTrendChartView: View {
 
 /// Line/bar plot with a dashed average reference line. Shared by the medium
 /// trend widget and the small metric widget so their chart style matches.
+/// Lines mirror the in-app style (`BodyLineChartPreviewPointSymbol`): hollow
+/// dots on each reading, with the latest one filled.
 struct HealthWidgetTrendPlot: View {
     let style: HealthWidgetChartStyle
     let points: [HealthWidgetPoint]
     let average: Double?
     let color: Color
+    /// Scales the line and dots. The medium trend widget draws them 1.2x the
+    /// small widget's, having the room for it.
+    var scale: CGFloat = 1
+
+    // Dense (month) series get smaller dots so neighbours do not collide.
+    private var isDense: Bool { points.count > 14 }
+    private var pointDiameter: CGFloat { (isDense ? 5 : 8) * scale }
+    private var currentPointDiameter: CGFloat { (isDense ? 7 : 10) * scale }
+    private var pointStrokeWidth: CGFloat { (isDense ? 1.5 : 2) * scale }
+    private var lineWidth: CGFloat { (isDense ? 2.5 : 3) * scale }
+
+    /// Keeps the edge dots inside the plot instead of clipping them.
+    private var lineInset: CGFloat {
+        style == .line ? (currentPointDiameter + pointStrokeWidth) / 2 : 0
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -145,11 +166,7 @@ struct HealthWidgetTrendPlot: View {
             ZStack {
                 switch style {
                 case .line:
-                    linePath(for: points, in: proxy.size, domain: domain)
-                        .stroke(
-                            color,
-                            style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
-                        )
+                    linePlot(in: proxy.size, domain: domain)
                 case .bar:
                     barPlot(for: points, in: proxy.size, domain: domain)
                 }
@@ -158,6 +175,8 @@ struct HealthWidgetTrendPlot: View {
                     averageLine(value: average, in: proxy.size, domain: domain)
                 }
             }
+            // The data takes the tint in the Home Screen's Tinted appearance.
+            .widgetAccentable()
         }
         .accessibilityHidden(true)
     }
@@ -195,20 +214,16 @@ struct HealthWidgetTrendPlot: View {
 
     private func xPosition(index: Int, count: Int, width: CGFloat) -> CGFloat {
         guard count > 1 else { return width / 2 }
-        return width * CGFloat(index) / CGFloat(count - 1)
+        return lineInset + (width - lineInset * 2) * CGFloat(index) / CGFloat(count - 1)
     }
 
     private func yPosition(for value: Double, in height: CGFloat, domain: ClosedRange<Double>) -> CGFloat {
         let span = max(domain.upperBound - domain.lowerBound, 0.0001)
         let normalized = min(max((value - domain.lowerBound) / span, 0), 1)
-        return height - height * CGFloat(normalized)
+        return height - lineInset - (height - lineInset * 2) * CGFloat(normalized)
     }
 
-    private func linePath(
-        for points: [HealthWidgetPoint],
-        in size: CGSize,
-        domain: ClosedRange<Double>
-    ) -> Path {
+    private func linePlot(in size: CGSize, domain: ClosedRange<Double>) -> some View {
         let positions: [CGPoint?] = points.enumerated().map { index, point in
             guard let value = point.value, value.isFinite else {
                 return nil
@@ -218,8 +233,39 @@ struct HealthWidgetTrendPlot: View {
                 y: yPosition(for: value, in: size.height, domain: domain)
             )
         }
+        let dots = positions.compactMap { $0 }
 
-        return Path { path in
+        return ZStack {
+            linePath(for: positions)
+                .stroke(
+                    color,
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+                )
+
+            // Punch the line out under each hollow dot, so the dot shows the
+            // widget background whichever background the user picked.
+            ForEach(Array(dots.dropLast().enumerated()), id: \.offset) { _, dot in
+                Circle()
+                    .frame(width: pointDiameter, height: pointDiameter)
+                    .position(dot)
+                    .blendMode(.destinationOut)
+            }
+
+            ForEach(Array(dots.enumerated()), id: \.offset) { index, dot in
+                let isCurrent = index == dots.count - 1
+                let diameter = isCurrent ? currentPointDiameter : pointDiameter
+                Circle()
+                    .fill(isCurrent ? color : Color.clear)
+                    .overlay(Circle().stroke(color, lineWidth: pointStrokeWidth))
+                    .frame(width: diameter, height: diameter)
+                    .position(dot)
+            }
+        }
+        .compositingGroup()
+    }
+
+    private func linePath(for positions: [CGPoint?]) -> Path {
+        Path { path in
             for run in contiguousRuns(positions) where run.count > 1 {
                 path.move(to: run[0])
                 for point in run.dropFirst() {
