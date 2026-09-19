@@ -61,6 +61,11 @@ fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
 
+# Screenshot folders: reference renders, regenerable on demand by the opt-in
+# screenshot tests, so they stay out of the repo.
+*screenshots/
+*Screenshots/
+
 # Local Codex and build state
 *.DS_Store
 .Rhistory
