@@ -352,7 +352,10 @@ final class BodyReadinessArcGeometryTests: XCTestCase {
             XCTAssertGreaterThan(stretched.trackLength, rest.trackLength)
             XCTAssertEqual(stretched.curveRadius!, rest.curveRadius!, accuracy: 0.001, "The ring keeps its radius")
             for (restLength, stretchedLength) in zip(rest.segmentLengths, stretched.segmentLengths) {
-                XCTAssertEqual(stretchedLength, restLength, accuracy: 0.001, "Bands keep their resting length")
+                XCTAssertEqual(stretchedLength, restLength * (1 + Geometry.stretchLengthGrowth), accuracy: 0.001, "Bands draw out longer")
+            }
+            for barWidth in stretched.segmentBarWidths {
+                XCTAssertEqual(barWidth, rest.barWidth * (1 - Geometry.stretchBarThinning), accuracy: 0.001, "Bands draw out thinner")
             }
             let restEnd = rest.point(atDistance: rest.trackLength)
             let stretchedEnd = stretched.point(atDistance: stretched.trackLength)
@@ -363,6 +366,36 @@ final class BodyReadinessArcGeometryTests: XCTestCase {
                 XCTAssertGreaterThan(stretchedGap, restGap * 1.5, "Band \(index) pulls clear of its neighbour at \(width)")
             }
             XCTAssertEqual(Geometry.layout(progress: 0, width: width, stretch: 0).trackLength, rest.trackLength, accuracy: 0.001)
+        }
+    }
+
+    func testASqueezedRingMakesItsBandsShorterAndFatter() {
+        for width in [CGFloat(320), 361, 398] {
+            let rest = Geometry.layout(progress: 0, width: width)
+            let squeezed = Geometry.layout(progress: 0, width: width, stretch: -0.3)
+            XCTAssertEqual(squeezed.topY, rest.topY, accuracy: 0.001, "The top of the arc stays put")
+            XCTAssertEqual(squeezed.barWidth, rest.barWidth, "The resting bar width ignores the wobble")
+            for barWidth in squeezed.segmentBarWidths {
+                XCTAssertGreaterThan(barWidth, rest.barWidth)
+            }
+            XCTAssertLessThan(squeezed.trackLength, rest.trackLength)
+            for (restLength, squeezedLength) in zip(rest.segmentLengths, squeezed.segmentLengths) {
+                XCTAssertLessThan(squeezedLength, restLength)
+            }
+            for index in 0..<(rest.segments.count - 1) {
+                let restGap = rest.segmentSpans[index + 1].lowerBound - rest.segmentSpans[index].upperBound
+                let squeezedGap = squeezed.segmentSpans[index + 1].lowerBound - squeezed.segmentSpans[index].upperBound
+                XCTAssertEqual(squeezedGap - squeezed.segmentBarWidths[index], restGap - rest.barWidth, accuracy: 0.001, "The fatter caps never close the gap")
+            }
+            let deepest = Geometry.layout(progress: 0, width: width, stretch: -Geometry.maxSqueeze)
+            XCTAssertEqual(Geometry.layout(progress: 0, width: width, stretch: -5).segmentBarWidths[0], deepest.segmentBarWidths[0], accuracy: 0.001)
+
+            // A trailing stretch ripples: the middle band takes `stretch`, the ends the trailing value.
+            let ripple = Geometry.layout(progress: 0, width: width, stretch: -0.3, trailingStretch: 0.3)
+            XCTAssertGreaterThan(ripple.segmentBarWidths[2], rest.barWidth)
+            XCTAssertLessThan(ripple.segmentBarWidths[0], rest.barWidth)
+            XCTAssertLessThan(ripple.segmentBarWidths[4], rest.barWidth)
+            XCTAssertEqual(ripple.segmentBarWidths[1], rest.barWidth, accuracy: 0.001)
         }
     }
 }
