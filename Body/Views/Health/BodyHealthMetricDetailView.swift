@@ -431,6 +431,9 @@ struct BodyHealthMetricDetailView: View {
     @State private var showsDataSourcePicker = false
     @State private var showsAddMeasurementSheet = false
     @State private var showsReadinessImpactExplanation = false
+    @State private var showsBasicsRangeExplanation = false
+    /// The Difference Range tiles' row width, which decides one row or two.
+    @State private var basicsRangeRowWidth: CGFloat = 0
     /// Scrubbed trend value, in an observable box rather than three `@State`
     /// properties: only the small reader around the About card reads it, so a
     /// scrub frame no longer re-evaluates the whole page body.
@@ -1618,6 +1621,7 @@ struct BodyHealthMetricDetailView: View {
                 metricWarningCards
             }
             if isBasicsDetail {
+                basicsTimeOfDayCard
                 bodyMassIndexTrendCard
                 basicsMetricTrendCard(for: .bodyMass)
                 basicsMetricTrendCard(for: .bodyFatPercentage)
@@ -2007,49 +2011,95 @@ struct BodyHealthMetricDetailView: View {
 
     private var basicsRangeCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Difference Range")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Difference Range")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
 
-            HStack(alignment: .top, spacing: 12) {
-                ForEach(basicsRangeMetrics) { metric in
-                    VStack(alignment: .center, spacing: 5) {
-                        Text(String(localized: String.LocalizationValue(metric.title)))
-                            .font(.system(.caption, design: .rounded))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .multilineTextAlignment(.center)
+                Spacer(minLength: 0)
 
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            BodyAnimatedMetricValueText(
-                                value: metric.value,
-                                fontSize: 24,
-                                color: .primary,
-                                minimumScaleFactor: 0.65
-                            )
-                            .layoutPriority(1)
+                Button {
+                    showsBasicsRangeExplanation = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        // Grows the tap area to the 44 pt minimum without moving the
+                        // glyph or the header's height, like the Impact by Activity card's.
+                        .padding(Self.activityImpactHelpTapSlop)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(-Self.activityImpactHelpTapSlop)
+                .accessibilityLabel(BodyBasicsRangeExplanationSheet.sheetTitle)
+            }
 
-                            if !metric.unit.isEmpty {
-                                Text(metric.unit)
-                                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.65)
-                            }
+            // Four tiles crowd a small phone's row (an iPhone SE or mini), so
+            // there they wrap two and two.
+            let metrics = basicsRangeMetrics
+            let rows = basicsRangeRowWidth > 0 && basicsRangeRowWidth < Self.basicsRangeSingleRowMinWidth
+                ? [Array(metrics.prefix(2)), Array(metrics.dropFirst(2))]
+                : [metrics]
+            VStack(spacing: 14) {
+                ForEach(rows.indices, id: \.self) { index in
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(rows[index]) { metric in
+                            basicsRangeTile(metric)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
                 }
+            }
+            .frame(maxWidth: .infinity)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                basicsRangeRowWidth = width
             }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .bodyCardBackground(translucent: true)
+        .sheet(isPresented: $showsBasicsRangeExplanation) {
+            BodyBasicsRangeExplanationSheet()
+                // Opens at half height, draggable to full.
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// Narrower than this (a 375 pt wide screen or less) wraps the tiles.
+    private static let basicsRangeSingleRowMinWidth: CGFloat = 320
+
+    private func basicsRangeTile(_ metric: BodyMetricDisplayValue) -> some View {
+        VStack(alignment: .center, spacing: 5) {
+            Text(String(localized: String.LocalizationValue(metric.title)))
+                .font(.system(.caption, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .multilineTextAlignment(.center)
+
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                BodyAnimatedMetricValueText(
+                    value: metric.value,
+                    fontSize: 24,
+                    color: .primary,
+                    minimumScaleFactor: 0.65
+                )
+                .layoutPriority(1)
+
+                if !metric.unit.isEmpty {
+                    Text(metric.unit)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var bodyMassIndexTrendCard: some View {
@@ -2068,6 +2118,7 @@ struct BodyHealthMetricDetailView: View {
 
             BodyBasicsBodyMassIndexTrendChart(
                 series: bodyMassIndexTrend,
+                samples: model.basicsTrend?.bodyMassIndexSamples ?? .empty,
                 selectedRange: selectedTrendRange,
                 color: basicsBodyMassIndexColor,
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) },
@@ -2083,6 +2134,74 @@ struct BodyHealthMetricDetailView: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .bodyCardBackground(translucent: true)
+    }
+
+    @ViewBuilder
+    private var basicsTimeOfDayCard: some View {
+        if let trend = visibleBasicsTrend, !(trend.weightSamples.isEmpty && trend.bodyFatSamples.isEmpty) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Legend stacked at the top right of the title's row, Body Fat
+                // over Weight like the hero's `BodyBasicsTrendLegend`.
+                HStack(alignment: .center, spacing: 10) {
+                    Text("Time of Day")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+
+                    Spacer(minLength: 8)
+
+                    VStack(alignment: .trailing, spacing: 3) {
+                        if !trend.bodyFatSamples.isEmpty {
+                            basicsTimeOfDayLegend("Body Fat", unit: "%", color: basicsBodyFatColor)
+                        }
+                        if !trend.weightSamples.isEmpty {
+                            basicsTimeOfDayLegend("Weight", unit: model.unit, color: model.symbolColor)
+                        }
+                    }
+                }
+
+                BodyBasicsTimeOfDayChart(
+                    weightSamples: trend.weightSamples,
+                    bodyFatSamples: trend.bodyFatSamples,
+                    weightColor: model.symbolColor,
+                    bodyFatColor: basicsBodyFatColor,
+                    weightFormatter: model.valueFormatter,
+                    bodyFatFormatter: model.secondaryValueFormatter ?? {
+                        BodyValueFormat.numberText($0, decimals: 1) + "%"
+                    }
+                )
+                .frame(height: BodyHealthDetailChartLayout.standardHeight)
+                // Keyed on the range, unlike the morphing charts above: each
+                // range scales the dots against its own whole-number axes, so
+                // morphing would slide every shared dot to a new height and fly
+                // the rest in from the edges. Replacing the plot cross-fades it
+                // instead, leaving each dot to fade where it sits.
+                .id(selectedTrendRange)
+                .transition(.opacity)
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: selectedTrendRange)
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .bodyCardBackground(translucent: true)
+        }
+    }
+
+    /// Names one side's axis, which itself shows bare whole numbers.
+    private func basicsTimeOfDayLegend(_ title: LocalizedStringKey, unit: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+
+            Text(title)
+                .foregroundStyle(.primary)
+
+            Text(unit)
+                .foregroundStyle(.secondary)
+        }
+        .font(.system(.caption, design: .rounded).weight(.semibold))
+        .lineLimit(1)
     }
 
     private var wristTemperatureTrendBaseline: Double? {
@@ -3421,11 +3540,25 @@ struct BodyHealthMetricDetailView: View {
                 unit: visibleBasicsTrend?.weightHalfSpread == nil ? "" : model.unit
             ),
             BodyMetricDisplayValue(
+                title: "PM vs AM",
+                value: afternoonMorningDifferenceText,
+                unit: afternoonMorningDifferenceText == "--" ? "" : model.unit
+            ),
+            BodyMetricDisplayValue(
                 title: "BMI",
                 value: halfSpreadText(visibleBasicsTrend?.bodyMassIndexHalfSpread),
                 unit: ""
             )
         ]
+    }
+
+    /// Signed: a plus means the after noon weigh-ins average heavier.
+    private var afternoonMorningDifferenceText: String {
+        guard let difference = visibleBasicsTrend?.weightAfternoonMorningDifference() else {
+            return "--"
+        }
+
+        return (difference > 0 ? "+" : "") + BodyValueFormat.numberText(difference, decimals: 1)
     }
 
     private func halfSpreadText(_ halfSpread: Double?) -> String {

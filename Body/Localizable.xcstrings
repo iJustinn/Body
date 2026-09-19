@@ -68,6 +68,23 @@
         }
       }
     },
+    "About Difference Range" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Difference Range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于变化幅度"
+          }
+        }
+      }
+    },
     "Any overnight reading above %@ today" : {
       "localizations" : {
         "en" : {
@@ -161,6 +178,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "，已完成"
+          }
+        }
+      }
+    },
+    "Each ± value is half the distance between the lowest and the highest daily value in the range. A weight of ±1.2 means your daily weights stayed within about 1.2 above or below the middle of that span. The daily value is the average of that day's measurements, so one odd reading among several moves it less. Normal swings from water, food, and the time you step on the scale are part of this number, so a small value points to a steady period rather than to no change at all." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each ± value is half the distance between the lowest and the highest daily value in the range. A weight of ±1.2 means your daily weights stayed within about 1.2 above or below the middle of that span. The daily value is the average of that day's measurements, so one odd reading among several moves it less. Normal swings from water, food, and the time you step on the scale are part of this number, so a small value points to a steady period rather than to no change at all."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个 ± 数值是所选范围内每日数值的最低值与最高值之间距离的一半。体重 ±1.2 表示你的每日体重大致保持在该区间中点上下约 1.2 的范围内。每日数值是当天所有测量的平均值，因此多次测量中的某个异常读数对它的影响较小。水分、饮食以及称重时间带来的正常波动都包含在这个数值中，所以数值较小说明这段时间比较稳定，而不代表完全没有变化。"
           }
         }
       }
@@ -1436,6 +1470,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "后台检查中"
+          }
+        }
+      }
+    },
+    "PM vs AM" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PM vs AM"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下午与上午"
+          }
+        }
+      }
+    },
+    "The average of every weight measured from noon onward, minus the average of every weight measured before noon, across the selected range. A plus means you weigh more later in the day, which is usual after meals and drinks. It needs at least one measurement on each side of noon, and it compares the two groups as a whole rather than day by day, so if your weight is trending and you weigh in at different times on different days, part of the trend shows up here. The Time of Day card below shows when your measurements were taken." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The average of every weight measured from noon onward, minus the average of every weight measured before noon, across the selected range. A plus means you weigh more later in the day, which is usual after meals and drinks. It needs at least one measurement on each side of noon, and it compares the two groups as a whole rather than day by day, so if your weight is trending and you weigh in at different times on different days, part of the trend shows up here. The Time of Day card below shows when your measurements were taken."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选范围内，中午及之后测得的所有体重的平均值，减去中午之前测得的所有体重的平均值。正号表示你在一天中较晚的时候更重，进食和饮水之后通常如此。它要求中午前后各至少有一次测量，并且是将两组数据整体比较，而不是逐日比较，所以如果你的体重正在变化，而你又在不同日期的不同时间称重，那么部分趋势会体现在这里。下方的测量时段卡片显示了你的测量时间。"
+          }
+        }
+      }
+    },
+    "The ± Values" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The ± Values"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "± 数值"
+          }
+        }
+      }
+    },
+    "This card shows how much your body fat, weight, and BMI moved over the range selected above, Week, Month, 6 Months, or Year. It follows the selector, so switching the range recalculates every tile. A tile reads as two dashes when the range holds no data for it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This card shows how much your body fat, weight, and BMI moved over the range selected above, Week, Month, 6 Months, or Year. It follows the selector, so switching the range recalculates every tile. A tile reads as two dashes when the range holds no data for it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此卡片显示在上方所选范围（周、月、6 个月或年）内，你的体脂率、体重和 BMI 的变化幅度。它会跟随范围选择器，切换范围时每一项都会重新计算。当所选范围内没有某项数据时，该项显示为两条短横线。"
           }
         }
       }
@@ -4442,6 +4544,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义来源"
+          }
+        }
+      }
+    },
+    "DAILY AVG" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DAILY AVG"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日平均"
           }
         }
       }
@@ -15411,6 +15530,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "时间"
+          }
+        }
+      }
+    },
+    "Time of Day" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time of Day"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测量时段"
           }
         }
       }

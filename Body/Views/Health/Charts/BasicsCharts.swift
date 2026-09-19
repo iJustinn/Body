@@ -29,6 +29,8 @@ struct BodyBasicsTrendChart: View {
     private let weightFinitePointsByDate: [Date: HealthTrendCalendarPoint]
     private let bodyFatFinitePointsByDate: [Date: HealthTrendCalendarPoint]
     private let combinedFinitePoints: [HealthTrendCalendarPoint]
+    private let weightSamples: HealthTrendSeries
+    private let bodyFatSamples: HealthTrendSeries
 
     @State private var selectedDate: Date?
     @GestureState private var isSelecting = false
@@ -56,6 +58,8 @@ struct BodyBasicsTrendChart: View {
         self.bodyFatFormatter = bodyFatFormatter
         self.immersive = immersive
         self.floatingCallout = floatingCallout
+        self.weightSamples = trend.weightSamples
+        self.bodyFatSamples = trend.bodyFatSamples
 
         // Every range's points, not just the selected one: dates outside the
         // current range stay resident as invisible placeholder marks, so a
@@ -354,11 +358,13 @@ struct BodyBasicsTrendChart: View {
     }
 
     private func selectionAnnotation(for date: Date) -> BodyChartSelectionAnnotation {
-        BodyChartSelectionAnnotation(
-            eyebrow: nil,
+        let breakdown = selectionBreakdown(for: date)
+        return BodyChartSelectionAnnotation(
+            eyebrow: breakdown.isEmpty ? nil : String(localized: "DAILY AVG"),
             values: selectionValues(for: date),
             date: date,
-            dateText: selectedTrendDateText
+            dateText: selectedTrendDateText,
+            breakdown: breakdown
         )
     }
 
@@ -474,6 +480,53 @@ struct BodyBasicsTrendChart: View {
 
         return values
     }
+
+    /// The day's individual records under its averages, titled by their time
+    /// and in time order. A body fat and a weight record taken in the same
+    /// minute (one weigh-in on a smart scale) share a row, two dots and
+    /// "fat, weight", to keep the callout short.
+    /// Only for a single-day point where a measure has more than one record: a
+    /// lone record IS the average, and a 6 Months/Year bucket would list dozens.
+    private func selectionBreakdown(for date: Date) -> [BodyChartSelectionValue] {
+        let calendar = Calendar.bodyGregorian
+        func records(in samples: HealthTrendSeries, for point: HealthTrendCalendarPoint?) -> [HealthTrendDataPoint] {
+            guard let point, calendar.isDate(point.startDate, inSameDayAs: point.endDate) else {
+                return []
+            }
+            return samples.points.filter { calendar.isDate($0.date, inSameDayAs: point.date) }
+        }
+        let bodyFatRecords = records(in: bodyFatSamples, for: bodyFatFinitePointsByDate[date])
+        let weightRecords = records(in: weightSamples, for: weightFinitePointsByDate[date])
+        guard bodyFatRecords.count > 1 || weightRecords.count > 1 else {
+            return []
+        }
+
+        func minute(_ date: Date) -> Date {
+            calendar.dateInterval(of: .minute, for: date)?.start ?? date
+        }
+        var style = Date.FormatStyle().hour().minute()
+        style.timeZone = calendar.timeZone
+        var unpairedWeights = weightRecords
+        var rows: [(date: Date, value: BodyChartSelectionValue)] = []
+        for bodyFat in bodyFatRecords {
+            let time = bodyFat.date.formatted(style)
+            if let index = unpairedWeights.firstIndex(where: { minute($0.date) == minute(bodyFat.date) }) {
+                let weight = unpairedWeights.remove(at: index)
+                rows.append((bodyFat.date, BodyChartSelectionValue(
+                    title: time,
+                    value: bodyFatFormatter(bodyFat.value) + ", " + weightFormatter(weight.value),
+                    color: bodyFatColor,
+                    secondaryColor: weightColor
+                )))
+            } else {
+                rows.append((bodyFat.date, BodyChartSelectionValue(title: time, value: bodyFatFormatter(bodyFat.value), color: bodyFatColor)))
+            }
+        }
+        for weight in unpairedWeights {
+            rows.append((weight.date, BodyChartSelectionValue(title: weight.date.formatted(style), value: weightFormatter(weight.value), color: weightColor)))
+        }
+        return rows.sorted { $0.date < $1.date }.map(\.value)
+    }
 }
 
 
@@ -485,6 +538,7 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
     private let markEntries: [BodyHealthTrendMarkEntry]
     private let lineSegments: [BodyHealthTrendLineSegmentMark]
     private let finitePoints: [HealthTrendCalendarPoint]
+    private let samples: HealthTrendSeries
     private let chartXDomain: ClosedRange<Date>
     private let chartYDomain: ClosedRange<Double>
     private let latestCalendarDate: Date?
@@ -495,6 +549,7 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
 
     init(
         series: HealthTrendSeries,
+        samples: HealthTrendSeries = .empty,
         selectedRange: BodyHealthTrendRange,
         color: Color,
         valueFormatter: @escaping (Double) -> String,
@@ -503,6 +558,7 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
         self.selectedRange = selectedRange
         self.color = color
         self.valueFormatter = valueFormatter
+        self.samples = samples
 
         // Every range's points, not just the selected one: dates outside the
         // current range stay resident as invisible placeholder marks, so a
@@ -606,18 +662,7 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
                         spacing: 8,
                         overflowResolution: bodyChartSelectionOverflowResolution
                     ) {
-                        BodyChartSelectionAnnotation(
-                            eyebrow: nil,
-                            values: [
-                                BodyChartSelectionValue(
-                                    title: nil,
-                                    value: valueFormatter(selectedValue),
-                                    color: color
-                                )
-                            ],
-                            date: selectedPoint.date,
-                            dateText: bodyChartSelectionDateText(for: selectedPoint)
-                        )
+                        selectionAnnotation(for: selectedPoint, value: selectedValue)
                     }
 
                 PointMark(
@@ -713,6 +758,41 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
             }
     }
 
+    private func selectionAnnotation(for selectedPoint: HealthTrendCalendarPoint, value: Double) -> BodyChartSelectionAnnotation {
+        let breakdown = selectionBreakdown(for: selectedPoint)
+        return BodyChartSelectionAnnotation(
+            eyebrow: breakdown.isEmpty ? nil : String(localized: "DAILY AVG"),
+            values: [
+                BodyChartSelectionValue(
+                    title: nil,
+                    value: valueFormatter(value),
+                    color: color
+                )
+            ],
+            date: selectedPoint.date,
+            dateText: bodyChartSelectionDateText(for: selectedPoint),
+            breakdown: breakdown
+        )
+    }
+
+    /// The day's individual records under its average, like the Weight and Body
+    /// Fat chart's: only for a single-day point with more than one record.
+    private func selectionBreakdown(for point: HealthTrendCalendarPoint) -> [BodyChartSelectionValue] {
+        let calendar = Calendar.bodyGregorian
+        guard calendar.isDate(point.startDate, inSameDayAs: point.endDate) else {
+            return []
+        }
+        let records = samples.points.filter { calendar.isDate($0.date, inSameDayAs: point.date) }
+        guard records.count > 1 else {
+            return []
+        }
+        var style = Date.FormatStyle().hour().minute()
+        style.timeZone = calendar.timeZone
+        return records.map {
+            BodyChartSelectionValue(title: $0.date.formatted(style), value: valueFormatter($0.value), color: color)
+        }
+    }
+
     /// Each range's BMI points.
     static func makePointsByRange(
         for series: HealthTrendSeries,
@@ -741,5 +821,209 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
         let padding = max((maximum - minimum) * 0.12, 1)
         let lower = max(0, minimum - padding)
         return lower...max(maximum + padding, lower + 1)
+    }
+}
+
+/// Every weight and body fat sample scattered by the time of day it was taken,
+/// over the selected range, showing when in the day the user tends to measure.
+/// One plot, two Y axes (weight leading, body fat trailing): each measure is
+/// normalized into its own whole-number domain, like `BodyBasicsTrendChart`.
+struct BodyBasicsTimeOfDayChart: View {
+    let weightSamples: HealthTrendSeries
+    let bodyFatSamples: HealthTrendSeries
+    let weightColor: Color
+    let bodyFatColor: Color
+    let weightFormatter: (Double) -> String
+    let bodyFatFormatter: (Double) -> String
+    var calendar: Calendar = .bodyGregorian
+
+    @State private var selectedHour: Double?
+    @GestureState private var isSelecting = false
+
+    private struct Dot: Identifiable {
+        let date: Date
+        let isWeight: Bool
+        let hour: Double
+        let value: Double
+        let plotValue: Double
+
+        var id: String {
+            "\(isWeight)-\(date.timeIntervalSinceReferenceDate)"
+        }
+    }
+
+    /// Thirds, so the four ticks of a domain whose span is a multiple of 3
+    /// all land on whole numbers.
+    private let axisTickValues = [0.0, 1.0 / 3, 2.0 / 3, 1.0]
+
+    var body: some View {
+        let weightDomain = Self.wholeNumberDomain(for: weightSamples)
+        let bodyFatDomain = Self.wholeNumberDomain(for: bodyFatSamples)
+        let dots = dots(from: bodyFatSamples, isWeight: false, domain: bodyFatDomain)
+            + dots(from: weightSamples, isWeight: true, domain: weightDomain)
+        // Nearest in time of day, like the date scrub on the trend charts, plus
+        // the other measure's record from the same minute (one weigh-in).
+        let nearest = isSelecting ? selectedHour.flatMap { hour in
+            dots.min { abs($0.hour - hour) < abs($1.hour - hour) }
+        } : nil
+        let selectedDots = nearest.map { nearest in
+            dots.filter { $0.id == nearest.id || ($0.isWeight != nearest.isWeight && minute($0.date) == minute(nearest.date)) }
+        } ?? []
+
+        Chart {
+            ForEach(dots) { dot in
+                PointMark(
+                    x: .value("Time of Day", dot.hour),
+                    y: .value("Value", dot.plotValue)
+                )
+                .foregroundStyle((dot.isWeight ? weightColor : bodyFatColor).opacity(0.55))
+                .symbolSize(28)
+            }
+
+            if let nearest {
+                RuleMark(x: .value("Selected Time", nearest.hour))
+                    .foregroundStyle(Color.secondary.opacity(0.48))
+                    .lineStyle(StrokeStyle(lineWidth: 1.4))
+                    .annotation(
+                        position: .top,
+                        spacing: 8,
+                        overflowResolution: bodyChartSelectionOverflowResolution
+                    ) {
+                        BodyChartSelectionAnnotation(
+                            eyebrow: nil,
+                            values: selectedDots.map { dot in
+                                BodyChartSelectionValue(
+                                    title: dot.isWeight ? String(localized: "Weight") : String(localized: "Body Fat"),
+                                    value: dot.isWeight ? weightFormatter(dot.value) : bodyFatFormatter(dot.value),
+                                    color: dot.isWeight ? weightColor : bodyFatColor
+                                )
+                            },
+                            date: nearest.date,
+                            dateText: dateText(nearest.date)
+                        )
+                    }
+
+                ForEach(selectedDots) { dot in
+                    PointMark(
+                        x: .value("Selected Time", dot.hour),
+                        y: .value("Value", dot.plotValue)
+                    )
+                    .foregroundStyle(dot.isWeight ? weightColor : bodyFatColor)
+                    .symbolSize(82)
+                }
+            }
+        }
+        .chartXScale(domain: 0...24)
+        .chartYScale(domain: -0.08...1.08)
+        .chartXAxis {
+            AxisMarks(values: [0, 6, 12, 18, 24]) { value in
+                AxisGridLine()
+                    .foregroundStyle(Color.secondary.opacity(0.18))
+                AxisTick()
+                    .foregroundStyle(Color.secondary.opacity(0.28))
+                AxisValueLabel {
+                    if let hour = value.as(Double.self) {
+                        Text(hourLabel(hour))
+                            .font(.system(.caption2, design: .rounded))
+                            .foregroundStyle(Color.secondary)
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            if let weightDomain {
+                AxisMarks(position: .leading, values: axisTickValues) { value in
+                    AxisGridLine()
+                        .foregroundStyle(Color.secondary.opacity(0.18))
+                    AxisTick()
+                        .foregroundStyle(weightColor.opacity(0.55))
+                    AxisValueLabel {
+                        if let yValue = value.as(Double.self) {
+                            axisLabel(yValue, in: weightDomain)
+                        }
+                    }
+                }
+            }
+
+            if let bodyFatDomain {
+                AxisMarks(position: .trailing, values: axisTickValues) { value in
+                    if weightDomain == nil {
+                        AxisGridLine()
+                            .foregroundStyle(Color.secondary.opacity(0.18))
+                    }
+                    AxisTick()
+                        .foregroundStyle(bodyFatColor.opacity(0.55))
+                    AxisValueLabel {
+                        if let yValue = value.as(Double.self) {
+                            axisLabel(yValue, in: bodyFatDomain)
+                        }
+                    }
+                }
+            }
+        }
+        .chartXSelection(value: $selectedHour)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .updating($isSelecting) { _, isSelecting, _ in
+                    isSelecting = true
+                }
+                .onEnded { _ in
+                    selectedHour = nil
+                }
+        )
+        .bodyChartScrubHaptics(selection: nearest?.id)
+    }
+
+    /// Whole numbers only, no unit: the legend above the plot names each side.
+    private func axisLabel(_ normalizedValue: Double, in domain: ClosedRange<Double>) -> some View {
+        let value = domain.lowerBound + (domain.upperBound - domain.lowerBound) * normalizedValue
+        return Text(BodyValueFormat.numberText(value.rounded(), decimals: 0))
+            .font(.system(.caption2, design: .rounded))
+            .foregroundStyle(Color.secondary)
+    }
+
+    private func dots(from samples: HealthTrendSeries, isWeight: Bool, domain: ClosedRange<Double>?) -> [Dot] {
+        guard let domain else {
+            return []
+        }
+        return samples.points.filter(\.value.isFinite).map { point in
+            let parts = calendar.dateComponents([.hour, .minute], from: point.date)
+            return Dot(
+                date: point.date,
+                isWeight: isWeight,
+                hour: Double(parts.hour ?? 0) + Double(parts.minute ?? 0) / 60,
+                value: point.value,
+                plotValue: (point.value - domain.lowerBound) / (domain.upperBound - domain.lowerBound)
+            )
+        }
+    }
+
+    private func minute(_ date: Date) -> Date {
+        calendar.dateInterval(of: .minute, for: date)?.start ?? date
+    }
+
+    private func dateText(_ date: Date) -> String {
+        var style = Date.FormatStyle().month(.abbreviated).day().year().hour().minute()
+        style.timeZone = calendar.timeZone
+        return date.formatted(style)
+    }
+
+    private func hourLabel(_ hour: Double) -> String {
+        let date = calendar.date(bySettingHour: Int(hour) % 24, minute: 0, second: 0, of: Date()) ?? Date()
+        var style = Date.FormatStyle().hour()
+        style.timeZone = calendar.timeZone
+        return date.formatted(style)
+    }
+
+    /// Whole-number bounds around the samples whose span is a multiple of 3,
+    /// so every `axisTickValues` tick reads as a whole number. `nil` when empty.
+    static func wholeNumberDomain(for samples: HealthTrendSeries) -> ClosedRange<Double>? {
+        let values = samples.points.map(\.value).filter(\.isFinite)
+        guard let minimum = values.min(), let maximum = values.max() else {
+            return nil
+        }
+        let lower = minimum.rounded(.down)
+        let span = max(((maximum - lower) / 3).rounded(.up) * 3, 3)
+        return lower...(lower + span)
     }
 }

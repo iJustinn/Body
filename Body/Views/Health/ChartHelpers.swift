@@ -166,6 +166,8 @@ struct BodyChartSelectionValue: Identifiable {
     let title: String?
     let value: String
     let color: Color
+    /// A second dot, for a breakdown row carrying two measures' values.
+    var secondaryColor: Color? = nil
 
     var id: String {
         "\(title ?? "")-\(value)"
@@ -177,6 +179,9 @@ struct BodyChartSelectionAnnotation: View {
     let values: [BodyChartSelectionValue]
     let date: Date
     var dateText: String? = nil
+    /// Individual records behind the values, laid out like the Day View
+    /// callout's sample breakdown: a divider, then a time and a value per row.
+    var breakdown: [BodyChartSelectionValue] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -213,6 +218,38 @@ struct BodyChartSelectionAnnotation: View {
                 .font(.system(.caption2, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
+
+            if !breakdown.isEmpty {
+                Divider()
+                    .padding(.vertical, 1)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(breakdown) { record in
+                        HStack(spacing: 10) {
+                            HStack(spacing: 3) {
+                                Circle()
+                                    .fill(record.color)
+                                    .frame(width: 6, height: 6)
+
+                                if let secondaryColor = record.secondaryColor {
+                                    Circle()
+                                        .fill(secondaryColor)
+                                        .frame(width: 6, height: 6)
+                                }
+                            }
+
+                            if let title = record.title {
+                                Text(title)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Text(record.value)
+                                .foregroundColor(.primary)
+                        }
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                    }
+                }
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
