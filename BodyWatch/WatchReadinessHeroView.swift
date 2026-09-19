@@ -94,6 +94,9 @@ struct WatchReadinessHeroView: View {
     @State private var presentedScore: Double = 0
     @State private var pillAnimation: Animation?
     @State private var stretch: CGFloat = 0
+    /// The stretch at the ring's ends, which trails `stretch` on the release so the
+    /// bounce ripples outward from the middle band.
+    @State private var trailingStretch: CGFloat = 0
     @State private var isStretchReleasing = false
     @State private var glowTask: Task<Void, Never>?
     @State private var returnTask: Task<Void, Never>?
@@ -187,6 +190,7 @@ struct WatchReadinessHeroView: View {
                 progress: clampedProgress,
                 width: referenceWidth,
                 stretch: stretch,
+                trailingStretch: trailingStretch,
                 reduceMotion: reduceMotion
             )
             .animation(pillAnimation, value: presentedScore)
@@ -241,11 +245,16 @@ struct WatchReadinessHeroView: View {
             transaction.animation = nil
             withTransaction(transaction) {
                 stretch = Geometry.pullStretch(pull: newPull / max(scale, 0.001))
+                trailingStretch = stretch
             }
         } else if !isStretchReleasing {
             isStretchReleasing = true
-            withAnimation(.interpolatingSpring(mass: 1, stiffness: 180, damping: 12)) {
+            let spring = Animation.interpolatingSpring(mass: 1, stiffness: 220, damping: 7)
+            withAnimation(spring) {
                 stretch = 0
+            }
+            withAnimation(spring.delay(Geometry.rippleDelay)) {
+                trailingStretch = 0
             }
         }
         if newPull <= 0 {
@@ -347,13 +356,15 @@ private struct WatchReadinessTrackView: View, Animatable {
     let progress: Double
     let width: CGFloat
     var stretch: CGFloat
+    var trailingStretch: CGFloat
     let reduceMotion: Bool
 
-    var animatableData: AnimatablePair<Double, CGFloat> {
-        get { AnimatablePair(score, stretch) }
+    var animatableData: AnimatablePair<Double, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(score, AnimatablePair(stretch, trailingStretch)) }
         set {
             score = newValue.first
-            stretch = newValue.second
+            stretch = newValue.second.first
+            trailingStretch = newValue.second.second
         }
     }
 
@@ -365,7 +376,7 @@ private struct WatchReadinessTrackView: View, Animatable {
     }
 
     var body: some View {
-        let layout = Geometry.layout(progress: progress, width: width, stretch: stretch)
+        let layout = Geometry.layout(progress: progress, width: width, stretch: stretch, trailingStretch: trailingStretch)
 
         ZStack(alignment: .topLeading) {
             ForEach(layout.segments.indices, id: \.self) { index in
@@ -409,7 +420,8 @@ private struct WatchReadinessTrackView: View, Animatable {
         let center = layout.point(atDistance: distance)
         let tangent = layout.tangent(atDistance: distance)
         let angle = Angle.radians(atan2(Double(tangent.dy), Double(tangent.dx)))
-        let thickness = max(layout.barWidth - 4, 6)
+        // The pill fattens and thins with the band it rides as the ring wobbles.
+        let thickness = max((activeSegmentIndex.map { layout.segmentBarWidths[$0] } ?? layout.barWidth) - 4, 6)
 
         return ZStack {
             Capsule()

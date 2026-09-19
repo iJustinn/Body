@@ -128,6 +128,9 @@ struct BodyReadinessArcHero: View {
     /// The ring's stretch, 0...1. Follows the pull directly while the finger drags and
     /// springs back to zero from the moment the pull starts to let go.
     @State private var stretch: CGFloat = 0
+    /// The stretch at the ring's ends, which trails `stretch` on the release so the
+    /// bounce ripples outward from the middle band.
+    @State private var trailingStretch: CGFloat = 0
     @State private var isStretchReleasing = false
     @Environment(BodyReadinessHeroState.self) private var heroState: BodyReadinessHeroState?
     @State private var glowTask: Task<Void, Never>?
@@ -255,6 +258,7 @@ struct BodyReadinessArcHero: View {
                 progress: clampedProgress,
                 width: width,
                 stretch: stretch,
+                trailingStretch: trailingStretch,
                 reduceMotion: reduceMotion
             )
             .animation(pillAnimation, value: presentedScore)
@@ -337,11 +341,16 @@ struct BodyReadinessArcHero: View {
             transaction.animation = nil
             withTransaction(transaction) {
                 stretch = Geometry.pullStretch(pull: newPull)
+                trailingStretch = stretch
             }
         } else if !isStretchReleasing {
             isStretchReleasing = true
-            withAnimation(.interpolatingSpring(mass: 1, stiffness: 180, damping: 12)) {
+            let spring = Animation.interpolatingSpring(mass: 1, stiffness: 220, damping: 7)
+            withAnimation(spring) {
                 stretch = 0
+            }
+            withAnimation(spring.delay(Geometry.rippleDelay)) {
+                trailingStretch = 0
             }
         }
         if newPull <= 0 {
@@ -544,15 +553,18 @@ private struct BodyReadinessTrackView: View, Animatable {
     let hasScore: Bool
     let progress: Double
     let width: CGFloat
-    /// The pull-down stretch, 0...1; animated so the release springs the bands home.
+    /// The pull-down stretch, 0...1, dipping below zero into a squeeze as the release
+    /// spring bounces the bands home.
     var stretch: CGFloat
+    var trailingStretch: CGFloat
     let reduceMotion: Bool
 
-    var animatableData: AnimatablePair<Double, CGFloat> {
-        get { AnimatablePair(score, stretch) }
+    var animatableData: AnimatablePair<Double, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(score, AnimatablePair(stretch, trailingStretch)) }
         set {
             score = newValue.first
-            stretch = newValue.second
+            stretch = newValue.second.first
+            trailingStretch = newValue.second.second
         }
     }
 
@@ -566,7 +578,7 @@ private struct BodyReadinessTrackView: View, Animatable {
     }
 
     var body: some View {
-        let layout = Geometry.layout(progress: progress, width: width, stretch: stretch)
+        let layout = Geometry.layout(progress: progress, width: width, stretch: stretch, trailingStretch: trailingStretch)
 
         ZStack(alignment: .topLeading) {
             ForEach(layout.segments.indices, id: \.self) { index in
@@ -618,7 +630,8 @@ private struct BodyReadinessTrackView: View, Animatable {
         let center = layout.point(atDistance: distance)
         let tangent = layout.tangent(atDistance: distance)
         let angle = Angle.radians(atan2(Double(tangent.dy), Double(tangent.dx)))
-        let thickness = max(layout.barWidth - 4, 6)
+        // The pill fattens and thins with the band it rides as the ring wobbles.
+        let thickness = max((activeSegmentIndex.map { layout.segmentBarWidths[$0] } ?? layout.barWidth) - 4, 6)
 
         // Only the tint crossfades when the band flips. The position jumps from one
         // band's cap to the next and must not be tweened, or the pill crosses the gap.
