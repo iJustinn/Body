@@ -65,6 +65,8 @@ fastlane/test_output
 # screenshot tests, so they stay out of the repo.
 *screenshots/
 *Screenshots/
+# ...except the app screenshots the README embeds, which have to ship with it.
+!/Screenshots/
 
 # Local Codex and build state
 *.DS_Store
