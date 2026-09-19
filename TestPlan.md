@@ -18,6 +18,8 @@ RP-03 Phase 4 review regressions: `WorkoutEffortValidationTests` overlaps expire
 
 Generated 2026-09-14 against branch `body-v1.1.2` (app version 1.1.2 build 4).
 
+The `watch-screenshots/` and `phone-widgets-screenshots/` renders the cases below compare against are kept outside the repo; regenerate the phone widget set by running `BodyTests/PhoneWidgetScreenshotTests` with `BODY_WIDGET_SCREENSHOTS=1`, and capture the watch set from the simulator.
+
 RP-03 build 8 regression gates: `HealthDashboardCacheScopeTests` verifies anchor cleanup after rejected commits in both dashboard refresh bodies, protects a newer anchor from an abandoned body, and checks user-initiated refresh intent for default/per-metric primary and comparison sources, grouping, combine-by-name, and sleep parsing. Goal-only corrections remain query-free. The coalescing fixture uses a weak store capture and releases its override after the assertion so it cannot leak an expectation into later tests. Run the full BodyTests suite, not only isolated cancellation tests, before accepting Phase 1.
 
 Permission serialization coverage pauses both the disable-path disk strip and the enable-path cached filter beyond the 300 ms debounce. A previously queued correction must not issue its scripted HealthKit read until cleanup completes, and its fresh result must survive the toggle. Additional cases cover overlapping permission changes and cancellation of a Settings caller while cleanup waits for an occupied refresh slot. The watch test scheme's ProfileAction must retain the `BodyWatch.app` macro expansion from commit `78f60f4`.
