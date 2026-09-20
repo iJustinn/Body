@@ -191,10 +191,13 @@ final class DayRingTimelineTests: XCTestCase {
             BodyDayRingGeometry.drawnRange(for: span, previous: previous, next: next, trackLength: trackLength)
         }
 
-        // Five minutes draws as the minimum glyph, far short of the hour round caps cost.
+        // Five minutes draws as the minimum bar, which is long enough to hold its icon.
         let short = DayRingTimeline.Span(start: 0.5, end: 0.5 + 5.0 / 1440, activity: .workout(.running))
         XCTAssertEqual(range(short).upperBound - range(short).lowerBound, minimum, accuracy: 1e-9)
-        XCTAssertLessThan(range(short).upperBound - range(short).lowerBound, 12.0 / 1440)
+        XCTAssertGreaterThan(
+            BodyDayRingGeometry.minimumSegmentLength,
+            BodyDayRingGeometry.outerBarWidth * BodyDayRingGeometry.iconMinimumLengthRatio
+        )
 
         // Two events ten minutes apart never meet.
         let later = DayRingTimeline.Span(start: short.end + 10.0 / 1440, end: short.end + 15.0 / 1440, activity: .workout(.walking))
@@ -202,7 +205,7 @@ final class DayRingTimelineTests: XCTestCase {
 
         // Even two minutes apart the glyphs stop at the halfway point instead of merging.
         let close = DayRingTimeline.Span(start: short.end + 2.0 / 1440, end: short.end + 4.0 / 1440, activity: .workout(.walking))
-        XCTAssertLessThanOrEqual(range(short, nil, close).upperBound, range(close, short).lowerBound)
+        XCTAssertLessThan(range(short, nil, close).upperBound, range(close, short).lowerBound)
 
         // Glyphs at either midnight stay on the dial.
         let first = DayRingTimeline.Span(start: 0, end: 1.0 / 1440, activity: .sleep)

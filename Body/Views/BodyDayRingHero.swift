@@ -10,9 +10,9 @@ enum BodyDayRingGeometry {
     static let outerBarWidth: CGFloat = Arc.arcBarWidth * 0.9
     static let innerBarWidth: CGFloat = Arc.arcBarWidth * 0.5
     static let barGap: CGFloat = 3
-    /// A span shorter than this along the ring draws as a glyph this long instead,
-    /// so a five minute workout stays visible without reading as an hour.
-    static let minimumSegmentLength: CGFloat = 4
+    /// A span shorter than this along the ring draws as a bar this long instead: long
+    /// enough that even the shortest activity holds its icon.
+    static let minimumSegmentLength: CGFloat = outerBarWidth * 1.2
     /// Trimmed off each end where two spans touch, which leaves a hairline between them.
     static let adjacentInset: CGFloat = 0.75
     /// A bar carries its icon once it is this many bar widths long, the icon this share
@@ -168,11 +168,16 @@ enum BodyDayRingGeometry {
             let middle = min(max(center, minimum / 2), 1 - minimum / 2)
             // A glyph never grows past the halfway point to a neighbor, so two short
             // events close together stay two marks.
-            start = max(middle - minimum / 2, previous.map { ($0.end + span.start) / 2 } ?? 0)
-            end = min(middle + minimum / 2, next.map { (span.end + $0.start) / 2 } ?? 1)
+            start = max(middle - minimum / 2, previous.map { ($0.end + span.start) / 2 + inset / 2 } ?? 0)
+            end = min(middle + minimum / 2, next.map { (span.end + $0.start) / 2 - inset / 2 } ?? 1)
         }
         return start...end
     }
+}
+
+extension DayRingTimeline.Span {
+    /// Tells one activity bar from another across redraws, so a new one can fade in.
+    var fadeID: String { "\(activity)|\(start)" }
 }
 
 extension DayRingDayPart {
@@ -244,18 +249,20 @@ struct BodyDayRingHero: View {
             let nowFraction = isSettled ? timeline.nowFraction : 0
             let percent = isSettled ? timeline.percentPassed : 0
             ZStack(alignment: .topLeading) {
-                BodyDayRingTrackView(
-                    timeline: timeline,
-                    nowFraction: nowFraction,
-                    progress: min(max(progress, 0), 1),
-                    width: width,
-                    stretch: stretch,
-                    trailingStretch: trailingStretch,
-                    sleepColor: BodyHomeCardKind.sleep.tintColor,
-                    workoutColor: { workoutColorPalette.color(for: $0) }
-                )
-                // Each minute's step, and the sweep in, glide rather than jump.
-                .animation(reduceMotion ? nil : .smooth(duration: 0.8), value: nowFraction)
+                trackView(.dial, timeline: timeline, nowFraction: nowFraction)
+                    // Each minute's step, and the sweep in, glide rather than jump.
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.8), value: nowFraction)
+
+                // Every activity bar is its own layer, so one that arrives fades in
+                // instead of popping onto the ring.
+                let spans = isSettled ? Array(timeline.spans.enumerated()) : []
+                ZStack(alignment: .topLeading) {
+                    ForEach(spans, id: \.element.fadeID) { index, _ in
+                        trackView(.span(index), timeline: timeline, nowFraction: nowFraction)
+                            .transition(.opacity)
+                    }
+                }
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: spans.map(\.element.fadeID))
 
                 let textOpacity = BodyReadinessArcGeometry.textOpacity(progress: min(max(progress, 0), 1), width: width)
                 ZStack(alignment: .topLeading) {
@@ -279,6 +286,20 @@ struct BodyDayRingHero: View {
         .onChange(of: pull) { oldPull, newPull in
             followPull(from: oldPull, to: newPull)
         }
+    }
+
+    private func trackView(_ layer: BodyDayRingTrackView.Layer, timeline: DayRingTimeline, nowFraction: Double) -> some View {
+        BodyDayRingTrackView(
+            layer: layer,
+            timeline: timeline,
+            nowFraction: nowFraction,
+            progress: min(max(progress, 0), 1),
+            width: width,
+            stretch: stretch,
+            trailingStretch: trailingStretch,
+            sleepColor: BodyHomeCardKind.sleep.tintColor,
+            workoutColor: { workoutColorPalette.color(for: $0) }
+        )
     }
 
     /// The Readiness Ring's `followPull`: the ring follows the finger while the pull
@@ -384,6 +405,13 @@ struct BodyDayRingHero: View {
 private struct BodyDayRingTrackView: View, Animatable {
     private typealias Geometry = BodyDayRingGeometry
 
+    /// What one canvas draws: the dial with its ticks and now line, or one activity bar.
+    enum Layer {
+        case dial
+        case span(Int)
+    }
+
+    let layer: Layer
     let timeline: DayRingTimeline
     /// Where the now line is drawn. Animatable, so it glides to each new minute.
     var nowFraction: Double
@@ -419,6 +447,15 @@ private struct BodyDayRingTrackView: View, Animatable {
 
     private func draw(in graphics: inout GraphicsContext) {
         let track = Geometry.track(progress: progress, width: width, stretch: stretch, trailingStretch: trailingStretch)
+        switch layer {
+        case .dial:
+            drawDial(on: track, in: &graphics)
+        case .span(let index):
+            drawSpan(at: index, on: track, in: &graphics)
+        }
+    }
+
+    private func drawDial(on track: Geometry.Track, in graphics: inout GraphicsContext) {
         // The dial is one bar, so it breathes with the middle's stretch.
         let dialBar = Geometry.innerBarWidth * track.scale * Geometry.barScale(stretch: Geometry.clampedStretch(stretch))
         let dialLane = Geometry.innerLaneOffset
@@ -449,8 +486,12 @@ private struct BodyDayRingTrackView: View, Animatable {
             with: .color(.primary),
             style: StrokeStyle(lineWidth: 4, lineCap: .round)
         )
+    }
 
-        for (index, span) in timeline.spans.enumerated() {
+    private func drawSpan(at index: Int, on track: Geometry.Track, in graphics: inout GraphicsContext) {
+        guard timeline.spans.indices.contains(index) else { return }
+        let span = timeline.spans[index]
+        do {
             let range = Geometry.drawnRange(
                 for: span,
                 previous: index > 0 ? timeline.spans[index - 1] : nil,
@@ -468,8 +509,8 @@ private struct BodyDayRingTrackView: View, Animatable {
                     Image(systemName: symbolName(for: span.activity))
                         .symbolRenderingMode(.monochrome)
                 )
-                // The bar is tinted glass, so the icon carries the full color.
-                icon.shading = .color(color(for: span.activity))
+                // White on every bar; the bar's tint already names the activity's color.
+                icon.shading = .color(.white)
                 let side = bar * Geometry.iconSizeRatio
                 let middleFraction = (range.lowerBound + range.upperBound) / 2
                 let middle = track.point(fraction: middleFraction, offset: Geometry.outerLaneOffset)
