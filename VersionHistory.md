@@ -3,6 +3,9 @@
 - Updated the app, widget, watch, and test bundle version to 1.1.2 build 6.
 - On the Day Ring, even the shortest activity now draws as a bar long enough to hold its icon, so every sleep and workout bar names itself. Two short activities close together still stay two bars with a hairline between them.
 - The icons on the Day Ring's activity bars are now white on every bar, while the bar keeps the activity's color.
+- **The Day Ring is now one ring.** The dial and the activity bars are merged into a single glass bar about 1.1 times as thick as the Readiness Ring. The activity bars lie over the dial, sitting a little inside it the way the Readiness Ring's pill sits inside its band, the key hours (0, 6, 12, 18, and the closing midnight) are longer marks and the hours between shorter ones, all centered across the bar, and the now pointer is a glass capsule like the bars (translucent fill, thin rim) that crosses the whole bar on top, reaching a little past both edges. Flattened, it pins as one bar. Build remains 6.
+- Fixed the Day Ring's two ends being cut off square when Summary is pulled down and the ring is dragged open, and being clipped at the sides midway through the flatten on scroll. Flattened, the two midnight ticks now sit inside the bar instead of on its very ends.
+- The Day Ring's now pointer lands with a bounce when the hero appears: it sweeps in from midnight, runs a little past the current time, comes back, and swings a few more times before settling. Reduce Motion shows it already landed.
 - An activity that arrives on the Day Ring now fades in instead of popping onto the ring, and the bars fade in as the hero appears. Reduce Motion turns the fade off.
 
 ## 1.1.2 (build 5)
