@@ -5023,6 +5023,12 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(home.contains("gridContentY - heroContentY - (flatBarBottom + BodyReadinessArcGeometry.heldGridGap)"))
         XCTAssertTrue(hero.contains("let overrun = Geometry.dialOverrun * (1 - progress)"))
         XCTAssertTrue(hero.contains("Image(systemName: symbolName(for: span.activity))"))
+        // The Readiness Ring's warning signs: the shared row, its tap targets, and the
+        // same lift for the caption and drop without badges.
+        XCTAssertTrue(hero.contains("BodyHeroWarningBadgeRow(badges: warningBadges, opacity: textOpacity)"))
+        XCTAssertTrue(hero.contains("return centered - Self.captionHeight - Self.captionGap + (warningBadges.isEmpty ? Self.noBadgeDrop : 0)"))
+        XCTAssertTrue(hero.contains(".animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: textBlockLayout)"))
+        XCTAssertEqual(home.components(separatedBy: "heroBadgeTapTargets(").count - 1, 3)
         XCTAssertTrue(hero.contains("turned.rotate(by: .radians(Double(atan2(tangent.dy, tangent.dx))))"))
         XCTAssertTrue(home.contains("- (flatBarBottom - (BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2))"))
         // Both bars wear the Readiness Ring's glass: translucent fill, highlight, rim.

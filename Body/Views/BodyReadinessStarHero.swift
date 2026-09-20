@@ -75,6 +75,55 @@ struct BodyReadinessHeroBadgeAnchorKey: PreferenceKey {
     }
 }
 
+/// The warning signs under a hero's number, each the same glyph and tint its own Home
+/// card is showing. Shared by the Readiness Ring and the Day Ring. Publishes its glyphs'
+/// bounds so the host can lay tap targets over them; nothing here is interactive.
+struct BodyHeroWarningBadgeRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let badges: [BodyReadinessHeroWarningBadge]
+    /// The hero's text opacity, so the row fades with the number as the ring flattens.
+    let opacity: Double
+
+    /// The width of one badge's box, and so of the tap target laid over it. Three
+    /// badges have to share the row; one or two can spend it.
+    private var badgeSlotWidth: CGFloat {
+        switch badges.count {
+        case 0, 1:
+            return 44
+        case 2:
+            return 36
+        default:
+            return 28
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(badges) { badge in
+                Image(systemName: badge.symbolName)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(badge.color)
+                    // A fixed box rather than the glyph's own size, so the tap
+                    // targets laid over the badges are all the same. The host
+                    // gives the targets their height back.
+                    .frame(width: badgeSlotWidth, height: 28)
+                    .anchorPreference(key: BodyReadinessHeroBadgeAnchorKey.self, value: .bounds) {
+                        [badge.id: $0]
+                    }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+            }
+        }
+        .fixedSize()
+        .shadow(color: .black.opacity(0.3), radius: 6, y: 1)
+        .opacity(opacity)
+        // The same fade the card badges use, so a warning arriving mid-refresh
+        // reads as one change in both places.
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: badges)
+    }
+}
+
 /// The Home readiness gauge: five glass bar segments, one per readiness band, on an
 /// arc over the big score, with a more opaque pill inside today's band marking the
 /// score. `progress` (0 = arc, 1 = flat) is scroll-driven by the host: the arc unfurls
@@ -460,45 +509,8 @@ struct BodyReadinessArcHero: View {
         return CGRect(x: width / 2 - 90, y: top, width: 180, height: Geometry.badgeRowCenterY(width: width) + 22 - top)
     }
 
-    /// The width of one badge's box, and so of the tap target laid over it. Three
-    /// badges have to share the row; one or two can spend it.
-    private var badgeSlotWidth: CGFloat {
-        switch warningBadges.count {
-        case 0, 1:
-            return 44
-        case 2:
-            return 36
-        default:
-            return 28
-        }
-    }
-
-    /// The warning signs under the score, each the same glyph and tint its own Home
-    /// card is showing. Publishes its glyphs' bounds so the host can lay tap targets
-    /// over them; nothing here is interactive.
     private var warningBadgeRow: some View {
-        HStack(spacing: 0) {
-            ForEach(warningBadges) { badge in
-                Image(systemName: badge.symbolName)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(badge.color)
-                    // A fixed box rather than the glyph's own size, so the tap
-                    // targets laid over the badges are all the same. The host
-                    // gives the targets their height back.
-                    .frame(width: badgeSlotWidth, height: 28)
-                    .anchorPreference(key: BodyReadinessHeroBadgeAnchorKey.self, value: .bounds) {
-                        [badge.id: $0]
-                    }
-                    .accessibilityHidden(true)
-                    .transition(.opacity)
-            }
-        }
-        .fixedSize()
-        .shadow(color: .black.opacity(0.3), radius: 6, y: 1)
-        .opacity(textOpacity)
-        // The same fade the card badges use, so a warning arriving mid-refresh
-        // reads as one change in both places.
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: warningBadges)
+        BodyHeroWarningBadgeRow(badges: warningBadges, opacity: textOpacity)
     }
 
     private var accessibilityLabel: String {

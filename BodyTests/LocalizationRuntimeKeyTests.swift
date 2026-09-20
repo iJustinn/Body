@@ -471,9 +471,9 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Any reading below %lld bpm today",
             "Any reading above %lld bpm today, outside workouts",
             "Any reading below %lld%% today",
-            "Warnings appear on the Home card, the readiness score, and the metric's detail page.",
-            "Show on Readiness",
-            "Add warning signs next to the readiness level",
+            "Warnings appear on the Home card, the Home Hero, and the metric's detail page.",
+            "Show on Home Hero",
+            "Add warning signs under the Home Hero number",
             // Threshold picker popover.
             "Use Default",
             "If you were working out, this warning will disappear once the workout is logged.",

@@ -4243,7 +4243,7 @@ private struct BodyMetricWarningsSettingsSheet: View {
                     .bodyCardBackground(translucent: true)
                 }
 
-                Text("Warnings appear on the Home card, the readiness score, and the metric's detail page.")
+                Text("Warnings appear on the Home card, the Home Hero, and the metric's detail page.")
                     .font(.system(.footnote, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -4277,14 +4277,14 @@ private struct BodyMetricWarningReadinessHeroRow: View {
             BodySettingsIconTile(iconName: "bolt.heart.fill", color: .yellow)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Show on Readiness")
+                Text("Show on Home Hero")
                     .font(.system(.headline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
 
-                Text("Add warning signs next to the readiness level")
+                Text("Add warning signs under the Home Hero number")
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -4294,7 +4294,7 @@ private struct BodyMetricWarningReadinessHeroRow: View {
 
             Spacer(minLength: 12)
 
-            Toggle("Show on Readiness", isOn: $isEnabled)
+            Toggle("Show on Home Hero", isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")

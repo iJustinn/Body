@@ -843,36 +843,7 @@ struct BodyHomeView: View {
                 // button trait and VoiceOver all work normally. They switch off at the
                 // same threshold that fades the glyphs, so nothing invisible is tappable.
                 .overlayPreferenceValue(BodyReadinessHeroBadgeAnchorKey.self) { anchors in
-                    GeometryReader { geometry in
-                        ForEach(Array(badges.enumerated()), id: \.element.id) { index, badge in
-                            if let anchor = anchors[badge.id] {
-                                let frame = geometry[anchor]
-                                // The badge boxes sit flush against each other, so a tap
-                                // between two of them already lands on one. The misses are
-                                // off the ends of the row and off the top and bottom, so
-                                // that is where the target grows: outward only, never over
-                                // a neighbour's target.
-                                let leading: CGFloat = index == 0 ? 10 : 0
-                                let trailing: CGFloat = index == badges.count - 1 ? 10 : 0
-                                Button {
-                                    revealHomeCard(badge.card, proxy: proxy)
-                                } label: {
-                                    Color.clear.contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(Text(verbatim: badge.accessibilityLabel))
-                                // Full height: a 28 pt-tall target is a mean thing to ask
-                                // a thumb for.
-                                .frame(
-                                    width: frame.width + leading + trailing,
-                                    height: max(frame.height, 44)
-                                )
-                                .position(x: frame.midX - leading / 2 + trailing / 2, y: frame.midY)
-                            }
-                        }
-                    }
-                    .allowsHitTesting(isTextVisible)
-                    .accessibilityHidden(!isTextVisible)
+                    heroBadgeTapTargets(anchors: anchors, badges: badges, proxy: proxy, isTextVisible: isTextVisible)
                 }
             }
 
@@ -899,6 +870,7 @@ struct BodyHomeView: View {
             let now = Date()
             // A generous window: the hero keeps only what overlaps the day its own clock
             // is on, so a Home left open across midnight still has tomorrow's workouts.
+            let badges = heroWarningBadges(lookup: lookup)
             let sleepSnapshot = workoutStore.healthSummary.sleep.stageSnapshot
             let workouts = workoutStore.workouts(
                 overlapping: DateInterval(start: now.addingTimeInterval(-2 * 86_400), end: now.addingTimeInterval(2 * 86_400))
@@ -916,13 +888,63 @@ struct BodyHomeView: View {
                     width: width,
                     showsCaption: dayRingShowsCaption,
                     mainSleepInterval: sleepSnapshot.mainSessionInterval,
+                    warningBadges: badges,
                     progress: progress,
                     pull: pull
                 )
+                // The same tap targets the Readiness Ring lays over its badges.
+                .overlayPreferenceValue(BodyReadinessHeroBadgeAnchorKey.self) { anchors in
+                    heroBadgeTapTargets(
+                        anchors: anchors,
+                        badges: badges,
+                        proxy: proxy,
+                        isTextVisible: BodyReadinessArcHero.isTextVisible(progress: progress, width: width)
+                    )
+                }
             }
         case nil:
             EmptyView()
         }
+    }
+
+    /// Real buttons laid over a hero's warning glyphs, shared by both heroes. They switch
+    /// off at the same threshold that fades the glyphs, so nothing invisible is tappable.
+    private func heroBadgeTapTargets(
+        anchors: [String: Anchor<CGRect>],
+        badges: [BodyReadinessHeroWarningBadge],
+        proxy: ScrollViewProxy,
+        isTextVisible: Bool
+    ) -> some View {
+        GeometryReader { geometry in
+            ForEach(Array(badges.enumerated()), id: \.element.id) { index, badge in
+                if let anchor = anchors[badge.id] {
+                    let frame = geometry[anchor]
+                    // The badge boxes sit flush against each other, so a tap
+                    // between two of them already lands on one. The misses are
+                    // off the ends of the row and off the top and bottom, so
+                    // that is where the target grows: outward only, never over
+                    // a neighbour's target.
+                    let leading: CGFloat = index == 0 ? 10 : 0
+                    let trailing: CGFloat = index == badges.count - 1 ? 10 : 0
+                    Button {
+                        revealHomeCard(badge.card, proxy: proxy)
+                    } label: {
+                        Color.clear.contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(verbatim: badge.accessibilityLabel))
+                    // Full height: a 28 pt-tall target is a mean thing to ask
+                    // a thumb for.
+                    .frame(
+                        width: frame.width + leading + trailing,
+                        height: max(frame.height, 44)
+                    )
+                    .position(x: frame.midX - leading / 2 + trailing / 2, y: frame.midY)
+                }
+            }
+        }
+        .allowsHitTesting(isTextVisible)
+        .accessibilityHidden(!isTextVisible)
     }
 
     /// The warning signs the hero mirrors from the grid. Reads the visible card order so
