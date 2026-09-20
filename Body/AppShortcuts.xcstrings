@@ -61,7 +61,11 @@
             "state" : "new",
             "values" : [
               "What's my readiness in ${applicationName}",
-              "How ready am I in ${applicationName}"
+              "How ready am I in ${applicationName}",
+              "What's my readiness score in ${applicationName}",
+              "How is my readiness in ${applicationName}",
+              "How is my readiness score in ${applicationName}",
+              "How's my readiness today in ${applicationName}"
             ]
           }
         }

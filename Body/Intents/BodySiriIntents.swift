@@ -54,6 +54,7 @@ private func metricEntity(_ metric: BodySiriMetric, _ answer: BodySiriAnswer, no
         metric: metric,
         valueText: answer.valueText,
         unit: answer.unit,
+        status: answer.statusText,
         asOf: answer.asOf,
         applicableDate: (answer.asOf ?? now).formatted(
             Date.FormatStyle(date: .complete, time: .omitted)
@@ -175,7 +176,11 @@ struct BodyAppShortcuts: AppShortcutsProvider {
             intent: GetReadinessIntent(),
             phrases: [
                 "What's my readiness in \(.applicationName)",
-                "How ready am I in \(.applicationName)"
+                "How ready am I in \(.applicationName)",
+                "What's my readiness score in \(.applicationName)",
+                "How is my readiness in \(.applicationName)",
+                "How is my readiness score in \(.applicationName)",
+                "How's my readiness today in \(.applicationName)"
             ],
             shortTitle: "Readiness",
             systemImageName: "bolt.heart"

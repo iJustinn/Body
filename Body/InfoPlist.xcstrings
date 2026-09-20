@@ -1,6 +1,9 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Body" : {
+
+    },
     "CFBundleDisplayName" : {
       "comment" : "Bundle display name",
       "localizations" : {

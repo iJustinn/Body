@@ -76,6 +76,8 @@ struct BodySiriAnswer: Equatable {
     var supporting: String
     var valueText: String?
     var unit: String?
+    /// The named band behind a score, e.g. readiness "High". Nil otherwise.
+    var statusText: String?
     var asOf: Date?
     var availability: BodySiriAvailability
     /// Named items behind the answer, e.g. the warning titles. Empty otherwise.
@@ -89,6 +91,7 @@ struct BodySiriAnswer: Equatable {
         supporting: String,
         valueText: String? = nil,
         unit: String? = nil,
+        statusText: String? = nil,
         asOf: Date? = nil,
         availability: BodySiriAvailability,
         items: [String] = [],
@@ -99,6 +102,7 @@ struct BodySiriAnswer: Equatable {
         self.supporting = supporting
         self.valueText = valueText
         self.unit = unit
+        self.statusText = statusText
         self.asOf = asOf
         self.availability = availability
         self.items = items
@@ -138,7 +142,7 @@ enum BodySiriAnswerBuilder {
         let scoreText = "\(score)"
         let statusTitle = summary.status.title
         var spoken = String(
-            localized: "Your readiness in Body is \(scoreText), \(statusTitle). \(summary.heroExplanation)"
+            localized: "Your readiness in Body is \(scoreText), \(statusTitle)."
         )
         if isStale {
             spoken += " " + String(localized: "That is as of \(timeText(asOf)).")
@@ -150,6 +154,7 @@ enum BodySiriAnswerBuilder {
             supporting: String(localized: "\(scoreText), \(statusTitle)."),
             valueText: scoreText,
             unit: readinessUnit,
+            statusText: statusTitle,
             asOf: asOf,
             availability: isStale ? .stale : .available
         )
@@ -224,20 +229,28 @@ enum BodySiriAnswerBuilder {
             calendar.isDate($0.endDate, inSameDayAs: bundle.now)
         }
 
+        // A warning can land after the last refresh, so an old snapshot says
+        // when it was taken instead of passing as the current state.
+        let isStale = bundle.now.timeIntervalSince(asOf) > staleInterval
+        let staleNote = " " + String(localized: "That is as of \(timeText(asOf)).")
+
         guard !events.isEmpty else {
-            let spoken = String(localized: "No warnings in Body's cached data for today.")
+            let supporting = String(localized: "No warnings in Body's cached data for today.")
             return BodySiriAnswer(
                 title: title,
-                spoken: spoken,
-                supporting: spoken,
+                spoken: isStale ? supporting + staleNote : supporting,
+                supporting: supporting,
                 asOf: asOf,
-                availability: .available
+                availability: isStale ? .stale : .available
             )
         }
 
         let names = events.map { warningTitle(for: $0.kind) }
         let list = listText(names)
-        let spoken = String(localized: "Body's cached data shows \(list) today.")
+        var spoken = String(localized: "Body's cached data shows \(list) today.")
+        if isStale {
+            spoken += staleNote
+        }
 
         return BodySiriAnswer(
             title: title,
@@ -245,7 +258,7 @@ enum BodySiriAnswerBuilder {
             supporting: list + ".",
             valueText: "\(events.count)",
             asOf: asOf,
-            availability: .available,
+            availability: isStale ? .stale : .available,
             items: names,
             count: events.count
         )

@@ -147,6 +147,7 @@ actor BodySiriIndexCoordinator {
             entity.id,
             entity.valueText ?? "",
             entity.unit ?? "",
+            entity.status ?? "",
             entity.applicableDate
         ].joined(separator: "|")
     }

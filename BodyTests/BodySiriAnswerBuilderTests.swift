@@ -123,7 +123,8 @@ final class BodySiriAnswerBuilderTests: XCTestCase {
         XCTAssertEqual(answer.unit, BodySiriAnswerBuilder.readinessUnit)
         XCTAssertTrue(answer.spoken.contains("82"))
         XCTAssertTrue(answer.spoken.contains(ReadinessStatus.high.title))
-        XCTAssertTrue(answer.spoken.contains(summary.heroExplanation))
+        XCTAssertFalse(answer.spoken.contains(summary.heroExplanation))
+        XCTAssertEqual(answer.statusText, ReadinessStatus.high.title)
         XCTAssertFalse(answer.spoken.contains("as of"))
     }
 
@@ -334,6 +335,21 @@ final class BodySiriAnswerBuilderTests: XCTestCase {
     }
 
     // MARK: - Warnings
+
+    func testWarningsFromAnOldSnapshotSayWhenItWasTaken() {
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(),
+            dashboardAsOf: date(2026, 9, 17, 2, 0),
+            now: date(2026, 9, 17, 13, 0)
+        )
+
+        let answer = BodySiriAnswerBuilder.warnings(bundle: bundle, calendar: calendar)
+
+        XCTAssertEqual(answer.availability, .stale)
+        XCTAssertTrue(answer.spoken.contains("No warnings in Body's cached data"))
+        XCTAssertTrue(answer.spoken.contains("as of"))
+        XCTAssertFalse(answer.supporting.contains("as of"))
+    }
 
     func testWarningsWithTodaysDashboardAndNoEventsIsAvailableAndEmpty() {
         let bundle = BodySiriSnapshotBundle(

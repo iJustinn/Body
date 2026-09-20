@@ -31,6 +31,11 @@ struct BodyHealthMetricEntity: AppEntity, IndexedEntity, Sendable {
     @Property(title: "Unit")
     var unit: String?
 
+    /// Today's band for a scored metric, so Siri reads the current status
+    /// from the entity instead of guessing it from older context.
+    @Property(title: "Status")
+    var status: String?
+
     @Property(title: "Measured")
     var asOf: Date?
 
@@ -43,6 +48,7 @@ struct BodyHealthMetricEntity: AppEntity, IndexedEntity, Sendable {
         metric: BodySiriMetric,
         valueText: String?,
         unit: String?,
+        status: String? = nil,
         asOf: Date?,
         applicableDate: String
     ) {
@@ -50,15 +56,19 @@ struct BodyHealthMetricEntity: AppEntity, IndexedEntity, Sendable {
         self.metric = metric
         self.valueText = valueText
         self.unit = unit
+        self.status = status
         self.asOf = asOf
         self.applicableDate = applicableDate
     }
 
-    /// "45 ms" or just "45" when the metric carries no unit.
+    /// "45 ms", just "45" when the metric carries no unit, or "82 %, High"
+    /// when the metric has a status.
     var readingText: String {
         guard let valueText, !valueText.isEmpty else { return "" }
-        guard let unit, !unit.isEmpty else { return valueText }
-        return "\(valueText) \(unit)"
+        var reading = valueText
+        if let unit, !unit.isEmpty { reading += " \(unit)" }
+        if let status, !status.isEmpty { reading += ", \(status)" }
+        return reading
     }
 
     var displayRepresentation: DisplayRepresentation {
@@ -99,6 +109,7 @@ struct BodyHealthMetricEntity: AppEntity, IndexedEntity, Sendable {
                 metric: metric,
                 valueText: answer.valueText,
                 unit: answer.unit,
+                status: answer.statusText,
                 asOf: answer.asOf,
                 applicableDate: longDateText(answer.asOf ?? bundle.now)
             )

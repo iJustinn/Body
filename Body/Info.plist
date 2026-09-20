@@ -7,6 +7,13 @@
 		<string>com.zihengthedeveloper.Body.warningRefresh</string>
 		<string>com.zihengthedeveloper.Body.dataRefresh</string>
 	</array>
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Body</string>
+		</dict>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
