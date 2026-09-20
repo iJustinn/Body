@@ -5018,13 +5018,13 @@ final class SourceGuardTests: XCTestCase {
         // One clock owns the whole hero, and no round caps stretch the time axis.
         XCTAssertEqual(hero.components(separatedBy: "TimelineView(.everyMinute)").count - 1, 1)
         // The rounded tips turn inside the bar's true ends rather than capping past them.
-        XCTAssertTrue(hero.contains("let startDistance = CGFloat(middle - half) * layout.trackLength + corner"))
+        XCTAssertTrue(hero.contains("let startDistance = distance(fraction: middle - half) + corner"))
         // It rides the Readiness Ring's track and pin, so it flattens and holds the same way.
         XCTAssertTrue(hero.contains("Geometry.track(progress: progress, width: width, stretch: stretch, trailingStretch: trailingStretch)"))
         let home = try BodyTestSupport.sourceText(at: "Body/Views/BodyHomeView.swift")
         XCTAssertTrue(home.contains("flatBarBottom: BodyDayRingGeometry.flatBarBottom"))
         XCTAssertTrue(home.contains("gridContentY - heroContentY - (flatBarBottom + BodyReadinessArcGeometry.heldGridGap)"))
-        XCTAssertTrue(hero.contains("let overrun = Geometry.dialOverrun * (1 - progress)"))
+        XCTAssertTrue(hero.contains("let overrun = Geometry.dialOverrun / (1 - 2 * track.axisInset)"))
         XCTAssertTrue(hero.contains("Image(systemName: symbolName(for: span.activity))"))
         // The Readiness Ring's warning signs: the shared row, its tap targets, and the
         // same lift for the caption and drop without badges.
@@ -5036,8 +5036,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(home.contains("- (flatBarBottom - (BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2))"))
         // Both bars wear the Readiness Ring's glass: translucent fill, highlight, rim.
         XCTAssertTrue(hero.contains("Color.white.opacity(0.18 * (1 - progress))"))
-        XCTAssertTrue(hero.contains("graphics.stroke(shape, with: .color(Color.primary.opacity(0.15)), lineWidth: 1)"))
-        XCTAssertTrue(hero.contains("track.line(from: -overrun, to: 1 + overrun, offset: dialLane)"))
+        XCTAssertTrue(hero.contains("graphics.stroke(shape, with: .color(rim), lineWidth: 1)"))
+        XCTAssertTrue(hero.contains("track.segmentPath(range: -overrun...(1 + overrun)"))
         XCTAssertTrue(hero.contains("Text(\"Today passed\")"))
         // The Readiness Ring's pull bounce, and its glow colored for the part of the day.
         XCTAssertTrue(hero.contains("Animation.interpolatingSpring(mass: 1, stiffness: 220, damping: 7)"))

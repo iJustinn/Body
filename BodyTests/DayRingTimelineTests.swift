@@ -222,13 +222,10 @@ final class DayRingTimelineTests: XCTestCase {
     }
 
     func testTheBarsKeepTheReadinessRingsFootprintAndRoundedTipsStayInsideTrueTimes() {
-        // Outer thick, inner thin, and the outer edge lands on the Readiness Ring's.
-        XCTAssertGreaterThan(BodyDayRingGeometry.outerBarWidth, BodyDayRingGeometry.innerBarWidth)
-        XCTAssertEqual(
-            BodyDayRingGeometry.outerLaneOffset + BodyDayRingGeometry.outerBarWidth / 2,
-            BodyReadinessArcGeometry.arcBarWidth / 2,
-            accuracy: 1e-9
-        )
+        // One merged bar, about 1.1 times the Readiness Ring's, on the track's centerline.
+        XCTAssertEqual(BodyDayRingGeometry.outerBarWidth, BodyDayRingGeometry.innerBarWidth)
+        XCTAssertEqual(BodyDayRingGeometry.outerBarWidth, BodyReadinessArcGeometry.arcBarWidth * 1.1, accuracy: 1e-9)
+        XCTAssertEqual(BodyDayRingGeometry.outerLaneOffset, BodyDayRingGeometry.innerLaneOffset)
 
         for width: CGFloat in [288, 361, 398] {
             // A span ending at 0.5 ends at the top of the ring: filled just left of
@@ -249,7 +246,6 @@ final class DayRingTimelineTests: XCTestCase {
         // Flat: every point of a lane shares one height, the outer lane above the inner.
         let outerYs = [0.0, 0.3, 0.7, 1.0].map { flat.point(fraction: $0, offset: BodyDayRingGeometry.outerLaneOffset).y }
         XCTAssertEqual(outerYs.max()! - outerYs.min()!, 0, accuracy: 0.01)
-        XCTAssertLessThan(outerYs[0], flat.point(fraction: 0, offset: BodyDayRingGeometry.innerLaneOffset).y)
         XCTAssertEqual(flat.scale, BodyReadinessArcGeometry.flatBarWidth / BodyReadinessArcGeometry.arcBarWidth, accuracy: 1e-9)
         // The pin holds the cards off the lower bar's bottom edge, and the flat pair with
         // its round caps stays inside the hero's width.
@@ -258,6 +254,22 @@ final class DayRingTimelineTests: XCTestCase {
         XCTAssertGreaterThan(BodyDayRingGeometry.flatBarBottom, BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2)
         XCTAssertGreaterThanOrEqual(flat.point(fraction: 0, offset: 0).x - BodyDayRingGeometry.outerBarWidth * flat.scale / 2, 0)
         XCTAssertLessThanOrEqual(flat.point(fraction: 1, offset: 0).x + BodyDayRingGeometry.outerBarWidth * flat.scale / 2, width)
+        // The canvas reaches below the hero far enough for the dial's overrun and round
+        // tip even pulled fully open, when the ends ride furthest down the sides.
+        for width: CGFloat in [288, 361, 408, 440] {
+            let arc = BodyDayRingGeometry.track(width: width, stretch: BodyReadinessArcGeometry.maxPullStretch)
+            let end = arc.point(fraction: 1 + BodyDayRingGeometry.dialOverrun, offset: 0)
+            XCTAssertLessThan(
+                end.y + BodyDayRingGeometry.outerBarWidth / 2 + 1,
+                BodyReadinessArcGeometry.heroHeight(width: width) + BodyDayRingGeometry.canvasOverhang
+            )
+        }
+        // Flat, the day moves in from the track's ends so both midnight ticks sit inside
+        // the bar's round tips rather than on its very edge.
+        XCTAssertEqual(flat.axisInset, BodyDayRingGeometry.dialOverrun, accuracy: 1e-12)
+        XCTAssertGreaterThan(flat.point(fraction: 0, offset: 0).x, flat.layout.point(atDistance: 0).x + 4)
+        XCTAssertLessThan(flat.point(fraction: 1, offset: 0).x, flat.layout.point(atDistance: flat.layout.trackLength).x - 4)
+        XCTAssertEqual(BodyDayRingGeometry.track(width: width).axisInset, 0)
         // Midnight to midnight still runs left to right.
         XCTAssertLessThan(flat.point(fraction: 0, offset: 0).x, flat.point(fraction: 1, offset: 0).x)
     }

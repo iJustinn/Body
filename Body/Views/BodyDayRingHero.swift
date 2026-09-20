@@ -5,11 +5,10 @@ import SwiftUI
 enum BodyDayRingGeometry {
     private typealias Arc = BodyReadinessArcGeometry
 
-    /// The activity bar is the thick one and the dial the thin one; together with the
-    /// gap they are about 1.5 times the Readiness Ring's bar.
-    static let outerBarWidth: CGFloat = Arc.arcBarWidth * 0.9
-    static let innerBarWidth: CGFloat = Arc.arcBarWidth * 0.5
-    static let barGap: CGFloat = 3
+    /// The dial and the activity bars share one bar, about 1.1 times the Readiness
+    /// Ring's: the activities are laid over the dial they are timed against.
+    static let outerBarWidth: CGFloat = Arc.arcBarWidth * 1.1
+    static let innerBarWidth: CGFloat = outerBarWidth
     /// A span shorter than this along the ring draws as a bar this long instead: long
     /// enough that even the shortest activity holds its icon.
     static let minimumSegmentLength: CGFloat = outerBarWidth * 1.2
@@ -22,7 +21,12 @@ enum BodyDayRingGeometry {
     /// How far the dial runs on past each midnight, as a share of the day, so the two
     /// midnight marks sit inside the bar rather than on its tips.
     static let dialOverrun: Double = 0.025
-    static let canvasOverhang: CGFloat = 24
+    /// Canvas room below the hero's height for that overrun and the bar's round tips,
+    /// pulled open included; short of it the canvas cuts the ends off square.
+    static let canvasOverhang: CGFloat = 96
+    /// Canvas room past either side of the hero: midway through the flatten the ends
+    /// swing out wider than the hero before they settle into the flat bar.
+    static let canvasSideOverhang: CGFloat = 16
 
     /// The bottom of the flattened pair: the inner dial hangs below the track's
     /// centerline, so the pin holds the cards off this rather than off the Readiness
@@ -32,10 +36,15 @@ enum BodyDayRingGeometry {
         return Arc.flatY + (innerBarWidth / 2 - innerLaneOffset) * scale
     }
 
-    /// The outer bar's center, out from the track's centerline: its outer edge lands on
-    /// the Readiness Ring's outer edge, so the hero keeps that footprint.
-    static let outerLaneOffset: CGFloat = Arc.arcBarWidth / 2 - outerBarWidth / 2
-    static let innerLaneOffset: CGFloat = outerLaneOffset - outerBarWidth / 2 - barGap - innerBarWidth / 2
+    /// Both ride the track's own centerline.
+    static let outerLaneOffset: CGFloat = 0
+    static let innerLaneOffset: CGFloat = 0
+    /// An activity bar is this much thinner than the dial it lies on, as the Readiness
+    /// Ring's pill is thinner than its band.
+    static let segmentThicknessInset: CGFloat = 4
+    /// How far the now line reaches past either edge of the bar.
+    static let nowLineOverhang: CGFloat = 3
+    static let nowLineWidth: CGFloat = 7
 
     /// The Readiness Ring's bubble: pulled, a bar draws out thinner, and squeezed on the
     /// rebound it presses fatter.
@@ -56,12 +65,25 @@ enum BodyDayRingGeometry {
     /// stretch, with the day laid along its whole length.
     struct Track {
         let layout: BodyReadinessArcGeometry.Layout
+        /// The share of the track at each end kept for the dial's run past midnight.
+        /// Curved, the dial simply runs on past the track's ends; flat, the track already
+        /// spans the hero's width, so the day moves in by the overrun instead and both
+        /// midnight ticks stay inside the bar.
+        var axisInset: Double = 0
+
+        /// Where a day fraction sits along the track.
+        func distance(fraction: Double) -> CGFloat {
+            CGFloat(axisInset + fraction * (1 - 2 * axisInset)) * layout.trackLength
+        }
+
+        /// The day's own length along the track.
+        var dayLength: CGFloat { CGFloat(1 - 2 * axisInset) * layout.trackLength }
         /// The bars and their lanes shrink with the track's own bar as it flattens.
         var scale: CGFloat { layout.barWidth / BodyReadinessArcGeometry.arcBarWidth }
 
         func point(fraction: Double, offset: CGFloat) -> CGPoint {
             // Not clamped: the dial runs a little past either midnight along the same bend.
-            let distance = CGFloat(fraction) * layout.trackLength
+            let distance = distance(fraction: fraction)
             let center = layout.point(atDistance: distance)
             let normal = layout.normal(atDistance: distance)
             return CGPoint(x: center.x + normal.dx * offset * scale, y: center.y + normal.dy * offset * scale)
@@ -88,15 +110,15 @@ enum BodyDayRingGeometry {
         /// the tips inside its true times rather than added past them as round caps,
         /// which at this bar width would put most of an hour on each end. Returned as a
         /// one outline, so the glass fill and its rim are painted once.
-        func segmentPath(range: ClosedRange<Double>, stretch: CGFloat = 0, samples: Int = 32) -> Path {
+        func segmentPath(range: ClosedRange<Double>, stretch: CGFloat = 0, thicknessInset: CGFloat = 0, samples: Int = 32) -> Path {
             guard layout.trackLength > 0 else { return Path() }
-            let bar = BodyDayRingGeometry.outerBarWidth * scale * BodyDayRingGeometry.barScale(stretch: stretch)
+            let bar = (BodyDayRingGeometry.outerBarWidth - thicknessInset) * scale * BodyDayRingGeometry.barScale(stretch: stretch)
             let middle = (range.lowerBound + range.upperBound) / 2
             let half = (range.upperBound - range.lowerBound) / 2 * BodyDayRingGeometry.lengthScale(stretch: stretch)
-            let corner = min(bar / 2, CGFloat(half) * layout.trackLength)
+            let corner = min(bar / 2, CGFloat(half) * dayLength)
             let lane = BodyDayRingGeometry.outerLaneOffset * scale
-            let startDistance = CGFloat(middle - half) * layout.trackLength + corner
-            let endDistance = CGFloat(middle + half) * layout.trackLength - corner
+            let startDistance = distance(fraction: middle - half) + corner
+            let endDistance = distance(fraction: middle + half) - corner
             let flat = bar / 2 - corner
             var points: [CGPoint] = []
 
@@ -146,7 +168,10 @@ enum BodyDayRingGeometry {
     }
 
     static func track(progress: Double = 0, width: CGFloat, stretch: CGFloat = 0, trailingStretch: CGFloat? = nil) -> Track {
-        Track(layout: Arc.layout(progress: progress, width: width, stretch: stretch, trailingStretch: trailingStretch))
+        Track(
+            layout: Arc.layout(progress: progress, width: width, stretch: stretch, trailingStretch: trailingStretch),
+            axisInset: dialOverrun * min(max(progress, 0), 1)
+        )
     }
 
     /// The day fractions a span is drawn between: its true extent, a hairline short of
@@ -232,6 +257,11 @@ struct BodyDayRingHero: View {
     /// Off until the hero is on screen, so the now line sweeps in from midnight and the
     /// number counts up from zero, as the Readiness Ring's pill and score do.
     @State private var hasAppeared = false
+    /// How far short of now the pointer's sweep in stops, as a share of the day. A loose
+    /// spring then carries it the rest of the way, so it runs a little past now, comes
+    /// back, and swings a few more times before it lands.
+    @State private var landingShortfall = Self.landingRunUp
+    private static let landingRunUp: Double = 0.03
 
     var body: some View {
         // One clock for the whole hero: the day, ticks, spans, marker, number and the
@@ -264,6 +294,11 @@ struct BodyDayRingHero: View {
                 }
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: spans.map(\.element.fadeID))
 
+                // A frozen preview and Reduce Motion show the pointer already landed.
+                let shortfall = (reduceMotion || previewDate != nil) ? 0 : landingShortfall
+                trackView(.now, timeline: timeline, nowFraction: max(nowFraction - shortfall, 0))
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.53), value: nowFraction)
+
                 let textOpacity = BodyReadinessArcGeometry.textOpacity(progress: min(max(progress, 0), 1), width: width)
                 ZStack(alignment: .topLeading) {
                     centerText(percent: percent)
@@ -282,6 +317,21 @@ struct BodyDayRingHero: View {
         }
         .onAppear {
             hasAppeared = true
+            guard !reduceMotion, previewDate == nil else {
+                // No entrance to play, so nothing may be left to hold the pointer back
+                // if Reduce Motion is turned off while the hero stays on screen.
+                landingShortfall = 0
+                return
+            }
+            // Takes over as the sweep runs out: underdamped, so the landing bounces. It
+            // starts in a later update than the sweep, or the sweep's own animation
+            // would claim this change too and the pointer would land without a bounce.
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.33))
+                withAnimation(.interpolatingSpring(mass: 1, stiffness: 202.5, damping: 6.75)) {
+                    landingShortfall = 0
+                }
+            }
         }
         .onChange(of: pull) { oldPull, newPull in
             followPull(from: oldPull, to: newPull)
@@ -409,6 +459,8 @@ private struct BodyDayRingTrackView: View, Animatable {
     enum Layer {
         case dial
         case span(Int)
+        /// The now line, over the activity bars.
+        case now
     }
 
     let layer: Layer
@@ -433,10 +485,19 @@ private struct BodyDayRingTrackView: View, Animatable {
 
     var body: some View {
         Canvas { graphics, _ in
+            var graphics = graphics
+            graphics.translateBy(x: Geometry.canvasSideOverhang, y: 0)
             draw(in: &graphics)
         }
         // Room below the hero's own height for the dial's overrun past midnight.
-        .frame(width: width, height: BodyReadinessArcGeometry.heroHeight(width: width) + Geometry.canvasOverhang, alignment: .topLeading)
+        .frame(
+            width: width + 2 * Geometry.canvasSideOverhang,
+            height: BodyReadinessArcGeometry.heroHeight(width: width) + Geometry.canvasOverhang,
+            alignment: .topLeading
+        )
+        .offset(x: -Geometry.canvasSideOverhang)
+        // The overhang lies over the first card row; it must never take its taps.
+        .allowsHitTesting(false)
     }
 
     /// The stretch at a point of the day: the middle leads and the ends trail.
@@ -452,6 +513,13 @@ private struct BodyDayRingTrackView: View, Animatable {
             drawDial(on: track, in: &graphics)
         case .span(let index):
             drawSpan(at: index, on: track, in: &graphics)
+        case .now:
+            // Now is a line across the bar, thicker than any tick and a little taller than the bar.
+            let bar = Geometry.innerBarWidth * Geometry.barScale(stretch: Geometry.clampedStretch(stretch))
+            // A glass capsule like the bars it crosses: translucent fill, highlight, rim.
+            let pointer = track.mark(fraction: nowFraction, offset: Geometry.innerLaneOffset, reach: bar / 2 + Geometry.nowLineOverhang)
+                .strokedPath(StrokeStyle(lineWidth: Geometry.nowLineWidth, lineCap: .round))
+            drawGlass(pointer, fill: Color.primary.opacity(0.45), rim: Color.primary.opacity(0.55), in: &graphics)
         }
     }
 
@@ -462,30 +530,25 @@ private struct BodyDayRingTrackView: View, Animatable {
 
         // The dial runs on a little past either midnight; that overrun and its round
         // caps are decoration, not part of the time axis.
-        // Flat, the track already spans the hero's width, so the overrun folds away with
-        // the morph instead of running off the hero's ends.
-        let overrun = Geometry.dialOverrun * (1 - progress)
-        let dial = track.line(from: -overrun, to: 1 + overrun, offset: dialLane)
-            .strokedPath(StrokeStyle(lineWidth: dialBar, lineCap: .round, lineJoin: .round))
+        // In day fractions: curved it runs past the track's ends, flat it fills the ends the
+        // day has moved in from, and between the two it does some of each.
+        let overrun = Geometry.dialOverrun / (1 - 2 * track.axisInset)
+        // One outline, like the activity bars, so the rim never traces a stroke's facets.
+        let dial = track.segmentPath(range: -overrun...(1 + overrun), stretch: Geometry.clampedStretch(stretch), samples: 96)
         drawGlass(dial, fill: Color.primary.opacity(0.10), in: &graphics)
 
         // The next midnight closes the dial with the same mark the first one opens it with.
         let ticks = timeline.hourTicks + [DayRingTimeline.HourTick(hour: 0, fraction: 1)]
         for tick in ticks where tick.hour % 3 == 0 {
             let isMajor = tick.hour % 6 == 0
+            // Every tick is centered across the bar, the key hours the longer ones.
+            let reach = dialBar / track.scale * (isMajor ? 0.3 : 0.18)
             graphics.stroke(
-                track.mark(fraction: tick.fraction, offset: dialLane, reach: dialBar / track.scale * (isMajor ? 0.32 : 0.18)),
+                track.mark(fraction: tick.fraction, offset: dialLane, reach: reach),
                 with: .color(Color.primary.opacity(isMajor ? 0.7 : 0.4)),
                 style: StrokeStyle(lineWidth: isMajor ? 2 : 1.5, lineCap: .round)
             )
         }
-
-        // Now is a line across the dial, thicker than any tick and the full bar tall.
-        graphics.stroke(
-            track.mark(fraction: nowFraction, offset: dialLane, reach: dialBar / track.scale / 2),
-            with: .color(.primary),
-            style: StrokeStyle(lineWidth: 4, lineCap: .round)
-        )
     }
 
     private func drawSpan(at index: Int, on track: Geometry.Track, in graphics: inout GraphicsContext) {
@@ -496,14 +559,18 @@ private struct BodyDayRingTrackView: View, Animatable {
                 for: span,
                 previous: index > 0 ? timeline.spans[index - 1] : nil,
                 next: index + 1 < timeline.spans.count ? timeline.spans[index + 1] : nil,
-                trackLength: track.layout.trackLength
+                trackLength: track.dayLength
             )
-            let segment = track.segmentPath(range: range, stretch: stretch(at: (range.lowerBound + range.upperBound) / 2))
+            let segment = track.segmentPath(
+                range: range,
+                stretch: stretch(at: (range.lowerBound + range.upperBound) / 2),
+                thicknessInset: Geometry.segmentThicknessInset
+            )
             drawGlass(segment, fill: color(for: span.activity).opacity(0.34), in: &graphics)
 
             // Names the bar with its icon wherever the bar is long enough to hold one.
             let bar = Geometry.outerBarWidth * track.scale
-            let length = CGFloat(range.upperBound - range.lowerBound) * track.layout.trackLength
+            let length = CGFloat(range.upperBound - range.lowerBound) * track.dayLength
             if length >= bar * Geometry.iconMinimumLengthRatio {
                 var icon = graphics.resolve(
                     Image(systemName: symbolName(for: span.activity))
@@ -514,7 +581,7 @@ private struct BodyDayRingTrackView: View, Animatable {
                 let side = bar * Geometry.iconSizeRatio
                 let middleFraction = (range.lowerBound + range.upperBound) / 2
                 let middle = track.point(fraction: middleFraction, offset: Geometry.outerLaneOffset)
-                let tangent = track.layout.tangent(atDistance: CGFloat(middleFraction) * track.layout.trackLength)
+                let tangent = track.layout.tangent(atDistance: track.distance(fraction: middleFraction))
                 let size = icon.size
                 let fit = side / max(size.width, size.height, 1)
                 // Stands on the ring, its top pointing outward, rather than straight up
@@ -534,7 +601,7 @@ private struct BodyDayRingTrackView: View, Animatable {
 
     /// The Readiness Ring's band look: a translucent fill, a soft top highlight that
     /// fades as the ring flattens over the cards, and a one point rim.
-    private func drawGlass(_ shape: Path, fill: Color, in graphics: inout GraphicsContext) {
+    private func drawGlass(_ shape: Path, fill: Color, rim: Color = Color.primary.opacity(0.15), in graphics: inout GraphicsContext) {
         graphics.fill(shape, with: .color(fill))
         let bounds = shape.boundingRect
         var highlight = graphics
@@ -547,7 +614,7 @@ private struct BodyDayRingTrackView: View, Animatable {
                 endPoint: CGPoint(x: bounds.midX, y: bounds.maxY)
             )
         )
-        graphics.stroke(shape, with: .color(Color.primary.opacity(0.15)), lineWidth: 1)
+        graphics.stroke(shape, with: .color(rim), lineWidth: 1)
     }
 
     private func symbolName(for activity: DayRingTimeline.Activity) -> String {
