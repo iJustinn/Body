@@ -1316,7 +1316,7 @@ final class SourceGuardTests: XCTestCase {
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
         XCTAssertTrue(settingsSource.contains("case metricWarnings"))
         let warningsRowRange = try XCTUnwrap(settingsSource.range(of: "title: \"Warnings\""))
-        let starMetricRowRange = try XCTUnwrap(settingsSource.range(of: "title: \"Star Metric\""))
+        let starMetricRowRange = try XCTUnwrap(settingsSource.range(of: "title: \"Home Hero\""))
         XCTAssertLessThan(warningsRowRange.lowerBound, starMetricRowRange.lowerBound)
     }
 
@@ -3350,7 +3350,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 4)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 4)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 3)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 1)**"))
@@ -3498,6 +3499,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 5)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 5."))
         XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 4)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 4."))
         XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 3)"))
@@ -4995,6 +4998,48 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(metricSource.contains("text.filter(\\.isNumber).count >= 3 ? compact : base"))
         XCTAssertEqual(metricSource.components(separatedBy: "valueFontScale: complicationRingFontScale(for:").count - 1, 2)
         XCTAssertTrue(readinessSource.contains("complicationRingFontScale(for:"))
+    }
+
+    func testDayRingStarMetricSettingsAndRefreshWiring() throws {
+        let settings = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
+        let store = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let hero = try BodyTestSupport.sourceText(at: "Body/Views/BodyDayRingHero.swift")
+
+        // The caption toggle shows only while the Day Ring is the pinned hero.
+        XCTAssertTrue(settings.contains("if card == .dayRing, selection == .dayRing {"))
+        XCTAssertTrue(settings.contains("title: \"Day Caption\""))
+        // Picking it must start a fetch: the Day Ring adds sleep to the fetch selection.
+        XCTAssertTrue(settings.contains(".onChange(of: starredMetricRawValue) {"))
+        XCTAssertTrue(settings.contains("await workoutStore.refetchAfterStarMetricChange()"))
+        XCTAssertTrue(store.contains("func refetchAfterStarMetricChange() async {"))
+        // One clock owns the whole hero, and no round caps stretch the time axis.
+        XCTAssertEqual(hero.components(separatedBy: "TimelineView(.everyMinute)").count - 1, 1)
+        // The rounded tips turn inside the bar's true ends rather than capping past them.
+        XCTAssertTrue(hero.contains("let startDistance = CGFloat(middle - half) * layout.trackLength + corner"))
+        // It rides the Readiness Ring's track and pin, so it flattens and holds the same way.
+        XCTAssertTrue(hero.contains("Geometry.track(progress: progress, width: width, stretch: stretch, trailingStretch: trailingStretch)"))
+        let home = try BodyTestSupport.sourceText(at: "Body/Views/BodyHomeView.swift")
+        XCTAssertTrue(home.contains("flatBarBottom: BodyDayRingGeometry.flatBarBottom"))
+        XCTAssertTrue(home.contains("gridContentY - heroContentY - (flatBarBottom + BodyReadinessArcGeometry.heldGridGap)"))
+        XCTAssertTrue(hero.contains("let overrun = Geometry.dialOverrun * (1 - progress)"))
+        XCTAssertTrue(hero.contains("Image(systemName: symbolName(for: span.activity))"))
+        XCTAssertTrue(hero.contains("turned.rotate(by: .radians(Double(atan2(tangent.dy, tangent.dx))))"))
+        XCTAssertTrue(home.contains("- (flatBarBottom - (BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2))"))
+        // Both bars wear the Readiness Ring's glass: translucent fill, highlight, rim.
+        XCTAssertTrue(hero.contains("Color.white.opacity(0.18 * (1 - progress))"))
+        XCTAssertTrue(hero.contains("graphics.stroke(shape, with: .color(Color.primary.opacity(0.15)), lineWidth: 1)"))
+        XCTAssertTrue(hero.contains("track.line(from: -overrun, to: 1 + overrun, offset: dialLane)"))
+        XCTAssertTrue(hero.contains("Text(\"Today passed\")"))
+        // The Readiness Ring's pull bounce, and its glow colored for the part of the day.
+        XCTAssertTrue(hero.contains("Animation.interpolatingSpring(mass: 1, stiffness: 220, damping: 7)"))
+        XCTAssertTrue(hero.contains("var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, Double>"))
+        // The now line glides and the number flips, and both dial ends carry a midnight mark.
+        XCTAssertTrue(hero.contains(".animation(reduceMotion ? nil : .smooth(duration: 0.8), value: nowFraction)"))
+        XCTAssertTrue(hero.contains(".numericText(value: Double(percent))"))
+        XCTAssertTrue(hero.contains("timeline.hourTicks + [DayRingTimeline.HourTick(hour: 0, fraction: 1)]"))
+        let background = try BodyTestSupport.sourceText(at: "Body/Views/BodyTabBackground.swift")
+        XCTAssertTrue(background.contains("} else if starMetric == .dayRing {"))
+        XCTAssertTrue(background.contains("tint: part.glowColor,"))
     }
 
     func testWatchReadinessHeroLevelFollowsThePhoneSwitch() throws {

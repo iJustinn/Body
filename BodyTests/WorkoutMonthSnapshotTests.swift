@@ -2929,13 +2929,28 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     }
 
     func testStarredMetricParsingHonorsEligibility() {
-        XCTAssertEqual(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.readiness.rawValue), .readiness)
-        XCTAssertNil(BodyHomeCardKind.starredMetric(from: ""))
-        XCTAssertNil(BodyHomeCardKind.starredMetric(from: "not-a-kind"))
-        // Real card kinds that aren't star-eligible must not parse as a star metric
-        // (Readiness is currently the only eligible metric).
-        XCTAssertNil(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.activityRings.rawValue))
-        XCTAssertNil(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.sleep.rawValue))
+        // `readiness` keeps the raw value stored while the star was a home card kind.
+        XCTAssertEqual(BodyStarMetric.from(rawValue: BodyHomeCardKind.readiness.rawValue), .readiness)
+        XCTAssertEqual(BodyStarMetric.from(rawValue: "dayRing"), .dayRing)
+        XCTAssertNil(BodyStarMetric.from(rawValue: ""))
+        XCTAssertNil(BodyStarMetric.from(rawValue: "not-a-kind"))
+        // Real card kinds without a hero must not parse as a home hero.
+        XCTAssertNil(BodyStarMetric.from(rawValue: BodyHomeCardKind.activityRings.rawValue))
+        XCTAssertNil(BodyStarMetric.from(rawValue: BodyHomeCardKind.sleep.rawValue))
+        XCTAssertEqual(BodyStarMetric.readiness.homeCard, .readiness)
+        XCTAssertNil(BodyStarMetric.dayRing.homeCard)
+    }
+
+    func testDashboardFetchSelectionStarredDayRingRequestsSleepAlone() {
+        let cards = BodySummaryCardSelection(selectedCards: [.steps])
+        let trends = BodyHomeTrendCardSelection(selectedCards: [])
+        let dayRing = BodyDashboardFetchSelection(summaryCards: cards, trendCards: trends, starredMetric: .dayRing)
+        let none = BodyDashboardFetchSelection(summaryCards: cards, trendCards: trends, starredMetric: nil)
+
+        XCTAssertTrue(dayRing.includes(.sleep))
+        XCTAssertFalse(dayRing.includes(.readiness))
+        XCTAssertFalse(none.includes(.sleep))
+        XCTAssertNotEqual(dayRing, none)
     }
 
     func testDashboardFetchSelectionIncludesVisibleSummaryAndTrendCards() {
@@ -2979,7 +2994,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(BodyHomeCardKind.readiness.isBeta)
         XCTAssertTrue(BodyHomeCardKind.bodyRadar.isBeta)
         XCTAssertEqual(BodyHomeCardKind.bodyRadar.betaVersionLabel, "Beta v2")
-        XCTAssertFalse(BodyHomeCardKind.starEligible.contains(.vitals))
+        XCTAssertNil(BodyStarMetric.from(rawValue: BodyHomeCardKind.vitals.rawValue))
     }
 
     /// A metric detail page's About card reads its chip from the summary card that
