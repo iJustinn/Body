@@ -21,7 +21,7 @@ struct BodySettingsView: View {
     // Observed here (its toggle lives in a sub-view sharing this key) so a change
     // re-publishes the phone-owned watch prefs immediately.
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
-    // Same: toggled in the Star Metric sheet, mirrored by the watch hero.
+    // Same: toggled in the Home Hero sheet, mirrored by the watch hero.
     @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
     @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
     @AppStorage(BodyAppearancePreference.showsLeadingTrailingAwakeSleepStagesKey) private var showsLeadingTrailingAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsLeadingTrailingAwakeStages
@@ -141,6 +141,13 @@ struct BodySettingsView: View {
             .onChange(of: showsLeadingTrailingAwakeSleepStages) {
                 Task {
                     await workoutStore.refetchAfterSleepDisplayPreferenceChange()
+                }
+            }
+            // The Day Ring needs sleep fetched even with the Sleep card hidden, so a
+            // new star choice goes through the store's context change.
+            .onChange(of: starredMetricRawValue) {
+                Task {
+                    await workoutStore.refetchAfterStarMetricChange()
                 }
             }
             // Republish both companion snapshots (widget + watch) when a
@@ -510,7 +517,7 @@ struct BodySettingsView: View {
                 activeSheet = .starMetric
             } label: {
                 BodySettingsRowLabel(
-                    title: "Star Metric",
+                    title: "Home Hero",
                     value: starredMetricSummaryText,
                     iconName: "star.fill",
                     tintColor: Color(red: 1.0, green: 0.84, blue: 0.0),
@@ -632,16 +639,16 @@ struct BodySettingsView: View {
         }
     }
 
-    private var starredMetric: Binding<BodyHomeCardKind?> {
+    private var starredMetric: Binding<BodyStarMetric?> {
         Binding {
-            BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
+            BodyStarMetric.from(rawValue: starredMetricRawValue)
         } set: { newValue in
             starredMetricRawValue = newValue?.rawValue ?? ""
         }
     }
 
     private var starredMetricSummaryText: String {
-        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.starMetricTitle ?? String(localized: "None")
+        BodyStarMetric.from(rawValue: starredMetricRawValue)?.title ?? String(localized: "None")
     }
 
     // When the background is on, the row names the matching saved profile so the
@@ -1644,11 +1651,12 @@ private struct BodySummaryCardsSettingsSheet: View {
 }
 
 private struct BodyStarMetricPickerSheet: View {
-    @Binding var selection: BodyHomeCardKind?
+    @Binding var selection: BodyStarMetric?
     @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
+    @AppStorage(BodyAppearancePreference.dayRingShowsCaptionKey) private var dayRingShowsCaption = true
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Star Metric") {
+        BodySettingsAboutSheetScaffold(title: "Home Hero") {
             VStack(spacing: 0) {
                 BodyStarMetricOptionRow(
                     title: String(localized: "None"),
@@ -1660,12 +1668,12 @@ private struct BodyStarMetricPickerSheet: View {
                     selection = nil
                 }
 
-                ForEach(BodyHomeCardKind.starEligible) { card in
+                ForEach(BodyStarMetric.allCases) { card in
                     Divider()
                         .padding(.leading, 76)
 
                     BodyStarMetricOptionRow(
-                        title: card.starMetricTitle,
+                        title: card.title,
                         subtitle: card.subtitle,
                         iconName: card.iconName,
                         tintColor: card.tintColor,
@@ -1680,6 +1688,13 @@ private struct BodyStarMetricPickerSheet: View {
                             title: "Readiness Level",
                             subtitle: "Show today's level under the score",
                             isEnabled: $readinessHeroShowsLevel
+                        )
+                    }
+                    if card == .dayRing, selection == .dayRing {
+                        BodyStarMetricSubOptionToggleRow(
+                            title: "Day Caption",
+                            subtitle: "Show a caption under the number",
+                            isEnabled: $dayRingShowsCaption
                         )
                     }
                 }
@@ -2914,7 +2929,7 @@ private struct BodyWorkoutColorWheel: View {
     }
 }
 
-/// An option of the Star Metric row directly above it: no divider or icon tile, indented
+/// An option of the Home Hero row directly above it: no divider or icon tile, indented
 /// to that row's title and set in smaller type, so it reads as part of the metric rather
 /// than as another metric to pick.
 private struct BodyStarMetricSubOptionToggleRow: View {
@@ -3464,7 +3479,7 @@ private struct BodyVibrationSettingsSheet: View {
                 .padding(.top, 8)
 
                 vibrationFootnote(
-                    "Applies in Settings when you pick a unit, a Star Metric, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it."
+                    "Applies in Settings when you pick a unit, a Home Hero, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it."
                 )
     }
 

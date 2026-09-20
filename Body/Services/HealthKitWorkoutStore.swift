@@ -4175,6 +4175,21 @@ final class HealthKitWorkoutStore {
         await persistContextChange()
     }
 
+    /// Refetches after the Home Hero choice changes what the dashboard fetches (the
+    /// Day Ring adds sleep). An unchanged fetch selection captures equal inputs.
+    func refetchAfterStarMetricChange() async {
+        _ = captureRefreshInputs(intent: .userInitiated)
+        await persistContextChange()
+    }
+
+    /// Cached workouts whose real timestamps overlap `interval`, whichever day or month
+    /// they were bucketed under (a workout is bucketed by its start, sometimes in the
+    /// zone it was recorded in).
+    func workouts(overlapping interval: DateInterval) -> [WorkoutSummary] {
+        monthSnapshots.values.flatMap(\.days).flatMap(\.workouts)
+            .filter { $0.startDate < interval.end && $0.effectiveEndDate > interval.start }
+    }
+
     func updateDefaultSecondaryHealthDataSource(option: BodyHealthDataSourceOption) async {
         let nextOption = option.id == healthDataSourceSelection.defaultOption.id ? .noComparison : option
         let nextSelection = secondaryHealthDataSourceSelection.settingDefault(option: nextOption)

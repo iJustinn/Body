@@ -351,6 +351,9 @@ extension BodyAppearancePreference {
     /// Whether the Readiness Ring hero shows today's level under the score. Default true.
     static let readinessHeroShowsLevelKey = "readinessHeroShowsLevel"
 
+    /// Whether the Day Ring hero shows its caption under the number. Default true.
+    static let dayRingShowsCaptionKey = "dayRingShowsCaption"
+
     /// Comma-joined emoji of `EnergyEquivalent.Food`s hidden from the Equivalent card.
     /// Empty string means none are hidden.
     static let workoutEquivalentHiddenFoodsKey = "workoutEquivalentHiddenFoods"
@@ -1044,11 +1047,11 @@ struct BodyDashboardFetchSelection: Equatable {
     init(
         summaryCards: BodySummaryCardSelection,
         trendCards: BodyHomeTrendCardSelection,
-        starredMetric: BodyHomeCardKind? = nil
+        starredMetric: BodyStarMetric? = nil
     ) {
         // The star-metric hero shows Activity Rings regardless of the Summary Cards
         // toggle, so its HealthKit data must be fetched whenever it's starred.
-        includesActivityRings = summaryCards.includes(.activityRings) || starredMetric == .activityRings
+        includesActivityRings = summaryCards.includes(.activityRings) || starredMetric?.homeCard == .activityRings
 
         var metrics = Set(summaryCards.selectedCards.compactMap(\.healthMetricKind))
         metrics.formUnion(trendCards.selectedCards.map(\.metricKind))
@@ -1056,8 +1059,12 @@ struct BodyDashboardFetchSelection: Equatable {
         // The starred hero shows its metric regardless of the Summary Cards toggle, so
         // its HealthKit data (and any derived dependencies, e.g. readiness's inputs
         // below) must be fetched whenever it's starred.
-        if let starredMetricKind = starredMetric?.healthMetricKind {
+        if let starredMetricKind = starredMetric?.homeCard?.healthMetricKind {
             metrics.insert(starredMetricKind)
+        }
+        // The Day Ring draws the night's asleep time, whether or not a Sleep card shows.
+        if starredMetric == .dayRing {
+            metrics.insert(.sleep)
         }
 
         if metrics.contains(.basics) {
@@ -1107,9 +1114,9 @@ struct BodyDashboardFetchSelection: Equatable {
         BodyDashboardFetchSelection(
             summaryCards: BodySummaryCardSelection.load(defaults: defaults),
             trendCards: BodyHomeTrendCardSelection.load(defaults: defaults),
-            starredMetric: BodyHomeCardKind.starredMetric(
-                from: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
-                    ?? BodyHomeCardKind.readiness.rawValue
+            starredMetric: BodyStarMetric.from(
+                rawValue: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
+                    ?? BodyStarMetric.readiness.rawValue
             )
         )
     }
@@ -1314,30 +1321,6 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
 
     static var defaultRawValue: String {
         rawValue(from: defaultOrder)
-    }
-
-    /// Metrics eligible to be promoted to the home-page "star" hero. Grows as more
-    /// metrics get a hero treatment; today only Readiness qualifies.
-    static let starEligible: [BodyHomeCardKind] = [.readiness]
-
-    /// Parses the stored star-metric preference. Returns the kind only when it both
-    /// parses and is currently star-eligible; empty / unknown / ineligible -> nil (None).
-    static func starredMetric(from rawValue: String) -> BodyHomeCardKind? {
-        guard let kind = BodyHomeCardKind(rawValue: rawValue), starEligible.contains(kind) else {
-            return nil
-        }
-        return kind
-    }
-
-    /// The name the Star Metric picker and its Settings row give this metric: the hero
-    /// it pins rather than the card.
-    var starMetricTitle: String {
-        switch self {
-        case .readiness:
-            return String(localized: "Readiness Ring")
-        default:
-            return title
-        }
     }
 
     var id: String {
@@ -1862,5 +1845,67 @@ enum BodyAppTheme: String, CaseIterable, Identifiable {
         }
 
         return defaultValue
+    }
+}
+
+/// The heroes the home-page "star" can pin above the grid. `readiness` keeps the raw
+/// value the preference stored while it was a `BodyHomeCardKind`, so nothing migrates.
+enum BodyStarMetric: String, CaseIterable, Identifiable {
+    case readiness
+    case dayRing
+
+    /// Parses the stored star-metric preference; empty / unknown -> nil (None).
+    static func from(rawValue: String) -> BodyStarMetric? {
+        BodyStarMetric(rawValue: rawValue)
+    }
+
+    var id: String {
+        rawValue
+    }
+
+    /// The Summary card this hero stands in for, which leaves the grid while it is pinned.
+    var homeCard: BodyHomeCardKind? {
+        switch self {
+        case .readiness:
+            return .readiness
+        case .dayRing:
+            return nil
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .readiness:
+            return String(localized: "Readiness Ring")
+        case .dayRing:
+            return String(localized: "Day Ring")
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .readiness:
+            return BodyHomeCardKind.readiness.subtitle
+        case .dayRing:
+            return String(localized: "Your day around the clock")
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .readiness:
+            return BodyHomeCardKind.readiness.iconName
+        case .dayRing:
+            return "clock.fill"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .readiness:
+            return BodyHomeCardKind.readiness.tintColor
+        case .dayRing:
+            return BodyHomeCardKind.sleep.tintColor
+        }
     }
 }

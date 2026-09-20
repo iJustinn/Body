@@ -108,7 +108,7 @@ struct BodyReadinessArcHero: View {
     /// outside the hero's own button. Empty everywhere but Home.
     var warningBadges: [BodyReadinessHeroWarningBadge] = []
 
-    /// Whether today's level shows under the score (Settings > Star Metric > Readiness Level).
+    /// Whether today's level shows under the score (Settings > Home Hero > Readiness Level).
     /// Off, the score sits centered in the ring as it does without a score.
     var showsLevel = true
 

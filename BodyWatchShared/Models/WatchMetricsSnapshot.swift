@@ -342,7 +342,7 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// this field decode.
     var sleepStages: [WatchSleepStageSegment]? = nil
 
-    /// The phone's Settings ▸ Star Metric ▸ Readiness Level switch: whether the
+    /// The phone's Settings ▸ Home Hero ▸ Readiness Level switch: whether the
     /// readiness hero names today's level under the score. A display
     /// preference, so it rides the display payload rather than the compute
     /// seed (whose settings signature would invalidate computed values on a

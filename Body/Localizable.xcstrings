@@ -182,6 +182,57 @@
         }
       }
     },
+    "Day Caption" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Day Caption"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日环说明"
+          }
+        }
+      }
+    },
+    "Day Ring" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Day Ring"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日环"
+          }
+        }
+      }
+    },
+    "Day Ring, %lld percent of the day passed, %@ asleep, %lld workouts" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Day Ring, %1$lld percent of the day passed, %2$@ asleep, %3$lld workouts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日环，今日已过百分之%1$lld，睡眠%2$@，%3$lld次体能训练"
+          }
+        }
+      }
+    },
     "Each ± value is half the distance between the lowest and the highest daily value in the range. A weight of ±1.2 means your daily weights stayed within about 1.2 above or below the middle of that span. The daily value is the average of that day's measurements, so one odd reading among several moves it less. Normal swings from water, food, and the time you step on the scale are part of this number, so a small value points to a steady period rather than to no change at all." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -275,6 +326,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld 次/分钟"
+          }
+        }
+      }
+    },
+    "Home Hero" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Home Hero"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "首页主视图"
           }
         }
       }
@@ -1491,6 +1559,23 @@
         }
       }
     },
+    "Show a caption under the number" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show a caption under the number"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在数字下方显示说明"
+          }
+        }
+      }
+    },
     "The average of every weight measured from noon onward, minus the average of every weight measured before noon, across the selected range. A plus means you weigh more later in the day, which is usual after meals and drinks. It needs at least one measurement on each side of noon, and it compares the two groups as a whole rather than day by day, so if your weight is trending and you weigh in at different times on different days, part of the trend shows up here. The Time of Day card below shows when your measurements were taken." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1538,6 +1623,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此卡片显示在上方所选范围（周、月、6 个月或年）内，你的体脂率、体重和 BMI 的变化幅度。它会跟随范围选择器，切换范围时每一项都会重新计算。当所选范围内没有某项数据时，该项显示为两条短横线。"
+          }
+        }
+      }
+    },
+    "Today passed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today passed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今日已过"
           }
         }
       }
@@ -14765,23 +14867,6 @@
         }
       }
     },
-    "Star Metric" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Star Metric"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "星标指标"
-          }
-        }
-      }
-    },
     "Start" : {
       "localizations" : {
         "en" : {
@@ -18018,6 +18103,23 @@
         }
       }
     },
+    "Your day around the clock" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your day around the clock"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全天时间一览"
+          }
+        }
+      }
+    },
     "Your exercise minutes" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -18529,18 +18631,18 @@
         }
       }
     },
-    "Applies in Settings when you pick a unit, a Star Metric, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it." : {
+    "Applies in Settings when you pick a unit, a Home Hero, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Applies in Settings when you pick a unit, a Star Metric, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it."
+            "value" : "Applies in Settings when you pick a unit, a Home Hero, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "作用于设置中选择单位、星标指标、路线样式或应用图标时，以及在概览页将卡片拖到新位置并放下时。"
+            "value" : "作用于设置中选择单位、首页主视图、路线样式或应用图标时，以及在概览页将卡片拖到新位置并放下时。"
           }
         }
       }
