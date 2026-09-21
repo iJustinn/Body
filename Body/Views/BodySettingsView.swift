@@ -23,6 +23,7 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     // Same: toggled in the Home Hero sheet, mirrored by the watch hero.
     @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
+    @AppStorage(BodyAppearancePreference.dayRingShowsCaptionKey) private var dayRingShowsCaption = true
     @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
     @AppStorage(BodyAppearancePreference.showsLeadingTrailingAwakeSleepStagesKey) private var showsLeadingTrailingAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsLeadingTrailingAwakeStages
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
@@ -158,6 +159,7 @@ struct BodySettingsView: View {
             .onChange(of: followsSystemUnits) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: showSleepScore) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: readinessHeroShowsLevel) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: dayRingShowsCaption) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedEnergyUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedWeightUnitRawValue) { workoutStore.republishCompanionSnapshots() }
         }

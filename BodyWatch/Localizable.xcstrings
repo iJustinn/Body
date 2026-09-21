@@ -170,6 +170,22 @@
         }
       }
     },
+    "Day Ring, %lld percent of the day passed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Day Ring, %lld percent of the day passed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日环，今日已过百分之%lld"
+          }
+        }
+      }
+    },
     "End" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -387,6 +403,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "开始"
+          }
+        }
+      }
+    },
+    "Today passed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today passed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今日已过占比"
           }
         }
       }

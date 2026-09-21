@@ -40,13 +40,20 @@ struct WatchDashboardView: View {
         model.snapshot.orderedMetrics.filter { model.isMetricVisible($0.kind) }
     }
 
-    /// Readiness is drawn as the hero, never as a card.
+    /// The phone's Settings ▸ Home Hero choice is the Day Ring. Anything else,
+    /// None and an older phone included, keeps the Readiness Ring.
+    private var showsDayRing: Bool {
+        model.snapshot.homeHero == "dayRing"
+    }
+
+    /// Readiness is drawn as the hero, never as a card, unless the Day Ring took
+    /// the hero's place: then it is a card again, as on the phone.
     private var heroMetric: WatchMetric? {
-        visibleMetrics.first { $0.kind == WatchMetricKindKey.readiness }
+        showsDayRing ? nil : visibleMetrics.first { $0.kind == WatchMetricKindKey.readiness }
     }
 
     private var cardMetrics: [WatchMetric] {
-        visibleMetrics.filter { $0.kind != WatchMetricKindKey.readiness }
+        showsDayRing ? visibleMetrics : visibleMetrics.filter { $0.kind != WatchMetricKindKey.readiness }
     }
 
     var body: some View {
@@ -54,7 +61,19 @@ struct WatchDashboardView: View {
             GeometryReader { page in
                 let heroWidth = max(0, page.size.width - 2 * Self.horizontalPadding)
                 ZStack {
-                    if heroMetric != nil {
+                    if showsDayRing {
+                        // The glow follows the part of the day, as on the phone.
+                        TimelineView(.everyMinute) { context in
+                            WatchReadinessPageBackground(
+                                heroState: heroState,
+                                scrollState: scrollState,
+                                circleCenterY: heroRestingTop + WatchReadinessHero.arcCenterY(width: heroWidth),
+                                glowRadius: WatchReadinessHero.glowRadius(width: heroWidth),
+                                dayPart: DayRingDayPart(hour: Calendar.bodyGregorian.component(.hour, from: context.date))
+                            )
+                        }
+                        .ignoresSafeArea()
+                    } else if heroMetric != nil {
                         WatchReadinessPageBackground(
                             heroState: heroState,
                             scrollState: scrollState,
@@ -81,7 +100,22 @@ struct WatchDashboardView: View {
                             .padding(.top, 20)
                         } else {
                             VStack(spacing: Self.gridSpacing) {
-                                if let heroMetric, heroWidth > 0 {
+                                if showsDayRing, heroWidth > 0 {
+                                    WatchReadinessHeroScrollPin(
+                                        scrollState: scrollState,
+                                        width: heroWidth,
+                                        heroRestingTop: $heroRestingTop
+                                    ) { progress, pull in
+                                        WatchDayRingHeroView(
+                                            sleepStages: model.snapshot.sleepStages ?? [],
+                                            workouts: model.snapshot.dayRingWorkouts ?? [],
+                                            showsCaption: model.snapshot.dayRingShowsCaption ?? true,
+                                            width: heroWidth,
+                                            progress: progress,
+                                            pull: pull
+                                        )
+                                    }
+                                } else if let heroMetric, heroWidth > 0 {
                                     // The pin (which reads scrollState) hands its progress to
                                     // the closure, so scrolling re-renders only that closure.
                                     WatchReadinessHeroScrollPin(

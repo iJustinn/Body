@@ -23,7 +23,7 @@ final class BodyCompanionPublisherTests: XCTestCase {
         )
     }
 
-    private func makeInput(epoch: Int) -> BodyCompanionPublishInput {
+    private func makeInput(epoch: Int, homeHeroRaw: String = BodyStarMetric.readiness.rawValue) -> BodyCompanionPublishInput {
         BodyCompanionPublishInput(
             shared: Self.makeSharedInput(),
             epoch: epoch,
@@ -50,6 +50,9 @@ final class BodyCompanionPublisherTests: XCTestCase {
             showsSubMinuteAwakeStages: false,
             showsLeadingTrailingAwakeStages: false,
             readinessHeroShowsLevel: true,
+            homeHeroRaw: homeHeroRaw,
+            dayRingShowsCaption: false,
+            workoutColorPalette: .builtIn,
             healthDataSourceSelectionRaw: "",
             customHealthSourceGroupsRaw: nil,
             combinesByName: false
@@ -63,6 +66,24 @@ final class BodyCompanionPublisherTests: XCTestCase {
         publisher.publishWatchSnapshot(makeInput(epoch: 3), isEpochCurrent: { $0 == 3 })
 
         await fulfillment(of: [sent], timeout: 5)
+    }
+
+    func testHomeHeroChoiceRidesTheWatchSnapshot() async {
+        // The watch draws the hero picked in the phone's Settings, and only the Day
+        // Ring pays for the workout list.
+        for (raw, carriesWorkouts) in [(BodyStarMetric.dayRing.rawValue, true), (BodyStarMetric.readiness.rawValue, false)] {
+            let sent = expectation(description: "sent \(raw)")
+            let publisher = BodyCompanionPublisher(send: { snapshot, _, _, _, _ in
+                XCTAssertEqual(snapshot.homeHero, raw)
+                XCTAssertEqual(snapshot.dayRingShowsCaption, false)
+                XCTAssertEqual(snapshot.dayRingWorkouts != nil, carriesWorkouts)
+                sent.fulfill()
+            })
+
+            publisher.publishWatchSnapshot(makeInput(epoch: 3, homeHeroRaw: raw), isEpochCurrent: { $0 == 3 })
+
+            await fulfillment(of: [sent], timeout: 5)
+        }
     }
 
     func testStaleEpochNeverSends() async {

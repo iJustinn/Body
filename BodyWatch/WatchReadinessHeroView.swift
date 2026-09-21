@@ -508,6 +508,14 @@ struct WatchReadinessPageBackground: View {
     /// The arc's circle center, in this view's coordinates.
     let circleCenterY: CGFloat
     let glowRadius: CGFloat
+    /// Set while the Day Ring is the hero: the glow takes the day part's color
+    /// instead of a readiness band's.
+    var dayPart: DayRingDayPart?
+
+    private struct Glow {
+        let id: String
+        let tint: Color
+    }
 
     private var dimOpacity: Double {
         min(1, max(0, Double(scrollState.offset) / 70)) * 0.9
@@ -515,12 +523,14 @@ struct WatchReadinessPageBackground: View {
 
     var body: some View {
         let status = heroState.activeStatus
+        let glow: Glow? = dayPart.map { Glow(id: "\($0)", tint: $0.glowColor) }
+            ?? status.map { Glow(id: "\($0)", tint: WatchReadinessHero.color(for: $0)) }
         ZStack {
             Color.black
 
             GeometryReader { geo in
-                if let status {
-                    let tint = WatchReadinessHero.color(for: status)
+                if let glow {
+                    let tint = glow.tint
                     RadialGradient(
                         stops: [
                             .init(color: tint.opacity(0.26), location: 0),
@@ -531,11 +541,11 @@ struct WatchReadinessPageBackground: View {
                         startRadius: 0,
                         endRadius: glowRadius
                     )
-                    .id(status)
+                    .id(glow.id)
                     .transition(.opacity)
                 }
             }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: status)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: glow?.id)
 
             Color.black
                 .opacity(dimOpacity)

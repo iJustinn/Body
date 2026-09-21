@@ -311,6 +311,17 @@ struct WatchSleepStageSegment: Codable, Equatable {
     var endDate: Date
 }
 
+/// One workout for the watch Day Ring hero. `type` is the `BodyWorkoutType` raw
+/// value as a string so this file stays free of BodyMetricsKit; `colorHex` is
+/// the phone's resolved palette color, custom workout colors included.
+struct WatchDayRingWorkout: Codable, Equatable {
+    var id: String
+    var type: String
+    var startDate: Date
+    var endDate: Date
+    var colorHex: UInt32
+}
+
 /// Schema evolution: the phone and watch can run different builds, so any new
 /// field here (or on `WatchMetric`) must be optional or defaulted — a required
 /// field would make older watches silently reject the whole payload.
@@ -349,6 +360,17 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// toggle). Optional so an older phone's payload decodes; nil reads as on,
     /// the phone's default.
     var readinessHeroShowsLevel: Bool? = nil
+
+    /// The phone's Settings ▸ Home Hero choice, as the `BodyStarMetric` raw
+    /// value ("readiness" / "dayRing", empty for None), so the watch shows the
+    /// same hero. Optional so an older phone's payload decodes; nil and None
+    /// read as the Readiness Ring, the hero the watch always had.
+    var homeHero: String? = nil
+    /// The phone's Home Hero ▸ Day Caption switch; nil reads as on.
+    var dayRingShowsCaption: Bool? = nil
+    /// The workouts around today for the Day Ring hero, published only while it
+    /// is the chosen hero. The night's bar comes from `sleepStages`.
+    var dayRingWorkouts: [WatchDayRingWorkout]? = nil
 
     /// Identifies the phone install that produced this snapshot: a UUID
     /// persisted in phone UserDefaults, regenerated on reinstall / data reset.

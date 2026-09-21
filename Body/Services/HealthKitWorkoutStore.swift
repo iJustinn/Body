@@ -8061,6 +8061,18 @@ final class HealthKitWorkoutStore {
             readinessHeroShowsLevel: UserDefaults.standard.object(
                 forKey: BodyAppearancePreference.readinessHeroShowsLevelKey
             ) as? Bool ?? true,
+            homeHeroRaw: UserDefaults.standard.string(
+                forKey: BodyAppearancePreference.starredMetricKey
+            ) ?? BodyStarMetric.readiness.rawValue,
+            dayRingShowsCaption: UserDefaults.standard.object(
+                forKey: BodyAppearancePreference.dayRingShowsCaptionKey
+            ) as? Bool ?? true,
+            workoutColorPalette: BodyWorkoutColorPalette(
+                rawOverrides: BodyWorkoutColorStore.sharedDefaults?.string(
+                    forKey: BodyAppearancePreference.workoutColorOverridesKey
+                ) ?? "",
+                isProUnlocked: isProUnlocked
+            ),
             healthDataSourceSelectionRaw: isProUnlocked
                 ? healthDataSourceSelection.rawValue
                 : Self.selectionNeutralizingCustomSources(healthDataSourceSelection).rawValue,

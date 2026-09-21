@@ -6,6 +6,7 @@
 - In Simplified Chinese, the Day Ring's caption under the percent now reads 今日已过占比 (was 今日已过).
 - Fixed the Siri alternative app name missing its English and Simplified Chinese entries in the Info.plist string catalog.
 - The warning signs under the Home Hero number now sit further apart when more than one is showing, on both the Readiness Ring and the Day Ring, so they read as separate signs instead of one clump. Build remains 7.
+- **The Day Ring comes to Apple Watch.** The watch home page now follows the iPhone's Settings > Metrics > Home Hero choice. With Day Ring picked, the watch leads with the same ring as the phone, scaled to the watch: the 24 hour dial, the night's sleep and each workout as bars in the phone's colors (custom colors included), the now pointer's sweep and bounce, the percent of the day passed, the pull down stretch, the flatten and pin on scroll, and the page glow for the part of the day. The Day Caption switch on the phone shows or hides Today passed on the watch too. While the Day Ring is pinned, Readiness shows as a card in the watch list. With Readiness Ring or None, the watch keeps its readiness hero. Both need this version on the iPhone and the watch. Build remains 7.
 
 ## 1.1.2 (build 6)
 

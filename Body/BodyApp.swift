@@ -53,6 +53,8 @@ struct BodyApp: App {
                 .preferredColorScheme(selectedTheme.colorScheme)
                 .onChange(of: workoutColorOverridesRawValue) { _, _ in
                     BodyWidgetReloadCoalescer.shared.requestReload()
+                    // The watch Day Ring draws the phone's resolved workout colors.
+                    workoutStore.republishCompanionSnapshots()
                 }
                 .task(priority: .utility) {
                     BodyAppRuntime.setForegroundActive(scenePhase == .active)
