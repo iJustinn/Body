@@ -16,7 +16,7 @@ final class HealthDashboardCalendarContextTests: XCTestCase {
             ($0.rawValue, HealthDashboardCacheScope.Source(request: $0.rawValue, members: ["A"]))
         })
         return .init(primary: sources, secondary: sources,
-                     aggregation: HealthDashboardCacheScope.key([String(describing: calendar.identifier), calendar.timeZone.identifier, "aggregation-v1"]),
+                     aggregation: HealthDashboardCacheScope.key([String(describing: calendar.identifier), calendar.timeZone.identifier, "aggregation-v3"]),
                      sleepGoal: 28_800, summaryDayStart: calendar.startOfDay(for: now))
     }
 

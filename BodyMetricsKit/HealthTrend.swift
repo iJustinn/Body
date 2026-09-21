@@ -1900,7 +1900,11 @@ struct HealthTrendSeries: Codable, Equatable {
     func mapValues(_ transform: (Double) -> Double) -> HealthTrendSeries {
         HealthTrendSeries(
             points: points.map {
-                HealthTrendDataPoint(date: $0.date, value: transform($0.value))
+                HealthTrendDataPoint(
+                    date: $0.date,
+                    value: transform($0.value),
+                    records: $0.records?.map { HealthTrendDataPoint(date: $0.date, value: transform($0.value)) }
+                )
             }
         )
     }
@@ -2199,6 +2203,10 @@ struct HealthTrendSeries: Codable, Equatable {
 struct HealthTrendDataPoint: Codable, Equatable, Identifiable {
     var date: Date
     var value: Double
+    /// The individual records behind a daily value that averages them rather
+    /// than totalling them (resting energy's repeated whole-day estimates),
+    /// each at its own measurement time. Nil for every other point.
+    var records: [HealthTrendDataPoint]? = nil
 
     var id: Date {
         date

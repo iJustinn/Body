@@ -174,6 +174,28 @@ struct BodyChartSelectionValue: Identifiable {
     }
 }
 
+extension HealthTrendSeries {
+    /// Callout rows for the records averaged into `point`'s day, a time and a
+    /// value each. Empty unless `point` is a single day whose value is such an
+    /// average (resting energy's repeated whole-day estimates).
+    func averagedRecordRows(
+        for point: HealthTrendCalendarPoint,
+        color: Color,
+        valueFormatter: (Double) -> String
+    ) -> [BodyChartSelectionValue] {
+        let calendar = Calendar.bodyGregorian
+        guard calendar.isDate(point.startDate, inSameDayAs: point.endDate),
+              let records = points.first(where: { calendar.isDate($0.date, inSameDayAs: point.date) })?.records else {
+            return []
+        }
+        var style = Date.FormatStyle().hour().minute()
+        style.timeZone = calendar.timeZone
+        return records.map {
+            BodyChartSelectionValue(title: $0.date.formatted(style), value: valueFormatter($0.value), color: color)
+        }
+    }
+}
+
 struct BodyChartSelectionAnnotation: View {
     let eyebrow: String?
     let values: [BodyChartSelectionValue]
@@ -182,6 +204,8 @@ struct BodyChartSelectionAnnotation: View {
     /// Individual records behind the values, laid out like the Day View
     /// callout's sample breakdown: a divider, then a time and a value per row.
     var breakdown: [BodyChartSelectionValue] = []
+    /// Labels the breakdown when only some of `values` come from it.
+    var breakdownEyebrow: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -222,6 +246,12 @@ struct BodyChartSelectionAnnotation: View {
             if !breakdown.isEmpty {
                 Divider()
                     .padding(.vertical, 1)
+
+                if let breakdownEyebrow {
+                    Text(breakdownEyebrow)
+                        .font(.system(size: 10, weight: .heavy, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
 
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(breakdown) { record in

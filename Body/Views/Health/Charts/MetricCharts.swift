@@ -47,6 +47,8 @@ struct BodyHealthMetricTrendChart: View {
     let hidesYAxisLabels: Bool
 
     private let visibleFinitePoints: [HealthTrendCalendarPoint]
+    /// Only the days whose value averages several records, for the callout.
+    private let averagedDays: HealthTrendSeries
     /// Dates of the visible range's highest and lowest readings; scrubbing onto one
     /// plays the firmer tick. Empty when every reading is the same.
     private let extremePointDates: Set<Date>
@@ -103,6 +105,7 @@ struct BodyHealthMetricTrendChart: View {
         self.additionalDomainValues = additionalDomainValues
         self.hidesYAxisLabels = hidesYAxisLabels
         self.chartIdentity = chartIdentity
+        self.averagedDays = HealthTrendSeries(points: series.points.filter { $0.records != nil })
 
         // Every range's points, not just the selected one: dates outside the
         // current range become invisible placeholder marks, so switching
@@ -547,11 +550,16 @@ struct BodyHealthMetricTrendChart: View {
     }
 
     private func selectionAnnotation(for selectedTrendPoint: HealthTrendCalendarPoint, value: Double) -> BodyChartSelectionAnnotation {
-        BodyChartSelectionAnnotation(
-            eyebrow: chartStyle == .bar ? barSelectionEyebrow : nil,
+        let breakdown = averagedDays.averagedRecordRows(
+            for: selectedTrendPoint, color: symbolColor, valueFormatter: valueFormatter
+        )
+        let eyebrow = breakdown.isEmpty ? barSelectionEyebrow : String(localized: "DAILY AVG")
+        return BodyChartSelectionAnnotation(
+            eyebrow: chartStyle == .bar ? eyebrow : nil,
             values: selectionValues(for: value),
             date: selectedTrendPoint.date,
-            dateText: bodyChartSelectionDateText(for: selectedTrendPoint)
+            dateText: bodyChartSelectionDateText(for: selectedTrendPoint),
+            breakdown: breakdown
         )
     }
 

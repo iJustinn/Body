@@ -6452,7 +6452,7 @@ final class HealthKitWorkoutStore {
     func currentDashboardCacheScope() -> HealthDashboardCacheScope {
         let (calendar, now) = calendarContext()
         let aggregation = HealthDashboardCacheScope.key([
-            String(describing: calendar.identifier), calendar.timeZone.identifier, "aggregation-v1"
+            String(describing: calendar.identifier), calendar.timeZone.identifier, "aggregation-v3"
         ])
         func source(_ kind: HealthMetricKind, comparison: Bool) -> HealthDashboardCacheScope.Source {
             let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind)

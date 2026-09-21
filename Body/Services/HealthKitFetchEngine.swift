@@ -1730,11 +1730,15 @@ actor HealthKitFetchEngine {
         )
         var intervalComponents = DateComponents()
         intervalComponents.day = 1
+        let estimates = await dailyEstimates(
+            for: identifier, quantityType: quantityType, unit: unit, predicate: predicate, calendar: calendar
+        )
+        let estimate = estimates?.days[intervalStart]?.total
 
         return await trackedHealthQuery(cancelledValue: .failure) { resume in
             let query = HKStatisticsCollectionQuery(
                 quantityType: quantityType,
-                quantitySamplePredicate: predicate,
+                quantitySamplePredicate: estimates?.sumPredicate ?? predicate,
                 options: .cumulativeSum,
                 anchorDate: intervalStart,
                 intervalComponents: intervalComponents
@@ -1747,13 +1751,14 @@ actor HealthKitFetchEngine {
                     return
                 }
 
-                var latestValue: Double?
+                // A day holding only an estimate has no sum to enumerate.
+                var latestValue = estimate.map(valueTransform)
                 statisticsCollection.enumerateStatistics(from: intervalStart, to: intervalEnd) { statistics, _ in
                     guard let quantity = statistics.sumQuantity() else {
                         return
                     }
 
-                    let value = valueTransform(quantity.doubleValue(for: unit))
+                    let value = valueTransform(quantity.doubleValue(for: unit) + (estimate ?? 0))
                     if value.isFinite {
                         latestValue = value
                     }
@@ -1838,6 +1843,120 @@ actor HealthKitFetchEngine {
         }
     }
 
+    /// A scale writes its whole-day resting energy estimate at every weigh-in
+    /// (sometimes the same one twice), so summing them doubles the day. The
+    /// estimates are therefore kept out of HealthKit's sum (`sumPredicate`)
+    /// and added back per day by `dailyEstimates(samples:calendar:)`. Nil for
+    /// every other quantity, and when the query fails (the plain sum is then
+    /// shown).
+    private func dailyEstimates(
+        for identifier: HKQuantityTypeIdentifier,
+        quantityType: HKQuantityType,
+        unit: HKUnit,
+        predicate: NSPredicate?,
+        calendar: Calendar
+    ) async -> DailyEstimates? {
+        guard identifier == .basalEnergyBurned else {
+            return nil
+        }
+        // Only whole-day estimates are this large, so the sample query stays
+        // tiny next to the watch's thousands of small samples.
+        let threshold = HKQuantity(unit: .kilocalorie(), doubleValue: Self.dailyEstimateMinimumKilocalories)
+        func bounded(_ comparison: NSComparisonPredicate.Operator) -> NSPredicate {
+            NSCompoundPredicate(andPredicateWithSubpredicates: [
+                predicate, HKQuery.predicateForQuantitySamples(with: comparison, quantity: threshold)
+            ].compactMap { $0 })
+        }
+        nonisolated(unsafe) let sumPredicate = bounded(.lessThan)
+        nonisolated(unsafe) let estimatePredicate = bounded(.greaterThanOrEqualTo)
+
+        return await trackedHealthQuery(cancelledValue: nil) { resume in
+            let query = HKSampleQuery(
+                sampleType: quantityType,
+                predicate: estimatePredicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: nil
+            ) { _, samples, error in
+                guard let samples = samples as? [HKQuantitySample] else {
+                    Self.logTrendQueryFailure("\(identifier.rawValue)-estimates", error: error)
+                    resume(nil)
+                    return
+                }
+                resume(DailyEstimates(
+                    sumPredicate: sumPredicate,
+                    days: Self.dailyEstimates(
+                        samples: samples.map {
+                            DailyEstimateSample(
+                                start: $0.startDate,
+                                end: $0.endDate,
+                                source: $0.sourceRevision.source.bundleIdentifier,
+                                value: $0.quantity.doubleValue(for: unit)
+                            )
+                        },
+                        calendar: calendar
+                    )
+                ))
+            }
+            healthStore.execute(query)
+        }
+    }
+
+    struct DailyEstimates: @unchecked Sendable {
+        /// Everything but the large samples `days` accounts for.
+        let sumPredicate: NSPredicate
+        let days: [Date: DayEstimates]
+    }
+
+    struct DayEstimates: Equatable {
+        /// What the day's large samples add to the sum of its small ones.
+        var total = 0.0
+        /// The estimates behind an averaged day, by time, for the chart
+        /// callout. Empty when no source repeated an estimate.
+        var records: [HealthTrendDataPoint] = []
+    }
+
+    struct DailyEstimateSample: Hashable {
+        let start: Date
+        let end: Date
+        let source: String
+        let value: Double
+    }
+
+    nonisolated static let dailyEstimateMinimumKilocalories = 500.0
+
+    /// A large sample logged over under an hour is a whole-day estimate, not
+    /// energy burned in that time: per source and day, exact duplicates
+    /// collapse and the rest count once, at their average. A large sample
+    /// logged over longer is ordinary energy and counts in full.
+    nonisolated static func dailyEstimates(
+        samples: [DailyEstimateSample],
+        calendar: Calendar
+    ) -> [Date: DayEstimates] {
+        struct Key: Hashable {
+            let day: Date
+            let source: String
+        }
+        var days: [Date: DayEstimates] = [:]
+        var estimates: [DailyEstimateSample] = []
+        for sample in samples {
+            if sample.end.timeIntervalSince(sample.start) < 3600 {
+                estimates.append(sample)
+            } else {
+                days[calendar.startOfDay(for: sample.start), default: .init()].total += sample.value
+            }
+        }
+        let groups = Dictionary(grouping: Set(estimates)) { Key(day: calendar.startOfDay(for: $0.start), source: $0.source) }
+        for (key, group) in groups {
+            days[key.day, default: .init()].total += group.reduce(0) { $0 + $1.value } / Double(group.count)
+            if group.count > 1 {
+                days[key.day, default: .init()].records += group.map { HealthTrendDataPoint(date: $0.start, value: $0.value) }
+            }
+        }
+        return days.mapValues { day in
+            DayEstimates(total: day.total, records: day.records.sorted { ($0.date, $0.value) < ($1.date, $1.value) })
+        }
+    }
+
     func fetchDailyCumulativeQuantitySeries(
         for identifier: HKQuantityTypeIdentifier,
         unit: HKUnit,
@@ -1865,11 +1984,14 @@ actor HealthKitFetchEngine {
         )
         var intervalComponents = DateComponents()
         intervalComponents.day = 1
+        let estimates = await dailyEstimates(
+            for: identifier, quantityType: quantityType, unit: unit, predicate: predicate, calendar: calendar
+        )
 
         return await trackedHealthQuery(cancelledValue: nil) { resume in
             let query = HKStatisticsCollectionQuery(
                 quantityType: quantityType,
-                quantitySamplePredicate: predicate,
+                quantitySamplePredicate: estimates?.sumPredicate ?? predicate,
                 options: .cumulativeSum,
                 anchorDate: calendar.startOfDay(for: startDate),
                 intervalComponents: intervalComponents
@@ -1882,23 +2004,23 @@ actor HealthKitFetchEngine {
                     return
                 }
 
-                var points: [HealthTrendDataPoint] = []
+                var sums: [Date: Double] = [:]
                 statisticsCollection.enumerateStatistics(from: startDate, to: interval.end) { statistics, _ in
-                    guard let quantity = statistics.sumQuantity() else {
-                        return
+                    if let quantity = statistics.sumQuantity() {
+                        sums[calendar.startOfDay(for: statistics.startDate)] = quantity.doubleValue(for: unit)
                     }
+                }
 
-                    let value = valueTransform(quantity.doubleValue(for: unit))
+                // A day holding only an estimate has no sum to enumerate.
+                let days = Set(sums.keys).union(estimates?.days.keys.map { $0 } ?? [])
+                let points = days.sorted().compactMap { day -> HealthTrendDataPoint? in
+                    let estimate = estimates?.days[day]
+                    let value = valueTransform((sums[day] ?? 0) + (estimate?.total ?? 0))
                     guard value.isFinite else {
-                        return
+                        return nil
                     }
-
-                    points.append(
-                        HealthTrendDataPoint(
-                            date: calendar.startOfDay(for: statistics.startDate),
-                            value: value
-                        )
-                    )
+                    let records = estimate?.records ?? []
+                    return HealthTrendDataPoint(date: day, value: value, records: records.isEmpty ? nil : records)
                 }
 
                 resume(HealthTrendSeries(points: points))
