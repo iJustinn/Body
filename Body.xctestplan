@@ -1,26 +1,24 @@
 {
-  "configurations" : [
+  "configurations": [
     {
-      "id" : "0F89197F-14F3-4A01-9C0F-3167B0DFDF60",
-      "name" : "Parallel",
-      "options" : {
-
-      }
+      "id": "0F89197F-14F3-4A01-9C0F-3167B0DFDF60",
+      "name": "Default",
+      "options": {}
     }
   ],
-  "defaultOptions" : {
-    "codeCoverage" : true,
-    "environmentVariableEntries" : [
+  "defaultOptions": {
+    "codeCoverage": true,
+    "environmentVariableEntries": [
       {
-        "key" : "BODY_SRCROOT",
-        "value" : "$(SRCROOT)"
+        "key": "BODY_SRCROOT",
+        "value": "$(SRCROOT)"
       }
     ]
   },
-  "testTargets" : [
+  "testTargets": [
     {
-      "parallelizable" : true,
-      "skippedTests" : [
+      "parallelizable": false,
+      "skippedTests": [
         "ActivityRingsDetailLayoutTests",
         "BodyHomeCardGridLayoutTests",
         "BodyUserProfileTests",
@@ -29,12 +27,12 @@
         "WorkoutShareSummaryRenderTests",
         "WorkoutShareVideoTests"
       ],
-      "target" : {
-        "containerPath" : "container:body.xcodeproj",
-        "identifier" : "710000242E00000100000024",
-        "name" : "BodyTests"
+      "target": {
+        "containerPath": "container:body.xcodeproj",
+        "identifier": "710000242E00000100000024",
+        "name": "BodyTests"
       }
     }
   ],
-  "version" : 1
+  "version": 1
 }
