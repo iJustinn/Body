@@ -1,3 +1,12 @@
+## 1.1.2 (build 7)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.2 build 7.
+- Fixed Resting Energy doubling on a day with two weigh ins. A smart scale logs a whole day resting energy estimate at every weigh in, and Body added them up. A source's estimates from the same day now count once, at their average (an estimate the scale logged twice is one estimate), on the card, the detail chart, the source comparison, and the trend card.
+- The Resting Energy chart callout for such a day now says it is a daily average and lists every estimate with its time, on the single source chart and the source comparison alike.
+- In Simplified Chinese, the Day Ring's caption under the percent now reads 今日已过占比 (was 今日已过).
+- Fixed the Siri alternative app name missing its English and Simplified Chinese entries in the Info.plist string catalog.
+- The warning signs under the Home Hero number now sit further apart when more than one is showing, on both the Readiness Ring and the Day Ring, so they read as separate signs instead of one clump. Build remains 7.
+
 ## 1.1.2 (build 6)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.2 build 6.
