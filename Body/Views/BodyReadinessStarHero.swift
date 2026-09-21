@@ -98,8 +98,14 @@ struct BodyHeroWarningBadgeRow: View {
         }
     }
 
+    /// Air between the boxes once more than one warning is showing, so the glyphs read
+    /// as separate signs rather than one clump. A single badge needs none.
+    private var badgeSpacing: CGFloat {
+        badges.count > 1 ? 12 : 0
+    }
+
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: badgeSpacing) {
             ForEach(badges) { badge in
                 Image(systemName: badge.symbolName)
                     .font(.system(size: 20, weight: .bold))
