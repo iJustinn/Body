@@ -1671,7 +1671,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "今日已过"
+            "value" : "今日已过占比"
           }
         }
       }
