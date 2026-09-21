@@ -2,7 +2,21 @@
   "sourceLanguage" : "en",
   "strings" : {
     "Body" : {
-
+      "comment" : "Alternative app name for Siri",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        }
+      }
     },
     "CFBundleDisplayName" : {
       "comment" : "Bundle display name",
