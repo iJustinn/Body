@@ -5009,7 +5009,9 @@ final class SourceGuardTests: XCTestCase {
     func testDayRingStarMetricSettingsAndRefreshWiring() throws {
         let settings = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
         let store = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        // The hero, plus the track and geometry it shares with the watch Day Ring.
         let hero = try BodyTestSupport.sourceText(at: "Body/Views/BodyDayRingHero.swift")
+            + BodyTestSupport.sourceText(at: "BodyWatchSnapshotKit/BodyDayRingTrack.swift")
 
         // The caption toggle shows only while the Day Ring is the pinned hero.
         XCTAssertTrue(settings.contains("if card == .dayRing, selection == .dayRing {"))

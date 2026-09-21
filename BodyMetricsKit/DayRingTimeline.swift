@@ -48,12 +48,37 @@ struct DayRingTimeline: Equatable {
         return min(max(date.timeIntervalSince(day.start) / day.duration, 0), 1)
     }
 
+    /// What the ring needs of a workout, so the watch can lay out the ones the phone
+    /// publishes without a full `WorkoutSummary`.
+    struct Workout: Equatable {
+        let id: UUID
+        let start: Date
+        let end: Date
+        let type: BodyWorkoutType
+    }
+
     static func make(
         now: Date,
         calendar: Calendar,
         sleepSegments: [SleepStageSegment],
         mainSleepInterval: DateInterval? = nil,
         workouts: [WorkoutSummary]
+    ) -> DayRingTimeline {
+        make(
+            now: now,
+            calendar: calendar,
+            sleepSegments: sleepSegments,
+            mainSleepInterval: mainSleepInterval,
+            ringWorkouts: workouts.map { Workout(id: $0.id, start: $0.startDate, end: $0.effectiveEndDate, type: $0.type) }
+        )
+    }
+
+    static func make(
+        now: Date,
+        calendar: Calendar,
+        sleepSegments: [SleepStageSegment],
+        mainSleepInterval: DateInterval? = nil,
+        ringWorkouts workouts: [Workout]
     ) -> DayRingTimeline {
         let day = calendar.dateInterval(of: .day, for: now)
             ?? DateInterval(start: calendar.startOfDay(for: now), duration: 86_400)
@@ -65,8 +90,8 @@ struct DayRingTimeline: Equatable {
 
         var seenWorkouts = Set<UUID>()
         let dayWorkouts = workouts
-            .filter { $0.startDate < day.end && $0.effectiveEndDate > day.start && seenWorkouts.insert($0.id).inserted }
-            .sorted { ($0.startDate, $0.id.uuidString) < ($1.startDate, $1.id.uuidString) }
+            .filter { $0.start < day.end && $0.end > day.start && seenWorkouts.insert($0.id).inserted }
+            .sorted { ($0.start, $0.id.uuidString) < ($1.start, $1.id.uuidString) }
 
         return DayRingTimeline(
             day: day,
@@ -123,9 +148,9 @@ struct DayRingTimeline: Equatable {
 
     /// `workouts` arrive sorted by (start, id), so the last one covering a stretch is
     /// its owner whatever order the caller had them in.
-    private static func renderSpans(sleep: [DateInterval], workouts: [WorkoutSummary], in day: DateInterval) -> [Span] {
+    private static func renderSpans(sleep: [DateInterval], workouts: [Workout], in day: DateInterval) -> [Span] {
         let workoutIntervals = workouts.compactMap { workout in
-            clip(start: workout.startDate, end: workout.effectiveEndDate, to: day).map { (interval: $0, type: workout.type) }
+            clip(start: workout.start, end: workout.end, to: day).map { (interval: $0, type: workout.type) }
         }
         let boundaries = Set(sleep.flatMap { [$0.start, $0.end] } + workoutIntervals.flatMap { [$0.interval.start, $0.interval.end] })
             .sorted()
