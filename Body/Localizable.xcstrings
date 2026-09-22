@@ -607,6 +607,38 @@
         }
       }
     },
+    "%@ has no %@ data yet, so %@ is still used." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ has no %@ data yet, so %@ is still used."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 暂无%2$@数据，因此仍在使用%3$@。"
+          }
+        }
+      }
+    },
+    "%@ has no %@ data yet, so no comparison is shown." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ has no %@ data yet, so no comparison is shown."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 暂无%2$@数据，因此不显示对比。"
+          }
+        }
+      }
+    },
     "%@ Label" : {
       "localizations" : {
         "en" : {
@@ -8739,6 +8771,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "no data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无数据"
+          }
+        }
+      }
+    },
+    "No data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No data"
           }
         },
         "zh-Hans" : {

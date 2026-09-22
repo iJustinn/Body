@@ -3928,6 +3928,21 @@ final class HealthKitWorkoutStore {
         resolvedHealthDataSourceOption(healthDataSourceSelection.option(for: kind), for: kind)
     }
 
+    /// Whether picking `option` would actually filter this metric, or resolve away
+    /// to the fallback because the source has no data for it. Runs the same
+    /// resolvers the checkmark reads, so the picker's "No data" mark and its
+    /// fallback notice can never disagree with the row that ends up selected.
+    func healthDataSourceOptionTakesEffect(
+        _ option: BodyHealthDataSourceOption,
+        for kind: HealthMetricKind,
+        secondary: Bool
+    ) -> Bool {
+        let resolved = secondary
+            ? resolvedSecondaryHealthDataSourceOption(option, for: kind)
+            : resolvedHealthDataSourceOption(option, for: kind)
+        return resolved.id == option.id
+    }
+
     func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
         // Secondary-source comparison is a Body Pro feature. Collapsing to .noComparison
         // here neutralizes every comparison renderer (bars, range bars, line, title) that
