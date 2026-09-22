@@ -90,14 +90,16 @@ struct WatchDayRingHeroView: View {
                     trackView(.dial, timeline: timeline, nowFraction: nowFraction, workoutColor: workoutColor)
                         .animation(reduceMotion ? nil : .smooth(duration: 0.8), value: nowFraction)
 
-                    let spans = isSettled ? Array(timeline.spans.enumerated()) : []
+                    let segments = isSettled
+                        ? Array(BodyDayRingGeometry.segments(for: timeline, trackLength: BodyDayRingGeometry.track(width: referenceWidth).dayLength).enumerated())
+                        : []
                     ZStack(alignment: .topLeading) {
-                        ForEach(spans, id: \.element.fadeID) { index, _ in
-                            trackView(.span(index), timeline: timeline, nowFraction: nowFraction, workoutColor: workoutColor)
+                        ForEach(segments, id: \.element.fadeID) { index, _ in
+                            trackView(.segment(index), timeline: timeline, nowFraction: nowFraction, workoutColor: workoutColor)
                                 .transition(.opacity)
                         }
                     }
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: spans.map(\.element.fadeID))
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: segments.map(\.element.fadeID))
 
                     let shortfall = (reduceMotion || previewDate != nil) ? 0 : landingShortfall
                     trackView(.now, timeline: timeline, nowFraction: max(nowFraction - shortfall, 0), workoutColor: workoutColor)

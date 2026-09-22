@@ -14,6 +14,9 @@ struct DayRingTimeline: Equatable {
         let start: Double
         let end: Double
         let activity: Activity
+        /// The workout this stretch belongs to, so the ring can count the workouts it
+        /// merges into one bar. Sleep has none.
+        var workoutID: UUID? = nil
     }
 
     /// A real local hour instant. A skipped DST hour has none, a repeated one has two.
@@ -25,7 +28,8 @@ struct DayRingTimeline: Equatable {
     /// Local midnight to the next local midnight, half open.
     let day: DateInterval
     /// Non overlapping and sorted. Where activities overlap a workout beats sleep,
-    /// and among workouts the later start wins.
+    /// and among workouts the later start wins. Two workouts back to back stay two
+    /// spans, so the ring can tell them apart when it merges them into one bar.
     let spans: [Span]
     let hourTicks: [HourTick]
     let nowFraction: Double
@@ -150,7 +154,7 @@ struct DayRingTimeline: Equatable {
     /// its owner whatever order the caller had them in.
     private static func renderSpans(sleep: [DateInterval], workouts: [Workout], in day: DateInterval) -> [Span] {
         let workoutIntervals = workouts.compactMap { workout in
-            clip(start: workout.start, end: workout.end, to: day).map { (interval: $0, type: workout.type) }
+            clip(start: workout.start, end: workout.end, to: day).map { (interval: $0, type: workout.type, id: workout.id) }
         }
         let boundaries = Set(sleep.flatMap { [$0.start, $0.end] } + workoutIntervals.flatMap { [$0.interval.start, $0.interval.end] })
             .sorted()
@@ -159,8 +163,10 @@ struct DayRingTimeline: Equatable {
         for (start, end) in zip(boundaries, boundaries.dropFirst()) {
             let covers: (DateInterval) -> Bool = { $0.start <= start && $0.end >= end }
             let activity: Activity
+            var workoutID: UUID?
             if let workout = workoutIntervals.last(where: { covers($0.interval) }) {
                 activity = .workout(workout.type)
+                workoutID = workout.id
             } else if sleep.contains(where: covers) {
                 activity = .sleep
             } else {
@@ -169,10 +175,10 @@ struct DayRingTimeline: Equatable {
 
             let startFraction = fraction(of: start, in: day)
             let endFraction = fraction(of: end, in: day)
-            if let last = result.last, last.activity == activity, last.end == startFraction {
-                result[result.count - 1] = Span(start: last.start, end: endFraction, activity: activity)
+            if let last = result.last, last.activity == activity, last.workoutID == workoutID, last.end == startFraction {
+                result[result.count - 1] = Span(start: last.start, end: endFraction, activity: activity, workoutID: workoutID)
             } else {
-                result.append(Span(start: startFraction, end: endFraction, activity: activity))
+                result.append(Span(start: startFraction, end: endFraction, activity: activity, workoutID: workoutID))
             }
         }
         return result

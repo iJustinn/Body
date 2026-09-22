@@ -64,14 +64,16 @@ struct BodyDayRingHero: View {
 
                 // Every activity bar is its own layer, so one that arrives fades in
                 // instead of popping onto the ring.
-                let spans = isSettled ? Array(timeline.spans.enumerated()) : []
+                let segments = isSettled
+                    ? Array(Geometry.segments(for: timeline, trackLength: Geometry.track(width: width).dayLength).enumerated())
+                    : []
                 ZStack(alignment: .topLeading) {
-                    ForEach(spans, id: \.element.fadeID) { index, _ in
-                        trackView(.span(index), timeline: timeline, nowFraction: nowFraction)
+                    ForEach(segments, id: \.element.fadeID) { index, _ in
+                        trackView(.segment(index), timeline: timeline, nowFraction: nowFraction)
                             .transition(.opacity)
                     }
                 }
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: spans.map(\.element.fadeID))
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: segments.map(\.element.fadeID))
 
                 // A frozen preview and Reduce Motion show the pointer already landed.
                 let shortfall = (reduceMotion || previewDate != nil) ? 0 : landingShortfall

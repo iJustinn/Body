@@ -18,6 +18,9 @@ enum BodyDayRingGeometry {
     /// of the bar's width.
     static let iconMinimumLengthRatio: CGFloat = 1.1
     static let iconSizeRatio: CGFloat = 0.62
+    /// Each glyph past the first on a merged bar (a second icon, or the workout count)
+    /// asks this much more bar, in bar widths, both to draw and to be drawn on.
+    static let extraGlyphLengthRatio: CGFloat = 0.8
     /// How far the dial runs on past each midnight, as a share of the day, so the two
     /// midnight marks sit inside the bar rather than on its tips.
     static let dialOverrun: Double = 0.025
@@ -174,35 +177,106 @@ enum BodyDayRingGeometry {
         )
     }
 
-    /// The day fractions a span is drawn between: its true extent, a hairline short of
-    /// a touching neighbor, or the minimum glyph centered on it and kept on the dial.
-    static func drawnRange(
-        for span: DayRingTimeline.Span,
-        previous: DayRingTimeline.Span?,
-        next: DayRingTimeline.Span?,
-        trackLength: CGFloat
-    ) -> ClosedRange<Double> {
-        guard trackLength > 0 else { return span.start...span.end }
-        let inset = Double(adjacentInset / trackLength)
+    /// One bar on the ring: a single span, or a run of workouts too close together for
+    /// each to hold its own glyph, merged into one bar that names all of them.
+    struct Segment: Equatable {
+        let start: Double
+        let end: Double
+        /// The activities on the bar, in order of first appearance and each once. One
+        /// for sleep or a single workout; a merged bar of one type still lists it once.
+        let activities: [DayRingTimeline.Activity]
+        /// Distinct workouts on the bar; zero for sleep.
+        let workoutCount: Int
+
+        init(start: Double, end: Double, activities: [DayRingTimeline.Activity], workoutCount: Int) {
+            self.start = start
+            self.end = end
+            self.activities = activities
+            self.workoutCount = workoutCount
+        }
+
+        init(_ span: DayRingTimeline.Span) {
+            self.init(start: span.start, end: span.end, activities: [span.activity], workoutCount: span.workoutID == nil ? 0 : 1)
+        }
+
+        /// Several workouts merged into one bar.
+        var isMerged: Bool { workoutCount > 1 }
+        /// Workouts of more than one type share the bar, so its tint is a blend of theirs.
+        var isMixed: Bool { activities.count > 1 }
+
+        /// The glyphs the bar names itself with: one icon per activity, and on a merged
+        /// bar of a single type the workout count after its icon.
+        var glyphCount: Int { activities.count + (isMerged && !isMixed ? 1 : 0) }
+
+        /// Tells one bar from another across redraws, so a new one can fade in.
+        var fadeID: String { "\(activities)|\(start)|\(workoutCount)" }
+    }
+
+    /// The bars the ring draws for a timeline: every span as its own bar, except workouts
+    /// that follow each other closer than one bar's minimum glyph, which share a bar.
+    /// Sleep never joins one. `trackLength` is the resting day length along the track,
+    /// so the grouping holds still while the ring stretches or flattens.
+    static func segments(for timeline: DayRingTimeline, trackLength: CGFloat) -> [Segment] {
+        guard trackLength > 0 else { return timeline.spans.map(Segment.init) }
         let minimum = Double(minimumSegmentLength / trackLength)
 
-        var start = span.start + (previous?.end == span.start ? inset : 0)
-        var end = span.end - (next?.start == span.end ? inset : 0)
+        var result: [Segment] = []
+        var members: [DayRingTimeline.Span] = []
+        func flush() {
+            guard let first = members.first, let last = members.last else { return }
+            var activities: [DayRingTimeline.Activity] = []
+            var workoutIDs = Set<UUID>()
+            for member in members {
+                if !activities.contains(member.activity) { activities.append(member.activity) }
+                if let id = member.workoutID { workoutIDs.insert(id) }
+            }
+            result.append(Segment(start: first.start, end: last.end, activities: activities, workoutCount: workoutIDs.count))
+            members = []
+        }
+
+        for span in timeline.spans {
+            let isWorkout = span.workoutID != nil
+            if isWorkout, let last = members.last, last.workoutID != nil, span.start - last.end < minimum {
+                members.append(span)
+            } else {
+                flush()
+                members = [span]
+            }
+        }
+        flush()
+        return result
+    }
+
+    /// The bar a segment needs at the least: the glyph, plus room for each further
+    /// glyph a merged bar carries.
+    static func minimumLength(for segment: Segment) -> CGFloat {
+        minimumSegmentLength + outerBarWidth * extraGlyphLengthRatio * CGFloat(segment.glyphCount - 1)
+    }
+
+    /// The day fractions a segment is drawn between: its true extent, a hairline short
+    /// of a touching neighbor, or its minimum bar centered on it and kept on the dial.
+    static func drawnRange(
+        for segment: Segment,
+        previous: Segment?,
+        next: Segment?,
+        trackLength: CGFloat
+    ) -> ClosedRange<Double> {
+        guard trackLength > 0 else { return segment.start...segment.end }
+        let inset = Double(adjacentInset / trackLength)
+        let minimum = Double(minimumLength(for: segment) / trackLength)
+
+        var start = segment.start + (previous?.end == segment.start ? inset : 0)
+        var end = segment.end - (next?.start == segment.end ? inset : 0)
         if end - start < minimum {
-            let center = (span.start + span.end) / 2
+            let center = (segment.start + segment.end) / 2
             let middle = min(max(center, minimum / 2), 1 - minimum / 2)
-            // A glyph never grows past the halfway point to a neighbor, so two short
-            // events close together stay two marks.
-            start = max(middle - minimum / 2, previous.map { ($0.end + span.start) / 2 + inset / 2 } ?? 0)
-            end = min(middle + minimum / 2, next.map { (span.end + $0.start) / 2 - inset / 2 } ?? 1)
+            // A bar never grows past the halfway point to a neighbor, so a short event
+            // next to sleep stays its own mark.
+            start = max(middle - minimum / 2, previous.map { ($0.end + segment.start) / 2 + inset / 2 } ?? 0)
+            end = min(middle + minimum / 2, next.map { (segment.end + $0.start) / 2 - inset / 2 } ?? 1)
         }
         return start...end
     }
-}
-
-extension DayRingTimeline.Span {
-    /// Tells one activity bar from another across redraws, so a new one can fade in.
-    var fadeID: String { "\(activity)|\(start)" }
 }
 
 extension DayRingDayPart {
@@ -226,10 +300,11 @@ extension DayRingDayPart {
 struct BodyDayRingTrackView: View, Animatable {
     private typealias Geometry = BodyDayRingGeometry
 
-    /// What one canvas draws: the dial with its ticks and now line, or one activity bar.
+    /// What one canvas draws: the dial with its ticks and now line, or one activity bar
+    /// (an index into `BodyDayRingGeometry.segments(for:trackLength:)`).
     enum Layer {
         case dial
-        case span(Int)
+        case segment(Int)
         /// The now line, over the activity bars.
         case now
     }
@@ -282,8 +357,8 @@ struct BodyDayRingTrackView: View, Animatable {
         switch layer {
         case .dial:
             drawDial(on: track, in: &graphics)
-        case .span(let index):
-            drawSpan(at: index, on: track, in: &graphics)
+        case .segment(let index):
+            drawSegment(at: index, on: track, in: &graphics)
         case .now:
             // Now is a line across the bar, thicker than any tick and a little taller than the bar.
             let bar = Geometry.innerBarWidth * Geometry.barScale(stretch: Geometry.clampedStretch(stretch))
@@ -322,58 +397,85 @@ struct BodyDayRingTrackView: View, Animatable {
         }
     }
 
-    private func drawSpan(at index: Int, on track: Geometry.Track, in graphics: inout GraphicsContext) {
-        guard timeline.spans.indices.contains(index) else { return }
-        let span = timeline.spans[index]
-        do {
-            let range = Geometry.drawnRange(
-                for: span,
-                previous: index > 0 ? timeline.spans[index - 1] : nil,
-                next: index + 1 < timeline.spans.count ? timeline.spans[index + 1] : nil,
-                trackLength: track.dayLength
+    private func drawSegment(at index: Int, on track: Geometry.Track, in graphics: inout GraphicsContext) {
+        // Grouped on the resting track, as the hosts group for their layers.
+        let segments = Geometry.segments(for: timeline, trackLength: Geometry.track(width: width).dayLength)
+        guard segments.indices.contains(index) else { return }
+        let segment = segments[index]
+        let range = Geometry.drawnRange(
+            for: segment,
+            previous: index > 0 ? segments[index - 1] : nil,
+            next: index + 1 < segments.count ? segments[index + 1] : nil,
+            trackLength: track.dayLength
+        )
+        let shape = track.segmentPath(
+            range: range,
+            stretch: stretch(at: (range.lowerBound + range.upperBound) / 2),
+            thicknessInset: Geometry.segmentThicknessInset
+        )
+        let tints = segment.activities.map { color(for: $0).opacity(0.34) }
+        if tints.count > 1 {
+            // Workouts of different kinds on one bar: their tints run into each other
+            // along it, in the order the workouts happened.
+            drawGlass(
+                shape,
+                fill: .linearGradient(
+                    Gradient(colors: tints),
+                    startPoint: track.point(fraction: range.lowerBound, offset: Geometry.outerLaneOffset),
+                    endPoint: track.point(fraction: range.upperBound, offset: Geometry.outerLaneOffset)
+                ),
+                in: &graphics
             )
-            let segment = track.segmentPath(
-                range: range,
-                stretch: stretch(at: (range.lowerBound + range.upperBound) / 2),
-                thicknessInset: Geometry.segmentThicknessInset
-            )
-            drawGlass(segment, fill: color(for: span.activity).opacity(0.34), in: &graphics)
+        } else {
+            drawGlass(shape, fill: .color(tints[0]), in: &graphics)
+        }
 
-            // Names the bar with its icon wherever the bar is long enough to hold one.
-            let bar = Geometry.outerBarWidth * track.scale
-            let length = CGFloat(range.upperBound - range.lowerBound) * track.dayLength
-            if length >= bar * Geometry.iconMinimumLengthRatio {
-                var icon = graphics.resolve(
-                    Image(systemName: symbolName(for: span.activity))
-                        .symbolRenderingMode(.monochrome)
-                )
-                // White on every bar; the bar's tint already names the activity's color.
-                icon.shading = .color(.white)
-                let side = bar * Geometry.iconSizeRatio
-                let middleFraction = (range.lowerBound + range.upperBound) / 2
-                let middle = track.point(fraction: middleFraction, offset: Geometry.outerLaneOffset)
-                let tangent = track.layout.tangent(atDistance: track.distance(fraction: middleFraction))
-                let size = icon.size
-                let fit = side / max(size.width, size.height, 1)
-                // Stands on the ring, its top pointing outward, rather than straight up
-                // the page; flattened, that is upright again.
-                var turned = graphics
-                turned.translateBy(x: middle.x, y: middle.y)
-                turned.rotate(by: .radians(Double(atan2(tangent.dy, tangent.dx))))
-                turned.draw(icon, in: CGRect(
-                    x: -size.width * fit / 2,
-                    y: -size.height * fit / 2,
-                    width: size.width * fit,
-                    height: size.height * fit
-                ))
-            }
+        // Names the bar with its glyphs wherever the bar is long enough to hold them all:
+        // one icon, or on a merged bar every kind's icon side by side, or the one icon
+        // followed by how many workouts it stands for.
+        let bar = Geometry.outerBarWidth * track.scale
+        let length = CGFloat(range.upperBound - range.lowerBound) * track.dayLength
+        let needed = bar * (Geometry.iconMinimumLengthRatio + Geometry.extraGlyphLengthRatio * CGFloat(segment.glyphCount - 1))
+        guard length >= needed else { return }
+
+        let side = bar * Geometry.iconSizeRatio
+        var glyphs: [GraphicsContext.ResolvedGlyph] = segment.activities.map { activity in
+            var icon = graphics.resolve(Image(systemName: symbolName(for: activity)).symbolRenderingMode(.monochrome))
+            // White on every bar; the bar's tint already names the activity's color.
+            icon.shading = .color(.white)
+            return .image(icon)
+        }
+        if segment.isMerged && !segment.isMixed {
+            let count = graphics.resolve(
+                Text("×\(segment.workoutCount)")
+                    .font(.system(size: side * 0.78, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+            )
+            glyphs.append(.text(count))
+        }
+
+        // Spread along the bar about its middle, each standing on the ring where it sits.
+        let slot = bar * Geometry.extraGlyphLengthRatio
+        let middleDistance = track.distance(fraction: (range.lowerBound + range.upperBound) / 2)
+        for (offset, glyph) in glyphs.enumerated() {
+            let distance = middleDistance + (CGFloat(offset) - CGFloat(glyphs.count - 1) / 2) * slot
+            let center = track.layout.point(atDistance: distance)
+            let tangent = track.layout.tangent(atDistance: distance)
+            var turned = graphics
+            turned.translateBy(x: center.x, y: center.y)
+            turned.rotate(by: .radians(Double(atan2(tangent.dy, tangent.dx))))
+            glyph.draw(fitting: side, in: &turned)
         }
     }
 
     /// The Readiness Ring's band look: a translucent fill, a soft top highlight that
     /// fades as the ring flattens over the cards, and a one point rim.
     private func drawGlass(_ shape: Path, fill: Color, rim: Color = Color.primary.opacity(0.15), in graphics: inout GraphicsContext) {
-        graphics.fill(shape, with: .color(fill))
+        drawGlass(shape, fill: .color(fill), rim: rim, in: &graphics)
+    }
+
+    private func drawGlass(_ shape: Path, fill: GraphicsContext.Shading, rim: Color = Color.primary.opacity(0.15), in graphics: inout GraphicsContext) {
+        graphics.fill(shape, with: fill)
         let bounds = shape.boundingRect
         var highlight = graphics
         highlight.clip(to: shape)
@@ -404,6 +506,33 @@ struct BodyDayRingTrackView: View, Animatable {
             return sleepColor
         case .workout(let type):
             return workoutColor(type)
+        }
+    }
+}
+
+private extension GraphicsContext {
+    /// One thing a bar names itself with: an activity's icon, or the count on a merged bar.
+    enum ResolvedGlyph {
+        case image(GraphicsContext.ResolvedImage)
+        case text(GraphicsContext.ResolvedText)
+
+        /// Drawn centered on the origin, scaled to fit a `side` square. The origin and
+        /// rotation are the caller's, so the glyph stands on the ring where it sits.
+        func draw(fitting side: CGFloat, in graphics: inout GraphicsContext) {
+            switch self {
+            case .image(let image):
+                let size = image.size
+                let fit = side / max(size.width, size.height, 1)
+                graphics.draw(image, in: CGRect(
+                    x: -size.width * fit / 2,
+                    y: -size.height * fit / 2,
+                    width: size.width * fit,
+                    height: size.height * fit
+                ))
+            case .text(let text):
+                let size = text.measure(in: CGSize(width: .greatestFiniteMagnitude, height: side))
+                graphics.draw(text, in: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height))
+            }
         }
     }
 }
