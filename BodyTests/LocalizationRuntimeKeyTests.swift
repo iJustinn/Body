@@ -41,6 +41,20 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    /// The source picker's fallback notice is interpolated at runtime
+    /// (BodyHealthDataSourcePickerSheet), so string extraction never sees these keys.
+    func testSourcePickerFallbackNoticeKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "No data",
+            "%@ has no %@ data yet, so %@ is still used.",
+            "%@ has no %@ data yet, so no comparison is shown."
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
     func testSplitKeysResolveInBodyMetricsKitCatalog() throws {
         let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
 

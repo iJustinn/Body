@@ -1931,7 +1931,7 @@ final class SourceGuardTests: XCTestCase {
     func testHealthDataSourcePickerRowsShowSourceNamesOnly() throws {
         let source = try bodyHomeViewText()
         let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
-        let pickerBlock = String(source[pickerStart...].prefix(8_000))
+        let pickerBlock = String(source[pickerStart...].prefix(10_000))
 
         XCTAssertTrue(pickerBlock.contains("Text(option.name)"))
         XCTAssertFalse(pickerBlock.contains("Only this source"))
@@ -1943,7 +1943,7 @@ final class SourceGuardTests: XCTestCase {
     func testHealthDataSourcePickerUsesTypedScopedUpdateState() throws {
         let source = try bodyHomeViewText()
         let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
-        let pickerBlock = String(source[pickerStart...].prefix(8_000))
+        let pickerBlock = String(source[pickerStart...].prefix(10_000))
 
         XCTAssertTrue(pickerBlock.contains("private enum SourceRole: Equatable"))
         XCTAssertTrue(pickerBlock.contains("private struct PendingSelection: Equatable"))
@@ -1963,7 +1963,7 @@ final class SourceGuardTests: XCTestCase {
     func testHealthDataSourcePickerStaysOpenAfterChangingSelection() throws {
         let source = try bodyHomeViewText()
         let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
-        let pickerBlock = String(source[pickerStart...].prefix(8_000))
+        let pickerBlock = String(source[pickerStart...].prefix(10_000))
         let updateStart = try XCTUnwrap(pickerBlock.range(of: "private func updateSelection")?.lowerBound)
         let updateBlock = String(pickerBlock[updateStart...].prefix(1_200))
 
@@ -1971,6 +1971,22 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(pickerBlock.contains("dismiss()"))
         XCTAssertTrue(updateBlock.contains("updatingSelection = nil"))
         XCTAssertFalse(updateBlock.contains("dismiss()"))
+    }
+
+    /// A tap that is saved but resolves away to the fallback must explain itself:
+    /// rows are marked before the tap, and the tap posts a notice with a warning
+    /// haptic. Both read the one store rule the checkmark reads.
+    func testHealthDataSourcePickerExplainsSourcesWithoutData() throws {
+        let source = try bodyHomeViewText()
+        let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
+        // Positives only, so a window that runs past the file's end is harmless.
+        let pickerBlock = String(source[pickerStart...].prefix(12_000))
+
+        XCTAssertTrue(pickerBlock.contains("workoutStore.healthDataSourceOptionTakesEffect(option, for: kind, secondary: role == .secondary)"))
+        XCTAssertTrue(pickerBlock.contains("Text(\"No data\")"))
+        XCTAssertTrue(pickerBlock.contains("showFallbackNoticeIfNeeded(for: option, role: role)"))
+        XCTAssertTrue(pickerBlock.contains("BodyConfirmationHaptics.play(.warning)"))
+        XCTAssertTrue(pickerBlock.contains("AccessibilityNotification.Announcement(text).post()"))
     }
 
     /// The "latest reading" queries must run inside the same window the daily
