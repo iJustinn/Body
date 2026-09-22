@@ -188,7 +188,9 @@ final class DayRingTimelineTests: XCTestCase {
         let trackLength = BodyDayRingGeometry.track(width: 361).layout.trackLength
         let minimum = Double(BodyDayRingGeometry.minimumSegmentLength / trackLength)
         func range(_ span: DayRingTimeline.Span, _ previous: DayRingTimeline.Span? = nil, _ next: DayRingTimeline.Span? = nil) -> ClosedRange<Double> {
-            BodyDayRingGeometry.drawnRange(for: span, previous: previous, next: next, trackLength: trackLength)
+            BodyDayRingGeometry.drawnRange(
+                for: .init(span), previous: previous.map { .init($0) }, next: next.map { .init($0) }, trackLength: trackLength
+            )
         }
 
         // Five minutes draws as the minimum bar, which is long enough to hold its icon.
@@ -199,12 +201,8 @@ final class DayRingTimelineTests: XCTestCase {
             BodyDayRingGeometry.outerBarWidth * BodyDayRingGeometry.iconMinimumLengthRatio
         )
 
-        // Two events ten minutes apart never meet.
-        let later = DayRingTimeline.Span(start: short.end + 10.0 / 1440, end: short.end + 15.0 / 1440, activity: .workout(.walking))
-        XCTAssertLessThan(range(short, nil, later).upperBound, range(later, short).lowerBound)
-
-        // Even two minutes apart the glyphs stop at the halfway point instead of merging.
-        let close = DayRingTimeline.Span(start: short.end + 2.0 / 1440, end: short.end + 4.0 / 1440, activity: .workout(.walking))
+        // A short workout next to sleep stops at the halfway point instead of overlapping.
+        let close = DayRingTimeline.Span(start: short.end + 2.0 / 1440, end: short.end + 4.0 / 1440, activity: .sleep)
         XCTAssertLessThan(range(short, nil, close).upperBound, range(close, short).lowerBound)
 
         // Glyphs at either midnight stay on the dial.
@@ -219,6 +217,74 @@ final class DayRingTimelineTests: XCTestCase {
         XCTAssertEqual(range(sleepSpan, nil, run).lowerBound, 0.1)
         XCTAssertEqual(range(run, sleepSpan).upperBound, 0.4)
         XCTAssertLessThan(range(sleepSpan, nil, run).upperBound, range(run, sleepSpan).lowerBound)
+    }
+
+    func testWorkoutsCloserThanAGlyphShareOneBarAndCountOrShowEveryKind() {
+        let trackLength = BodyDayRingGeometry.track(width: 361).dayLength
+        func segments(_ workouts: [WorkoutSummary], sleep: [SleepStageSegment] = []) -> [BodyDayRingGeometry.Segment] {
+            BodyDayRingGeometry.segments(for: make(now: date(2026, 9, 20, 20), sleep: sleep, workouts: workouts), trackLength: trackLength)
+        }
+
+        // Two five minute runs two minutes apart: one bar, one kind, counted.
+        let runs = segments([
+            workout(.running, date(2026, 9, 20, 12, 0), date(2026, 9, 20, 12, 5)),
+            workout(.running, date(2026, 9, 20, 12, 7), date(2026, 9, 20, 12, 12))
+        ])
+        XCTAssertEqual(runs.count, 1)
+        XCTAssertEqual(runs[0].activities, [.workout(.running)])
+        XCTAssertEqual(runs[0].workoutCount, 2)
+        XCTAssertTrue(runs[0].isMerged)
+        XCTAssertFalse(runs[0].isMixed)
+        XCTAssertEqual(runs[0].glyphCount, 2)
+        XCTAssertEqual(runs[0].start, 12.0 / 24, accuracy: 1e-9)
+        XCTAssertEqual(runs[0].end, 12.2 / 24, accuracy: 1e-9)
+
+        // Back to back runs stay two spans, so the bar still counts two.
+        let touching = segments([
+            workout(.running, date(2026, 9, 20, 12, 0), date(2026, 9, 20, 12, 5)),
+            workout(.running, date(2026, 9, 20, 12, 5), date(2026, 9, 20, 12, 10))
+        ])
+        XCTAssertEqual(touching.count, 1)
+        XCTAssertEqual(touching[0].workoutCount, 2)
+
+        // Three kinds in a row: one bar listing each kind once, in order, no count.
+        let mixed = segments([
+            workout(.running, date(2026, 9, 20, 12, 0), date(2026, 9, 20, 12, 5)),
+            workout(.walking, date(2026, 9, 20, 12, 7), date(2026, 9, 20, 12, 12)),
+            workout(.running, date(2026, 9, 20, 12, 14), date(2026, 9, 20, 12, 19))
+        ])
+        XCTAssertEqual(mixed.count, 1)
+        XCTAssertEqual(mixed[0].activities, [.workout(.running), .workout(.walking)])
+        XCTAssertEqual(mixed[0].workoutCount, 3)
+        XCTAssertTrue(mixed[0].isMixed)
+        XCTAssertEqual(mixed[0].glyphCount, 2)
+
+        // A merged bar asks for more room, one slot per extra glyph, and gets it.
+        let single = BodyDayRingGeometry.Segment(start: 0.5, end: 0.5 + 5.0 / 1440, activities: [.workout(.running)], workoutCount: 1)
+        XCTAssertEqual(BodyDayRingGeometry.minimumLength(for: single), BodyDayRingGeometry.minimumSegmentLength)
+        XCTAssertEqual(
+            BodyDayRingGeometry.minimumLength(for: runs[0]),
+            BodyDayRingGeometry.minimumSegmentLength + BodyDayRingGeometry.outerBarWidth * BodyDayRingGeometry.extraGlyphLengthRatio,
+            accuracy: 1e-9
+        )
+        let drawn = BodyDayRingGeometry.drawnRange(for: runs[0], previous: nil, next: nil, trackLength: trackLength)
+        XCTAssertEqual(
+            (drawn.upperBound - drawn.lowerBound) * trackLength,
+            BodyDayRingGeometry.minimumLength(for: runs[0]),
+            accuracy: 1e-6
+        )
+
+        // An hour apart they are two bars, and sleep never joins a workout.
+        let apart = segments(
+            [
+                workout(.running, date(2026, 9, 20, 7, 1), date(2026, 9, 20, 7, 6)),
+                workout(.running, date(2026, 9, 20, 12, 0), date(2026, 9, 20, 12, 5))
+            ],
+            sleep: [sleep(.core, date(2026, 9, 20, 0), date(2026, 9, 20, 7))]
+        )
+        XCTAssertEqual(apart.map(\.activities), [[.sleep], [.workout(.running)], [.workout(.running)]])
+        XCTAssertEqual(apart.map(\.workoutCount), [0, 1, 1])
+        XCTAssertNotEqual(apart[1].fadeID, apart[2].fadeID)
     }
 
     func testTheBarsKeepTheReadinessRingsFootprintAndRoundedTipsStayInsideTrueTimes() {

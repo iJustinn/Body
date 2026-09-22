@@ -3366,7 +3366,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 7)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 8)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 4)**"))
@@ -3517,6 +3518,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 8."))
         XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 7)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 7."))
         XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 6)"))
@@ -5046,7 +5049,12 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(home.contains("flatBarBottom: BodyDayRingGeometry.flatBarBottom"))
         XCTAssertTrue(home.contains("gridContentY - heroContentY - (flatBarBottom + BodyReadinessArcGeometry.heldGridGap)"))
         XCTAssertTrue(hero.contains("let overrun = Geometry.dialOverrun / (1 - 2 * track.axisInset)"))
-        XCTAssertTrue(hero.contains("Image(systemName: symbolName(for: span.activity))"))
+        XCTAssertTrue(hero.contains("Image(systemName: symbolName(for: activity))"))
+        // Workouts closer than one bar's shortest glyph share a bar, grouped on the
+        // resting track so the grouping holds still while the ring stretches or flattens.
+        XCTAssertTrue(hero.contains("Geometry.segments(for: timeline, trackLength: Geometry.track(width: width).dayLength)"))
+        XCTAssertTrue(hero.contains("span.start - last.end < minimum"))
+        XCTAssertTrue(hero.contains(#"Text("×\(segment.workoutCount)")"#))
         // The Readiness Ring's warning signs: the shared row, its tap targets, and the
         // same lift for the caption and drop without badges.
         XCTAssertTrue(hero.contains("BodyHeroWarningBadgeRow(badges: warningBadges, opacity: textOpacity)"))
