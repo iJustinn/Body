@@ -51,6 +51,26 @@
         }
       }
     },
+    "×%lld" : {
+
+    },
+    "A click when you tap refresh and a tap when it finishes." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A click when you tap refresh and a tap when it finishes."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "轻点刷新时和刷新完成时各震动一下。"
+          }
+        }
+      }
+    },
     "All Metrics Hidden" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -181,7 +201,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "日环，今日已过百分之%lld"
+            "value" : "每日圆环，今日已过百分之%lld"
           }
         }
       }
@@ -470,23 +490,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "震动"
-          }
-        }
-      }
-    },
-    "A click when you tap refresh and a tap when it finishes." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A click when you tap refresh and a tap when it finishes."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "轻点刷新时和刷新完成时各震动一下。"
           }
         }
       }

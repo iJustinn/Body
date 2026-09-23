@@ -20,38 +20,6 @@
         }
       }
     },
-    "%@, %@." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@, %@."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@，%@。"
-          }
-        }
-      }
-    },
-    "%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@"
-          }
-        }
-      }
-    },
     "--/100" : {
       "localizations" : {
         "en" : {
@@ -64,119 +32,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "--/100"
-          }
-        }
-      }
-    },
-    "About Difference Range" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "About Difference Range"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关于变化幅度"
-          }
-        }
-      }
-    },
-    "Add warning signs under the Home Hero number" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add warning signs under the Home Hero number"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在首页主视图的数字下方添加警告标志"
-          }
-        }
-      }
-    },
-    "Any overnight reading above %@ today" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Any overnight reading above %@ today"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天任一夜间读数高于 %@"
-          }
-        }
-      }
-    },
-    "Any reading above %lld br/min today" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Any reading above %lld br/min today"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天任一读数高于 %lld 次/分钟"
-          }
-        }
-      }
-    },
-    "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "定期检查发现今天的呼吸频率为 %lld 次/分钟，高于您设定的 %lld 次/分钟限值。"
-          }
-        }
-      }
-    },
-    "A periodic check found a skin temperature of %@ today, above your %@ limit." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A periodic check found a skin temperature of %@ today, above your %@ limit."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "定期检查发现今天的皮肤温度为 %@，高于您设定的 %@ 限值。"
-          }
-        }
-      }
-    },
-    "br/min" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "br/min"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "次/分钟"
           }
         }
       }
@@ -194,187 +49,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "，已完成"
-          }
-        }
-      }
-    },
-    "Day Caption" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Day Caption"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "日环说明"
-          }
-        }
-      }
-    },
-    "Day Ring" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Day Ring"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "日环"
-          }
-        }
-      }
-    },
-    "Day Ring, %lld percent of the day passed, %@ asleep, %lld workouts" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Day Ring, %1$lld percent of the day passed, %2$@ asleep, %3$lld workouts"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "日环，今日已过百分之%1$lld，睡眠%2$@，%3$lld次体能训练"
-          }
-        }
-      }
-    },
-    "Each ± value is half the distance between the lowest and the highest daily value in the range. A weight of ±1.2 means your daily weights stayed within about 1.2 above or below the middle of that span. The daily value is the average of that day's measurements, so one odd reading among several moves it less. Normal swings from water, food, and the time you step on the scale are part of this number, so a small value points to a steady period rather than to no change at all." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Each ± value is half the distance between the lowest and the highest daily value in the range. A weight of ±1.2 means your daily weights stayed within about 1.2 above or below the middle of that span. The daily value is the average of that day's measurements, so one odd reading among several moves it less. Normal swings from water, food, and the time you step on the scale are part of this number, so a small value points to a steady period rather than to no change at all."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每个 ± 数值是所选范围内每日数值的最低值与最高值之间距离的一半。体重 ±1.2 表示你的每日体重大致保持在该区间中点上下约 1.2 的范围内。每日数值是当天所有测量的平均值，因此多次测量中的某个异常读数对它的影响较小。水分、饮食以及称重时间带来的正常波动都包含在这个数值中，所以数值较小说明这段时间比较稳定，而不代表完全没有变化。"
-          }
-        }
-      }
-    },
-    "High Respiratory Rate" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "High Respiratory Rate"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "呼吸频率过高"
-          }
-        }
-      }
-    },
-    "High Respiratory Rate Warning" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "High Respiratory Rate Warning"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "高呼吸频率警告"
-          }
-        }
-      }
-    },
-    "High Skin Temperature" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "High Skin Temperature"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "皮肤温度过高"
-          }
-        }
-      }
-    },
-    "High Skin Temperature Warning" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "High Skin Temperature Warning"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "高皮肤温度警告"
-          }
-        }
-      }
-    },
-    "%lld br/min" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld br/min"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 次/分钟"
-          }
-        }
-      }
-    },
-    "Home Hero" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Home Hero"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "首页主视图"
-          }
-        }
-      }
-    },
-    "Manage" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Manage"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "管理"
           }
         }
       }
@@ -440,6 +114,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%"
+          }
+        }
+      }
+    },
+    "%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@"
           }
         }
       }
@@ -571,6 +261,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ • %2$@"
+          }
+        }
+      }
+    },
+    "%@ and %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ and %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@和%@"
           }
         }
       }
@@ -770,6 +476,22 @@
         }
       }
     },
+    "%@ workouts, %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ workouts, %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 次运动，%@。"
+          }
+        }
+      }
+    },
     "%@, %@, %@" : {
       "localizations" : {
         "en" : {
@@ -782,6 +504,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@、%2$@、%3$@"
+          }
+        }
+      }
+    },
+    "%@, %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@，%@。"
           }
         }
       }
@@ -799,6 +537,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@，未记录活动圆环数据"
+          }
+        }
+      }
+    },
+    "%@, snapshot from %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, snapshot from %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@，快照时间 %@"
           }
         }
       }
@@ -925,6 +679,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld bpm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 次/分钟"
+          }
+        }
+      }
+    },
+    "%lld br/min" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld br/min"
           }
         },
         "zh-Hans" : {
@@ -1215,6 +985,9 @@
         }
       }
     },
+    "×%lld" : {
+
+    },
     "1 day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1328,6 +1101,22 @@
         }
       }
     },
+    "A light tap when you pick a time range" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A light tap when you pick a time range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择时间范围时轻震一下"
+          }
+        }
+      }
+    },
     "A periodic check found a blood oxygen level of %lld%% today, below your %lld%% limit." : {
       "localizations" : {
         "en" : {
@@ -1376,6 +1165,38 @@
         }
       }
     },
+    "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的呼吸频率为 %lld 次/分钟，高于您设定的 %lld 次/分钟限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a skin temperature of %@ today, above your %@ limit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a skin temperature of %@ today, above your %@ limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的皮肤温度为 %@，高于您设定的 %@ 限值。"
+          }
+        }
+      }
+    },
     "A session counts for more when it runs longer, when you worked harder, and when the activity is more demanding on the body as a whole, so an easy walk barely registers beside a hard run of the same length. Effort comes from the rating you saved for the session, and when there is none Body estimates it from your average heart rate and energy burn. Very long sessions level off rather than draining without limit." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1409,6 +1230,38 @@
         }
       }
     },
+    "A tick when the Workouts month changes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A tick when the Workouts month changes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "体能训练月份变化时轻轻一震"
+          }
+        }
+      }
+    },
+    "A tick when you pick an option or move a card" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A tick when you pick an option or move a card"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择选项或移动卡片时轻轻一震"
+          }
+        }
+      }
+    },
     "About" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1438,6 +1291,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "运动结束约一小时后。Body 会先等待，好让 Apple Watch 的评分有时间先同步过来。"
+          }
+        }
+      }
+    },
+    "About Difference Range" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Difference Range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于变化幅度"
           }
         }
       }
@@ -1570,156 +1440,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于你的评分"
-          }
-        }
-      }
-    },
-    "Background checks running" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Background checks running"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "后台检查中"
-          }
-        }
-      }
-    },
-    "PM vs AM" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PM vs AM"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "下午与上午"
-          }
-        }
-      }
-    },
-    "Show a caption under the number" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show a caption under the number"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在数字下方显示说明"
-          }
-        }
-      }
-    },
-    "Show on Home Hero" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show on Home Hero"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在首页主视图上显示"
-          }
-        }
-      }
-    },
-    "The average of every weight measured from noon onward, minus the average of every weight measured before noon, across the selected range. A plus means you weigh more later in the day, which is usual after meals and drinks. It needs at least one measurement on each side of noon, and it compares the two groups as a whole rather than day by day, so if your weight is trending and you weigh in at different times on different days, part of the trend shows up here. The Time of Day card below shows when your measurements were taken." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The average of every weight measured from noon onward, minus the average of every weight measured before noon, across the selected range. A plus means you weigh more later in the day, which is usual after meals and drinks. It needs at least one measurement on each side of noon, and it compares the two groups as a whole rather than day by day, so if your weight is trending and you weigh in at different times on different days, part of the trend shows up here. The Time of Day card below shows when your measurements were taken."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所选范围内，中午及之后测得的所有体重的平均值，减去中午之前测得的所有体重的平均值。正号表示你在一天中较晚的时候更重，进食和饮水之后通常如此。它要求中午前后各至少有一次测量，并且是将两组数据整体比较，而不是逐日比较，所以如果你的体重正在变化，而你又在不同日期的不同时间称重，那么部分趋势会体现在这里。下方的测量时段卡片显示了你的测量时间。"
-          }
-        }
-      }
-    },
-    "The ± Values" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The ± Values"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "± 数值"
-          }
-        }
-      }
-    },
-    "This card shows how much your body fat, weight, and BMI moved over the range selected above, Week, Month, 6 Months, or Year. It follows the selector, so switching the range recalculates every tile. A tile reads as two dashes when the range holds no data for it." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This card shows how much your body fat, weight, and BMI moved over the range selected above, Week, Month, 6 Months, or Year. It follows the selector, so switching the range recalculates every tile. A tile reads as two dashes when the range holds no data for it."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此卡片显示在上方所选范围（周、月、6 个月或年）内，你的体脂率、体重和 BMI 的变化幅度。它会跟随范围选择器，切换范围时每一项都会重新计算。当所选范围内没有某项数据时，该项显示为两条短横线。"
-          }
-        }
-      }
-    },
-    "Today passed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Today passed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今日已过占比"
-          }
-        }
-      }
-    },
-    "Try again later" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Try again later"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请稍后再试"
           }
         }
       }
@@ -1972,6 +1692,22 @@
         }
       }
     },
+    "Add warning signs under the Home Hero number" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add warning signs under the Home Hero number"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在首页主视图的数字下方添加警告标志"
+          }
+        }
+      }
+    },
     "Adjust Photo" : {
       "localizations" : {
         "en" : {
@@ -2071,6 +1807,22 @@
         }
       }
     },
+    "All Vibrations" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All Vibrations"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有震动"
+          }
+        }
+      }
+    },
     "Amount" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2084,22 +1836,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "时长"
-          }
-        }
-      }
-    },
-    "%@ and %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ and %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@和%@"
           }
         }
       }
@@ -2121,6 +1857,22 @@
         }
       }
     },
+    "Any overnight reading above %@ today" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Any overnight reading above %@ today"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天任一夜间读数高于 %@"
+          }
+        }
+      }
+    },
     "Any reading above %lld bpm today, outside workouts" : {
       "localizations" : {
         "en" : {
@@ -2133,6 +1885,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "今天任一读数高于 %lld 次/分钟（体能训练期间除外）"
+          }
+        }
+      }
+    },
+    "Any reading above %lld br/min today" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Any reading above %lld br/min today"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天任一读数高于 %lld 次/分钟"
           }
         }
       }
@@ -2322,6 +2090,54 @@
         }
       }
     },
+    "Applies in Settings when you pick a unit, a Home Hero, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies in Settings when you pick a unit, a Home Hero, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作用于设置中选择单位、首页主视图、路线样式或应用图标时，以及在概览页将卡片拖到新位置并放下时。"
+          }
+        }
+      }
+    },
+    "Applies on Workouts when the month changes: a swipe or a tap on the month bar, a swipe across the chart, a triple tap back to this month, and Go to Month." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies on Workouts when the month changes: a swipe or a tap on the month bar, a swipe across the chart, a triple tap back to this month, and Go to Month."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作用于体能训练页的月份变化：在月份栏上轻扫或轻点、在图表上轻扫、轻点三下回到本月，以及“前往该月”。"
+          }
+        }
+      }
+    },
+    "Applies to the bar at the bottom of the screen. Off by default, so the bar shows only the Summary, Workouts, and Settings icons. Names appear right away when you turn this on, but because of a system limitation they can stay visible after you turn it off until Body restarts." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to the bar at the bottom of the screen. Off by default, so the bar shows only the Summary, Workouts, and Settings icons. Names appear right away when you turn this on, but because of a system limitation they can stay visible after you turn it off until Body restarts."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作用于屏幕底部的导航栏。默认关闭，导航栏只显示概览、体能训练和设置的图标。开启后名称会立即显示，但受系统限制，关闭后名称可能会保留，直到 Body 重新启动。"
+          }
+        }
+      }
+    },
     "Applies to the Equivalent card on a workout's detail page: a soft tap whenever two foods collide. Turn it off if you'd rather the card stay silent." : {
       "localizations" : {
         "en" : {
@@ -2338,6 +2154,38 @@
         }
       }
     },
+    "Applies when a refresh you pulled finishes or fails, when a workout share card is saved to Photos or cannot be saved, when a Body Pro purchase or restore succeeds or fails, when the Readiness score lands on Summary or drops sharply, and the first time a High or Low warning card appears." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies when a refresh you pulled finishes or fails, when a workout share card is saved to Photos or cannot be saved, when a Body Pro purchase or restore succeeds or fails, when the Readiness score lands on Summary or drops sharply, and the first time a High or Low warning card appears."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作用于：下拉刷新完成或失败时，体能训练分享卡片存入照片或无法保存时，Body Pro 购买或恢复成功或失败时，准备度分数在概览页落定或大幅下降时，以及过高或过低提醒卡片首次出现时。"
+          }
+        }
+      }
+    },
+    "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts. The highest and lowest points of a trend chart or a workout's Heart Rate chart, and each Sleep stage change, play a firmer tick." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts. The highest and lowest points of a trend chart or a workout's Heart Rate chart, and each Sleep stage change, play a firmer tick."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在图表上按住并拖动时生效。指标详情页：顶部趋势图、日视图、睡眠阶段、体征、身体雷达、趋势对比卡片，以及过高或过低提醒卡片。体能训练详情页：心率、海拔、配速、速度、步频、功率、步幅、触地时间和垂直振幅图表。趋势图或体能训练心率图的最高点和最低点，以及每次睡眠阶段变化，会有更明显的震动。"
+          }
+        }
+      }
+    },
     "Applies when you tap a card to open its page. Summary: the readiness hero, the metric cards, the Activity Rings card, and the trend cards. Workouts: each workout in the list, a calendar day with workouts, a workout type row, the chart switch, and each workout in the sheet a day or a type opens. Metric detail pages: the Basics trend cards." : {
       "localizations" : {
         "en" : {
@@ -2350,6 +2198,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "轻点卡片打开其页面时生效。概览：准备度主区、指标卡片、活动圆环卡片和趋势卡片。体能训练：列表中的每条训练、有训练的日历日期、训练类型行、图表切换，以及日期或类型所打开面板中的每条训练。指标详情页：身体基础趋势卡片。"
+          }
+        }
+      }
+    },
+    "Applies when you tap Week, Month, 6 Months, or Year at the top of a metric detail page, including a locked range that opens Body Pro." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies when you tap Week, Month, 6 Months, or Year at the top of a metric detail page, including a locked range that opens Body Pro."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在指标详情页顶部轻点周、月、6个月或年时生效，包括会打开 Body Pro 的锁定范围。"
           }
         }
       }
@@ -2595,6 +2459,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "背景"
+          }
+        }
+      }
+    },
+    "Background checks running" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background checks running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后台检查中"
           }
         }
       }
@@ -2847,6 +2727,22 @@
         }
       }
     },
+    "Body %@ on %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body %@ on %@: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body %@，%@：%@"
+          }
+        }
+      }
+    },
     "Body Blue" : {
       "localizations" : {
         "en" : {
@@ -3083,22 +2979,6 @@
         }
       }
     },
-    "Body %@ on %@: %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Body %@ on %@: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Body %@，%@：%@"
-          }
-        }
-      }
-    },
     "Body Pro" : {
       "localizations" : {
         "en" : {
@@ -3233,22 +3113,6 @@
         }
       }
     },
-    "Body's cached data shows %@ today." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Body's cached data shows %@ today."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Body 的缓存数据显示今天有%@。"
-          }
-        }
-      }
-    },
     "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero." : {
       "localizations" : {
         "en" : {
@@ -3328,6 +3192,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body 小组件"
+          }
+        }
+      }
+    },
+    "Body's cached data shows %@ today." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body's cached data shows %@ today."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 的缓存数据显示今天有%@。"
           }
         }
       }
@@ -3465,6 +3345,22 @@
         }
       }
     },
+    "Both" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Both"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图标和文字"
+          }
+        }
+      }
+    },
     "bpm" : {
       "localizations" : {
         "en" : {
@@ -3477,6 +3373,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "bpm"
+          }
+        }
+      }
+    },
+    "br/min" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "br/min"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次/分钟"
           }
         }
       }
@@ -3875,150 +3787,6 @@
         }
       }
     },
-    "Range Vibration" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Range Vibration"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "时间范围震动"
-          }
-        }
-      }
-    },
-    "Navigation Bar" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Navigation Bar"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "导航栏"
-          }
-        }
-      }
-    },
-    "Icons" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Icons"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "图标"
-          }
-        }
-      }
-    },
-    "Both" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Both"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "图标和文字"
-          }
-        }
-      }
-    },
-    "Tab Labels" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tab Labels"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "标签文字"
-          }
-        }
-      }
-    },
-    "Show each tab's name under its icon" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show each tab's name under its icon"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在每个标签图标下方显示名称"
-          }
-        }
-      }
-    },
-    "Applies to the bar at the bottom of the screen. Off by default, so the bar shows only the Summary, Workouts, and Settings icons. Names appear right away when you turn this on, but because of a system limitation they can stay visible after you turn it off until Body restarts." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies to the bar at the bottom of the screen. Off by default, so the bar shows only the Summary, Workouts, and Settings icons. Names appear right away when you turn this on, but because of a system limitation they can stay visible after you turn it off until Body restarts."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "作用于屏幕底部的导航栏。默认关闭，导航栏只显示概览、体能训练和设置的图标。开启后名称会立即显示，但受系统限制，关闭后名称可能会保留，直到 Body 重新启动。"
-          }
-        }
-      }
-    },
-    "A light tap when you pick a time range" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A light tap when you pick a time range"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择时间范围时轻震一下"
-          }
-        }
-      }
-    },
-    "Applies when you tap Week, Month, 6 Months, or Year at the top of a metric detail page, including a locked range that opens Body Pro." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies when you tap Week, Month, 6 Months, or Year at the top of a metric detail page, including a locked range that opens Body Pro."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在指标详情页顶部轻点周、月、6个月或年时生效，包括会打开 Body Pro 的锁定范围。"
-          }
-        }
-      }
-    },
     "chart.dayCount.short" : {
       "comment" : "Short day-count chip, like 7d",
       "extractionState" : "manual",
@@ -4265,6 +4033,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在指标图表上对比另一个数据来源。"
+          }
+        }
+      }
+    },
+    "Confirmation Vibration" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirmation Vibration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认震动"
           }
         }
       }
@@ -4917,6 +4701,57 @@
         }
       }
     },
+    "Day Caption" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Day Caption"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日圆环说明"
+          }
+        }
+      }
+    },
+    "Day Ring" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Day Ring"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日圆环"
+          }
+        }
+      }
+    },
+    "Day Ring, %lld percent of the day passed, %@ asleep, %lld workouts" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Day Ring, %1$lld percent of the day passed, %2$@ asleep, %3$lld workouts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日圆环，今日已过百分之%1$lld，睡眠%2$@，%3$lld次体能训练"
+          }
+        }
+      }
+    },
     "Day View" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5408,6 +5243,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "时长"
+          }
+        }
+      }
+    },
+    "Each ± value is half the distance between the lowest and the highest daily value in the range. A weight of ±1.2 means your daily weights stayed within about 1.2 above or below the middle of that span. The daily value is the average of that day's measurements, so one odd reading among several moves it less. Normal swings from water, food, and the time you step on the scale are part of this number, so a small value points to a steady period rather than to no change at all." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each ± value is half the distance between the lowest and the highest daily value in the range. A weight of ±1.2 means your daily weights stayed within about 1.2 above or below the middle of that span. The daily value is the average of that day's measurements, so one odd reading among several moves it less. Normal swings from water, food, and the time you step on the scale are part of this number, so a small value points to a steady period rather than to no change at all."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每个 ± 数值是所选范围内每日数值的最低值与最高值之间距离的一半。体重 ±1.2 表示你的每日体重大致保持在该区间中点上下约 1.2 的范围内。每日数值是当天所有测量的平均值，因此多次测量中的某个异常读数对它的影响较小。水分、饮食以及称重时间带来的正常波动都包含在这个数值中，所以数值较小说明这段时间比较稳定，而不代表完全没有变化。"
           }
         }
       }
@@ -6286,6 +6138,22 @@
         }
       }
     },
+    "Feedback when something finishes or needs attention" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feedback when something finishes or needs attention"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作完成或需要留意时给予反馈"
+          }
+        }
+      }
+    },
     "Filter" : {
       "localizations" : {
         "en" : {
@@ -7054,6 +6922,87 @@
         }
       }
     },
+    "High Respiratory Rate" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Respiratory Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "呼吸频率过高"
+          }
+        }
+      }
+    },
+    "High Respiratory Rate Warning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Respiratory Rate Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高呼吸频率警告"
+          }
+        }
+      }
+    },
+    "High Skin Temperature" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Skin Temperature"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "皮肤温度过高"
+          }
+        }
+      }
+    },
+    "High Skin Temperature Warning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Skin Temperature Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高皮肤温度警告"
+          }
+        }
+      }
+    },
+    "Home Hero" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Home Hero"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "首页主视图"
+          }
+        }
+      }
+    },
     "Hour-by-hour chart for a chosen day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7281,6 +7230,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Icon"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图标"
+          }
+        }
+      }
+    },
+    "Icons" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Icons"
           }
         },
         "zh-Hans" : {
@@ -8148,6 +8113,22 @@
         }
       }
     },
+    "Manage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理"
+          }
+        }
+      }
+    },
     "Map" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8400,6 +8381,22 @@
         }
       }
     },
+    "Month Vibration" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Month Vibration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月份震动"
+          }
+        }
+      }
+    },
     "months" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8609,6 +8606,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "小睡阶段"
+          }
+        }
+      }
+    },
+    "Navigation Bar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigation Bar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导航栏"
           }
         }
       }
@@ -9110,6 +9123,22 @@
         }
       }
     },
+    "No warnings in Body's cached data for today." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No warnings in Body's cached data for today."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 的缓存数据中今天没有警告。"
+          }
+        }
+      }
+    },
     "No workout types for this month" : {
       "localizations" : {
         "en" : {
@@ -9186,6 +9215,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未找到运动"
+          }
+        }
+      }
+    },
+    "No workouts logged in Body this week yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No workouts logged in Body this week yet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周 Body 中还没有记录运动。"
           }
         }
       }
@@ -9833,38 +9878,6 @@
         }
       }
     },
-    "No warnings in Body's cached data for today." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No warnings in Body's cached data for today."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Body 的缓存数据中今天没有警告。"
-          }
-        }
-      }
-    },
-    "No workouts logged in Body this week yet." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No workouts logged in Body this week yet."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本周 Body 中还没有记录运动。"
-          }
-        }
-      }
-    },
     "Nutrition" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9895,6 +9908,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关"
+          }
+        }
+      }
+    },
+    "Off silences every vibration Body plays, including the pull to refresh tap, the hold to regenerate tap on the Readiness comment, and the share card centering snap. The switches below keep their choices for when you turn it back on. The watch app has its own Vibration switch." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off silences every vibration Body plays, including the pull to refresh tap, the hold to regenerate tap on the Readiness comment, and the share card centering snap. The switches below keep their choices for when you turn it back on. The watch app has its own Vibration switch."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭后，Body 的所有震动都会静音，包括下拉刷新的轻震、长按准备度评语重新生成时的轻震，以及分享卡片居中对齐时的震动。下方各开关会保留各自的选择，待重新开启后继续生效。手表 App 有单独的震动开关。"
           }
         }
       }
@@ -11821,6 +11850,23 @@
         }
       }
     },
+    "PM vs AM" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PM vs AM"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下午与上午"
+          }
+        }
+      }
+    },
     "Poor readiness" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12274,6 +12320,22 @@
         }
       }
     },
+    "Range Vibration" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Range Vibration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "时间范围震动"
+          }
+        }
+      }
+    },
     "Ratio" : {
       "localizations" : {
         "en" : {
@@ -12356,40 +12418,6 @@
         }
       }
     },
-    "Readiness Level" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Readiness Level"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "准备度等级"
-          }
-        }
-      }
-    },
-    "Readiness Ring" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Readiness Ring"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "恢复状态环"
-          }
-        }
-      }
-    },
     "Readiness and stress signal" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -12454,6 +12482,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "由睡眠、负荷和体征得出的恢复状态"
+          }
+        }
+      }
+    },
+    "Readiness Level" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness Level"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "准备度等级"
+          }
+        }
+      }
+    },
+    "Readiness Ring" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness Ring"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态环"
           }
         }
       }
@@ -13633,6 +13695,22 @@
         }
       }
     },
+    "Selection Vibration" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selection Vibration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择震动"
+          }
+        }
+      }
+    },
     "Send a notification when a warning is detected" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -13915,6 +13993,23 @@
         }
       }
     },
+    "Show a caption under the number" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show a caption under the number"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在数字下方显示说明"
+          }
+        }
+      }
+    },
     "Show All Trends" : {
       "localizations" : {
         "en" : {
@@ -13994,6 +14089,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示背景"
+          }
+        }
+      }
+    },
+    "Show each tab's name under its icon" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show each tab's name under its icon"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在每个标签图标下方显示名称"
           }
         }
       }
@@ -14091,6 +14202,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "显示昵称"
+          }
+        }
+      }
+    },
+    "Show on Home Hero" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show on Home Hero"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在首页主视图上显示"
           }
         }
       }
@@ -14650,22 +14777,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "积少成多，日拱一卒。"
-          }
-        }
-      }
-    },
-    "%@, snapshot from %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@, snapshot from %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@，快照时间 %@"
           }
         }
       }
@@ -15266,6 +15377,22 @@
         }
       }
     },
+    "Tab Labels" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tab Labels"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "标签文字"
+          }
+        }
+      }
+    },
     "Temperature" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15345,6 +15472,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在健康 App 中找不到该运动。"
+          }
+        }
+      }
+    },
+    "The ± Values" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The ± Values"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "± 数值"
+          }
+        }
+      }
+    },
+    "The average of every weight measured from noon onward, minus the average of every weight measured before noon, across the selected range. A plus means you weigh more later in the day, which is usual after meals and drinks. It needs at least one measurement on each side of noon, and it compares the two groups as a whole rather than day by day, so if your weight is trending and you weigh in at different times on different days, part of the trend shows up here. The Time of Day card below shows when your measurements were taken." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The average of every weight measured from noon onward, minus the average of every weight measured before noon, across the selected range. A plus means you weigh more later in the day, which is usual after meals and drinks. It needs at least one measurement on each side of noon, and it compares the two groups as a whole rather than day by day, so if your weight is trending and you weigh in at different times on different days, part of the trend shows up here. The Time of Day card below shows when your measurements were taken."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选范围内，中午及之后测得的所有体重的平均值，减去中午之前测得的所有体重的平均值。正号表示你在一天中较晚的时候更重，进食和饮水之后通常如此。它要求中午前后各至少有一次测量，并且是将两组数据整体比较，而不是逐日比较，所以如果你的体重正在变化，而你又在不同日期的不同时间称重，那么部分趋势会体现在这里。下方的测量时段卡片显示了你的测量时间。"
           }
         }
       }
@@ -15568,6 +15729,23 @@
         }
       }
     },
+    "This card shows how much your body fat, weight, and BMI moved over the range selected above, Week, Month, 6 Months, or Year. It follows the selector, so switching the range recalculates every tile. A tile reads as two dashes when the range holds no data for it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This card shows how much your body fat, weight, and BMI moved over the range selected above, Week, Month, 6 Months, or Year. It follows the selector, so switching the range recalculates every tile. A tile reads as two dashes when the range holds no data for it."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此卡片显示在上方所选范围（周、月、6 个月或年）内，你的体脂率、体重和 BMI 的变化幅度。它会跟随范围选择器，切换范围时每一项都会重新计算。当所选范围内没有某项数据时，该项显示为两条短横线。"
+          }
+        }
+      }
+    },
     "This custom source will be removed." : {
       "localizations" : {
         "en" : {
@@ -15667,23 +15845,6 @@
         }
       }
     },
-    "Time of Day" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Time of Day"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "测量时段"
-          }
-        }
-      }
-    },
     "Time In Daylight" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15701,6 +15862,23 @@
         }
       }
     },
+    "Time of Day" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time of Day"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测量时段"
+          }
+        }
+      }
+    },
     "Today" : {
       "localizations" : {
         "en" : {
@@ -15713,6 +15891,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "今天"
+          }
+        }
+      }
+    },
+    "Today passed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today passed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今日已过占比"
           }
         }
       }
@@ -15897,6 +16092,22 @@
         }
       }
     },
+    "Try again later" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try again later"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请稍后再试"
+          }
+        }
+      }
+    },
     "Try selecting more workout types in the filter" : {
       "localizations" : {
         "en" : {
@@ -15909,6 +16120,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请尝试在筛选中选择更多运动类型"
+          }
+        }
+      }
+    },
+    "Turn every vibration in Body on or off" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn every vibration in Body on or off"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启或关闭 Body 的所有震动"
           }
         }
       }
@@ -17851,22 +18078,6 @@
         }
       }
     },
-    "%@ workouts, %@." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ workouts, %@."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 次运动，%@。"
-          }
-        }
-      }
-    },
     "Workouts Chart" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17950,6 +18161,22 @@
         }
       }
     },
+    "You have logged %@ workouts in Body this week, %@ in total, including %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You have logged %@ workouts in Body this week, %@ in total, including %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周你在 Body 中记录了 %@ 次运动，共 %@，包括%@。"
+          }
+        }
+      }
+    },
     "You have logged %@ workouts in Body this week, %@ in total." : {
       "localizations" : {
         "en" : {
@@ -17966,18 +18193,18 @@
         }
       }
     },
-    "You have logged %@ workouts in Body this week, %@ in total, including %@." : {
+    "Your %@ in Body is %@." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "You have logged %@ workouts in Body this week, %@ in total, including %@."
+            "value" : "Your %@ in Body is %@."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本周你在 Body 中记录了 %@ 次运动，共 %@，包括%@。"
+            "value" : "你在 Body 中的%@为 %@。"
           }
         }
       }
@@ -18247,22 +18474,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的心率变异性"
-          }
-        }
-      }
-    },
-    "Your %@ in Body is %@." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your %@ in Body is %@."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你在 Body 中的%@为 %@。"
           }
         }
       }
@@ -18579,214 +18790,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "区间"
-          }
-        }
-      }
-    },
-    "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts. The highest and lowest points of a trend chart or a workout's Heart Rate chart, and each Sleep stage change, play a firmer tick." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts. The highest and lowest points of a trend chart or a workout's Heart Rate chart, and each Sleep stage change, play a firmer tick."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在图表上按住并拖动时生效。指标详情页：顶部趋势图、日视图、睡眠阶段、体征、身体雷达、趋势对比卡片，以及过高或过低提醒卡片。体能训练详情页：心率、海拔、配速、速度、步频、功率、步幅、触地时间和垂直振幅图表。趋势图或体能训练心率图的最高点和最低点，以及每次睡眠阶段变化，会有更明显的震动。"
-          }
-        }
-      }
-    },
-    "Confirmation Vibration" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Confirmation Vibration"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "确认震动"
-          }
-        }
-      }
-    },
-    "Feedback when something finishes or needs attention" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Feedback when something finishes or needs attention"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "操作完成或需要留意时给予反馈"
-          }
-        }
-      }
-    },
-    "Applies when a refresh you pulled finishes or fails, when a workout share card is saved to Photos or cannot be saved, when a Body Pro purchase or restore succeeds or fails, when the Readiness score lands on Summary or drops sharply, and the first time a High or Low warning card appears." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies when a refresh you pulled finishes or fails, when a workout share card is saved to Photos or cannot be saved, when a Body Pro purchase or restore succeeds or fails, when the Readiness score lands on Summary or drops sharply, and the first time a High or Low warning card appears."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "作用于：下拉刷新完成或失败时，体能训练分享卡片存入照片或无法保存时，Body Pro 购买或恢复成功或失败时，准备度分数在概览页落定或大幅下降时，以及过高或过低提醒卡片首次出现时。"
-          }
-        }
-      }
-    },
-    "Selection Vibration" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Selection Vibration"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择震动"
-          }
-        }
-      }
-    },
-    "A tick when you pick an option or move a card" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A tick when you pick an option or move a card"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择选项或移动卡片时轻轻一震"
-          }
-        }
-      }
-    },
-    "Applies in Settings when you pick a unit, a Home Hero, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies in Settings when you pick a unit, a Home Hero, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "作用于设置中选择单位、首页主视图、路线样式或应用图标时，以及在概览页将卡片拖到新位置并放下时。"
-          }
-        }
-      }
-    },
-    "Month Vibration" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Month Vibration"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "月份震动"
-          }
-        }
-      }
-    },
-    "A tick when the Workouts month changes" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A tick when the Workouts month changes"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "体能训练月份变化时轻轻一震"
-          }
-        }
-      }
-    },
-    "Applies on Workouts when the month changes: a swipe or a tap on the month bar, a swipe across the chart, a triple tap back to this month, and Go to Month." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies on Workouts when the month changes: a swipe or a tap on the month bar, a swipe across the chart, a triple tap back to this month, and Go to Month."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "作用于体能训练页的月份变化：在月份栏上轻扫或轻点、在图表上轻扫、轻点三下回到本月，以及“前往该月”。"
-          }
-        }
-      }
-    },
-    "All Vibrations" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "All Vibrations"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所有震动"
-          }
-        }
-      }
-    },
-    "Turn every vibration in Body on or off" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Turn every vibration in Body on or off"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开启或关闭 Body 的所有震动"
-          }
-        }
-      }
-    },
-    "Off silences every vibration Body plays, including the pull to refresh tap, the hold to regenerate tap on the Readiness comment, and the share card centering snap. The switches below keep their choices for when you turn it back on. The watch app has its own Vibration switch." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Off silences every vibration Body plays, including the pull to refresh tap, the hold to regenerate tap on the Readiness comment, and the share card centering snap. The switches below keep their choices for when you turn it back on. The watch app has its own Vibration switch."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关闭后，Body 的所有震动都会静音，包括下拉刷新的轻震、长按准备度评语重新生成时的轻震，以及分享卡片居中对齐时的震动。下方各开关会保留各自的选择，待重新开启后继续生效。手表 App 有单独的震动开关。"
           }
         }
       }
