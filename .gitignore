@@ -118,3 +118,6 @@ share-examples/
 
 # Design review captures (large PNG renders, kept out of the repo)
 hero-redesign/
+
+# Body Radar v3 analysis archive (replay script, labels, raw exports), kept local
+/body_radar-v3-archive/
