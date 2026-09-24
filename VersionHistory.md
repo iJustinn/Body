@@ -1,3 +1,15 @@
+## 1.1.3 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.3 build 1.
+- **Body Radar moves to Beta v3.** It still compares sleeping heart rate, respiratory rate, skin temperature, and HRV with the same eight week personal baselines and floors, but a single strained night no longer raises an alert on its own. A night whose evidence reaches Minor or Major now shows it only when two kinds of change agree on the same night (heart signals, where heart rate and HRV together count as one kind, breathing, and temperature, each adding a meaningful share), or when the previous night was already elevated. A missing or unscored previous night breaks that link, and it never reaches further back than one night. Major signs still need strong evidence and at least two individually unusual signals.
+- Respiratory rate now counts when it falls as well as when it rises, and a lower rate is called out with a down arrow.
+- A night that stays at No Signs only because it was not corroborated now says so: scrubbing it on the Body Radar chart shows "Changes on one night only, not enough to confirm strain" (仅一晚出现变化，尚不足以确认身体承受压力 in Chinese) above its signal arrows, so it no longer reads as typical.
+- The Body Radar chip on the card, the About card, and the Summary Cards row now reads Beta v3.
+- The About Body Radar text was rewritten in English and Chinese to explain the new rule, respiratory decreases, and held nights.
+- **Settings › Data › Cache has a new Export Body Radar Replay row.** It writes a JSON file on device with each recent night's inputs, baselines, and scoring steps alongside the frozen verdicts, then opens the share sheet. Nothing is uploaded; the file leaves the phone only if you share it. The row works in Release builds too, so real nights can be compared with other trackers.
+- Updating recomputes Body Radar. Verdicts saved by 1.1.2 still load but are replaced: the Last 21 Nights chart is scored again from cached sleep data under the new rules, so some past nights may change, and saved nights older than the chart range are not kept. Nights whose sleep data is no longer cached stay unscored.
+- For the curious, docs/BodyRadarBeta3Analysis.md explains how these rules were chosen by replaying an Oura export and Apple Watch data, and Scripts/body_radar_replay.py reproduces every number and replays exported files.
+
 ## 1.1.2 (build 8)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.2 build 8.
