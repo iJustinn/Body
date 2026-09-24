@@ -5,7 +5,7 @@
 //  The Sleep page's Sleep Debt card: the 14 night debt through the latest
 //  night, the line of the debt after each of the last 14 nights, and the
 //  page's selected night broken into what was slept, what was needed, and the
-//  debt after it. About Sleep Debt explains the bands and which night the
+//  sleep goal beside it. About Sleep Debt explains the bands and which night the
 //  total runs through.
 //
 
@@ -74,23 +74,28 @@ struct BodySleepDebtCard: View {
 
     private func nightRow(_ night: SleepDebtNight) -> some View {
         let sleptText = night.actualDuration.map(BodyValueFormat.sleepDurationText(for:)) ?? "--"
-        let needText = BodyValueFormat.durationText(for: night.needDuration)
-        let debtText = night.debtAfterNight.map(BodyValueFormat.durationText(for:)) ?? "--"
+        // The need shows as a placeholder while the sleep goal stands in for
+        // it; the goal still sets the debt behind it.
+        let needText = night.isNeedLearned ? BodyValueFormat.durationText(for: night.needDuration) : Self.placeholder
+        let goalText = BodyValueFormat.durationText(for: model.sleepGoal)
 
         return VStack(alignment: .leading, spacing: 10) {
-            Text(night.day.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
-                .font(.system(.subheadline, design: .rounded))
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-
             HStack(alignment: .top, spacing: 8) {
                 nightValue(title: "Slept", value: sleptText)
                 nightValue(title: "Need", value: needText)
-                nightValue(title: "14 Night Debt", value: debtText)
+                nightValue(title: "Goal", value: goalText)
             }
 
             if let adjustmentText = adjustmentText(for: night) {
                 Text(adjustmentText)
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if model.learnedNeed == nil {
+                Text("Need uses your sleep goal until 28 nights are recorded")
                     .font(.system(.footnote, design: .rounded))
                     .fontWeight(.medium)
                     .foregroundColor(.secondary)
@@ -109,7 +114,10 @@ struct BodySleepDebtCard: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// What the need adds on top of the sleep goal, or nil when it adds nothing.
+    /// Shown in place of the need until it is learned.
+    static let placeholder = String(localized: "--h --m")
+
+    /// What the need adds on top of the base need, or nil when it adds nothing.
     private func adjustmentText(for night: SleepDebtNight) -> String? {
         let trainingText = BodyValueFormat.durationText(for: night.trainingAdjustment)
         let hrvText = BodyValueFormat.durationText(for: night.hrvAdjustment)
@@ -154,6 +162,7 @@ private func previewSleepDebtCard(
     selectedDaysAgo: Int = 0,
     trainingDaysAgo: Set<Int> = [2, 9],
     lowHRVDaysAgo: Set<Int> = [1, 9],
+    learnedNeed: TimeInterval? = 8 * 3_600,
     shortfallMinutes: (Int) -> Double?
 ) -> some View {
     let calendar = Calendar.bodyGregorian
@@ -175,7 +184,7 @@ private func previewSleepDebtCard(
 
     return ScrollView {
         BodySleepDebtCard(
-            model: SleepDebtChartModel.make(entries: entries, sleepGoal: goal),
+            model: SleepDebtChartModel.make(entries: entries, sleepGoal: goal, learnedNeed: learnedNeed),
             selectedDay: selectedDay,
             tint: Color(red: 0.20, green: 0.72, blue: 1.00),
             onSelectDay: { _ in }
@@ -191,7 +200,7 @@ private func previewSleepDebtCard(
 }
 
 #Preview("Bands") {
-    // Oldest first, the debt climbs through 2 and 5 hours, falls back under 2,
+    // Oldest first, the debt climbs through 2 and 4 hours, falls back under 2,
     // and ends moderate, so every band color and blend between them shows.
     previewSleepDebtCard(trainingDaysAgo: [], lowHRVDaysAgo: []) { daysAgo in
         daysAgo < 14 ? [90, -30, -90, -90, -90, -30, 60, 60, 60, 60, 60, 30, 30, 30][daysAgo] : 0
@@ -211,7 +220,7 @@ private func previewSleepDebtCard(
 }
 
 #Preview("Sparse") {
-    previewSleepDebtCard { daysAgo in
+    previewSleepDebtCard(learnedNeed: nil) { daysAgo in
         [0, 3, 5, 8, 11, 13].contains(daysAgo) ? 75 : nil
     }
 }

@@ -1968,6 +1968,43 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(detail.contains("sleepDebtCache.model("))
     }
 
+    func testSleepDebtNeedIsLearnedFromSleepHistory() throws {
+        let model = try text(at: "BodyMetricsKit/SleepDebt.swift")
+        let detail = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let card = try text(at: "Body/Views/Health/BodySleepDebtCard.swift")
+
+        // The 75th percentile of the last 8 weeks, 28 nights needed, 6 to 10 hours.
+        XCTAssertTrue(model.contains("static let learnedNeedDayCount = ReadinessScoreCalculator.baselineDayCount"))
+        XCTAssertTrue(model.contains("static let minimumLearnedNeedNightCount = 28"))
+        XCTAssertTrue(model.contains("static let learnedNeedPercentile = 0.75"))
+        XCTAssertTrue(model.contains("static let learnedNeedRange: ClosedRange<TimeInterval> = 6 * 3_600 ... 10 * 3_600"))
+        XCTAssertTrue(model.contains("((sleepGoal + (learnedNeed - sleepGoal) / 3) / adjustmentStep).rounded() * adjustmentStep"))
+        // The total is capped at 6 hours, and the chart's axis always ends there.
+        XCTAssertTrue(model.contains("static let maximumDebt: TimeInterval = 6 * 3_600"))
+        XCTAssertTrue(model.contains("? min(max(0, recordedGaps.reduce(0, +)), maximumDebt)"))
+        XCTAssertTrue(model.contains("static let moderateDebtUpperBound: TimeInterval = 4 * 3_600"))
+        XCTAssertTrue(try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift").contains("SleepDebtChartModel.maximumDebt\n    }"))
+        XCTAssertTrue(model.contains("let baseNeed = learnedNeed.map { baseNeed(learnedNeed: $0, sleepGoal: sleepGoal) } ?? sleepGoal"))
+        // The page learns it from the same inputs the model is cached on, and the
+        // row says so while the goal still stands in.
+        XCTAssertTrue(detail.contains("learnedNeed: SleepDebtChartModel.learnedNeed(from: inputs)"))
+        XCTAssertTrue(card.contains("if model.learnedNeed == nil {"))
+        XCTAssertTrue(card.contains(#"Text("Need uses your sleep goal until 28 nights are recorded")"#))
+        // The need itself shows as a placeholder until learned, in the row and in
+        // the chart's VoiceOver labels, while the goal still sets the debt.
+        XCTAssertTrue(card.contains(#"static let placeholder = String(localized: "--h --m")"#))
+        XCTAssertTrue(card.contains("night.isNeedLearned ? BodyValueFormat.durationText(for: night.needDuration) : Self.placeholder"))
+        // The row's third value is the Settings goal; the 14 night debt stays in the header.
+        XCTAssertTrue(card.contains(#"nightValue(title: "Goal", value: goalText)"#))
+        XCTAssertFalse(card.contains(#""14 Night Debt""#))
+        let chart = try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift")
+        XCTAssertTrue(chart.contains("night.isNeedLearned ? BodyValueFormat.durationText(for: night.needDuration) : BodySleepDebtCard.placeholder"))
+        // One cache keyed on the gathered inputs and the goal holds the whole
+        // model, learned need included, so nothing recomputes while they hold.
+        XCTAssertTrue(detail.contains("if let cached, cached.inputs == inputs, cached.sleepGoal == sleepGoal {"))
+        XCTAssertEqual(detail.occurrenceCount(of: "SleepDebtChartModel.learnedNeed(from:"), 1)
+    }
+
     func testSleepDebtChartColorsEachNightByBandAndBlendsTheLine() throws {
         let chart = try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift")
 
@@ -1975,6 +2012,8 @@ final class SourceGuardTests: XCTestCase {
         // and each segment fades from one night's color to the next's.
         XCTAssertEqual(chart.occurrenceCount(of: "Self.bandColor(for: debt, lowColor: color)"), 3)
         XCTAssertTrue(chart.contains("Gradient(colors: [previous.color, pointColor])"))
+        // The callout also names the band above the debt.
+        XCTAssertTrue(chart.contains("eyebrow: Self.bandTitle(for: debt),"))
     }
 
     func testSleepDebtFollowsItsSummaryCardsToggleLikeSleepScore() throws {
@@ -3443,7 +3482,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.3 (build 1)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.3 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 6)**"))
@@ -3596,6 +3636,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 2."))
         XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 1)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 1."))
         XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 8)"))

@@ -3297,8 +3297,8 @@ struct BodyHealthMetricDetailView: View {
     }
 
     // Gathering the inputs is a single pass over the history each render; the
-    // cache rebuilds the model, with its HRV baselines, only when they or the
-    // goal change. The Training Load series comes straight from the store, like
+    // cache rebuilds the model, with its HRV baselines and learned need, only
+    // when they or the goal change. The Training Load series comes straight from the store, like
     // `liveDaySeries`, since the detail model doesn't carry it; this page's
     // pull refreshes it along with sleep (`performHealthMetricRefresh`).
     private var sleepDebtChartModel: SleepDebtChartModel {
@@ -3376,7 +3376,7 @@ struct BodyHealthMetricDetailView: View {
                     .background(.blue.opacity(0.14), in: Capsule())
             }
 
-            Text("Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed, based on your sleep goal, your recent training, and your overnight HRV. Longer nights pay some of the debt back. The dashed lines mark 2 and 5 hours, where a debt goes from low to moderate and then to high. This is an estimate to help you spot a trend, not a medical measurement.")
+            Text("Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay some of the debt back. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement.")
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
@@ -3847,7 +3847,11 @@ final class BodySleepDebtChartCache: ObservableObject {
             return cached.model
         }
 
-        let model = SleepDebtChartModel.make(entries: SleepDebtChartModel.entries(from: inputs), sleepGoal: sleepGoal)
+        let model = SleepDebtChartModel.make(
+            entries: SleepDebtChartModel.entries(from: inputs),
+            sleepGoal: sleepGoal,
+            learnedNeed: SleepDebtChartModel.learnedNeed(from: inputs)
+        )
         cached = (inputs, sleepGoal, model)
         return model
     }

@@ -4,18 +4,19 @@
     "" : {
 
     },
-    "14 Night Debt" : {
+    "--h --m" : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "14 Night Debt"
+            "value" : "--h --m"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "14晚负债"
+            "value" : "--小时--分"
           }
         }
       }
@@ -1101,6 +1102,40 @@
         }
       }
     },
+    "HIGH DEBT" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HIGH DEBT"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "负债高"
+          }
+        }
+      }
+    },
+    "LOW DEBT" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LOW DEBT"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "负债低"
+          }
+        }
+      }
+    },
     "Missed sleep over the last 14 nights" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1114,6 +1149,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最近14晚累计少睡的时间"
+          }
+        }
+      }
+    },
+    "MODERATE DEBT" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MODERATE DEBT"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "负债中等"
           }
         }
       }
@@ -1185,6 +1237,23 @@
         }
       }
     },
+    "Need uses your sleep goal until 28 nights are recorded" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Need uses your sleep goal until 28 nights are recorded"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在记录满28晚之前，所需睡眠采用你的睡眠目标"
+          }
+        }
+      }
+    },
     "Sleep Debt" : {
       "localizations" : {
         "en" : {
@@ -1201,18 +1270,18 @@
         }
       }
     },
-    "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed, based on your sleep goal, your recent training, and your overnight HRV. Longer nights pay some of the debt back. The dashed lines mark 2 and 5 hours, where a debt goes from low to moderate and then to high. This is an estimate to help you spot a trend, not a medical measurement." : {
+    "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay some of the debt back. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed, based on your sleep goal, your recent training, and your overnight HRV. Longer nights pay some of the debt back. The dashed lines mark 2 and 5 hours, where a debt goes from low to moderate and then to high. This is an estimate to help you spot a trend, not a medical measurement."
+            "value" : "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay some of the debt back. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "睡眠负债估算你在最近14晚中少睡了多少。Body会把每晚的实际睡眠与所需睡眠进行比较，所需睡眠取决于你的睡眠目标、近期训练和夜间心率变异性。睡得更久的夜晚可以偿还部分负债。图表中的虚线标出了2小时和5小时，负债在这两处由低变为中等，再变为高。这只是帮助你发现趋势的估算，并非医学测量。"
+            "value" : "睡眠负债估算你在最近14晚中少睡了多少。Body会把每晚的实际睡眠与所需睡眠进行比较。所需睡眠以你的睡眠目标为起点，向最近8周里你在睡得较久的夜晚所达到的时长靠近三分之一，并在高强度训练后或夜间心率变异性偏低的夜晚之后再额外增加一些。在记录满28晚之前，会以你的睡眠目标代替学习得出的所需睡眠。睡得更久的夜晚可以偿还部分负债。图表中的虚线标出了2小时和4小时，负债在这两处由低变为中等，再变为高，总量最多计为6小时。这只是帮助你发现趋势的估算，并非医学测量。"
           }
         }
       }

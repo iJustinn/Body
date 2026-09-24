@@ -70,8 +70,8 @@ struct BodySleepDebtChart: View {
         }
     }
 
-    /// A solid zero line, dashed rules at the 2 and 5 hour band edges, and a
-    /// dashed top rule when a debt past 5 hours stretches the axis.
+    /// A solid zero line, dashed rules at the 2 and 4 hour band edges, and a
+    /// dashed top rule at the 6 hour cap.
     @ViewBuilder
     private func gridLines(plotWidth: CGFloat, plotHeight: CGFloat) -> some View {
         let zeroY = y(for: 0, plotHeight: plotHeight)
@@ -206,8 +206,20 @@ struct BodySleepDebtChart: View {
         .accessibilityHidden(true)
     }
 
+    /// The callout's eyebrow: the debt band's name, over the same edges as
+    /// `bandColor(for:lowColor:)`.
+    static func bandTitle(for debt: TimeInterval) -> String {
+        if debt < SleepDebtChartModel.lowDebtUpperBound {
+            return String(localized: "LOW DEBT")
+        }
+        if debt <= SleepDebtChartModel.moderateDebtUpperBound {
+            return String(localized: "MODERATE DEBT")
+        }
+        return String(localized: "HIGH DEBT")
+    }
+
     /// A night's color by its debt band: `lowColor` under 2 hours, Body Radar's
-    /// Minor pink from 2 through 5 hours, and its Major red past 5.
+    /// Minor pink from 2 through 4 hours, and its Major red past 4.
     static func bandColor(for debt: TimeInterval, lowColor: Color) -> Color {
         if debt < SleepDebtChartModel.lowDebtUpperBound {
             return lowColor
@@ -218,7 +230,7 @@ struct BodySleepDebtChart: View {
         return BodyRadarChartStyle.color(for: .major)
     }
 
-    /// The band edges, plus the stretched top when the debt passes 5 hours.
+    /// The band edges, plus the top rule at the cap.
     private var ruleDurations: [TimeInterval] {
         var durations = [SleepDebtChartModel.lowDebtUpperBound, SleepDebtChartModel.moderateDebtUpperBound]
         if yUpperBound > SleepDebtChartModel.moderateDebtUpperBound {
@@ -227,11 +239,9 @@ struct BodySleepDebtChart: View {
         return durations
     }
 
-    /// At least 5 hours, so the moderate band's edge is always on the chart; a
-    /// deeper debt rounds the top up to the next whole hour.
+    /// The 6 hour cap, which no debt passes, so every chart shares one scale.
     private var yUpperBound: TimeInterval {
-        let deepest = nights.compactMap(\.debtAfterNight).max() ?? 0
-        return max(SleepDebtChartModel.moderateDebtUpperBound, (deepest / 3_600).rounded(.up) * 3_600)
+        SleepDebtChartModel.maximumDebt
     }
 
     /// Inset by half a selected marker, so a point on the zero line or the top
@@ -270,7 +280,7 @@ struct BodySleepDebtChart: View {
                 anchor: CGPoint(x: plotFrame.minX + columnCenterX(index, plotWidth: plotWidth), y: plotFrame.minY),
                 content: AnyView(
                     BodyChartSelectionAnnotation(
-                        eyebrow: nil,
+                        eyebrow: Self.bandTitle(for: debt),
                         values: [
                             BodyChartSelectionValue(
                                 title: nil,
@@ -325,7 +335,7 @@ struct BodySleepDebtChart: View {
 
     private func accessibilityLabel(for night: SleepDebtNight) -> String {
         let dayText = night.day.formatted(.dateTime.weekday(.wide).month(.wide).day())
-        let needText = BodyValueFormat.durationText(for: night.needDuration)
+        let needText = night.isNeedLearned ? BodyValueFormat.durationText(for: night.needDuration) : BodySleepDebtCard.placeholder
         let label: String
         switch (night.actualDuration, night.debtAfterNight) {
         case let (actual?, debt?):

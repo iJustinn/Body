@@ -61,12 +61,78 @@ final class SleepDebtTests: XCTestCase {
         XCTAssertEqual(model.latestNight?.actualDuration, sevenFiftyOneTen)
     }
 
-    func testGoalSetsEveryNightsNeed() throws {
+    func testGoalSetsEveryNightsNeedUntilTheNeedIsLearned() throws {
         let today = try date(2026, 6, 20)
         let sevenHourGoal = model(today: today, durations: nights(0..<14, hours(7)), goal: hours(7))
 
-        XCTAssertTrue(sevenHourGoal.nights.allSatisfy { $0.needDuration == self.hours(7) })
+        XCTAssertTrue(sevenHourGoal.nights.allSatisfy { $0.needDuration == self.hours(7) && !$0.isNeedLearned })
         XCTAssertEqual(sevenHourGoal.debt, 0)
+        XCTAssertNil(sevenHourGoal.learnedNeed)
+    }
+
+    // MARK: - Learned need
+
+    /// A learned 7h30m against an 8h goal gives a 7h50m base need for every night.
+    func testLearnedNeedMovesTheGoalAThirdOfTheWayForEveryNight() throws {
+        let today = try date(2026, 6, 20)
+        let debtEntries = entries(
+            today: today, durations: nights(0..<14, hours(7) + 40 * 60), ratios: [1: 1.5], hrvZScores: [1: -2]
+        )
+
+        let learned = SleepDebtChartModel.make(entries: debtEntries, sleepGoal: hours(8), learnedNeed: hours(7.5))
+
+        XCTAssertEqual(learned.learnedNeed, hours(7.5))
+        XCTAssertEqual(learned.sleepGoal, hours(8))
+        XCTAssertTrue(learned.nights.allSatisfy(\.isNeedLearned))
+        XCTAssertEqual(learned.nights.last?.needDuration, hours(7) + 50 * 60 + 30 * 60 + 20 * 60)
+        XCTAssertTrue(learned.nights.dropLast().allSatisfy { $0.needDuration == self.hours(7) + 50 * 60 })
+        XCTAssertEqual(try XCTUnwrap(learned.debt), 13 * 10 * 60 + 60 * 60, accuracy: 0.001)
+    }
+
+    func testBaseNeedMovesTheGoalAThirdOfTheWayInFiveMinuteSteps() {
+        XCTAssertEqual(SleepDebtChartModel.baseNeed(learnedNeed: hours(9), sleepGoal: hours(7)), hours(7) + 40 * 60)
+        XCTAssertEqual(SleepDebtChartModel.baseNeed(learnedNeed: hours(7), sleepGoal: hours(9)), hours(8) + 20 * 60)
+        // A third of 50 minutes is 16m40s, stepped to 15; a third of 55 is 18m20s, stepped to 20.
+        XCTAssertEqual(SleepDebtChartModel.baseNeed(learnedNeed: hours(8) + 20 * 60, sleepGoal: hours(7.5)), hours(7) + 45 * 60)
+        XCTAssertEqual(SleepDebtChartModel.baseNeed(learnedNeed: hours(8) + 25 * 60, sleepGoal: hours(7.5)), hours(7) + 50 * 60)
+    }
+
+    /// 28 nights 8 minutes apart from 6 hours: the 75th percentile falls between
+    /// the 21st and 22nd (8h40m and 8h48m), and the 5 minute step lands on 8h40m.
+    func testLearnedNeedIsTheSeventyFifthPercentileInFiveMinuteSteps() {
+        let durations = (0..<28).map { hours(6) + Double($0) * 8 * 60 }
+
+        XCTAssertEqual(SleepDebtChartModel.learnedNeed(durations: durations), hours(8) + 40 * 60)
+        XCTAssertEqual(SleepDebtChartModel.learnedNeed(durations: durations.reversed()), hours(8) + 40 * 60)
+        XCTAssertNil(SleepDebtChartModel.learnedNeed(durations: Array(durations.dropLast())))
+    }
+
+    func testLearnedNeedStaysBetweenSixAndTenHours() {
+        XCTAssertEqual(SleepDebtChartModel.learnedNeed(durations: Array(repeating: hours(5), count: 28)), hours(6))
+        XCTAssertEqual(SleepDebtChartModel.learnedNeed(durations: Array(repeating: hours(11), count: 28)), hours(10))
+    }
+
+    /// The learned need reads the recorded nights of the 56 days ending today,
+    /// so a night 56 days ago is out and one 55 days ago is in.
+    func testLearnedNeedReadsTheRecordedNightsOfTheLastFiftySixDays() throws {
+        let now = try date(2026, 6, 20, 9)
+        var history = (1...27).map { night(on: daysAgo($0, from: now), hours(7)) }
+        history.append(night(on: daysAgo(40, from: now), 0))
+        history.append(night(on: daysAgo(56, from: now), hours(9)))
+
+        func learnedNeed(_ history: [SleepDaySummary]) -> TimeInterval? {
+            SleepDebtChartModel.learnedNeed(from: SleepDebtChartModel.inputs(
+                sleepHistory: SleepHistorySnapshot(days: history),
+                currentDaySummary: nil,
+                trainingLoad: .empty,
+                today: now,
+                calendar: calendar
+            ))
+        }
+
+        XCTAssertNil(learnedNeed(history))
+        history.append(night(on: daysAgo(55, from: now), hours(9)))
+        XCTAssertEqual(learnedNeed(history), hours(7))
     }
 
     // MARK: - Window and anchor
@@ -82,18 +148,18 @@ final class SleepDebtTests: XCTestCase {
 
     func testHeadlineWaitsForTodaysNight() throws {
         let today = try date(2026, 6, 20)
-        let pending = model(today: today, durations: nights(1..<14, hours(7)))
+        let pending = model(today: today, durations: nights(1..<14, hours(7.75)))
 
         XCTAssertNil(pending.chartNights.last?.debtAfterNight)
         XCTAssertEqual(pending.latestNight?.day, daysAgo(1, from: today))
-        XCTAssertEqual(try XCTUnwrap(pending.debt), hours(13), accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(pending.debt), hours(3.25), accuracy: 0.001)
 
-        var withToday = nights(1..<14, hours(7))
+        var withToday = nights(1..<14, hours(7.75))
         withToday[0] = hours(8)
         let arrived = model(today: today, durations: withToday)
 
         XCTAssertEqual(arrived.latestNight?.day, daysAgo(0, from: today))
-        XCTAssertEqual(try XCTUnwrap(arrived.debt), hours(13), accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(arrived.debt), hours(3.25), accuracy: 0.001)
     }
 
     /// The calendar window moves on at midnight even without new sleep: the
@@ -144,15 +210,23 @@ final class SleepDebtTests: XCTestCase {
 
     func testOldLongNightLeavingTheWindowRaisesTheTotal() throws {
         let today = try date(2026, 6, 20)
-        var durations = nights(1..<14, hours(7.5))
+        var durations = nights(1..<14, hours(7.75))
         durations[0] = hours(8)
         durations[14] = hours(10)
 
         let model = model(today: today, durations: durations)
         let columns = model.chartNights
 
-        XCTAssertEqual(try XCTUnwrap(columns[12].debtAfterNight), hours(4.5), accuracy: 0.001)
-        XCTAssertEqual(try XCTUnwrap(columns[13].debtAfterNight), hours(6.5), accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(columns[12].debtAfterNight), hours(1.25), accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(columns[13].debtAfterNight), hours(3.25), accuracy: 0.001)
+    }
+
+    func testTotalIsCappedAtSixHours() throws {
+        let today = try date(2026, 6, 20)
+        let model = model(today: today, durations: nights(0..<14, hours(7)))
+
+        XCTAssertEqual(model.debt, SleepDebtChartModel.maximumDebt)
+        XCTAssertEqual(model.debt, hours(6))
     }
 
     func testRecordedNightCountsFollowTheWindow() throws {
@@ -173,21 +247,21 @@ final class SleepDebtTests: XCTestCase {
 
     func testNightOnFindsAnOlderNightWithItsOwnWindow() throws {
         let today = try date(2026, 6, 20)
-        let model = model(today: today, durations: nights(20..<34, hours(7)))
+        let model = model(today: today, durations: nights(20..<34, hours(7.75)))
         let twentyDaysAgo = daysAgo(20, from: today)
 
         let night = try XCTUnwrap(model.night(on: twentyDaysAgo.addingTimeInterval(9 * 3_600)))
         XCTAssertEqual(night.day, twentyDaysAgo)
-        XCTAssertEqual(night.actualDuration, hours(7))
+        XCTAssertEqual(night.actualDuration, hours(7.75))
         XCTAssertEqual(night.recordedNightCount, 14)
-        XCTAssertEqual(try XCTUnwrap(night.debtAfterNight), hours(14), accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(night.debtAfterNight), hours(3.5), accuracy: 0.001)
         XCTAssertFalse(model.chartNights.contains { $0.day == twentyDaysAgo })
         XCTAssertNil(model.debt)
     }
 
     func testNightOnReportsAMissingNightWithItsDebt() throws {
         let today = try date(2026, 6, 20)
-        var durations = nights(0..<20, hours(7))
+        var durations = nights(0..<20, hours(7.75))
         durations[3] = nil
 
         let model = model(today: today, durations: durations)
@@ -197,7 +271,7 @@ final class SleepDebtTests: XCTestCase {
         XCTAssertNil(night.actualDuration)
         XCTAssertFalse(night.isRecorded)
         XCTAssertEqual(night.recordedNightCount, 13)
-        XCTAssertEqual(try XCTUnwrap(night.debtAfterNight), hours(13), accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(night.debtAfterNight), hours(3.25), accuracy: 0.001)
     }
 
     func testNightOnIsNilOutsideThePickableDays() throws {
@@ -561,10 +635,10 @@ final class SleepDebtTests: XCTestCase {
         }
         let cache = BodySleepDebtChartCache()
 
-        let first = cache.model(inputs: inputs(sleeping: hours(7)), sleepGoal: goal)
-        XCTAssertEqual(first.debt, hours(14))
-        XCTAssertEqual(cache.model(inputs: inputs(sleeping: hours(7)), sleepGoal: goal), first)
-        XCTAssertEqual(cache.model(inputs: inputs(sleeping: hours(7)), sleepGoal: hours(7)).debt, 0)
+        let first = cache.model(inputs: inputs(sleeping: hours(7.75)), sleepGoal: goal)
+        XCTAssertEqual(first.debt, hours(3.5))
+        XCTAssertEqual(cache.model(inputs: inputs(sleeping: hours(7.75)), sleepGoal: goal), first)
+        XCTAssertEqual(cache.model(inputs: inputs(sleeping: hours(7.75)), sleepGoal: hours(7)).debt, 0)
         XCTAssertEqual(cache.model(inputs: inputs(sleeping: hours(8)), sleepGoal: goal).debt, 0)
     }
 
@@ -582,9 +656,15 @@ final class SleepDebtTests: XCTestCase {
         XCTAssertEqual(color(0), low)
         XCTAssertEqual(color(hours(2) - 1), low)
         XCTAssertEqual(color(hours(2)), radarPink)
-        XCTAssertEqual(color(hours(5)), radarPink)
-        XCTAssertEqual(color(hours(5) + 1), radarRed)
+        XCTAssertEqual(color(hours(4)), radarPink)
+        XCTAssertEqual(color(hours(4) + 1), radarRed)
         XCTAssertEqual(color(hours(12)), radarRed)
+
+        // The callout names the band over the same edges.
+        XCTAssertEqual(BodySleepDebtChart.bandTitle(for: hours(2) - 1), "LOW DEBT")
+        XCTAssertEqual(BodySleepDebtChart.bandTitle(for: hours(2)), "MODERATE DEBT")
+        XCTAssertEqual(BodySleepDebtChart.bandTitle(for: hours(4)), "MODERATE DEBT")
+        XCTAssertEqual(BodySleepDebtChart.bandTitle(for: hours(4) + 1), "HIGH DEBT")
     }
 
     // MARK: - Refresh
