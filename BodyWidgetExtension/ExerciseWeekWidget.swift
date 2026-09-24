@@ -5,8 +5,8 @@
 //  iPhone lock screen widget (accessoryRectangular): a header total plus
 //  seven bars for the rolling last 7 days of total workout time (summed
 //  HKWorkout durations), today rightmost. No configuration, so this is a
-//  plain StaticConfiguration (unlike the other widgets, which reuse
-//  BodyWidgetConfigurationIntent for a background picker). Pro-gated,
+//  plain StaticConfiguration (unlike the other widgets, which take a
+//  configuration intent for a background picker). Pro-gated,
 //  matching the other Body widgets.
 //
 

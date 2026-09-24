@@ -41,6 +41,20 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    /// The source picker's fallback notice is interpolated at runtime
+    /// (BodyHealthDataSourcePickerSheet), so string extraction never sees these keys.
+    func testSourcePickerFallbackNoticeKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "No data",
+            "%@ has no %@ data yet, so %@ is still used.",
+            "%@ has no %@ data yet, so no comparison is shown."
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
     func testSplitKeysResolveInBodyMetricsKitCatalog() throws {
         let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
 
@@ -471,9 +485,9 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Any reading below %lld bpm today",
             "Any reading above %lld bpm today, outside workouts",
             "Any reading below %lld%% today",
-            "Warnings appear on the Home card, the readiness score, and the metric's detail page.",
-            "Show on Readiness",
-            "Add warning signs next to the readiness level",
+            "Warnings appear on the Home card, the Home Hero, and the metric's detail page.",
+            "Show on Home Hero",
+            "Add warning signs under the Home Hero number",
             // Threshold picker popover.
             "Use Default",
             "If you were working out, this warning will disappear once the workout is logged.",
@@ -639,6 +653,28 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         // Guards the regex itself: a refactor to a different call style would otherwise
         // match nothing and pass while checking no keys at all.
         XCTAssertGreaterThanOrEqual(keys.count, 20, "expected one explanation per metric kind plus the header copy")
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testBasicsRangeExplanationKeysResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // Same shape as the Details sheet's guard above.
+        let source = try String(
+            contentsOf: projectRoot.appendingPathComponent("Body/Views/Health/BodyBasicsRangeExplanationSheet.swift"),
+            encoding: .utf8
+        )
+        let pattern = try NSRegularExpression(pattern: #"String\(localized: "((?:[^"\\]|\\.)*)"\)"#)
+        let matches = pattern.matches(in: source, range: NSRange(source.startIndex..., in: source))
+        let keys = matches.compactMap { match -> String? in
+            guard let range = Range(match.range(at: 1), in: source) else { return nil }
+            return String(source[range])
+        }
+
+        XCTAssertFalse(keys.contains { $0.contains("\\") }, "escaped literal needs unescaping before lookup")
+        // Guards the regex itself: the sheet title, three bodies, and two card titles.
+        XCTAssertGreaterThanOrEqual(keys.count, 6)
 
         try assertKeysTranslated(keys, in: catalog)
     }

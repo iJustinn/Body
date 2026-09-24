@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import WidgetKit
 
 enum WorkoutCalendarDisplayStyle: Equatable {
     case app
@@ -103,6 +104,8 @@ struct WorkoutCalendarView: View {
     let onSwitchChart: (() -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// `.accented` under the Home Screen's Clear and Tinted appearances.
+    @Environment(\.widgetRenderingMode) private var renderingMode
 
     init(
         snapshot: WorkoutMonthSnapshot,
@@ -305,11 +308,15 @@ struct WorkoutCalendarView: View {
     @ViewBuilder
     private func cellBackground(for day: WorkoutDaySummary) -> some View {
         if day.workoutCount > 0 {
+            // The Home Screen's Clear and Tinted appearances keep only opacity, so a
+            // near-opaque square would swallow its icon: thin the square there instead.
             BodyGlassChip(
                 color: day.primaryWorkoutType.map { palette.color(for: $0) } ?? Color(red: 0.09, green: 0.56, blue: 0.88),
                 cornerRadius: 9,
+                fillOpacity: renderingMode == .accented ? 0.3 : 0.85,
                 showsRim: false
             )
+            .widgetAccentable()
         } else {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color.primary.opacity(0.1))

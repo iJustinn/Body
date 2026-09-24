@@ -66,6 +66,7 @@ struct BodyMonthYearPicker: View {
     @Environment(\.scenePhase) private var scenePhase
     @Binding var selectedMonth: Int
     @Binding var selectedYear: Int
+    @AppStorage(BodyAppearancePreference.monthPickerHapticsEnabledKey) private var hapticsEnabled = true
 
     private let monthsToShow: Int
     private let allowFutureMonths: Bool
@@ -141,6 +142,11 @@ struct BodyMonthYearPicker: View {
             .gesture(monthDragGesture(sideSpacing: sideSpacing))
         }
         .frame(height: pickerHeight)
+        // Keyed on the bound month so every way of changing it ticks once: a swipe or
+        // side tap here, the triple tap home, the chart swipe, and Go to Month.
+        .sensoryFeedback(trigger: selectedYear * 12 + selectedMonth) { _, _ in
+            hapticsEnabled && BodyHaptics.isMasterEnabled ? .selection : nil
+        }
         .onChange(of: selectedIndex) {
             guard monthYearList.indices.contains(selectedIndex) else {
                 return

@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import WidgetKit
 
 struct HealthWidgetMetricCardView: View {
     let metric: HealthWidgetMetric
@@ -28,21 +29,18 @@ struct HealthWidgetMetricCardView: View {
     }
 
     private func cardContent(trend: HealthWidgetMetricTrend) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
             title
 
-            Spacer(minLength: 4)
-
+            // The chart takes whatever height the title and value rows leave,
+            // rather than a fixed band with slack above and below it.
             HealthWidgetTrendPlot(
                 style: metric.chartStyle,
                 points: trend.week.points,
                 average: nil,
                 color: metric.tintColor
             )
-            .frame(maxWidth: .infinity)
-            .frame(height: 36)
-
-            Spacer(minLength: 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             HStack(alignment: .bottom, spacing: 8) {
                 values(trend.displayValues)
@@ -104,6 +102,7 @@ struct HealthWidgetMetricCardView: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(metric.tintColor.opacity(0.16))
             )
+            .widgetAccentable()
             .accessibilityHidden(true)
     }
 

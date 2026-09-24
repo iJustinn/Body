@@ -762,6 +762,23 @@ final class HealthKitWorkoutStoreSourceResolutionTests: XCTestCase {
         XCTAssertEqual(store.syncBadgeSuccessCount, 1)
     }
 
+    // MARK: - Source picker "No data" rule
+
+    /// Before discovery has run for a kind the stored option is kept (H4), so the
+    /// picker must not mark a row "No data" or post a fallback notice on a cold
+    /// start. The sentinels always take effect.
+    @MainActor
+    func testUndiscoveredKindReportsEveryOptionTakesEffect() {
+        let store = HealthKitWorkoutStore(
+            initialMonthSnapshots: [WorkoutMonthSnapshot.make(month: 5, year: 2026, workouts: [], calendar: .bodyGregorian)]
+        )
+        let individual = BodyHealthDataSourceOption(id: "source:com.example.scale", name: "Scale")
+
+        XCTAssertTrue(store.healthDataSourceOptionTakesEffect(individual, for: .heartRate, secondary: false))
+        XCTAssertTrue(store.healthDataSourceOptionTakesEffect(.allSources, for: .heartRate, secondary: false))
+        XCTAssertTrue(store.healthDataSourceOptionTakesEffect(.noComparison, for: .heartRate, secondary: true))
+    }
+
     // MARK: - Permissions sheet access states
 
     @MainActor

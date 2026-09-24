@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import WidgetKit
 
 enum WorkoutTypeBreakdownDisplayStyle: Equatable {
     case app
@@ -42,6 +43,10 @@ struct WorkoutTypeBreakdownView: View {
     let rowLimit: Int?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// `.accented` under the Home Screen's Clear and Tinted appearances.
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    private var isAccented: Bool { renderingMode == .accented }
 
     /// The rank-slot morph's chart snapshot: it drives the sort order, the bar widths
     /// and the bar colors, and is assigned inside a 0.45 s ease-in-out. Because the
@@ -247,13 +252,20 @@ struct WorkoutTypeBreakdownView: View {
 
     private func percentageBar(_ entry: WorkoutTypeBreakdown, percentage: Int) -> some View {
         ZStack(alignment: .leading) {
-            BodyGlassChip(color: palette.color(for: entry.type), cornerRadius: barCornerRadius)
+            // The Home Screen's Clear and Tinted appearances keep only opacity, so a
+            // near-opaque bar would swallow its label: thin the bar there instead.
+            BodyGlassChip(
+                color: palette.color(for: entry.type),
+                cornerRadius: barCornerRadius,
+                fillOpacity: isAccented ? 0.3 : 0.85
+            )
+            .widgetAccentable()
 
             // Verbatim: an interpolated `Text` would register `%lld%%` as a
             // localizable key, and the percentage is the same in every language.
             Text(verbatim: "\(percentage)%")
                 .font(.system(size: percentageFontSize, weight: .bold, design: .rounded))
-                .foregroundColor(.black.opacity(0.82))
+                .foregroundColor(isAccented ? .primary : .black.opacity(0.82))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(style.isWidget ? 0.68 : 0.75)
@@ -280,6 +292,7 @@ struct WorkoutTypeBreakdownView: View {
                 .font(.system(size: iconFontSize, weight: iconWeight))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(palette.color(for: entry.type))
+                .widgetAccentable()
                 .frame(width: iconFrameSide, height: iconFrameSide)
 
             VStack(alignment: .leading, spacing: detailTextSpacing) {

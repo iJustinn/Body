@@ -39,10 +39,11 @@ private struct BodyPullToRefreshTrigger: ViewModifier {
                 if offset < -threshold {
                     guard isArmed, isTouchDriven else { return }
                     isArmed = false
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    if BodyHaptics.isMasterEnabled { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
                     if isRefreshing {
                         onBusy()
                     } else {
+                        BodyConfirmationHaptics.awaitsRefreshResult = true
                         action()
                     }
                 } else if offset >= -1 {
@@ -56,7 +57,7 @@ extension View {
     /// Custom pull-to-refresh with no system refresh control (and therefore no
     /// system spinner). See `BodyPullToRefreshTrigger`.
     func bodyPullToRefresh(
-        threshold: CGFloat = 70,
+        threshold: CGFloat = 100,
         isRefreshing: Bool = false,
         onBusy: @escaping () -> Void = {},
         action: @escaping () -> Void

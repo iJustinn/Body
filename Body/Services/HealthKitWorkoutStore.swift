@@ -3928,6 +3928,21 @@ final class HealthKitWorkoutStore {
         resolvedHealthDataSourceOption(healthDataSourceSelection.option(for: kind), for: kind)
     }
 
+    /// Whether picking `option` would actually filter this metric, or resolve away
+    /// to the fallback because the source has no data for it. Runs the same
+    /// resolvers the checkmark reads, so the picker's "No data" mark and its
+    /// fallback notice can never disagree with the row that ends up selected.
+    func healthDataSourceOptionTakesEffect(
+        _ option: BodyHealthDataSourceOption,
+        for kind: HealthMetricKind,
+        secondary: Bool
+    ) -> Bool {
+        let resolved = secondary
+            ? resolvedSecondaryHealthDataSourceOption(option, for: kind)
+            : resolvedHealthDataSourceOption(option, for: kind)
+        return resolved.id == option.id
+    }
+
     func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind) -> BodyHealthDataSourceOption {
         // Secondary-source comparison is a Body Pro feature. Collapsing to .noComparison
         // here neutralizes every comparison renderer (bars, range bars, line, title) that
@@ -4173,6 +4188,21 @@ final class HealthKitWorkoutStore {
     func refetchAfterSleepDisplayPreferenceChange() async {
         _ = captureRefreshInputs(intent: .userInitiated)
         await persistContextChange()
+    }
+
+    /// Refetches after the Home Hero choice changes what the dashboard fetches (the
+    /// Day Ring adds sleep). An unchanged fetch selection captures equal inputs.
+    func refetchAfterStarMetricChange() async {
+        _ = captureRefreshInputs(intent: .userInitiated)
+        await persistContextChange()
+    }
+
+    /// Cached workouts whose real timestamps overlap `interval`, whichever day or month
+    /// they were bucketed under (a workout is bucketed by its start, sometimes in the
+    /// zone it was recorded in).
+    func workouts(overlapping interval: DateInterval) -> [WorkoutSummary] {
+        monthSnapshots.values.flatMap(\.days).flatMap(\.workouts)
+            .filter { $0.startDate < interval.end && $0.effectiveEndDate > interval.start }
     }
 
     func updateDefaultSecondaryHealthDataSource(option: BodyHealthDataSourceOption) async {
@@ -5531,6 +5561,12 @@ final class HealthKitWorkoutStore {
         // Drop the generated readiness comment too — it describes the summary
         // this clear just wiped, and would otherwise reappear on relaunch.
         ReadinessCommentCache.clear()
+        // Drop Siri's Spotlight copy too. The coordinator orders the delete
+        // after any donation still mid-write; detached so a slow or absent
+        // Spotlight service can never hold up the clear itself.
+        Task.detached(priority: .utility) {
+            await BodySiriIndexCoordinator.shared.clear()
+        }
 
         // Cancel and AWAIT the baseline record scan before the file deletions
         // below. The epoch bump already stops it republishing, but the scan owns
@@ -6431,7 +6467,7 @@ final class HealthKitWorkoutStore {
     func currentDashboardCacheScope() -> HealthDashboardCacheScope {
         let (calendar, now) = calendarContext()
         let aggregation = HealthDashboardCacheScope.key([
-            String(describing: calendar.identifier), calendar.timeZone.identifier, "aggregation-v1"
+            String(describing: calendar.identifier), calendar.timeZone.identifier, "aggregation-v3"
         ])
         func source(_ kind: HealthMetricKind, comparison: Bool) -> HealthDashboardCacheScope.Source {
             let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind)
@@ -7028,6 +7064,12 @@ final class HealthKitWorkoutStore {
         let sleepEnd = summary.sleep.stageSnapshot.wakeCycleEnd
         let wakeTime = Self.freezeWakeTime(sleepEnd: sleepEnd, scoringDay: anchorDate, now: now, calendar: calendar)
         let todaysWorkouts = currentWakeCycleWorkouts(now: now, sleepEnd: sleepEnd, calendar: calendar)
+        // The drain report the watch reconciles against. Only with Workouts
+        // permitted: without it `todaysWorkouts` is empty for lack of access,
+        // which is not a claim that the wake cycle has no workouts.
+        let wakeCycleStart = permissionSelection.includes(.workouts)
+            ? ReadinessComputeSupport.wakeCycleStart(now: now, sleepEnd: sleepEnd, calendar: calendar)
+            : nil
         let recordedReadinessContext = readinessRecordContextSignature()
         let recordedStressContext = stressRecordContextSignature()
         let stressWorkouts = stressWindowWorkouts(through: anchorDate, calendar: calendar)
@@ -7052,6 +7094,7 @@ final class HealthKitWorkoutStore {
                     idealSleepDuration: idealSleepDuration,
                     calendar: calendar,
                     todaysWorkouts: todaysWorkouts,
+                    wakeCycleStart: wakeCycleStart,
                     wakeTime: wakeTime,
                     now: now,
                     freezesRecordedReadiness: recomputesReadiness,
@@ -7599,6 +7642,7 @@ final class HealthKitWorkoutStore {
             idealSleepDuration: Self.storedIdealSleepDuration(),
             calendar: calendar,
             todaysWorkouts: todaysWorkouts,
+            wakeCycleStart: ReadinessComputeSupport.wakeCycleStart(now: now, sleepEnd: sleepEnd, calendar: calendar),
             wakeTime: wakeTime,
             now: now,
             freezesRecordedReadiness: true,
@@ -8029,6 +8073,21 @@ final class HealthKitWorkoutStore {
             ) ?? BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue,
             showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
             showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(),
+            readinessHeroShowsLevel: UserDefaults.standard.object(
+                forKey: BodyAppearancePreference.readinessHeroShowsLevelKey
+            ) as? Bool ?? true,
+            homeHeroRaw: UserDefaults.standard.string(
+                forKey: BodyAppearancePreference.starredMetricKey
+            ) ?? BodyStarMetric.readiness.rawValue,
+            dayRingShowsCaption: UserDefaults.standard.object(
+                forKey: BodyAppearancePreference.dayRingShowsCaptionKey
+            ) as? Bool ?? true,
+            workoutColorPalette: BodyWorkoutColorPalette(
+                rawOverrides: BodyWorkoutColorStore.sharedDefaults?.string(
+                    forKey: BodyAppearancePreference.workoutColorOverridesKey
+                ) ?? "",
+                isProUnlocked: isProUnlocked
+            ),
             healthDataSourceSelectionRaw: isProUnlocked
                 ? healthDataSourceSelection.rawValue
                 : Self.selectionNeutralizingCustomSources(healthDataSourceSelection).rawValue,

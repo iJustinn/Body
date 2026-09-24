@@ -43,6 +43,20 @@ actor WatchHealthStore {
         try? await store.requestAuthorization(toShare: [], read: read)
     }
 
+    /// Whether the compute read set has ALREADY been put to the user, so reading
+    /// it can never raise an authorization sheet. HealthKit persists this, which
+    /// is what lets a background launch (the workout observer, a pushed context,
+    /// a scheduled refresh) decide without the model's in-memory authorization
+    /// task: those paths must never prompt, and must not read before a prompt
+    /// has happened.
+    func isComputeAuthorizationSettled(for selection: BodyHealthPermissionSelection) async -> Bool {
+        guard HKHealthStore.isHealthDataAvailable() else { return false }
+        let read = BodyHealthReadTypes.watchComputeReadObjectTypes(for: selection)
+        guard !read.isEmpty else { return false }
+        let status = try? await store.statusForAuthorizationRequest(toShare: [], read: read)
+        return status == .unnecessary
+    }
+
     /// The live source filters for HR and HRV, resolved from the phone's seeded
     /// selection. Resolved once per refresh (inside this actor, off the main
     /// actor) and handed to both reads below.

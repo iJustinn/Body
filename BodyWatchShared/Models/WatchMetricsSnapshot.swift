@@ -121,6 +121,15 @@ enum WatchMetricDeepLink {
         URL(string: "\(scheme)://\(host)/\(kind)")
     }
 
+    /// Opens the watch home page rather than a metric's detail page. The
+    /// Readiness complication uses it: Readiness is the home page's hero.
+    static let homeHost = "home"
+    static let homeURL = URL(string: "\(scheme)://\(homeHost)")
+
+    static func isHome(_ url: URL) -> Bool {
+        url.scheme == scheme && url.host == homeHost
+    }
+
     static func kind(from url: URL) -> String? {
         guard url.scheme == scheme, url.host == host else { return nil }
         let kind = url.lastPathComponent
@@ -215,6 +224,19 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// the schema-evolution note below.
     var weeklyCurrentValue: Double? = nil
 
+    /// Readiness only: the PUBLISHER's own same-day drain report, the workouts
+    /// it drained and the undrained score it started from. Stamped by the
+    /// shared builder on both the phone's publish and the watch's compute; nil
+    /// for every other metric, when Workouts isn't readable, and for payloads
+    /// from before this field (an unknown report, never an empty one).
+    var drain: WatchReadinessDrainReport? = nil
+
+    /// Readiness only, WATCH SIDE only (the phone never sets it): the latest
+    /// drain report received from each device, kept by the merge so the
+    /// displayed score can carry the union of both. See
+    /// `WatchReadinessDrainReconciler`.
+    var drainReports: WatchReadinessDrainReports? = nil
+
     /// Whether `displayValue`/`unit` are in Fahrenheit, stamped by the builder
     /// for Skin Temp only (`nil` for every other metric, and for snapshots from
     /// a phone build before this field). Lets the corner gauge convert its
@@ -252,6 +274,33 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     }
 }
 
+/// What one device knew about today's activity drain when it produced a
+/// readiness value. Self-contained (no BodyMetricsKit types) because this file
+/// is also compiled into the watch widget extension.
+struct WatchReadinessDrainReport: Codable, Equatable {
+    struct Contribution: Codable, Equatable {
+        /// The workout's HealthKit UUID string, identical on both devices.
+        var id: String
+        var start: Date
+        /// Drain points before the total cap.
+        var points: Double
+    }
+
+    /// The readiness score before any drain.
+    var undrainedScore: Int
+    /// Start of the wake cycle the workouts were read over.
+    var cycleStart: Date
+    var contributions: [Contribution]
+}
+
+struct WatchReadinessDrainReports: Codable, Equatable {
+    var phone: WatchReadinessDrainReport?
+    var watch: WatchReadinessDrainReport?
+    /// Workouts the watch reported and then stopped finding (deleted), which
+    /// the phone's report may keep listing until the deletion replicates.
+    var watchRemovedIDs: [String]?
+}
+
 /// One stage segment of the night's main sleep session, for the watch
 /// Sleep Stages complication. `stage` is the `SleepStage` raw value
 /// ("awake" / "rem" / "core" / "deep") as a string so this file stays free
@@ -260,6 +309,17 @@ struct WatchSleepStageSegment: Codable, Equatable {
     var stage: String
     var startDate: Date
     var endDate: Date
+}
+
+/// One workout for the watch Day Ring hero. `type` is the `BodyWorkoutType` raw
+/// value as a string so this file stays free of BodyMetricsKit; `colorHex` is
+/// the phone's resolved palette color, custom workout colors included.
+struct WatchDayRingWorkout: Codable, Equatable {
+    var id: String
+    var type: String
+    var startDate: Date
+    var endDate: Date
+    var colorHex: UInt32
 }
 
 /// Schema evolution: the phone and watch can run different builds, so any new
@@ -292,6 +352,25 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// is unknown or carries no segments. Optional so snapshots from before
     /// this field decode.
     var sleepStages: [WatchSleepStageSegment]? = nil
+
+    /// The phone's Settings ▸ Home Hero ▸ Readiness Level switch: whether the
+    /// readiness hero names today's level under the score. A display
+    /// preference, so it rides the display payload rather than the compute
+    /// seed (whose settings signature would invalidate computed values on a
+    /// toggle). Optional so an older phone's payload decodes; nil reads as on,
+    /// the phone's default.
+    var readinessHeroShowsLevel: Bool? = nil
+
+    /// The phone's Settings ▸ Home Hero choice, as the `BodyStarMetric` raw
+    /// value ("readiness" / "dayRing", empty for None), so the watch shows the
+    /// same hero. Optional so an older phone's payload decodes; nil and None
+    /// read as the Readiness Ring, the hero the watch always had.
+    var homeHero: String? = nil
+    /// The phone's Home Hero ▸ Day Caption switch; nil reads as on.
+    var dayRingShowsCaption: Bool? = nil
+    /// The workouts around today for the Day Ring hero, published only while it
+    /// is the chosen hero. The night's bar comes from `sleepStages`.
+    var dayRingWorkouts: [WatchDayRingWorkout]? = nil
 
     /// Identifies the phone install that produced this snapshot: a UUID
     /// persisted in phone UserDefaults, regenerated on reinstall / data reset.
@@ -334,7 +413,7 @@ struct WatchMetricsSnapshot: Codable, Equatable {
         generatedAt: .distantPast,
         lastRefreshDate: nil,
         metrics: [
-            WatchMetric(kind: WatchMetricKindKey.readiness, title: String(localized: "Readiness", table: "BodyWatchShared"), displayValue: "78", unit: "%", score: 78, fillFraction: 0.78, rawValue: 78, rangeMin: 0, rangeMax: 100, levelMin: 65, levelMax: 79, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
+            WatchMetric(kind: WatchMetricKindKey.readiness, title: String(localized: "Readiness", table: "BodyWatchShared"), displayValue: "78", unit: "%", score: 78, fillFraction: 0.78, rawValue: 78, rangeMin: 0, rangeMax: 100, levelMin: 65, levelMax: 79, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20), statusBand: WatchStatusBand(min: 65, max: 80, label: String(localized: "Moderate", table: "BodyWatchShared"))),
             WatchMetric(kind: WatchMetricKindKey.sleep, title: String(localized: "Sleep", table: "BodyWatchShared"), displayValue: "7h 32m", unit: "", score: 85, fillFraction: 0.85, rawValue: 85, rangeMin: 0, rangeMax: 100),
             WatchMetric(kind: WatchMetricKindKey.heartRate, title: String(localized: "Heart Rate", table: "BodyWatchShared"), displayValue: "62", unit: "bpm", score: nil, fillFraction: 0.45, rawValue: 62, rangeMin: 54, rangeMax: 72),
             WatchMetric(kind: WatchMetricKindKey.heartRateVariability, title: String(localized: "HRV", table: "BodyWatchShared"), displayValue: "48", unit: "ms", score: nil, fillFraction: 0.60, rawValue: 48, rangeMin: 30, rangeMax: 60),

@@ -152,7 +152,7 @@ struct HealthMetricQueryDescriptor: Sendable {
             sourceKind: .basics,
             permission: .basics,
             summary: .latestSample,
-            trend: .daily(.latest)
+            trend: .daily(.average)
         ),
         .bodyFatPercentage: HealthMetricQueryDescriptor(
             .bodyFatPercentage, .bodyFatPercentage,
@@ -161,7 +161,7 @@ struct HealthMetricQueryDescriptor: Sendable {
             permission: .basics,
             valueTransform: BodyHealthQuantityFetch.normalizedPercent,
             summary: .latestSample,
-            trend: .daily(.latest)
+            trend: .daily(.average)
         ),
         .heartRateVariability: HealthMetricQueryDescriptor(
             .heartRateVariability, .heartRateVariabilitySDNN,
@@ -198,7 +198,7 @@ struct HealthMetricQueryDescriptor: Sendable {
             sourceKind: .basics,
             permission: .basics,
             summary: .latestSample,
-            trend: .daily(.latest)
+            trend: .daily(.average)
         ),
         .activeEnergy: HealthMetricQueryDescriptor(
             .activeEnergy, .activeEnergyBurned,

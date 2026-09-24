@@ -5,8 +5,8 @@
 //  Medium widget that charts today's sleep stages for the primary source
 //  selected in the app, once available (empty until today's own sleep
 //  session is recorded — a prior night's stages are never carried over).
-//  Background is chosen in the widget's edit screen (reusing
-//  BodyWidgetConfigurationIntent).
+//  Background is chosen in the widget's edit screen
+//  (BodyWidgetConfigurationIntent, whose Gradient uses the sleep tint).
 //
 
 import AppIntents
@@ -79,7 +79,7 @@ struct BodySleepStagesWidget: Widget {
                     BodyWidgetLockedView()
                 }
             }
-            .bodyWidgetBackground(entry.background)
+            .bodyWidgetBackground(entry.background, tint: HealthWidgetMetric.sleep.tintColor)
         }
         .supportedFamilies([.systemMedium])
         .configurationDisplayName("Sleep Stages")

@@ -63,6 +63,10 @@ struct BodyCompanionPublishInput: Sendable {
     let selectedTemperatureUnitRaw: String
     let showsSubMinuteAwakeStages: Bool
     let showsLeadingTrailingAwakeStages: Bool
+    let readinessHeroShowsLevel: Bool
+    let homeHeroRaw: String
+    let dayRingShowsCaption: Bool
+    let workoutColorPalette: BodyWorkoutColorPalette
     let healthDataSourceSelectionRaw: String
     let customHealthSourceGroupsRaw: String?
     let combinesByName: Bool
@@ -150,6 +154,12 @@ final class BodyCompanionPublisher {
             let changed = isCurrent() && HealthWidgetSnapshotStore.save(snapshot)
             Task { @MainActor in
                 if changed, isCurrent() { BodyWidgetReloadCoalescer.shared.requestReload() }
+                // Unconditional: dashboard-only changes such as warnings never
+                // touch the widget file. Detached so it can never delay
+                // `completion()`, and so the load stays off the main actor.
+                Task.detached(priority: .utility) {
+                    await BodySiriIndexCoordinator.shared.requestReindex()
+                }
                 completion()
             }
         }
@@ -232,6 +242,25 @@ final class BodyCompanionPublisher {
                 }
             )
             snapshot.source = "phone"
+            snapshot.readinessHeroShowsLevel = input.readinessHeroShowsLevel
+            snapshot.homeHero = input.homeHeroRaw
+            snapshot.dayRingShowsCaption = input.dayRingShowsCaption
+            if input.homeHeroRaw == BodyStarMetric.dayRing.rawValue {
+                // Yesterday through tomorrow: the watch keeps what overlaps the day
+                // its own clock is on, so a snapshot that outlives midnight still draws.
+                let window = DateInterval(start: input.now.addingTimeInterval(-86_400), end: input.now.addingTimeInterval(86_400))
+                snapshot.dayRingWorkouts = input.monthSnapshots.values.flatMap(\.days).flatMap(\.workouts)
+                    .filter { $0.startDate < window.end && $0.effectiveEndDate > window.start }
+                    .map {
+                        WatchDayRingWorkout(
+                            id: $0.id.uuidString,
+                            type: $0.type.rawValue,
+                            startDate: $0.startDate,
+                            endDate: $0.effectiveEndDate,
+                            colorHex: input.workoutColorPalette.resolvedHex(for: $0.type)
+                        )
+                    }
+            }
 
             // Build the compute seed off-actor too (trend trimming + zlib
             // compression are the expensive parts). `nil` when no full

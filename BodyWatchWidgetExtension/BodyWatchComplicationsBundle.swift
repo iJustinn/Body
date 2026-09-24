@@ -6,7 +6,8 @@
 //  BodyWidgetExtensionBundle's static-per-widget pattern), each supporting
 //  the circular ring, the rectangular row, and the corner gauge, plus two
 //  rectangular-only bar complications (weekly Exercise minutes, last night's
-//  Sleep stages) that lead the list.
+//  Sleep stages) that lead the list. Readiness draws the home hero's
+//  segmented bands instead of the single ring (`ReadinessComplicationView`).
 //
 //  Note: full magenta renders in the Smart Stack and full-color faces; in
 //  tinted watch-face accessory slots the system recolors the ring (or bars)
@@ -42,9 +43,20 @@ private func metricComplication(
     description: String
 ) -> some WidgetConfiguration {
     StaticConfiguration(kind: widgetKind, provider: WatchMetricProvider()) { entry in
-        WatchComplicationView(metricKind: metricKind, entry: entry)
-            // Tapping the complication opens this metric's detail page directly.
-            .widgetURL(WatchMetricDeepLink.url(forKind: metricKind))
+        Group {
+            if metricKind == WatchMetricKindKey.readiness {
+                ReadinessComplicationView(entry: entry)
+            } else {
+                WatchComplicationView(metricKind: metricKind, entry: entry)
+            }
+        }
+        // Tapping the complication opens this metric's detail page directly,
+        // except Readiness, which opens the home page where its hero lives.
+        .widgetURL(
+            metricKind == WatchMetricKindKey.readiness
+                ? WatchMetricDeepLink.homeURL
+                : WatchMetricDeepLink.url(forKind: metricKind)
+        )
     }
     .configurationDisplayName(displayName)
     .description(description)

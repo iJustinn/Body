@@ -7,9 +7,10 @@
 //  glow in the band's color, the pull-down stretch, and the scroll-driven
 //  flattening into a bar held at the top of the page. It is the iPhone hero
 //  (`BodyReadinessArcHero` in `Body/Views/BodyReadinessStarHero.swift`) drawn
-//  from the same shared `BodyReadinessArcGeometry`, at the width the hero has
-//  on an iPhone (`referenceWidth`) and then scaled down uniformly to the watch,
-//  so every proportion, distance and animation is the phone's. The state
+//  from the same shared `BodyReadinessArcGeometry`, laid out close to the width
+//  the hero has on an iPhone (`referenceWidth`, a little narrower so the bars
+//  read slightly thicker) and then scaled down uniformly to the watch, so the
+//  distances and animations are the phone's. The state
 //  machine below (launch slide, pill moves, glow delay, stretch release) is a
 //  line-for-line mirror of the iOS hero's: keep the two in step.
 //
@@ -38,10 +39,12 @@ final class WatchDashboardScrollState {
 }
 
 enum WatchReadinessHero {
-    /// The iPhone hero's width (a 393 pt page inside Home's 16 pt padding): the
-    /// geometry is laid out at this width and scaled to the watch, so the ring
-    /// and bars keep the phone's proportions.
-    static let referenceWidth: CGFloat = 361
+    /// The width the geometry is laid out at before it is scaled to the watch.
+    /// The iPhone hero is 361 pt wide (a 393 pt page inside Home's 16 pt
+    /// padding); the geometry's bar, gap, and pill sizes are absolute, so a
+    /// slightly narrower layout makes them about 9 percent heavier against the
+    /// arc once scaled, which reads better at the watch's size.
+    static let referenceWidth: CGFloat = 330
 
     static func scale(width: CGFloat) -> CGFloat {
         max(0, width / referenceWidth)
@@ -78,6 +81,8 @@ struct WatchReadinessHeroView: View {
 
     /// Today's readiness score; nil shows `--` over neutral bands.
     let score: Int?
+    /// The phone's Readiness Level switch: name today's level under the score.
+    var showsLevel: Bool = true
     /// The width the hero draws at on the watch.
     let width: CGFloat
     /// 0 = full arc with the score, 1 = the flat pinned bar. Clamped here.
@@ -89,6 +94,9 @@ struct WatchReadinessHeroView: View {
     @State private var presentedScore: Double = 0
     @State private var pillAnimation: Animation?
     @State private var stretch: CGFloat = 0
+    /// The stretch at the ring's ends, which trails `stretch` on the release so the
+    /// bounce ripples outward from the middle band.
+    @State private var trailingStretch: CGFloat = 0
     @State private var isStretchReleasing = false
     @State private var glowTask: Task<Void, Never>?
     @State private var returnTask: Task<Void, Never>?
@@ -182,6 +190,7 @@ struct WatchReadinessHeroView: View {
                 progress: clampedProgress,
                 width: referenceWidth,
                 stretch: stretch,
+                trailingStretch: trailingStretch,
                 reduceMotion: reduceMotion
             )
             .animation(pillAnimation, value: presentedScore)
@@ -190,7 +199,7 @@ struct WatchReadinessHeroView: View {
             .offset(y: -pull)
 
             scoreText
-                .position(x: width / 2 + scoreCenterNudge, y: Geometry.numberCenterY(width: referenceWidth) * scale)
+                .position(x: width / 2, y: (Geometry.numberCenterY(width: referenceWidth) - levelLineOffset) * scale)
                 .offset(y: -pull)
         }
         .frame(width: width, height: WatchReadinessHero.height(width: width), alignment: .topLeading)
@@ -236,11 +245,16 @@ struct WatchReadinessHeroView: View {
             transaction.animation = nil
             withTransaction(transaction) {
                 stretch = Geometry.pullStretch(pull: newPull / max(scale, 0.001))
+                trailingStretch = stretch
             }
         } else if !isStretchReleasing {
             isStretchReleasing = true
-            withAnimation(.interpolatingSpring(mass: 1, stiffness: 180, damping: 12)) {
+            let spring = Animation.interpolatingSpring(mass: 1, stiffness: 220, damping: 7)
+            withAnimation(spring) {
                 stretch = 0
+            }
+            withAnimation(spring.delay(Geometry.rippleDelay)) {
+                trailingStretch = 0
             }
         }
         if newPull <= 0 {
@@ -258,7 +272,40 @@ struct WatchReadinessHeroView: View {
         score == nil ? 0 : 6 * scale
     }
 
+    /// Height of the level line under the score, in phone points.
+    private static let levelLineHeight: CGFloat = 26
+    /// Pulls the level up into the number's own line spacing, so the pair reads
+    /// as one block. Phone points; negative tightens.
+    private static let levelLineSpacing: CGFloat = -6
+
+    /// The score and its level line are centered together, so raising that
+    /// center by half of what the line adds lifts the number by the whole
+    /// line's height whatever the spacing between the two.
+    private var levelLineOffset: CGFloat {
+        showsLevelLine ? (Self.levelLineHeight - Self.levelLineSpacing) / 2 : 0
+    }
+
+    private var showsLevelLine: Bool { showsLevel && score != nil }
+
     private var scoreText: some View {
+        VStack(spacing: Self.levelLineSpacing * scale) {
+            scoreNumber
+                .offset(x: scoreCenterNudge)
+
+            if showsLevelLine {
+                Text(status.title)
+                    .font(.system(size: 20 * scale, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(height: Self.levelLineHeight * scale)
+            }
+        }
+        .fixedSize()
+        .shadow(color: .black.opacity(0.3), radius: 6 * scale, y: 1 * scale)
+        .opacity(textOpacity)
+    }
+
+    private var scoreNumber: some View {
         HStack(alignment: .firstTextBaseline, spacing: 2 * scale) {
             Text(numberText)
                 .font(.system(size: 66 * scale, weight: .semibold, design: .rounded))
@@ -276,8 +323,6 @@ struct WatchReadinessHeroView: View {
         }
         .fixedSize()
         .foregroundStyle(.primary)
-        .shadow(color: .black.opacity(0.3), radius: 6 * scale, y: 1 * scale)
-        .opacity(textOpacity)
     }
 
     private var accessibilityLabel: String {
@@ -311,13 +356,15 @@ private struct WatchReadinessTrackView: View, Animatable {
     let progress: Double
     let width: CGFloat
     var stretch: CGFloat
+    var trailingStretch: CGFloat
     let reduceMotion: Bool
 
-    var animatableData: AnimatablePair<Double, CGFloat> {
-        get { AnimatablePair(score, stretch) }
+    var animatableData: AnimatablePair<Double, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(score, AnimatablePair(stretch, trailingStretch)) }
         set {
             score = newValue.first
-            stretch = newValue.second
+            stretch = newValue.second.first
+            trailingStretch = newValue.second.second
         }
     }
 
@@ -329,7 +376,7 @@ private struct WatchReadinessTrackView: View, Animatable {
     }
 
     var body: some View {
-        let layout = Geometry.layout(progress: progress, width: width, stretch: stretch)
+        let layout = Geometry.layout(progress: progress, width: width, stretch: stretch, trailingStretch: trailingStretch)
 
         ZStack(alignment: .topLeading) {
             ForEach(layout.segments.indices, id: \.self) { index in
@@ -373,7 +420,8 @@ private struct WatchReadinessTrackView: View, Animatable {
         let center = layout.point(atDistance: distance)
         let tangent = layout.tangent(atDistance: distance)
         let angle = Angle.radians(atan2(Double(tangent.dy), Double(tangent.dx)))
-        let thickness = max(layout.barWidth - 4, 6)
+        // The pill fattens and thins with the band it rides as the ring wobbles.
+        let thickness = max((activeSegmentIndex.map { layout.segmentBarWidths[$0] } ?? layout.barWidth) - 4, 6)
 
         return ZStack {
             Capsule()
@@ -460,6 +508,14 @@ struct WatchReadinessPageBackground: View {
     /// The arc's circle center, in this view's coordinates.
     let circleCenterY: CGFloat
     let glowRadius: CGFloat
+    /// Set while the Day Ring is the hero: the glow takes the day part's color
+    /// instead of a readiness band's.
+    var dayPart: DayRingDayPart?
+
+    private struct Glow {
+        let id: String
+        let tint: Color
+    }
 
     private var dimOpacity: Double {
         min(1, max(0, Double(scrollState.offset) / 70)) * 0.9
@@ -467,12 +523,14 @@ struct WatchReadinessPageBackground: View {
 
     var body: some View {
         let status = heroState.activeStatus
+        let glow: Glow? = dayPart.map { Glow(id: "\($0)", tint: $0.glowColor) }
+            ?? status.map { Glow(id: "\($0)", tint: WatchReadinessHero.color(for: $0)) }
         ZStack {
             Color.black
 
             GeometryReader { geo in
-                if let status {
-                    let tint = WatchReadinessHero.color(for: status)
+                if let glow {
+                    let tint = glow.tint
                     RadialGradient(
                         stops: [
                             .init(color: tint.opacity(0.26), location: 0),
@@ -483,11 +541,11 @@ struct WatchReadinessPageBackground: View {
                         startRadius: 0,
                         endRadius: glowRadius
                     )
-                    .id(status)
+                    .id(glow.id)
                     .transition(.opacity)
                 }
             }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: status)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: glow?.id)
 
             Color.black
                 .opacity(dimOpacity)

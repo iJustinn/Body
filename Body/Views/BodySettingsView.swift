@@ -3,7 +3,6 @@
 //  Body
 //
 
-import RevenueCatUI
 import SafariServices
 import SwiftUI
 import UIKit
@@ -22,6 +21,9 @@ struct BodySettingsView: View {
     // Observed here (its toggle lives in a sub-view sharing this key) so a change
     // re-publishes the phone-owned watch prefs immediately.
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    // Same: toggled in the Home Hero sheet, mirrored by the watch hero.
+    @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
+    @AppStorage(BodyAppearancePreference.dayRingShowsCaptionKey) private var dayRingShowsCaption = true
     @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
     @AppStorage(BodyAppearancePreference.showsLeadingTrailingAwakeSleepStagesKey) private var showsLeadingTrailingAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsLeadingTrailingAwakeStages
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
@@ -48,6 +50,10 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.chartScrubHapticsEnabledKey) private var chartScrubHapticsEnabled = true
     @AppStorage(BodyAppearancePreference.cardTapHapticsEnabledKey) private var cardTapHapticsEnabled = true
     @AppStorage(BodyAppearancePreference.trendRangeHapticsEnabledKey) private var trendRangeHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.allHapticsEnabledKey) private var allHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.monthPickerHapticsEnabledKey) private var monthPickerHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.confirmationHapticsEnabledKey) private var confirmationHapticsEnabled = true
+    @AppStorage(BodyAppearancePreference.selectionHapticsEnabledKey) private var selectionHapticsEnabled = true
     @AppStorage(BodyAppearancePreference.navigationBarShowsLabelsKey) private var navigationBarShowsLabels = false
     @AppStorage(BodyNotificationPreferences.masterKey) private var notificationsEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
@@ -57,7 +63,6 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.profileAvatarDataKey) private var profileAvatarData = Data()
     @State private var activeSheet: BodySettingsSheet?
     @State private var showBodyProPaywall = false
-    @State private var showCustomerCenter = false
     @State private var selectedAppIconName: String?
     @State private var showingAppIconError = false
     @State private var appIconErrorMessage = ""
@@ -109,9 +114,6 @@ struct BodySettingsView: View {
             .sheet(isPresented: $showBodyProPaywall) {
                 NavigationStack { BodyProView() }
             }
-            .sheet(isPresented: $showCustomerCenter) {
-                CustomerCenterView()
-            }
             .sheet(isPresented: $showingPrivacyBrowser) {
                 if let url = URL(string: privacyPolicyURLString) {
                     SafariView(url: url)
@@ -142,6 +144,13 @@ struct BodySettingsView: View {
                     await workoutStore.refetchAfterSleepDisplayPreferenceChange()
                 }
             }
+            // The Day Ring needs sleep fetched even with the Sleep card hidden, so a
+            // new star choice goes through the store's context change.
+            .onChange(of: starredMetricRawValue) {
+                Task {
+                    await workoutStore.refetchAfterStarMetricChange()
+                }
+            }
             // Republish both companion snapshots (widget + watch) when a
             // formatting-only pref changes, without waiting for the next
             // refresh.
@@ -149,6 +158,8 @@ struct BodySettingsView: View {
             .onChange(of: selectedTemperatureUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: followsSystemUnits) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: showSleepScore) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: readinessHeroShowsLevel) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: dayRingShowsCaption) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedEnergyUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedWeightUnitRawValue) { workoutStore.republishCompanionSnapshots() }
         }
@@ -368,30 +379,8 @@ struct BodySettingsView: View {
                 if tab != .version {
                     settingsDivider
                 }
-
-                // Manage Purchases (RevenueCat Customer Center) sits just above "More".
-                if tab == .onboarding {
-                    managePurchasesRow
-                    settingsDivider
-                }
             }
         }
-    }
-
-    // RevenueCat Customer Center: restore, manage, and get help with purchases.
-    private var managePurchasesRow: some View {
-        Button {
-            showCustomerCenter = true
-        } label: {
-            BodySettingsRowLabel(
-                title: "Manage Purchases",
-                value: nil,
-                iconName: "person.crop.circle",
-                tintColor: .gray,
-                accessory: .chevron
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -530,7 +519,7 @@ struct BodySettingsView: View {
                 activeSheet = .starMetric
             } label: {
                 BodySettingsRowLabel(
-                    title: "Star Metric",
+                    title: "Home Hero",
                     value: starredMetricSummaryText,
                     iconName: "star.fill",
                     tintColor: Color(red: 1.0, green: 0.84, blue: 0.0),
@@ -652,16 +641,16 @@ struct BodySettingsView: View {
         }
     }
 
-    private var starredMetric: Binding<BodyHomeCardKind?> {
+    private var starredMetric: Binding<BodyStarMetric?> {
         Binding {
-            BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
+            BodyStarMetric.from(rawValue: starredMetricRawValue)
         } set: { newValue in
             starredMetricRawValue = newValue?.rawValue ?? ""
         }
     }
 
     private var starredMetricSummaryText: String {
-        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)?.starMetricTitle ?? String(localized: "None")
+        BodyStarMetric.from(rawValue: starredMetricRawValue)?.title ?? String(localized: "None")
     }
 
     // When the background is on, the row names the matching saved profile so the
@@ -703,10 +692,12 @@ struct BodySettingsView: View {
         notificationsEnabled ? String(localized: "On") : String(localized: "Off")
     }
 
-    // Vibration holds the card tap, range tap, chart scrub, and Equivalent collision
-    // switches; the row reads On or Off when they agree and Partial otherwise.
+    // Vibration holds the card tap, range tap, month change, chart scrub, Equivalent
+    // collision, confirmation, and selection switches; the row reads On or Off when they agree
+    // and Partial otherwise. The All Vibrations switch off reads Off whatever they say.
     private var vibrationSummaryText: String {
-        let switches = [cardTapHapticsEnabled, trendRangeHapticsEnabled, chartScrubHapticsEnabled, workoutEquivalentHapticsEnabled]
+        guard allHapticsEnabled else { return String(localized: "Off") }
+        let switches = [cardTapHapticsEnabled, trendRangeHapticsEnabled, monthPickerHapticsEnabled, chartScrubHapticsEnabled, workoutEquivalentHapticsEnabled, confirmationHapticsEnabled, selectionHapticsEnabled]
         if switches.allSatisfy({ $0 }) {
             return String(localized: "On")
         }
@@ -993,10 +984,14 @@ struct BodySettingsView: View {
             BodyNotificationSettingsSheet()
         case .vibration:
             BodyVibrationSettingsSheet(
+                allHapticsEnabled: $allHapticsEnabled,
                 cardTapHapticsEnabled: $cardTapHapticsEnabled,
                 trendRangeHapticsEnabled: $trendRangeHapticsEnabled,
+                monthPickerHapticsEnabled: $monthPickerHapticsEnabled,
                 chartScrubHapticsEnabled: $chartScrubHapticsEnabled,
-                collisionHapticsEnabled: $workoutEquivalentHapticsEnabled
+                collisionHapticsEnabled: $workoutEquivalentHapticsEnabled,
+                confirmationHapticsEnabled: $confirmationHapticsEnabled,
+                selectionHapticsEnabled: $selectionHapticsEnabled
             )
         case .aiReadiness:
             BodyReadinessAISettingsSheet(
@@ -1608,6 +1603,7 @@ private struct BodyUnitChoiceButton: View {
                 .stroke(effectiveTintColor.opacity(isSelected ? 0.9 : 0.24), lineWidth: 1.5)
         )
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .bodySelectionHaptics(isSelected: isSelected && isEnabled)
     }
 }
 
@@ -1657,11 +1653,12 @@ private struct BodySummaryCardsSettingsSheet: View {
 }
 
 private struct BodyStarMetricPickerSheet: View {
-    @Binding var selection: BodyHomeCardKind?
+    @Binding var selection: BodyStarMetric?
     @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
+    @AppStorage(BodyAppearancePreference.dayRingShowsCaptionKey) private var dayRingShowsCaption = true
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Star Metric") {
+        BodySettingsAboutSheetScaffold(title: "Home Hero") {
             VStack(spacing: 0) {
                 BodyStarMetricOptionRow(
                     title: String(localized: "None"),
@@ -1673,12 +1670,12 @@ private struct BodyStarMetricPickerSheet: View {
                     selection = nil
                 }
 
-                ForEach(BodyHomeCardKind.starEligible) { card in
+                ForEach(BodyStarMetric.allCases) { card in
                     Divider()
                         .padding(.leading, 76)
 
                     BodyStarMetricOptionRow(
-                        title: card.starMetricTitle,
+                        title: card.title,
                         subtitle: card.subtitle,
                         iconName: card.iconName,
                         tintColor: card.tintColor,
@@ -1693,6 +1690,13 @@ private struct BodyStarMetricPickerSheet: View {
                             title: "Readiness Level",
                             subtitle: "Show today's level under the score",
                             isEnabled: $readinessHeroShowsLevel
+                        )
+                    }
+                    if card == .dayRing, selection == .dayRing {
+                        BodyStarMetricSubOptionToggleRow(
+                            title: "Day Caption",
+                            subtitle: "Show a caption under the number",
+                            isEnabled: $dayRingShowsCaption
                         )
                     }
                 }
@@ -2927,7 +2931,7 @@ private struct BodyWorkoutColorWheel: View {
     }
 }
 
-/// An option of the Star Metric row directly above it: no divider or icon tile, indented
+/// An option of the Home Hero row directly above it: no divider or icon tile, indented
 /// to that row's title and set in smaller type, so it reads as part of the metric rather
 /// than as another metric to pick.
 private struct BodyStarMetricSubOptionToggleRow: View {
@@ -3011,6 +3015,7 @@ private struct BodyStarMetricOptionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .bodySelectionHaptics(isSelected: isSelected)
     }
 }
 
@@ -3347,14 +3352,40 @@ private struct BodyWorkoutEquivalentsSettingsSheet: View {
 }
 
 private struct BodyVibrationSettingsSheet: View {
+    @Binding var allHapticsEnabled: Bool
     @Binding var cardTapHapticsEnabled: Bool
     @Binding var trendRangeHapticsEnabled: Bool
+    @Binding var monthPickerHapticsEnabled: Bool
     @Binding var chartScrubHapticsEnabled: Bool
     @Binding var collisionHapticsEnabled: Bool
+    @Binding var confirmationHapticsEnabled: Bool
+    @Binding var selectionHapticsEnabled: Bool
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "settings.general.vibration") {
             VStack(alignment: .leading, spacing: 12) {
+                BodyVibrationToggleRow(
+                    iconName: "iphone.radiowaves.left.and.right",
+                    color: .red,
+                    title: "All Vibrations",
+                    subtitle: "Turn every vibration in Body on or off",
+                    isEnabled: $allHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+
+                vibrationFootnote(
+                    "Off silences every vibration Body plays, including the pull to refresh tap, the hold to regenerate tap on the Readiness comment, and the share card centering snap. The switches below keep their choices for when you turn it back on. The watch app has its own Vibration switch."
+                )
+
+                categoryRows
+                    .disabled(!allHapticsEnabled)
+                    .opacity(allHapticsEnabled ? 1 : 0.5)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var categoryRows: some View {
                 BodyVibrationToggleRow(
                     iconName: "hand.tap.fill",
                     color: .green,
@@ -3363,9 +3394,10 @@ private struct BodyVibrationSettingsSheet: View {
                     isEnabled: $cardTapHapticsEnabled
                 )
                 .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
 
                 vibrationFootnote(
-                    "Applies when you tap a card to open its page. Summary: the readiness hero, the metric cards, the Activity Rings card, and the trend cards. Workouts: each workout in the list. Metric detail pages: the Basics trend cards."
+                    "Applies when you tap a card to open its page. Summary: the readiness hero, the metric cards, the Activity Rings card, and the trend cards. Workouts: each workout in the list, a calendar day with workouts, a workout type row, the chart switch, and each workout in the sheet a day or a type opens. Metric detail pages: the Basics trend cards."
                 )
 
                 BodyVibrationToggleRow(
@@ -3383,6 +3415,20 @@ private struct BodyVibrationSettingsSheet: View {
                 )
 
                 BodyVibrationToggleRow(
+                    iconName: "calendar.badge.clock",
+                    color: .indigo,
+                    title: "Month Vibration",
+                    subtitle: "A tick when the Workouts month changes",
+                    isEnabled: $monthPickerHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies on Workouts when the month changes: a swipe or a tap on the month bar, a swipe across the chart, a triple tap back to this month, and Go to Month."
+                )
+
+                BodyVibrationToggleRow(
                     iconName: "chart.xyaxis.line",
                     color: .blue,
                     title: "Chart Vibration",
@@ -3393,7 +3439,7 @@ private struct BodyVibrationSettingsSheet: View {
                 .padding(.top, 8)
 
                 vibrationFootnote(
-                    "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts."
+                    "Applies when you press and drag across a chart. Metric detail pages: the trend chart at the top, Day View, Sleep stages, Vitals, Body Radar, the trend comparison cards, and the High or Low warning cards. Workout detail pages: the Heart Rate, Elevation, Pace, Speed, Cadence, Power, Stride Length, Ground Contact Time, and Vertical Oscillation charts. The highest and lowest points of a trend chart or a workout's Heart Rate chart, and each Sleep stage change, play a firmer tick."
                 )
 
                 BodyVibrationToggleRow(
@@ -3409,8 +3455,34 @@ private struct BodyVibrationSettingsSheet: View {
                 vibrationFootnote(
                     "Applies to the Equivalent card on a workout's detail page: a soft tap whenever two foods collide. Turn it off if you'd rather the card stay silent."
                 )
-            }
-        }
+
+                BodyVibrationToggleRow(
+                    iconName: "checkmark.circle.fill",
+                    color: .teal,
+                    title: "Confirmation Vibration",
+                    subtitle: "Feedback when something finishes or needs attention",
+                    isEnabled: $confirmationHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies when a refresh you pulled finishes or fails, when a workout share card is saved to Photos or cannot be saved, when a Body Pro purchase or restore succeeds or fails, when the Readiness score lands on Summary or drops sharply, and the first time a High or Low warning card appears."
+                )
+
+                BodyVibrationToggleRow(
+                    iconName: "checklist",
+                    color: .pink,
+                    title: "Selection Vibration",
+                    subtitle: "A tick when you pick an option or move a card",
+                    isEnabled: $selectionHapticsEnabled
+                )
+                .bodyCardBackground(translucent: true)
+                .padding(.top, 8)
+
+                vibrationFootnote(
+                    "Applies in Settings when you pick a unit, a Home Hero, a route style, or an app icon, and on Summary when you drag a card to a new spot and drop it."
+                )
     }
 
     private func vibrationFootnote(_ text: LocalizedStringKey) -> some View {
@@ -4120,9 +4192,20 @@ private struct BodyMetricWarningsSettingsSheet: View {
     let workoutStore: HealthKitWorkoutStore
 
     @AppStorage(BodyAppearancePreference.metricWarningsOnReadinessHeroKey) private var showsWarningsOnReadinessHero = true
+    @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
+    @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
 
     /// Needed for the high heart rate default, which tracks zone 3's lower bound.
     @State private var resolvedMaxHeartRate: Double?
+
+    /// The skin temperature threshold is stored in °C and shown in this unit.
+    private var temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference {
+        if followsSystemUnits {
+            return BodyValueFormat.TemperatureUnitPreference.systemValue(locale: .current)
+        }
+
+        return BodyValueFormat.TemperatureUnitPreference.storedValue(from: selectedTemperatureUnitRawValue)
+    }
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Warnings") {
@@ -4135,6 +4218,7 @@ private struct BodyMetricWarningsSettingsSheet: View {
                         BodyMetricWarningToggleRow(
                             kind: kind,
                             threshold: threshold(for: kind),
+                            temperatureUnitPreference: temperatureUnitPreference,
                             isEnabled: Binding {
                                 selection.includes(kind)
                             } set: { isEnabled in
@@ -4148,6 +4232,7 @@ private struct BodyMetricWarningsSettingsSheet: View {
                         BodyMetricWarningThresholdRow(
                             kind: kind,
                             threshold: threshold(for: kind),
+                            temperatureUnitPreference: temperatureUnitPreference,
                             isDefault: thresholds.override(for: kind) == nil,
                             defaultValue: defaultThreshold(for: kind),
                             isEnabled: selection.includes(kind),
@@ -4160,7 +4245,7 @@ private struct BodyMetricWarningsSettingsSheet: View {
                     .bodyCardBackground(translucent: true)
                 }
 
-                Text("Warnings appear on the Home card, the readiness score, and the metric's detail page.")
+                Text("Warnings appear on the Home card, the Home Hero, and the metric's detail page.")
                     .font(.system(.footnote, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -4174,14 +4259,14 @@ private struct BodyMetricWarningsSettingsSheet: View {
     }
 
     /// The limit currently in effect: the user's override, else the default.
-    private func threshold(for kind: MetricWarningKind) -> Int {
-        Int(thresholds.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate).rounded())
+    private func threshold(for kind: MetricWarningKind) -> Double {
+        kind.quantizedThreshold(thresholds.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate))
     }
 
-    private func defaultThreshold(for kind: MetricWarningKind) -> Int {
-        Int(BodyMetricWarningThresholds.defaultValue
-            .threshold(for: kind, maxHeartRate: resolvedMaxHeartRate)
-            .rounded())
+    private func defaultThreshold(for kind: MetricWarningKind) -> Double {
+        kind.quantizedThreshold(
+            BodyMetricWarningThresholds.defaultValue.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate)
+        )
     }
 }
 
@@ -4194,14 +4279,14 @@ private struct BodyMetricWarningReadinessHeroRow: View {
             BodySettingsIconTile(iconName: "bolt.heart.fill", color: .yellow)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Show on Readiness")
+                Text("Show on Home Hero")
                     .font(.system(.headline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
 
-                Text("Add warning signs next to the readiness level")
+                Text("Add warning signs under the Home Hero number")
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -4211,7 +4296,7 @@ private struct BodyMetricWarningReadinessHeroRow: View {
 
             Spacer(minLength: 12)
 
-            Toggle("Show on Readiness", isOn: $isEnabled)
+            Toggle("Show on Home Hero", isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")
@@ -4225,7 +4310,8 @@ private struct BodyMetricWarningReadinessHeroRow: View {
 
 private struct BodyMetricWarningToggleRow: View {
     let kind: MetricWarningKind
-    let threshold: Int
+    let threshold: Double
+    let temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
     @Binding var isEnabled: Bool
 
     private var title: LocalizedStringKey {
@@ -4236,17 +4322,30 @@ private struct BodyMetricWarningToggleRow: View {
             return "High Heart Rate"
         case .lowBloodOxygen:
             return "Low Blood Oxygen"
+        case .highRespiratoryRate:
+            return "High Respiratory Rate"
+        case .highWristTemperature:
+            return "High Skin Temperature"
         }
     }
 
     private var subtitle: String {
+        let wholeThreshold = Int(threshold.rounded())
         switch kind {
         case .lowHeartRate:
-            return String(localized: "Any reading below \(threshold) bpm today")
+            return String(localized: "Any reading below \(wholeThreshold) bpm today")
         case .highHeartRate:
-            return String(localized: "Any reading above \(threshold) bpm today, outside workouts")
+            return String(localized: "Any reading above \(wholeThreshold) bpm today, outside workouts")
         case .lowBloodOxygen:
-            return String(localized: "Any reading below \(threshold)% today")
+            return String(localized: "Any reading below \(wholeThreshold)% today")
+        case .highRespiratoryRate:
+            return String(localized: "Any reading above \(wholeThreshold) br/min today")
+        case .highWristTemperature:
+            let temperature = BodyMetricWarningTemperatureText.text(
+                celsius: threshold,
+                temperatureUnitPreference: temperatureUnitPreference
+            )
+            return String(localized: "Any overnight reading above \(temperature) today")
         }
     }
 
@@ -4288,30 +4387,35 @@ private struct BodyMetricWarningToggleRow: View {
 /// wheel picker, plus a way back to the default.
 private struct BodyMetricWarningThresholdRow: View {
     let kind: MetricWarningKind
-    let threshold: Int
+    let threshold: Double
+    let temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
     let isDefault: Bool
-    let defaultValue: Int
+    let defaultValue: Double
     let isEnabled: Bool
-    let onChange: (Int?) -> Void
+    let onChange: (Double?) -> Void
 
     @State private var showingPicker = false
-    @State private var pickedValue = 0
+    @State private var pickedValue = 0.0
     @State private var skipsDismissCommit = false
 
-    private var thresholdValues: [Int] {
-        Array(stride(
-            from: kind.thresholdRange.lowerBound,
-            through: kind.thresholdRange.upperBound,
-            by: kind.thresholdStep
-        ))
+    private var thresholdValues: [Double] {
+        kind.thresholdValues
     }
 
-    private func valueText(_ value: Int) -> String {
+    private func valueText(_ value: Double) -> String {
+        let wholeValue = Int(value.rounded())
         switch kind {
         case .lowHeartRate, .highHeartRate:
-            return String(localized: "\(value) bpm")
+            return String(localized: "\(wholeValue) bpm")
         case .lowBloodOxygen:
-            return String(localized: "\(value)%")
+            return String(localized: "\(wholeValue)%")
+        case .highRespiratoryRate:
+            return String(localized: "\(wholeValue) br/min")
+        case .highWristTemperature:
+            return BodyMetricWarningTemperatureText.text(
+                celsius: value,
+                temperatureUnitPreference: temperatureUnitPreference
+            )
         }
     }
 
@@ -5342,6 +5446,7 @@ private struct BodyAppIconSelectionTile: View {
         .bodyCardBackground(translucent: true)
         .scaleEffect(isSelected ? 1.03 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.78), value: isSelected)
+        .bodySelectionHaptics(isSelected: isSelected)
     }
 }
 

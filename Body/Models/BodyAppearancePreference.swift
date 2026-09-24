@@ -320,6 +320,10 @@ extension BodyAppearancePreference {
     /// The user's on-device avatar, stored as a small JPEG. Empty `Data` means none.
     static let profileAvatarDataKey = "profileAvatarData"
 
+    /// The app wide vibration switch (`BodyHaptics`): off silences every haptic Body plays,
+    /// whatever the switches below say. Default true.
+    static let allHapticsEnabledKey = "allHapticsEnabled"
+
     /// Whether the workout detail Equivalent card's collision haptics fire. Default true.
     static let workoutEquivalentHapticsEnabledKey = "workoutEquivalentHapticsEnabled"
 
@@ -332,11 +336,23 @@ extension BodyAppearancePreference {
     /// Whether tapping a trend range pill plays a haptic (`BodyHealthTrendRangeSelector`). Default true.
     static let trendRangeHapticsEnabledKey = "trendRangeHapticsEnabled"
 
+    /// Whether the Workouts month carousel ticks as the month changes (`BodyMonthYearPicker`). Default true.
+    static let monthPickerHapticsEnabledKey = "monthPickerHapticsEnabled"
+
+    /// Whether result haptics play (`BodyConfirmationHaptics`). Default true.
+    static let confirmationHapticsEnabledKey = "confirmationHapticsEnabled"
+
+    /// Whether Settings choices and the Summary card reorder tick (`BodySelectionHaptics`). Default true.
+    static let selectionHapticsEnabledKey = "selectionHapticsEnabled"
+
     /// Whether the bottom tab bar shows each tab's name under its icon. Default false.
     static let navigationBarShowsLabelsKey = "navigationBarShowsLabels"
 
     /// Whether the Readiness Ring hero shows today's level under the score. Default true.
     static let readinessHeroShowsLevelKey = "readinessHeroShowsLevel"
+
+    /// Whether the Day Ring hero shows its caption under the number. Default true.
+    static let dayRingShowsCaptionKey = "dayRingShowsCaption"
 
     /// Comma-joined emoji of `EnergyEquivalent.Food`s hidden from the Equivalent card.
     /// Empty string means none are hidden.
@@ -868,13 +884,29 @@ struct BodyMetricWarningSelection: Equatable {
 /// The user's custom limits for the metric threshold warnings. Only overrides
 /// are stored, so a kind the user never touched keeps following its default —
 /// which for high heart rate tracks their max HR rather than a fixed number.
+/// Wrist temperature thresholds and readings are stored in °C; every place
+/// that prints one (the Settings row, the warning card, the notification)
+/// shows it in the user's temperature unit through this one formatter.
+enum BodyMetricWarningTemperatureText {
+    static func text(
+        celsius: Double,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
+    ) -> String {
+        let display = BodyValueFormat.temperatureDisplay(
+            celsius: celsius,
+            temperatureUnitPreference: temperatureUnitPreference
+        )
+        return "\(display.value)°\(display.unit)"
+    }
+}
+
 struct BodyMetricWarningThresholds: Equatable {
     static let defaultValue = BodyMetricWarningThresholds(overrides: [:])
     static var defaultRawValue: String {
         defaultValue.rawValue
     }
 
-    var overrides: [MetricWarningKind: Int]
+    var overrides: [MetricWarningKind: Double]
 
     var rawValue: String {
         guard !overrides.isEmpty else {
@@ -890,15 +922,15 @@ struct BodyMetricWarningThresholds: Equatable {
         return string
     }
 
-    func override(for kind: MetricWarningKind) -> Int? {
+    func override(for kind: MetricWarningKind) -> Double? {
         overrides[kind]
     }
 
     /// `nil` clears the override so the kind falls back to its default.
-    func setting(_ kind: MetricWarningKind, to value: Int?) -> BodyMetricWarningThresholds {
+    func setting(_ kind: MetricWarningKind, to value: Double?) -> BodyMetricWarningThresholds {
         var nextOverrides = overrides
         if let value {
-            nextOverrides[kind] = Self.clamped(value, to: kind)
+            nextOverrides[kind] = kind.quantizedThreshold(value)
         } else {
             nextOverrides.removeValue(forKey: kind)
         }
@@ -910,7 +942,7 @@ struct BodyMetricWarningThresholds: Equatable {
     /// zone 3's lower bound for high heart rate, the fixed value otherwise.
     func threshold(for kind: MetricWarningKind, maxHeartRate: Double? = nil) -> Double {
         if let override = overrides[kind] {
-            return Double(override)
+            return override
         }
 
         guard kind == .highHeartRate,
@@ -930,30 +962,26 @@ struct BodyMetricWarningThresholds: Equatable {
         }
 
         let fraction = WorkoutHeartRateZones.lowerBoundFractions[2]
-        return Double(clamped(Int((maxHeartRate * fraction).rounded()), to: .highHeartRate))
+        return MetricWarningKind.highHeartRate.quantizedThreshold(maxHeartRate * fraction)
     }
 
     static func storedValue(from rawValue: String) -> BodyMetricWarningThresholds {
         let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedValue.isEmpty,
               let data = trimmedValue.data(using: .utf8),
-              let object = try? JSONDecoder().decode([String: Int].self, from: data) else {
+              let object = try? JSONDecoder().decode([String: Double].self, from: data) else {
             return defaultValue
         }
 
-        var overrides: [MetricWarningKind: Int] = [:]
-        for (key, value) in object {
+        var overrides: [MetricWarningKind: Double] = [:]
+        for (key, value) in object where value.isFinite {
             guard let kind = MetricWarningKind(rawValue: key) else {
                 continue
             }
-            overrides[kind] = clamped(value, to: kind)
+            overrides[kind] = kind.quantizedThreshold(value)
         }
 
         return BodyMetricWarningThresholds(overrides: overrides)
-    }
-
-    private static func clamped(_ value: Int, to kind: MetricWarningKind) -> Int {
-        min(max(value, kind.thresholdRange.lowerBound), kind.thresholdRange.upperBound)
     }
 }
 
@@ -1019,11 +1047,11 @@ struct BodyDashboardFetchSelection: Equatable {
     init(
         summaryCards: BodySummaryCardSelection,
         trendCards: BodyHomeTrendCardSelection,
-        starredMetric: BodyHomeCardKind? = nil
+        starredMetric: BodyStarMetric? = nil
     ) {
         // The star-metric hero shows Activity Rings regardless of the Summary Cards
         // toggle, so its HealthKit data must be fetched whenever it's starred.
-        includesActivityRings = summaryCards.includes(.activityRings) || starredMetric == .activityRings
+        includesActivityRings = summaryCards.includes(.activityRings) || starredMetric?.homeCard == .activityRings
 
         var metrics = Set(summaryCards.selectedCards.compactMap(\.healthMetricKind))
         metrics.formUnion(trendCards.selectedCards.map(\.metricKind))
@@ -1031,8 +1059,12 @@ struct BodyDashboardFetchSelection: Equatable {
         // The starred hero shows its metric regardless of the Summary Cards toggle, so
         // its HealthKit data (and any derived dependencies, e.g. readiness's inputs
         // below) must be fetched whenever it's starred.
-        if let starredMetricKind = starredMetric?.healthMetricKind {
+        if let starredMetricKind = starredMetric?.homeCard?.healthMetricKind {
             metrics.insert(starredMetricKind)
+        }
+        // The Day Ring draws the night's asleep time, whether or not a Sleep card shows.
+        if starredMetric == .dayRing {
+            metrics.insert(.sleep)
         }
 
         if metrics.contains(.basics) {
@@ -1082,9 +1114,9 @@ struct BodyDashboardFetchSelection: Equatable {
         BodyDashboardFetchSelection(
             summaryCards: BodySummaryCardSelection.load(defaults: defaults),
             trendCards: BodyHomeTrendCardSelection.load(defaults: defaults),
-            starredMetric: BodyHomeCardKind.starredMetric(
-                from: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
-                    ?? BodyHomeCardKind.readiness.rawValue
+            starredMetric: BodyStarMetric.from(
+                rawValue: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
+                    ?? BodyStarMetric.readiness.rawValue
             )
         )
     }
@@ -1289,30 +1321,6 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
 
     static var defaultRawValue: String {
         rawValue(from: defaultOrder)
-    }
-
-    /// Metrics eligible to be promoted to the home-page "star" hero. Grows as more
-    /// metrics get a hero treatment; today only Readiness qualifies.
-    static let starEligible: [BodyHomeCardKind] = [.readiness]
-
-    /// Parses the stored star-metric preference. Returns the kind only when it both
-    /// parses and is currently star-eligible; empty / unknown / ineligible -> nil (None).
-    static func starredMetric(from rawValue: String) -> BodyHomeCardKind? {
-        guard let kind = BodyHomeCardKind(rawValue: rawValue), starEligible.contains(kind) else {
-            return nil
-        }
-        return kind
-    }
-
-    /// The name the Star Metric picker and its Settings row give this metric: the hero
-    /// it pins rather than the card.
-    var starMetricTitle: String {
-        switch self {
-        case .readiness:
-            return String(localized: "Readiness Ring")
-        default:
-            return title
-        }
     }
 
     var id: String {
@@ -1837,5 +1845,67 @@ enum BodyAppTheme: String, CaseIterable, Identifiable {
         }
 
         return defaultValue
+    }
+}
+
+/// The heroes the home-page "star" can pin above the grid. `readiness` keeps the raw
+/// value the preference stored while it was a `BodyHomeCardKind`, so nothing migrates.
+enum BodyStarMetric: String, CaseIterable, Identifiable {
+    case readiness
+    case dayRing
+
+    /// Parses the stored star-metric preference; empty / unknown -> nil (None).
+    static func from(rawValue: String) -> BodyStarMetric? {
+        BodyStarMetric(rawValue: rawValue)
+    }
+
+    var id: String {
+        rawValue
+    }
+
+    /// The Summary card this hero stands in for, which leaves the grid while it is pinned.
+    var homeCard: BodyHomeCardKind? {
+        switch self {
+        case .readiness:
+            return .readiness
+        case .dayRing:
+            return nil
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .readiness:
+            return String(localized: "Readiness Ring")
+        case .dayRing:
+            return String(localized: "Day Ring")
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .readiness:
+            return BodyHomeCardKind.readiness.subtitle
+        case .dayRing:
+            return String(localized: "Your day around the clock")
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .readiness:
+            return BodyHomeCardKind.readiness.iconName
+        case .dayRing:
+            return "clock.fill"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .readiness:
+            return BodyHomeCardKind.readiness.tintColor
+        case .dayRing:
+            return BodyHomeCardKind.sleep.tintColor
+        }
     }
 }

@@ -51,6 +51,26 @@
         }
       }
     },
+    "×%lld" : {
+
+    },
+    "A click when you tap refresh and a tap when it finishes." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A click when you tap refresh and a tap when it finishes."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "轻点刷新时和刷新完成时各震动一下。"
+          }
+        }
+      }
+    },
     "All Metrics Hidden" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -166,6 +186,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择要显示在手表主屏幕上的指标。"
+          }
+        }
+      }
+    },
+    "Day Ring, %lld percent of the day passed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Day Ring, %lld percent of the day passed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每日圆环，今日已过百分之%lld"
           }
         }
       }
@@ -391,6 +427,22 @@
         }
       }
     },
+    "Today passed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today passed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今日已过占比"
+          }
+        }
+      }
+    },
     "Turn metrics back on in Settings." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -421,6 +473,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未知"
+          }
+        }
+      }
+    },
+    "Vibration" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vibration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "震动"
           }
         }
       }

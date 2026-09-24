@@ -313,6 +313,9 @@ struct BodyReadinessHeroScrollPin<Content: View>: View {
     let scrollState: BodyHomeScrollState
     /// The width the hero draws at: the morph distance is sized from its height.
     let width: CGFloat
+    /// The bottom of the hero's flattened bar, which the first card row is held the grid
+    /// spacing under. The Day Ring's pair of bars reaches lower than the Readiness Ring's.
+    var flatBarBottom: CGFloat = BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2
     /// Receives the morph progress and the pull-down distance past rest.
     @ViewBuilder var content: (Double, CGFloat) -> Content
 
@@ -320,6 +323,14 @@ struct BodyReadinessHeroScrollPin<Content: View>: View {
     /// `frame.minY` is where it is drawn (after the pin offset), so undoing the pin
     /// and adding the scroll offset gives the content-space position.
     @State private var heroContentY: CGFloat = 0
+
+    /// The Readiness Ring's morph distance, shortened by however much lower this hero's
+    /// flat bar reaches, so the first card row still arrives the grid spacing under it
+    /// at the moment the morph completes.
+    private var morphDistance: CGFloat {
+        BodyReadinessArcGeometry.morphDistance(width: width)
+            - (flatBarBottom - (BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2))
+    }
 
     /// Scroll travel past the hero's resting position.
     private var travel: CGFloat {
@@ -331,7 +342,7 @@ struct BodyReadinessHeroScrollPin<Content: View>: View {
         // from a zero-width hero is a couple of points, which any offset would read as
         // a finished morph.
         guard width > 0 else { return 0 }
-        let raw = min(1, max(0, Double(travel) / Double(BodyReadinessArcGeometry.morphDistance(width: width))))
+        let raw = min(1, max(0, Double(travel) / Double(morphDistance)))
         return (raw * 120).rounded() / 120
     }
 
@@ -340,12 +351,11 @@ struct BodyReadinessHeroScrollPin<Content: View>: View {
     /// has reported its position.
     private var holdDistance: CGFloat {
         guard let gridContentY = scrollState.gridContentY else {
-            return BodyReadinessArcGeometry.morphDistance(width: width)
+            return morphDistance
         }
-        let barBottom = BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2
         return max(
-            BodyReadinessArcGeometry.morphDistance(width: width),
-            gridContentY - heroContentY - (barBottom + BodyReadinessArcGeometry.heldGridGap)
+            morphDistance,
+            gridContentY - heroContentY - (flatBarBottom + BodyReadinessArcGeometry.heldGridGap)
         )
     }
 
@@ -461,6 +471,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
     @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
+    @AppStorage(BodyAppearancePreference.dayRingShowsCaptionKey) private var dayRingShowsCaption = true
     @AppStorage(BodyAppearancePreference.defaultTrendRangeKey) private var defaultTrendRangeRawValue = BodyHealthTrendRange.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
@@ -540,7 +551,7 @@ struct BodyHomeView: View {
             ZStack {
                 homeBackground
 
-                if starredHomeCard == .readiness {
+                if starMetric != nil {
                     BodyHomeBackgroundScrollDim(scrollState: scrollState)
                         .ignoresSafeArea()
                 }
@@ -548,10 +559,6 @@ struct BodyHomeView: View {
                 ScrollViewReader { scrollProxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 14) {
-                            if let healthDataNotice = workoutStore.healthDataNotice {
-                                BodyHealthNoticeBanner(message: healthDataNotice)
-                            }
-
                             starMetricHero(
                                 proxy: scrollProxy,
                                 lookup: metricCardLookup,
@@ -565,6 +572,19 @@ struct BodyHomeView: View {
                                     pageWidth: page.size.width > 0 ? page.size.width : homeContentWidth
                                 )
                             )
+
+                            // Between the hero text and the grid, one card gap from each.
+                            // Under the readiness hero it fades with the comment, so it
+                            // never slides beneath the held bar.
+                            if let healthDataNotice = workoutStore.healthDataNotice {
+                                if starMetric != nil {
+                                    BodyReadinessHeroCommentFade {
+                                        BodyHealthNoticeBanner(message: healthDataNotice)
+                                    }
+                                } else {
+                                    BodyHealthNoticeBanner(message: healthDataNotice)
+                                }
+                            }
 
                             if horizontalSizeClass == .regular {
                                 HStack(alignment: .top, spacing: 14) {
@@ -743,8 +763,13 @@ struct BodyHomeView: View {
         BodyHomeCardKind.storedOrder(from: homeCardOrderRawValue)
     }
 
+    private var starMetric: BodyStarMetric? {
+        BodyStarMetric.from(rawValue: starredMetricRawValue)
+    }
+
+    /// The Summary card the pinned hero stands in for. The Day Ring replaces none.
     private var starredHomeCard: BodyHomeCardKind? {
-        BodyHomeCardKind.starredMetric(from: starredMetricRawValue)
+        starMetric?.homeCard
     }
 
     private var visibleHomeCards: [BodyHomeCardKind] {
@@ -768,7 +793,7 @@ struct BodyHomeView: View {
 
     /// The home-page star hero promoted above the grid. Readiness shows its score text
     /// here, over the full-bleed color backdrop supplied by `homeBackground` (which
-    /// bleeds behind the status bar). Readiness is the only star-eligible metric.
+    /// bleeds behind the status bar). The Day Ring draws on the plain page, without that backdrop.
     ///
     /// Takes the card lookup rather than reading `metricCardsByKind` itself: that
     /// property snapshots the whole summary and trend store to key its memo, and
@@ -785,7 +810,7 @@ struct BodyHomeView: View {
         lookup: [HealthMetricKind: BodyHealthMetricCard.Model],
         width: CGFloat
     ) -> some View {
-        switch starredHomeCard {
+        switch starMetric {
         case .readiness:
             let badges = heroWarningBadges(lookup: lookup)
             let readiness = workoutStore.healthSummary.readiness
@@ -818,36 +843,7 @@ struct BodyHomeView: View {
                 // button trait and VoiceOver all work normally. They switch off at the
                 // same threshold that fades the glyphs, so nothing invisible is tappable.
                 .overlayPreferenceValue(BodyReadinessHeroBadgeAnchorKey.self) { anchors in
-                    GeometryReader { geometry in
-                        ForEach(Array(badges.enumerated()), id: \.element.id) { index, badge in
-                            if let anchor = anchors[badge.id] {
-                                let frame = geometry[anchor]
-                                // The badge boxes sit flush against each other, so a tap
-                                // between two of them already lands on one. The misses are
-                                // off the ends of the row and off the top and bottom, so
-                                // that is where the target grows: outward only, never over
-                                // a neighbour's target.
-                                let leading: CGFloat = index == 0 ? 10 : 0
-                                let trailing: CGFloat = index == badges.count - 1 ? 10 : 0
-                                Button {
-                                    revealHomeCard(badge.card, proxy: proxy)
-                                } label: {
-                                    Color.clear.contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(Text(verbatim: badge.accessibilityLabel))
-                                // Full height: a 28 pt-tall target is a mean thing to ask
-                                // a thumb for.
-                                .frame(
-                                    width: frame.width + leading + trailing,
-                                    height: max(frame.height, 44)
-                                )
-                                .position(x: frame.midX - leading / 2 + trailing / 2, y: frame.midY)
-                            }
-                        }
-                    }
-                    .allowsHitTesting(isTextVisible)
-                    .accessibilityHidden(!isTextVisible)
+                    heroBadgeTapTargets(anchors: anchors, badges: badges, proxy: proxy, isTextVisible: isTextVisible)
                 }
             }
 
@@ -870,9 +866,85 @@ struct BodyHomeView: View {
                 }
                 .buttonStyle(.plain)
             }
-        default:
+        case .dayRing:
+            let now = Date()
+            // A generous window: the hero keeps only what overlaps the day its own clock
+            // is on, so a Home left open across midnight still has tomorrow's workouts.
+            let badges = heroWarningBadges(lookup: lookup)
+            let sleepSnapshot = workoutStore.healthSummary.sleep.stageSnapshot
+            let workouts = workoutStore.workouts(
+                overlapping: DateInterval(start: now.addingTimeInterval(-2 * 86_400), end: now.addingTimeInterval(2 * 86_400))
+            )
+            // The Readiness Ring's pin: it hands over the scroll morph and the pull, holds
+            // the flattened bar under the status bar, and re-renders only this closure.
+            BodyReadinessHeroScrollPin(
+                scrollState: scrollState,
+                width: width,
+                flatBarBottom: BodyDayRingGeometry.flatBarBottom
+            ) { progress, pull in
+                BodyDayRingHero(
+                    sleepSegments: sleepSnapshot.segments,
+                    workouts: workouts,
+                    width: width,
+                    showsCaption: dayRingShowsCaption,
+                    mainSleepInterval: sleepSnapshot.mainSessionInterval,
+                    warningBadges: badges,
+                    progress: progress,
+                    pull: pull
+                )
+                // The same tap targets the Readiness Ring lays over its badges.
+                .overlayPreferenceValue(BodyReadinessHeroBadgeAnchorKey.self) { anchors in
+                    heroBadgeTapTargets(
+                        anchors: anchors,
+                        badges: badges,
+                        proxy: proxy,
+                        isTextVisible: BodyReadinessArcHero.isTextVisible(progress: progress, width: width)
+                    )
+                }
+            }
+        case nil:
             EmptyView()
         }
+    }
+
+    /// Real buttons laid over a hero's warning glyphs, shared by both heroes. They switch
+    /// off at the same threshold that fades the glyphs, so nothing invisible is tappable.
+    private func heroBadgeTapTargets(
+        anchors: [String: Anchor<CGRect>],
+        badges: [BodyReadinessHeroWarningBadge],
+        proxy: ScrollViewProxy,
+        isTextVisible: Bool
+    ) -> some View {
+        GeometryReader { geometry in
+            ForEach(Array(badges.enumerated()), id: \.element.id) { index, badge in
+                if let anchor = anchors[badge.id] {
+                    let frame = geometry[anchor]
+                    // The badge boxes sit flush against each other, so a tap
+                    // between two of them already lands on one. The misses are
+                    // off the ends of the row and off the top and bottom, so
+                    // that is where the target grows: outward only, never over
+                    // a neighbour's target.
+                    let leading: CGFloat = index == 0 ? 10 : 0
+                    let trailing: CGFloat = index == badges.count - 1 ? 10 : 0
+                    Button {
+                        revealHomeCard(badge.card, proxy: proxy)
+                    } label: {
+                        Color.clear.contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(verbatim: badge.accessibilityLabel))
+                    // Full height: a 28 pt-tall target is a mean thing to ask
+                    // a thumb for.
+                    .frame(
+                        width: frame.width + leading + trailing,
+                        height: max(frame.height, 44)
+                    )
+                    .position(x: frame.midX - leading / 2 + trailing / 2, y: frame.midY)
+                }
+            }
+        }
+        .allowsHitTesting(isTextVisible)
+        .accessibilityHidden(!isTextVisible)
     }
 
     /// The warning signs the hero mirrors from the grid. Reads the visible card order so
@@ -1120,6 +1192,7 @@ struct BodyHomeView: View {
             wristTemperatureMetric(
                 summary: summary,
                 chartPreview: trends.series(for: .wristTemperature),
+                warningSelection: warningSelection,
                 previewDayCount: previewDayCount
             ),
             metric(
@@ -1185,6 +1258,7 @@ struct BodyHomeView: View {
                 summary: summary.respiratoryRate,
                 chartPreviewStyle: .range,
                 chartRangePreview: trends.rangeSeries(for: .respiratoryRate),
+                warningSymbolName: warningSymbolName(for: .respiratoryRate, summary: summary, selection: warningSelection),
                 previewDayCount: previewDayCount
             ),
             energyMetric(
@@ -1515,6 +1589,7 @@ struct BodyHomeView: View {
     private func wristTemperatureMetric(
         summary: HealthSummarySnapshot,
         chartPreview: HealthTrendSeries,
+        warningSelection: BodyMetricWarningSelection,
         previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let display = summary.wristTemperature.value.map {
@@ -1548,6 +1623,7 @@ struct BodyHomeView: View {
             prominentMetrics: [deviationDisplay, actualDisplay],
             chartPreviewStyle: .line,
             chartPreview: chartPreview,
+            warningSymbolName: warningSymbolName(for: .wristTemperature, summary: summary, selection: warningSelection),
             previewDayCount: previewDayCount
         )
     }
@@ -2089,7 +2165,15 @@ struct BodyHomeView: View {
                         ).value
                     },
                     bodyFat: trends.bodyFatPercentage,
-                    bodyMassIndex: trends.bodyMassIndex
+                    bodyMassIndex: trends.bodyMassIndex,
+                    weightSamples: trends.bodyMassSamples.mapValues {
+                        BodyValueFormat.massValue(
+                            kilograms: $0,
+                            weightUnitPreference: selectedWeightUnitPreference
+                        ).value
+                    },
+                    bodyFatSamples: trends.bodyFatPercentageSamples,
+                    bodyMassIndexSamples: trends.bodyMassIndexSamples
                 ),
                 sleepStageSnapshot: nil,
                 sleepScore: nil,
@@ -2434,6 +2518,7 @@ private struct BodyHomeCardDropDelegate: DropDelegate {
             return
         }
 
+        BodySelectionHaptics.playTick()
         withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
             saveOrder(reordered)
         }
@@ -2444,6 +2529,7 @@ private struct BodyHomeCardDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        if dragState.card != nil { BodySelectionHaptics.playDrop() }
         dragState.card = nil
         return true
     }

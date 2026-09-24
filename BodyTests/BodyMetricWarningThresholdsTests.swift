@@ -68,6 +68,19 @@ final class BodyMetricWarningThresholdsTests: XCTestCase {
         XCTAssertEqual(thresholds.override(for: .highHeartRate), 100)
     }
 
+    func testWristTemperatureOverridesKeepTenthsAndRoundTrip() {
+        let thresholds = BodyMetricWarningThresholds.defaultValue.setting(.highWristTemperature, to: 37.54)
+        XCTAssertEqual(thresholds.override(for: .highWristTemperature), 37.5)
+        XCTAssertEqual(thresholds.rawValue, #"{"highWristTemperature":37.5}"#)
+        XCTAssertEqual(BodyMetricWarningThresholds.storedValue(from: thresholds.rawValue), thresholds)
+        XCTAssertEqual(thresholds.threshold(for: .highWristTemperature), 37.5)
+
+        // Whole-unit kinds snap fractional input to the unit.
+        let heart = BodyMetricWarningThresholds.defaultValue.setting(.lowHeartRate, to: 45.4)
+        XCTAssertEqual(heart.override(for: .lowHeartRate), 45)
+        XCTAssertEqual(heart.rawValue, #"{"lowHeartRate":45}"#)
+    }
+
     // MARK: - Zone 3 default
 
     func testZoneThreeLowerBoundIsSeventyPercentOfMaxHeartRate() {

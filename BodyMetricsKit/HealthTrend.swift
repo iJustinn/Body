@@ -67,6 +67,11 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var oxygenSaturationRanges: HealthTrendRangeSeries
     var oxygenSaturationRangesSecondary: HealthTrendRangeSeries
     var bodyMassIndex: HealthTrendSeries
+    /// Every weight and body fat sample at its own measurement time (the daily
+    /// series above are keyed to the start of the day), for the time of day chart.
+    var bodyMassSamples: HealthTrendSeries
+    var bodyFatPercentageSamples: HealthTrendSeries
+    var bodyMassIndexSamples: HealthTrendSeries
     var activeEnergy: HealthTrendSeries
     var activeEnergySecondary: HealthTrendSeries
     var restingEnergy: HealthTrendSeries
@@ -228,6 +233,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             oxygenSaturationRanges.isEmpty &&
             oxygenSaturationRangesSecondary.isEmpty &&
             bodyMassIndex.isEmpty &&
+            bodyMassSamples.isEmpty &&
+            bodyFatPercentageSamples.isEmpty &&
+            bodyMassIndexSamples.isEmpty &&
             activeEnergy.isEmpty &&
             activeEnergySecondary.isEmpty &&
             restingEnergy.isEmpty &&
@@ -283,6 +291,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         oxygenSaturationRanges: HealthTrendRangeSeries = .empty,
         oxygenSaturationRangesSecondary: HealthTrendRangeSeries = .empty,
         bodyMassIndex: HealthTrendSeries,
+        bodyMassSamples: HealthTrendSeries = .empty,
+        bodyFatPercentageSamples: HealthTrendSeries = .empty,
+        bodyMassIndexSamples: HealthTrendSeries = .empty,
         activeEnergy: HealthTrendSeries,
         activeEnergySecondary: HealthTrendSeries = .empty,
         restingEnergy: HealthTrendSeries,
@@ -341,6 +352,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.oxygenSaturationRanges = oxygenSaturationRanges
         self.oxygenSaturationRangesSecondary = oxygenSaturationRangesSecondary
         self.bodyMassIndex = bodyMassIndex
+        self.bodyMassSamples = bodyMassSamples
+        self.bodyFatPercentageSamples = bodyFatPercentageSamples
+        self.bodyMassIndexSamples = bodyMassIndexSamples
         self.activeEnergy = activeEnergy
         self.activeEnergySecondary = activeEnergySecondary
         self.restingEnergy = restingEnergy
@@ -401,6 +415,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case oxygenSaturationRanges
         case oxygenSaturationRangesSecondary
         case bodyMassIndex
+        case bodyMassSamples
+        case bodyFatPercentageSamples
+        case bodyMassIndexSamples
         case activeEnergy
         case activeEnergySecondary
         case restingEnergy
@@ -486,6 +503,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             forKey: .oxygenSaturationRangesSecondary
         ) ?? .empty
         bodyMassIndex = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyMassIndex) ?? .empty
+        bodyMassSamples = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyMassSamples) ?? .empty
+        bodyFatPercentageSamples = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyFatPercentageSamples) ?? .empty
+        bodyMassIndexSamples = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyMassIndexSamples) ?? .empty
         activeEnergy = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .activeEnergy) ?? .empty
         activeEnergySecondary = try container.decodeIfPresent(
             HealthTrendSeries.self,
@@ -841,6 +861,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.bodyMass = refreshed.bodyMass
             next.bodyFatPercentage = refreshed.bodyFatPercentage
             next.bodyMassIndex = refreshed.bodyMassIndex
+            next.bodyMassSamples = refreshed.bodyMassSamples
+            next.bodyFatPercentageSamples = refreshed.bodyFatPercentageSamples
+            next.bodyMassIndexSamples = refreshed.bodyMassIndexSamples
         case .heartRate:
             next.heartRate = refreshed.heartRate
             next.heartRateRanges = refreshed.heartRateRanges
@@ -854,8 +877,10 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.restingHeartRateDaySamplesSecondary = refreshed.restingHeartRateDaySamplesSecondary
         case .bodyMass:
             next.bodyMass = refreshed.bodyMass
+            next.bodyMassSamples = refreshed.bodyMassSamples
         case .bodyFatPercentage:
             next.bodyFatPercentage = refreshed.bodyFatPercentage
+            next.bodyFatPercentageSamples = refreshed.bodyFatPercentageSamples
         case .heartRateVariability:
             next.heartRateVariability = refreshed.heartRateVariability
             next.heartRateVariabilityRanges = refreshed.heartRateVariabilityRanges
@@ -874,6 +899,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.oxygenSaturationDaySamplesSecondary = refreshed.oxygenSaturationDaySamplesSecondary
         case .bodyMassIndex:
             next.bodyMassIndex = refreshed.bodyMassIndex
+            next.bodyMassIndexSamples = refreshed.bodyMassIndexSamples
         case .activeEnergy:
             next.activeEnergy = refreshed.activeEnergy
             next.activeEnergySecondary = refreshed.activeEnergySecondary
@@ -990,6 +1016,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.bodyMass = .empty
             filtered.bodyFatPercentage = .empty
             filtered.bodyMassIndex = .empty
+            filtered.bodyMassSamples = .empty
+            filtered.bodyFatPercentageSamples = .empty
+            filtered.bodyMassIndexSamples = .empty
         }
         if !selection.includes(.bloodOxygen) {
             filtered.oxygenSaturation = .empty
@@ -1547,6 +1576,10 @@ struct BasicsTrendSummary: Equatable {
     var weight: HealthTrendSeries
     var bodyFat: HealthTrendSeries
     var bodyMassIndex: HealthTrendSeries
+    /// Every sample at its own measurement time, for the time of day chart.
+    var weightSamples: HealthTrendSeries = .empty
+    var bodyFatSamples: HealthTrendSeries = .empty
+    var bodyMassIndexSamples: HealthTrendSeries = .empty
 
     var isEmpty: Bool {
         weight.isEmpty && bodyFat.isEmpty && bodyMassIndex.isEmpty
@@ -1574,6 +1607,25 @@ struct BasicsTrendSummary: Equatable {
         bodyFat.averageValue
     }
 
+    /// Average weight measured after noon minus the average measured before
+    /// noon, over whatever range this summary is limited to. `nil` unless both
+    /// halves of the day have a record.
+    func weightAfternoonMorningDifference(calendar: Calendar = .bodyGregorian) -> Double? {
+        var morning: [Double] = []
+        var afternoon: [Double] = []
+        for point in weightSamples.points where point.value.isFinite {
+            if calendar.component(.hour, from: point.date) < 12 {
+                morning.append(point.value)
+            } else {
+                afternoon.append(point.value)
+            }
+        }
+        guard !morning.isEmpty, !afternoon.isEmpty else {
+            return nil
+        }
+        return afternoon.reduce(0, +) / Double(afternoon.count) - morning.reduce(0, +) / Double(morning.count)
+    }
+
     private func halfSpread(for series: HealthTrendSeries) -> Double? {
         let values = series.points.map(\.value).filter(\.isFinite)
         guard let minimum = values.min(), let maximum = values.max() else {
@@ -1587,7 +1639,10 @@ struct BasicsTrendSummary: Equatable {
         BasicsTrendSummary(
             weight: weight.limited(to: range, calendar: calendar, date: date),
             bodyFat: bodyFat.limited(to: range, calendar: calendar, date: date),
-            bodyMassIndex: bodyMassIndex.limited(to: range, calendar: calendar, date: date)
+            bodyMassIndex: bodyMassIndex.limited(to: range, calendar: calendar, date: date),
+            weightSamples: weightSamples.limited(to: range, calendar: calendar, date: date),
+            bodyFatSamples: bodyFatSamples.limited(to: range, calendar: calendar, date: date),
+            bodyMassIndexSamples: bodyMassIndexSamples.limited(to: range, calendar: calendar, date: date)
         )
     }
 
@@ -1845,7 +1900,11 @@ struct HealthTrendSeries: Codable, Equatable {
     func mapValues(_ transform: (Double) -> Double) -> HealthTrendSeries {
         HealthTrendSeries(
             points: points.map {
-                HealthTrendDataPoint(date: $0.date, value: transform($0.value))
+                HealthTrendDataPoint(
+                    date: $0.date,
+                    value: transform($0.value),
+                    records: $0.records?.map { HealthTrendDataPoint(date: $0.date, value: transform($0.value)) }
+                )
             }
         )
     }
@@ -2144,6 +2203,10 @@ struct HealthTrendSeries: Codable, Equatable {
 struct HealthTrendDataPoint: Codable, Equatable, Identifiable {
     var date: Date
     var value: Double
+    /// The individual records behind a daily value that averages them rather
+    /// than totalling them (resting energy's repeated whole-day estimates),
+    /// each at its own measurement time. Nil for every other point.
+    var records: [HealthTrendDataPoint]? = nil
 
     var id: Date {
         date

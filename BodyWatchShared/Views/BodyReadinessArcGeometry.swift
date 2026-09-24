@@ -1,11 +1,14 @@
 //
 //  BodyReadinessArcGeometry.swift
-//  BodyWatchSnapshotKit
+//  BodyWatchShared
 //
-//  Shared by the iOS `Body` target and the `BodyWatch` target: the watch home
-//  screen draws the same readiness hero (`WatchReadinessHeroView`) from this
-//  geometry, so the two stay identical by construction. `heroWidth(pageWidth:)`
-//  is iOS-only and lives in `BodyReadinessStarHero.swift`.
+//  Shared by the iOS `Body` target, the `BodyWatch` target, and the watch widget
+//  extension: the watch home screen (`WatchReadinessHeroView`) and the Readiness
+//  complication (`ReadinessComplicationView`) draw the same readiness hero from
+//  this geometry, so they stay identical by construction. SwiftUI only: the
+//  extension does not compile BodyMetricsKit, so `segmentOrder` (which names
+//  `ReadinessStatus`) lives in `BodyWatchSnapshotKit/BodyReadinessArcGeometry+Status.swift`.
+//  `heroWidth(pageWidth:)` is iOS-only and lives in `BodyReadinessStarHero.swift`.
 //
 
 import SwiftUI
@@ -86,8 +89,6 @@ enum BodyReadinessArcGeometry {
     /// from -190 to 10: poor at the left, prime at the right, centered on the top.
     static let arcStartAngle = Angle.degrees(-190), arcEndAngle = Angle.degrees(10)
 
-    static let segmentOrder: [ReadinessStatus] = [.poor, .low, .moderate, .high, .prime]
-
     /// Half-open score ranges over 0..<101, in `segmentOrder`.
     static let bandScoreRanges: [Range<Int>] = [0..<30, 30..<65, 65..<80, 80..<95, 95..<101]
 
@@ -167,6 +168,19 @@ enum BodyReadinessArcGeometry {
     /// resting lengths and the ring its radius, so the extra track length opens the
     /// sweep and the ends swing further down the sides.
     static let stretchGapGrowth: CGFloat = 1.0
+    /// The deepest squeeze, as a negative stretch. The release spring swings past rest
+    /// into it, which is what makes the bands bounce like bubbles on the way home.
+    static let maxSqueeze: CGFloat = 0.6
+    /// At a squeeze of 1 each band is this share thicker and this share shorter.
+    static let squeezeBarGrowth: CGFloat = 0.8
+    static let squeezeLengthShrink: CGFloat = 0.5
+    /// At a stretch of 1 each band is drawn out like pulled rubber: this share thinner
+    /// and this share longer. The squeeze is the other half of the same wobble.
+    static let stretchBarThinning: CGFloat = 0.25
+    static let stretchLengthGrowth: CGFloat = 0.15
+    /// How long the ring's ends trail its middle on the release, so the bounce runs
+    /// outward along the ring as a ripple instead of every band moving as one.
+    static let rippleDelay: TimeInterval = 0.07
 
     /// How far the ring is stretched for a pull-down of `pull` points past rest: grows
     /// quickly at first, then eases toward `maxPullStretch` like a rubber band.
@@ -234,7 +248,10 @@ enum BodyReadinessArcGeometry {
         /// Where each segment starts and ends, in points from the track start.
         let segmentSpans: [ClosedRange<CGFloat>]
         let trackLength: CGFloat
+        /// The bar width at rest for this progress; each band's own is `segmentBarWidths`.
         let barWidth: CGFloat
+        /// Each band's width, which leaves `barWidth` only while the ring wobbles.
+        let segmentBarWidths: [CGFloat]
 
         let centerX: CGFloat
         /// y of the track's midpoint, which is its highest point while it is curved.
@@ -329,7 +346,7 @@ enum BodyReadinessArcGeometry {
             let fraction = upper > lower ? (clamped - lower) / (upper - lower) : 0
             let span = segmentSpans[index]
             let raw = span.lowerBound + CGFloat(fraction) * (span.upperBound - span.lowerBound)
-            let inset = max(BodyReadinessArcGeometry.dotLength / 2 - barWidth / 2 + 3, 2)
+            let inset = max(BodyReadinessArcGeometry.dotLength / 2 - segmentBarWidths[index] / 2 + 3, 2)
             let low = span.lowerBound + inset
             let high = span.upperBound - inset
             guard high > low else {
@@ -355,31 +372,61 @@ enum BodyReadinessArcGeometry {
     /// `stretch` (0...1) is the pull-down stretch: the bands keep their resting lengths
     /// and the ring its radius while every gap widens, so the track gets longer, its
     /// sweep opens and the ends drop further down the sides, with the top of the track
-    /// held where it is. The morph never runs with a stretch (a pull only happens at
+    /// held where it is, and the bands draw out a little thinner and longer. A negative
+    /// stretch (down to `-maxSqueeze`) is the rebound's squeeze: the bands get shorter
+    /// and fatter and the sweep closes a little. The morph never runs with a stretch (a pull only happens at
     /// rest), so the two are simply composed.
-    static func layout(progress: Double, width: CGFloat, stretch: CGFloat = 0) -> Layout {
+    /// `trailingStretch` is the stretch at the ring's ends when it differs from the
+    /// middle's: each band takes its own value between the two by how far it sits from
+    /// the middle, so a delayed trailing spring ripples the bounce outward.
+    static func layout(
+        progress: Double,
+        width: CGFloat,
+        stretch: CGFloat = 0,
+        trailingStretch: CGFloat? = nil
+    ) -> Layout {
         let amount = CGFloat(clamped01(progress))
-        let pull = CGFloat(clamped01(Double(stretch)))
         let radius = arcRadius(width: width)
         let arcLength = radius * sweepRadians
         let flatLength = max(width - 2 * flatInset(width: width), 0)
         let restSweep = sweepRadians * (1 - amount)
         let restLength = fittedTrackLength(arcLength: arcLength, flatLength: flatLength, sweep: restSweep, amount: amount)
-        let bar = lerp(arcBarWidth, flatBarWidth, amount)
-        let restGap = bar + visualGap + morphMargin
+        let restBar = lerp(arcBarWidth, flatBarWidth, amount)
+        let restGap = restBar + visualGap + morphMargin
 
-        let lengths = allocateSegmentLengths(trackLength: restLength, gap: restGap, barWidth: bar)
+        let restLengths = allocateSegmentLengths(trackLength: restLength, gap: restGap, barWidth: restBar)
+        let count = restLengths.count
 
-        let gap = restGap * (1 + stretchGapGrowth * pull)
-        let trackLength = restLength + (gap - restGap) * CGFloat(lengths.count - 1)
+        // Each band is a bubble: pulled, it draws out thinner and longer; squeezed on
+        // the rebound, it presses shorter and fatter.
+        let middle = CGFloat(count - 1) / 2
+        let stretches = (0..<count).map { index -> CGFloat in
+            let fromMiddle = middle > 0 ? abs(CGFloat(index) - middle) / middle : 0
+            let value = lerp(stretch, trailingStretch ?? stretch, fromMiddle)
+            return min(max(value, -maxSqueeze), maxPullStretch)
+        }
+        let bars = stretches.map { value in
+            restBar * (value < 0 ? 1 - squeezeBarGrowth * value : 1 - stretchBarThinning * value)
+        }
+        let lengths = zip(restLengths, stretches).map { length, value in
+            length * (value < 0 ? 1 + squeezeLengthShrink * value : 1 + stretchLengthGrowth * value)
+        }
+        // A gap opens with the pull and follows its two bands' caps, so a fatter or
+        // thinner band never closes or opens the space you can see between them.
+        let gaps = (0..<max(count - 1, 0)).map { index -> CGFloat in
+            let pull = max((stretches[index] + stretches[index + 1]) / 2, 0)
+            let caps = (bars[index] + bars[index + 1]) / 2 - restBar
+            return restGap * (1 + stretchGapGrowth * pull) + caps
+        }
+        let trackLength = lengths.reduce(0, +) + gaps.reduce(0, +)
         // Same bend radius as at rest, so the longer track sweeps further round it.
         let sweep = restSweep > 1e-9 ? trackLength / (restLength / restSweep) : 0
 
         var spans: [ClosedRange<CGFloat>] = []
         var cursor: CGFloat = 0
-        for length in lengths {
+        for (index, length) in lengths.enumerated() {
             spans.append(cursor...(cursor + length))
-            cursor += length + gap
+            cursor += length + (index < gaps.count ? gaps[index] : 0)
         }
 
         let curveRadius: CGFloat? = sweep > 1e-9 ? trackLength / sweep : nil
@@ -407,7 +454,8 @@ enum BodyReadinessArcGeometry {
             segmentLengths: lengths,
             segmentSpans: spans,
             trackLength: trackLength,
-            barWidth: bar,
+            barWidth: restBar,
+            segmentBarWidths: bars,
             centerX: centerX,
             topY: topY,
             curveRadius: curveRadius
@@ -528,7 +576,7 @@ struct BodyReadinessSegmentShape: Shape {
     let index: Int
 
     func path(in rect: CGRect) -> Path {
-        layout.outline(segmentIndex: index, lineWidth: layout.barWidth)
+        layout.outline(segmentIndex: index, lineWidth: layout.segmentBarWidths[index])
     }
 }
 

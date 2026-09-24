@@ -115,7 +115,7 @@ struct BodyHealthMetricWidget: Widget {
                     BodyWidgetLockedView()
                 }
             }
-            .bodyWidgetBackground(entry.background)
+            .bodyWidgetBackground(entry.background, tint: entry.metric.tintColor)
         }
         .supportedFamilies([.systemSmall])
         .configurationDisplayName("Health Metric")

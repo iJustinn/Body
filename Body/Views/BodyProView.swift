@@ -3,6 +3,7 @@
 //  Body
 //
 
+import RevenueCatUI
 import StoreKit
 import SwiftUI
 import UIKit
@@ -14,6 +15,7 @@ enum BodyProPalette {
 struct BodyProView: View {
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @State private var showRedeemSheet = false
+    @State private var showCustomerCenter = false
 
     private let features = BodyProFeature.defaultFeatures
 
@@ -84,6 +86,12 @@ struct BodyProView: View {
         }
         .navigationTitle("Body Pro")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: isPro) { _, unlocked in
+            if unlocked { BodyConfirmationHaptics.play(.success) }
+        }
+        .onChange(of: purchaseState) { _, state in
+            if case .failed = state { BodyConfirmationHaptics.play(.error) }
+        }
     }
 
     private var purchaseOptions: some View {
@@ -183,6 +191,21 @@ struct BodyProView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isRestoreOrRedeemDisabled)
+
+                Text(verbatim: "·")
+                    .foregroundColor(.secondary)
+
+                // RevenueCat Customer Center: restore, manage, and get help with purchases.
+                Button {
+                    showCustomerCenter = true
+                } label: {
+                    Text("Manage")
+                        .foregroundColor(BodyProPalette.gold)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isRestoreOrRedeemDisabled)
             }
             .font(.system(.subheadline, design: .rounded))
             .fontWeight(.semibold)
@@ -197,6 +220,9 @@ struct BodyProView: View {
             // this lifetime non-consumable the path is best-effort — worth revisiting
             // whether promo-code redemption belongs here at all.)
             Task { await proStore?.refreshAfterRedemption() }
+        }
+        .sheet(isPresented: $showCustomerCenter) {
+            CustomerCenterView()
         }
     }
 }
@@ -282,6 +308,7 @@ private struct BodyProFlippableIcon: View {
     }
 
     private func playFlipHaptic() {
+        guard BodyHaptics.isMasterEnabled else { return }
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.prepare()
         generator.impactOccurred(intensity: 0.75)

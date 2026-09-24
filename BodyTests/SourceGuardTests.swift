@@ -332,7 +332,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(source.contains("AnnotationOverflowResolution("))
         XCTAssertTrue(source.contains("x: .fit(to: .chart)"))
         XCTAssertTrue(source.contains("y: .disabled"))
-        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 12)
+        XCTAssertEqual(source.occurrenceCount(of: "overflowResolution: bodyChartSelectionOverflowResolution"), 13)
         XCTAssertFalse(source.contains(".annotation(position: .top, spacing: 8) {"))
         // The scrub-callout background uses the shared glass-chip recipe (flat
         // translucent fill + thin white rim) instead of a bespoke fill + shadow.
@@ -370,6 +370,8 @@ final class SourceGuardTests: XCTestCase {
             // The readiness Impact by Activity explainer, likewise in its own file so the
             // metric detail view keeps no backdrop of its own.
             ("Body/Views/Health/BodyReadinessImpactExplanationSheet.swift", 1, 0),
+            // The Basics Difference Range explainer, same reasoning.
+            ("Body/Views/Health/BodyBasicsRangeExplanationSheet.swift", 1, 0),
             ("Body/Views/Health/BodyWorkoutShareSheet.swift", 0, 1)
         ]
 
@@ -1314,7 +1316,7 @@ final class SourceGuardTests: XCTestCase {
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
         XCTAssertTrue(settingsSource.contains("case metricWarnings"))
         let warningsRowRange = try XCTUnwrap(settingsSource.range(of: "title: \"Warnings\""))
-        let starMetricRowRange = try XCTUnwrap(settingsSource.range(of: "title: \"Star Metric\""))
+        let starMetricRowRange = try XCTUnwrap(settingsSource.range(of: "title: \"Home Hero\""))
         XCTAssertLessThan(warningsRowRange.lowerBound, starMetricRowRange.lowerBound)
     }
 
@@ -1929,7 +1931,7 @@ final class SourceGuardTests: XCTestCase {
     func testHealthDataSourcePickerRowsShowSourceNamesOnly() throws {
         let source = try bodyHomeViewText()
         let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
-        let pickerBlock = String(source[pickerStart...].prefix(8_000))
+        let pickerBlock = String(source[pickerStart...].prefix(10_000))
 
         XCTAssertTrue(pickerBlock.contains("Text(option.name)"))
         XCTAssertFalse(pickerBlock.contains("Only this source"))
@@ -1941,7 +1943,7 @@ final class SourceGuardTests: XCTestCase {
     func testHealthDataSourcePickerUsesTypedScopedUpdateState() throws {
         let source = try bodyHomeViewText()
         let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
-        let pickerBlock = String(source[pickerStart...].prefix(8_000))
+        let pickerBlock = String(source[pickerStart...].prefix(10_000))
 
         XCTAssertTrue(pickerBlock.contains("private enum SourceRole: Equatable"))
         XCTAssertTrue(pickerBlock.contains("private struct PendingSelection: Equatable"))
@@ -1961,7 +1963,7 @@ final class SourceGuardTests: XCTestCase {
     func testHealthDataSourcePickerStaysOpenAfterChangingSelection() throws {
         let source = try bodyHomeViewText()
         let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
-        let pickerBlock = String(source[pickerStart...].prefix(8_000))
+        let pickerBlock = String(source[pickerStart...].prefix(10_000))
         let updateStart = try XCTUnwrap(pickerBlock.range(of: "private func updateSelection")?.lowerBound)
         let updateBlock = String(pickerBlock[updateStart...].prefix(1_200))
 
@@ -1969,6 +1971,22 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(pickerBlock.contains("dismiss()"))
         XCTAssertTrue(updateBlock.contains("updatingSelection = nil"))
         XCTAssertFalse(updateBlock.contains("dismiss()"))
+    }
+
+    /// A tap that is saved but resolves away to the fallback must explain itself:
+    /// rows are marked before the tap, and the tap posts a notice with a warning
+    /// haptic. Both read the one store rule the checkmark reads.
+    func testHealthDataSourcePickerExplainsSourcesWithoutData() throws {
+        let source = try bodyHomeViewText()
+        let pickerStart = try XCTUnwrap(source.range(of: "struct BodyHealthDataSourcePickerSheet")?.lowerBound)
+        // Positives only, so a window that runs past the file's end is harmless.
+        let pickerBlock = String(source[pickerStart...].prefix(12_000))
+
+        XCTAssertTrue(pickerBlock.contains("workoutStore.healthDataSourceOptionTakesEffect(option, for: kind, secondary: role == .secondary)"))
+        XCTAssertTrue(pickerBlock.contains("Text(\"No data\")"))
+        XCTAssertTrue(pickerBlock.contains("showFallbackNoticeIfNeeded(for: option, role: role)"))
+        XCTAssertTrue(pickerBlock.contains("BodyConfirmationHaptics.play(.warning)"))
+        XCTAssertTrue(pickerBlock.contains("AccessibilityNotification.Announcement(text).post()"))
     }
 
     /// The "latest reading" queries must run inside the same window the daily
@@ -3348,7 +3366,15 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.1 (build 6)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 8)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 7)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 6)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 4)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 5)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 4)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.1 (build 3)**"))
@@ -3492,6 +3518,20 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 8."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 7."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 6)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 6."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 5)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 5."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 4)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 4."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 3."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 1."))
         XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 6)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.1 build 6."))
         XCTAssertTrue(versionHistory.contains("## 1.1.1 (build 5)"))
@@ -4926,6 +4966,147 @@ final class SourceGuardTests: XCTestCase {
         let readinessIndex = try XCTUnwrap(watchBundle.range(of: "ReadinessComplication()")?.lowerBound)
         XCTAssertLessThan(exerciseWeekIndex, sleepStagesIndex)
         XCTAssertLessThan(sleepStagesIndex, readinessIndex)
+    }
+
+    func testReadinessComplicationDrawsTheHeroArc() throws {
+        let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
+        let complicationSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/ReadinessComplicationView.swift")
+        let geometrySource = try BodyTestSupport.sourceText(at: "BodyWatchShared/Views/BodyReadinessArcGeometry.swift")
+
+        // A tap lands on the home page, where the hero is, not the detail page.
+        let dashboard = try BodyTestSupport.sourceText(at: "BodyWatch/WatchDashboardView.swift")
+        XCTAssertTrue(watchBundle.contains("? WatchMetricDeepLink.homeURL"))
+        XCTAssertTrue(dashboard.contains("WatchMetricDeepLink.isHome(url)"))
+
+        // Readiness is routed to the hero arc view; the kind is unchanged so
+        // complications already on a face upgrade in place.
+        XCTAssertTrue(watchBundle.contains("ReadinessComplicationView(entry: entry)"))
+        XCTAssertTrue(watchBundle.contains("widgetKind: \"BodyWatchReadiness\""))
+
+        // Bands and active band come from the home hero's geometry, not a copy.
+        XCTAssertTrue(complicationSource.contains("Geometry = BodyReadinessArcGeometry"))
+        XCTAssertTrue(complicationSource.contains("Geometry.bandScoreRanges"))
+        XCTAssertTrue(complicationSource.contains("Geometry.segmentIndex(forScore:"))
+        XCTAssertFalse(complicationSource.contains("WatchMetricRingView("))
+
+        // The ring already shows the score, so the rectangular row names the level.
+        XCTAssertTrue(complicationSource.contains("metric.statusBand?.label"))
+
+        // Tinted faces: only the active band and the pill take the accent.
+        XCTAssertTrue(complicationSource.contains("@Environment(\\.widgetRenderingMode)"))
+        XCTAssertTrue(complicationSource.contains(".widgetAccentable(isActive)"))
+
+        // The corner family keeps the system bezel gauge.
+        XCTAssertTrue(complicationSource.contains("case .accessoryCorner:\n            WatchComplicationView("))
+
+        // The watch widget extension compiles the geometry but not
+        // BodyMetricsKit, so the geometry file must not name ReadinessStatus.
+        XCTAssertFalse(geometrySource.contains("[ReadinessStatus]"))
+        XCTAssertFalse(geometrySource.contains("ReadinessStatus."))
+    }
+
+    func testRectangularWatchComplicationRowsLeadWithTheReading() throws {
+        // No drawn border: the system owns a rectangular slot's outline.
+        for file in ["WatchComplicationView", "ReadinessComplicationView", "ExerciseWeekComplication", "SleepStagesComplication"] {
+            let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/\(file).swift")
+            XCTAssertFalse(source.contains("strokeBorder"), file)
+        }
+
+        // The metric row: the reading over the title, both lines the same
+        // size, and a banded metric names its level like Readiness does.
+        let metricSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/WatchComplicationView.swift")
+        XCTAssertTrue(metricSource.contains("metric.statusBand?.label"))
+        XCTAssertFalse(metricSource.contains(".font(.title3)"))
+
+        // Ring text steps down from three digits up, in every ring.
+        let readinessSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/ReadinessComplicationView.swift")
+        XCTAssertTrue(metricSource.contains("text.filter(\\.isNumber).count >= 3 ? compact : base"))
+        XCTAssertEqual(metricSource.components(separatedBy: "valueFontScale: complicationRingFontScale(for:").count - 1, 2)
+        XCTAssertTrue(readinessSource.contains("complicationRingFontScale(for:"))
+    }
+
+    func testDayRingStarMetricSettingsAndRefreshWiring() throws {
+        let settings = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
+        let store = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        // The hero, plus the track and geometry it shares with the watch Day Ring.
+        let hero = try BodyTestSupport.sourceText(at: "Body/Views/BodyDayRingHero.swift")
+            + BodyTestSupport.sourceText(at: "BodyWatchSnapshotKit/BodyDayRingTrack.swift")
+
+        // The caption toggle shows only while the Day Ring is the pinned hero.
+        XCTAssertTrue(settings.contains("if card == .dayRing, selection == .dayRing {"))
+        XCTAssertTrue(settings.contains("title: \"Day Caption\""))
+        // Picking it must start a fetch: the Day Ring adds sleep to the fetch selection.
+        XCTAssertTrue(settings.contains(".onChange(of: starredMetricRawValue) {"))
+        XCTAssertTrue(settings.contains("await workoutStore.refetchAfterStarMetricChange()"))
+        XCTAssertTrue(store.contains("func refetchAfterStarMetricChange() async {"))
+        // One clock owns the whole hero, and no round caps stretch the time axis.
+        XCTAssertEqual(hero.components(separatedBy: "TimelineView(.everyMinute)").count - 1, 1)
+        // The rounded tips turn inside the bar's true ends rather than capping past them.
+        XCTAssertTrue(hero.contains("let startDistance = distance(fraction: middle - half) + corner"))
+        // It rides the Readiness Ring's track and pin, so it flattens and holds the same way.
+        XCTAssertTrue(hero.contains("Geometry.track(progress: progress, width: width, stretch: stretch, trailingStretch: trailingStretch)"))
+        let home = try BodyTestSupport.sourceText(at: "Body/Views/BodyHomeView.swift")
+        XCTAssertTrue(home.contains("flatBarBottom: BodyDayRingGeometry.flatBarBottom"))
+        XCTAssertTrue(home.contains("gridContentY - heroContentY - (flatBarBottom + BodyReadinessArcGeometry.heldGridGap)"))
+        XCTAssertTrue(hero.contains("let overrun = Geometry.dialOverrun / (1 - 2 * track.axisInset)"))
+        XCTAssertTrue(hero.contains("Image(systemName: symbolName(for: activity))"))
+        // Workouts closer than one bar's shortest glyph share a bar, grouped on the
+        // resting track so the grouping holds still while the ring stretches or flattens.
+        XCTAssertTrue(hero.contains("Geometry.segments(for: timeline, trackLength: Geometry.track(width: width).dayLength)"))
+        XCTAssertTrue(hero.contains("span.start - last.end < minimum"))
+        XCTAssertTrue(hero.contains(#"Text("×\(segment.workoutCount)")"#))
+        // The Readiness Ring's warning signs: the shared row, its tap targets, and the
+        // same lift for the caption and drop without badges.
+        XCTAssertTrue(hero.contains("BodyHeroWarningBadgeRow(badges: warningBadges, opacity: textOpacity)"))
+        XCTAssertTrue(hero.contains("return centered - Self.captionHeight - Self.captionGap + (warningBadges.isEmpty ? Self.noBadgeDrop : 0)"))
+        XCTAssertTrue(hero.contains(".animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: textBlockLayout)"))
+        XCTAssertEqual(home.components(separatedBy: "heroBadgeTapTargets(").count - 1, 3)
+        XCTAssertTrue(hero.contains("turned.rotate(by: .radians(Double(atan2(tangent.dy, tangent.dx))))"))
+        XCTAssertTrue(home.contains("- (flatBarBottom - (BodyReadinessArcGeometry.flatY + BodyReadinessArcGeometry.flatBarWidth / 2))"))
+        // Both bars wear the Readiness Ring's glass: translucent fill, highlight, rim.
+        XCTAssertTrue(hero.contains("Color.white.opacity(0.18 * (1 - progress))"))
+        XCTAssertTrue(hero.contains("graphics.stroke(shape, with: .color(rim), lineWidth: 1)"))
+        XCTAssertTrue(hero.contains("track.segmentPath(range: -overrun...(1 + overrun)"))
+        XCTAssertTrue(hero.contains("Text(\"Today passed\")"))
+        // The Readiness Ring's pull bounce, and its glow colored for the part of the day.
+        XCTAssertTrue(hero.contains("Animation.interpolatingSpring(mass: 1, stiffness: 220, damping: 7)"))
+        XCTAssertTrue(hero.contains("var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, Double>"))
+        // The now line glides and the number flips, and both dial ends carry a midnight mark.
+        XCTAssertTrue(hero.contains(".animation(reduceMotion ? nil : .smooth(duration: 0.8), value: nowFraction)"))
+        XCTAssertTrue(hero.contains(".numericText(value: Double(percent))"))
+        XCTAssertTrue(hero.contains("timeline.hourTicks + [DayRingTimeline.HourTick(hour: 0, fraction: 1)]"))
+        let background = try BodyTestSupport.sourceText(at: "Body/Views/BodyTabBackground.swift")
+        XCTAssertTrue(background.contains("} else if starMetric == .dayRing {"))
+        XCTAssertTrue(background.contains("tint: part.glowColor,"))
+    }
+
+    func testWatchReadinessHeroLevelFollowsThePhoneSwitch() throws {
+        let snapshot = try BodyTestSupport.sourceText(at: "BodyWatchShared/Models/WatchMetricsSnapshot.swift")
+        let publisher = try BodyTestSupport.sourceText(at: "Body/Services/BodyCompanionPublisher.swift")
+        let store = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        let settings = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
+        let dashboard = try BodyTestSupport.sourceText(at: "BodyWatch/WatchDashboardView.swift")
+        let hero = try BodyTestSupport.sourceText(at: "BodyWatch/WatchReadinessHeroView.swift")
+
+        // Optional, so an older phone's payload still decodes (and reads as on).
+        XCTAssertTrue(snapshot.contains("var readinessHeroShowsLevel: Bool? = nil"))
+        XCTAssertTrue(publisher.contains("snapshot.readinessHeroShowsLevel = input.readinessHeroShowsLevel"))
+        XCTAssertTrue(store.contains("forKey: BodyAppearancePreference.readinessHeroShowsLevelKey"))
+        XCTAssertTrue(settings.contains(".onChange(of: readinessHeroShowsLevel) { workoutStore.republishCompanionSnapshots() }"))
+        XCTAssertTrue(dashboard.contains("showsLevel: model.snapshot.readinessHeroShowsLevel ?? true"))
+        XCTAssertTrue(hero.contains("private var showsLevelLine: Bool { showsLevel && score != nil }"))
+        XCTAssertTrue(hero.contains("Text(status.title)"))
+    }
+
+    func testTrainingLoadRingDropsTheLeadingZeroUnderOne() throws {
+        let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/WatchComplicationView.swift")
+
+        // Only Training Load, only inside the ring: both ring call sites use
+        // the shortened text while the corner keeps the full value.
+        XCTAssertTrue(source.contains("metric.kind == WatchMetricKindKey.trainingLoad"))
+        XCTAssertEqual(source.components(separatedBy: "value: ringText(metric),").count - 1, 2)
+        XCTAssertTrue(source.contains("Text(ringValue(metric))"))
+        XCTAssertTrue(source.contains("Text(metric.displayValue)"))
     }
 
     func testSleepStagesLockScreenWidgetMirrorsTheWatchComplication() throws {

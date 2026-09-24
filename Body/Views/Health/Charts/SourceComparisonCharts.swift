@@ -760,11 +760,20 @@ struct BodyHealthSourceComparisonBarChart: View {
     }
 
     private func selectionAnnotation(for selectedPoint: BodyHealthSourceComparisonBarEntry) -> BodyChartSelectionAnnotation {
-        BodyChartSelectionAnnotation(
+        // A source whose day averages several records lists them under the
+        // totals, labelled so they don't read as part of the other source's total.
+        let breakdown = comparison.primary.series.averagedRecordRows(
+            for: selectedPoint.point, color: primaryColor, valueFormatter: valueFormatter
+        ) + comparison.secondary.series.averagedRecordRows(
+            for: selectedPoint.point, color: secondaryColor, valueFormatter: valueFormatter
+        )
+        return BodyChartSelectionAnnotation(
             eyebrow: selectedRange.sourceComparisonChartAggregationDayCount > 1 ? String(localized: "AVG") : String(localized: "TOTAL"),
             values: selectedValues(for: selectedPoint),
             date: selectedPoint.date,
-            dateText: bodyChartSelectionDateText(for: selectedPoint.point)
+            dateText: bodyChartSelectionDateText(for: selectedPoint.point),
+            breakdown: breakdown,
+            breakdownEyebrow: breakdown.isEmpty ? nil : String(localized: "DAILY AVG")
         )
     }
 

@@ -272,6 +272,24 @@ extension WorkoutShareMetricsBuilder {
     /// A pick of nothing is honoured as nothing: the backfill exists to keep the row
     /// from emptying out when the *header* swallowed the picks, not to overrule a user
     /// who turned every chip off.
+    /// The centered map card's line under its big number: the user's picks, in order,
+    /// minus whichever one the big number already shows (distance when the workout has
+    /// one, otherwise time). No cap and no backfill, so every chip toggle shows.
+    static func mapCenteredLineMetrics(
+        selectedIDs: [String],
+        available: [WorkoutShareMetricOption],
+        presentation: WorkoutDetailPresentation
+    ) -> [WorkoutShareMetric] {
+        let heroID = presentation.heroDistanceValue != nil && presentation.heroDistanceUnit != nil
+            ? WorkoutShareMetricOption.distanceID
+            : WorkoutShareMetricOption.timeID
+        var seen: Set<String> = []
+        return selectedIDs.compactMap { id in
+            guard id != heroID, seen.insert(id).inserted else { return nil }
+            return available.first { $0.id == id }?.centeredMetric
+        }
+    }
+
     static func classicRowMetrics(
         selectedIDs: [String],
         available: [WorkoutShareMetricOption],
@@ -1139,6 +1157,9 @@ enum WorkoutShareRouteColorChoice: String, CaseIterable, Identifiable {
 /// only seam that decides whether one may render.
 enum BodyWorkoutShareBackgroundChoice: Equatable {
     case map
+    /// The same route-map snapshot as `.map`, drawn under the centered map layout
+    /// (title on top, one big number at the bottom) instead of the classic header.
+    case mapCentered
     /// No background: the card exports as a PNG with a real alpha channel. Nothing sits
     /// behind the text, so the ink is the user's pick rather than the background's —
     /// hence the payload, and hence two tiles in the tray. Pro, resolved through
@@ -1151,12 +1172,14 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
     static let storageKey = "workoutShareBackgroundPreset"
 
     private static let mapRawValue = "map"
+    private static let mapCenteredRawValue = "mapCentered"
     private static let transparentLightRawValue = "transparentLight"
     private static let transparentDarkRawValue = "transparentDark"
 
     var rawValue: String {
         switch self {
         case .map: return Self.mapRawValue
+        case .mapCentered: return Self.mapCenteredRawValue
         case .transparent(let ink):
             return ink == .light ? Self.transparentLightRawValue : Self.transparentDarkRawValue
         case .preset(let preset): return preset.rawValue
@@ -1172,6 +1195,7 @@ enum BodyWorkoutShareBackgroundChoice: Equatable {
     static func stored(rawValue: String?, hasRoute: Bool) -> BodyWorkoutShareBackgroundChoice {
         guard let rawValue else { return .preset(.midnight) }
         if rawValue == mapRawValue { return hasRoute ? .map : .preset(.midnight) }
+        if rawValue == mapCenteredRawValue { return hasRoute ? .mapCentered : .preset(.midnight) }
         if rawValue == transparentLightRawValue { return .transparent(.light) }
         if rawValue == transparentDarkRawValue { return .transparent(.dark) }
         guard let preset = BodyWorkoutSharePreset(rawValue: rawValue) else { return .preset(.midnight) }
@@ -1277,12 +1301,17 @@ struct WorkoutShareCardGeometry: Equatable {
 
     /// Today's 280/170 over 640, as a fraction of the card's height: a landscape
     /// card is 360 tall, and a fixed 280 pt scrim would swallow most of it.
+    /// The centered map layout puts only the title block up top and the big number
+    /// down below, so its map scrims (and the band its route is framed into) are
+    /// shorter above and taller below than the classic header/metrics pair.
     func topScrimHeight(isMap: Bool) -> CGFloat {
-        size.height * (isMap ? 280 / 640 : 170 / 640)
+        guard isMap else { return size.height * 170 / 640 }
+        return size.height * (layout == .mapCentered ? 170 / 640 : 280 / 640)
     }
 
     func bottomScrimHeight(isMap: Bool) -> CGFloat {
-        size.height * (isMap ? 210 / 640 : 160 / 640)
+        guard isMap else { return size.height * 160 / 640 }
+        return size.height * (layout == .mapCentered ? 290 / 640 : 210 / 640)
     }
 
     /// The clear band between the map background's scrims — where the composited

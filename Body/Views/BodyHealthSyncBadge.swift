@@ -141,13 +141,28 @@ struct BodyHealthSyncBadge: View {
         .onChange(of: isSuppressed) { _, suppressed in
             if suppressed { suppressedSessionID = presentation.sessionID }
         }
-        .onChange(of: presentation.phase) { _, phase in
+        .onChange(of: presentation.phase) { oldPhase, phase in
+            playRefreshResultHaptic(from: oldPhase, to: phase)
             guard !isSuppressed, presentation.sessionID != suppressedSessionID else { return }
             if phase == .updated {
                 AccessibilityNotification.Announcement(completionMessage).post()
             } else if phase == .partial {
                 AccessibilityNotification.Announcement(String(localized: "Some health data updated")).post()
             }
+        }
+    }
+
+    /// The result of a refresh the user pulled: success when it published cleanly, a
+    /// warning when only part landed, an error when it ended on a failure with nothing
+    /// published. A pull that queried nothing ends silently.
+    private func playRefreshResultHaptic(from oldPhase: BodySyncPresentation.Phase, to phase: BodySyncPresentation.Phase) {
+        guard oldPhase == .syncing, phase != .syncing, BodyConfirmationHaptics.awaitsRefreshResult else { return }
+        BodyConfirmationHaptics.awaitsRefreshResult = false
+        switch phase {
+        case .updated: BodyConfirmationHaptics.play(.success)
+        case .partial: BodyConfirmationHaptics.play(.warning)
+        case .hidden: if presentation.hadFailure { BodyConfirmationHaptics.play(.error) }
+        case .syncing: break
         }
     }
 

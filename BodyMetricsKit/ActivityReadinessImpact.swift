@@ -5,6 +5,16 @@
 
 import Foundation
 
+/// One workout's share of the same-day drain, keyed by the workout's HealthKit
+/// UUID (`WorkoutSummary.id`, identical on the phone and the watch) so two
+/// devices' drain reports can be reconciled workout by workout.
+struct ActivityDrainContribution: Codable, Equatable {
+    var id: UUID
+    var start: Date
+    /// `ActivityReadinessImpact.perWorkoutDrain`, before the total cap.
+    var points: Double
+}
+
 /// Same-day acute "drain" that workouts apply to the **live** readiness tile.
 ///
 /// This is intentionally separate from the readiness training-load component
@@ -37,6 +47,22 @@ enum ActivityReadinessImpact {
     static func drainPoints(workouts: [WorkoutSummary]) -> Double {
         let total = workouts.reduce(0.0) { $0 + perWorkoutDrain($1) }
         return min(totalDrainCap, total)
+    }
+
+    /// The displayed score and the rounded drain for an undrained score and a
+    /// summed per-workout drain, or nil when the drain is too small to show.
+    /// The one place this math lives: `HealthDashboardSnapshot.draining` and
+    /// the watch's drain reconciler both go through it, so a reconciled score
+    /// is exactly what a full recompute over the same workouts would show.
+    static func drainedScore(undrained: Int, contributionPoints: Double) -> (score: Int, drain: Int)? {
+        let drain = min(totalDrainCap, contributionPoints)
+        guard drain >= 0.5 else { return nil }
+        // Soften the very low end: once the raw (possibly negative) score reaches 0 we
+        // show 5% and ease 1% per further 5% of deficit, hitting 0% only at −25 or lower.
+        // Cap at the undrained score so drain can never lift an already-low baseline.
+        let roundedDrain = Int(drain.rounded())
+        let raw = undrained - roundedDrain
+        return (min(undrained, displayedScore(forRawScore: raw)), roundedDrain)
     }
 
     /// Maps the raw drained score (baseline − drain, which may be negative once the

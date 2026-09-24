@@ -35,7 +35,8 @@ struct BodyReadinessHeroWarningBadge: Identifiable, Equatable {
     /// grid's own order, so a card the user turned off contributes nothing and
     /// there is nowhere for a badge to point that isn't on screen.
     ///
-    /// Only three cards can ever set `warningSymbolName`, so the row is capped by
+    /// Only five cards can ever set `warningSymbolName` (Heart Rate, Blood
+    /// Oxygen, Respiratory Rate, Skin Temp, Body Radar), so the row is capped by
     /// construction rather than by a `prefix` here.
     static func badges(
         visibleCards: [BodyHomeCardKind],
@@ -74,6 +75,61 @@ struct BodyReadinessHeroBadgeAnchorKey: PreferenceKey {
     }
 }
 
+/// The warning signs under a hero's number, each the same glyph and tint its own Home
+/// card is showing. Shared by the Readiness Ring and the Day Ring. Publishes its glyphs'
+/// bounds so the host can lay tap targets over them; nothing here is interactive.
+struct BodyHeroWarningBadgeRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let badges: [BodyReadinessHeroWarningBadge]
+    /// The hero's text opacity, so the row fades with the number as the ring flattens.
+    let opacity: Double
+
+    /// The width of one badge's box, and so of the tap target laid over it. Three
+    /// badges have to share the row; one or two can spend it.
+    private var badgeSlotWidth: CGFloat {
+        switch badges.count {
+        case 0, 1:
+            return 44
+        case 2:
+            return 36
+        default:
+            return 28
+        }
+    }
+
+    /// Air between the boxes once more than one warning is showing, so the glyphs read
+    /// as separate signs rather than one clump. A single badge needs none.
+    private var badgeSpacing: CGFloat {
+        badges.count > 1 ? 12 : 0
+    }
+
+    var body: some View {
+        HStack(spacing: badgeSpacing) {
+            ForEach(badges) { badge in
+                Image(systemName: badge.symbolName)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(badge.color)
+                    // A fixed box rather than the glyph's own size, so the tap
+                    // targets laid over the badges are all the same. The host
+                    // gives the targets their height back.
+                    .frame(width: badgeSlotWidth, height: 28)
+                    .anchorPreference(key: BodyReadinessHeroBadgeAnchorKey.self, value: .bounds) {
+                        [badge.id: $0]
+                    }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+            }
+        }
+        .fixedSize()
+        .shadow(color: .black.opacity(0.3), radius: 6, y: 1)
+        .opacity(opacity)
+        // The same fade the card badges use, so a warning arriving mid-refresh
+        // reads as one change in both places.
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: badges)
+    }
+}
+
 /// The Home readiness gauge: five glass bar segments, one per readiness band, on an
 /// arc over the big score, with a more opaque pill inside today's band marking the
 /// score. `progress` (0 = arc, 1 = flat) is scroll-driven by the host: the arc unfurls
@@ -107,7 +163,7 @@ struct BodyReadinessArcHero: View {
     /// outside the hero's own button. Empty everywhere but Home.
     var warningBadges: [BodyReadinessHeroWarningBadge] = []
 
-    /// Whether today's level shows under the score (Settings > Star Metric > Readiness Level).
+    /// Whether today's level shows under the score (Settings > Home Hero > Readiness Level).
     /// Off, the score sits centered in the ring as it does without a score.
     var showsLevel = true
 
@@ -127,6 +183,9 @@ struct BodyReadinessArcHero: View {
     /// The ring's stretch, 0...1. Follows the pull directly while the finger drags and
     /// springs back to zero from the moment the pull starts to let go.
     @State private var stretch: CGFloat = 0
+    /// The stretch at the ring's ends, which trails `stretch` on the release so the
+    /// bounce ripples outward from the middle band.
+    @State private var trailingStretch: CGFloat = 0
     @State private var isStretchReleasing = false
     @Environment(BodyReadinessHeroState.self) private var heroState: BodyReadinessHeroState?
     @State private var glowTask: Task<Void, Never>?
@@ -179,7 +238,8 @@ struct BodyReadinessArcHero: View {
     /// Slides the pill to `score`. The page glow switches off as the pill sets off and
     /// fades back in on the target band a fixed `glowDelay` later, so the color never
     /// leads the pill. A newer move cancels an older one's pending fade-in.
-    private func movePill(to score: Int?) {
+    private func movePill(to score: Int?, from oldScore: Int? = nil, isLaunchSlide: Bool = false) {
+        let dropsSharply = (oldScore ?? 0) - (score ?? 0) >= Self.sharpDropPoints
         let target = Double(score ?? 0)
         let landedStatus: ReadinessStatus? = score.map { Geometry.segmentOrder[Geometry.segmentIndex(forScore: $0)] }
         if reduceMotion {
@@ -218,8 +278,18 @@ struct BodyReadinessArcHero: View {
             try? await Task.sleep(for: Self.glowDelay)
             guard !Task.isCancelled else { return }
             heroState?.activeStatus = landedStatus
+            // Home only: the launch slide lands softly, a sharp live drop warns.
+            guard heroState != nil, score != nil else { return }
+            if dropsSharply {
+                BodyConfirmationHaptics.play(.warning)
+            } else if isLaunchSlide {
+                BodyConfirmationHaptics.playScoreReveal()
+            }
         }
     }
+
+    /// A fall this large between two live scores buzzes as a warning.
+    private static let sharpDropPoints = 10
 
     /// Lands the pill on `score` with no slide and the glow on immediately.
     private func placePill(at score: Int?) {
@@ -243,6 +313,7 @@ struct BodyReadinessArcHero: View {
                 progress: clampedProgress,
                 width: width,
                 stretch: stretch,
+                trailingStretch: trailingStretch,
                 reduceMotion: reduceMotion
             )
             .animation(pillAnimation, value: presentedScore)
@@ -299,14 +370,15 @@ struct BodyReadinessArcHero: View {
             displayedScore = readiness.score ?? 0
             if heroState == nil || !Self.hasPlayedLaunchSlide {
                 if heroState != nil { Self.hasPlayedLaunchSlide = true }
-                movePill(to: readiness.score)
+                movePill(to: readiness.score, isLaunchSlide: true)
             } else {
                 placePill(at: readiness.score)
             }
         }
-        .onChange(of: readiness.score) { _, newScore in
+        .onChange(of: readiness.score) { oldScore, newScore in
             displayedScore = newScore ?? 0
-            movePill(to: newScore)
+            // A first score arriving after launch reveals like the launch slide.
+            movePill(to: newScore, from: oldScore, isLaunchSlide: oldScore == nil)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
@@ -324,11 +396,16 @@ struct BodyReadinessArcHero: View {
             transaction.animation = nil
             withTransaction(transaction) {
                 stretch = Geometry.pullStretch(pull: newPull)
+                trailingStretch = stretch
             }
         } else if !isStretchReleasing {
             isStretchReleasing = true
-            withAnimation(.interpolatingSpring(mass: 1, stiffness: 180, damping: 12)) {
+            let spring = Animation.interpolatingSpring(mass: 1, stiffness: 220, damping: 7)
+            withAnimation(spring) {
                 stretch = 0
+            }
+            withAnimation(spring.delay(Geometry.rippleDelay)) {
+                trailingStretch = 0
             }
         }
         if newPull <= 0 {
@@ -395,8 +472,12 @@ struct BodyReadinessArcHero: View {
 
     /// One line of the level text. The score lifts by this much and the level takes the
     /// space it left, so the pair ends where the score alone did and the badge row and
-    /// the hero's height stay put. iOS only: the watch hero keeps the score centered.
+    /// the hero's height stay put. The watch hero does the same in `WatchReadinessHeroView`.
     private static let levelTextHeight: CGFloat = 18
+
+    /// Breathing room between the score's digits and the level. The score lifts by this
+    /// much too, so the level and the badge row under it stay where they were.
+    private static let levelTextGap: CGFloat = 4
 
     /// How far the score and level drop while no warning badge is showing, so the block
     /// doesn't float over an empty badge row: 40% of a badge's height.
@@ -420,11 +501,12 @@ struct BodyReadinessArcHero: View {
         guard levelText != nil else { return Geometry.numberCenterY(width: width) }
         return Geometry.numberCenterY(width: width)
             - Self.levelTextHeight
+            - Self.levelTextGap
             + (warningBadges.isEmpty ? Self.noBadgeDrop : 0)
     }
 
     private func levelTextCenterY(width: CGFloat) -> CGFloat {
-        scoreCenterY(width: width) + Geometry.numberHalfHeight + Self.levelTextHeight / 2
+        scoreCenterY(width: width) + Geometry.numberHalfHeight + Self.levelTextGap + Self.levelTextHeight / 2
     }
 
     /// The rectangle the score, level and badges occupy, used as a tap target while visible.
@@ -433,45 +515,8 @@ struct BodyReadinessArcHero: View {
         return CGRect(x: width / 2 - 90, y: top, width: 180, height: Geometry.badgeRowCenterY(width: width) + 22 - top)
     }
 
-    /// The width of one badge's box, and so of the tap target laid over it. Three
-    /// badges have to share the row; one or two can spend it.
-    private var badgeSlotWidth: CGFloat {
-        switch warningBadges.count {
-        case 0, 1:
-            return 44
-        case 2:
-            return 36
-        default:
-            return 28
-        }
-    }
-
-    /// The warning signs under the score, each the same glyph and tint its own Home
-    /// card is showing. Publishes its glyphs' bounds so the host can lay tap targets
-    /// over them; nothing here is interactive.
     private var warningBadgeRow: some View {
-        HStack(spacing: 0) {
-            ForEach(warningBadges) { badge in
-                Image(systemName: badge.symbolName)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(badge.color)
-                    // A fixed box rather than the glyph's own size, so the tap
-                    // targets laid over the badges are all the same. The host
-                    // gives the targets their height back.
-                    .frame(width: badgeSlotWidth, height: 28)
-                    .anchorPreference(key: BodyReadinessHeroBadgeAnchorKey.self, value: .bounds) {
-                        [badge.id: $0]
-                    }
-                    .accessibilityHidden(true)
-                    .transition(.opacity)
-            }
-        }
-        .fixedSize()
-        .shadow(color: .black.opacity(0.3), radius: 6, y: 1)
-        .opacity(textOpacity)
-        // The same fade the card badges use, so a warning arriving mid-refresh
-        // reads as one change in both places.
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: warningBadges)
+        BodyHeroWarningBadgeRow(badges: warningBadges, opacity: textOpacity)
     }
 
     private var accessibilityLabel: String {
@@ -526,15 +571,18 @@ private struct BodyReadinessTrackView: View, Animatable {
     let hasScore: Bool
     let progress: Double
     let width: CGFloat
-    /// The pull-down stretch, 0...1; animated so the release springs the bands home.
+    /// The pull-down stretch, 0...1, dipping below zero into a squeeze as the release
+    /// spring bounces the bands home.
     var stretch: CGFloat
+    var trailingStretch: CGFloat
     let reduceMotion: Bool
 
-    var animatableData: AnimatablePair<Double, CGFloat> {
-        get { AnimatablePair(score, stretch) }
+    var animatableData: AnimatablePair<Double, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(score, AnimatablePair(stretch, trailingStretch)) }
         set {
             score = newValue.first
-            stretch = newValue.second
+            stretch = newValue.second.first
+            trailingStretch = newValue.second.second
         }
     }
 
@@ -548,7 +596,7 @@ private struct BodyReadinessTrackView: View, Animatable {
     }
 
     var body: some View {
-        let layout = Geometry.layout(progress: progress, width: width, stretch: stretch)
+        let layout = Geometry.layout(progress: progress, width: width, stretch: stretch, trailingStretch: trailingStretch)
 
         ZStack(alignment: .topLeading) {
             ForEach(layout.segments.indices, id: \.self) { index in
@@ -600,7 +648,8 @@ private struct BodyReadinessTrackView: View, Animatable {
         let center = layout.point(atDistance: distance)
         let tangent = layout.tangent(atDistance: distance)
         let angle = Angle.radians(atan2(Double(tangent.dy), Double(tangent.dx)))
-        let thickness = max(layout.barWidth - 4, 6)
+        // The pill fattens and thins with the band it rides as the ring wobbles.
+        let thickness = max((activeSegmentIndex.map { layout.segmentBarWidths[$0] } ?? layout.barWidth) - 4, 6)
 
         // Only the tint crossfades when the band flips. The position jumps from one
         // band's cap to the next and must not be tweened, or the pill crosses the gap.

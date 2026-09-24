@@ -27,7 +27,7 @@ struct BodyHealthTrendRangeSelector: View {
         HStack(spacing: 8) {
             ForEach(BodyHealthTrendRange.allCases) { range in
                 Button {
-                    if hapticsEnabled {
+                    if hapticsEnabled, BodyHaptics.isMasterEnabled {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
                     if isLocked(range) {
@@ -166,9 +166,33 @@ struct BodyChartSelectionValue: Identifiable {
     let title: String?
     let value: String
     let color: Color
+    /// A second dot, for a breakdown row carrying two measures' values.
+    var secondaryColor: Color? = nil
 
     var id: String {
         "\(title ?? "")-\(value)"
+    }
+}
+
+extension HealthTrendSeries {
+    /// Callout rows for the records averaged into `point`'s day, a time and a
+    /// value each. Empty unless `point` is a single day whose value is such an
+    /// average (resting energy's repeated whole-day estimates).
+    func averagedRecordRows(
+        for point: HealthTrendCalendarPoint,
+        color: Color,
+        valueFormatter: (Double) -> String
+    ) -> [BodyChartSelectionValue] {
+        let calendar = Calendar.bodyGregorian
+        guard calendar.isDate(point.startDate, inSameDayAs: point.endDate),
+              let records = points.first(where: { calendar.isDate($0.date, inSameDayAs: point.date) })?.records else {
+            return []
+        }
+        var style = Date.FormatStyle().hour().minute()
+        style.timeZone = calendar.timeZone
+        return records.map {
+            BodyChartSelectionValue(title: $0.date.formatted(style), value: valueFormatter($0.value), color: color)
+        }
     }
 }
 
@@ -177,6 +201,11 @@ struct BodyChartSelectionAnnotation: View {
     let values: [BodyChartSelectionValue]
     let date: Date
     var dateText: String? = nil
+    /// Individual records behind the values, laid out like the Day View
+    /// callout's sample breakdown: a divider, then a time and a value per row.
+    var breakdown: [BodyChartSelectionValue] = []
+    /// Labels the breakdown when only some of `values` come from it.
+    var breakdownEyebrow: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -213,6 +242,44 @@ struct BodyChartSelectionAnnotation: View {
                 .font(.system(.caption2, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
+
+            if !breakdown.isEmpty {
+                Divider()
+                    .padding(.vertical, 1)
+
+                if let breakdownEyebrow {
+                    Text(breakdownEyebrow)
+                        .font(.system(size: 10, weight: .heavy, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(breakdown) { record in
+                        HStack(spacing: 10) {
+                            HStack(spacing: 3) {
+                                Circle()
+                                    .fill(record.color)
+                                    .frame(width: 6, height: 6)
+
+                                if let secondaryColor = record.secondaryColor {
+                                    Circle()
+                                        .fill(secondaryColor)
+                                        .frame(width: 6, height: 6)
+                                }
+                            }
+
+                            if let title = record.title {
+                                Text(title)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Text(record.value)
+                                .foregroundColor(.primary)
+                        }
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                    }
+                }
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -506,24 +573,27 @@ private struct BodyChartFloatingCalloutReporterModifier: ViewModifier {
 /// Scrub haptics shared by every chart callout: a light tap as the callout
 /// appears, then a selection tick each time the scrub snaps to a different
 /// point. Keyed on the selected point's identity, so sliding within one point
-/// stays silent, and nothing plays on release. Gated by Settings > General >
-/// Vibration > Chart Vibration.
+/// stays silent, and nothing plays on release. A point the chart marks as
+/// emphasized (its highest or lowest reading, a Sleep stage change) plays a firmer
+/// tick instead. Gated by Settings > General > Vibration > Chart Vibration.
 struct BodyChartScrubHaptics: ViewModifier {
     @AppStorage(BodyAppearancePreference.chartScrubHapticsEnabledKey) private var isEnabled = true
 
     let selection: AnyHashable?
+    var isEmphasized = false
 
     func body(content: Content) -> some View {
         content.sensoryFeedback(trigger: selection) { oldValue, newValue in
-            guard isEnabled, newValue != nil else { return nil }
-            return oldValue == nil ? .impact(weight: .light) : .selection
+            guard isEnabled, BodyHaptics.isMasterEnabled, newValue != nil else { return nil }
+            if oldValue == nil { return .impact(weight: .light) }
+            return isEmphasized ? .impact(flexibility: .rigid, intensity: 0.8) : .selection
         }
     }
 }
 
 extension View {
-    func bodyChartScrubHaptics(selection: AnyHashable?) -> some View {
-        modifier(BodyChartScrubHaptics(selection: selection))
+    func bodyChartScrubHaptics(selection: AnyHashable?, isEmphasized: Bool = false) -> some View {
+        modifier(BodyChartScrubHaptics(selection: selection, isEmphasized: isEmphasized))
     }
 }
 

@@ -306,6 +306,10 @@ actor MetricWarningBackgroundEvaluator {
             return String(localized: "High Heart Rate Warning")
         case .lowBloodOxygen:
             return String(localized: "Low Blood Oxygen Warning")
+        case .highRespiratoryRate:
+            return String(localized: "High Respiratory Rate Warning")
+        case .highWristTemperature:
+            return String(localized: "High Skin Temperature Warning")
         }
     }
 
@@ -320,6 +324,13 @@ actor MetricWarningBackgroundEvaluator {
             return String(localized: "A periodic check found a heart rate of \(value) bpm today, above your \(threshold) bpm limit.")
         case .lowBloodOxygen:
             return String(localized: "A periodic check found a blood oxygen level of \(value)% today, below your \(threshold)% limit.")
+        case .highRespiratoryRate:
+            return String(localized: "A periodic check found a respiratory rate of \(value) br/min today, above your \(threshold) br/min limit.")
+        case .highWristTemperature:
+            let unit = HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
+            let reading = BodyMetricWarningTemperatureText.text(celsius: event.extremeValue, temperatureUnitPreference: unit)
+            let limit = BodyMetricWarningTemperatureText.text(celsius: event.threshold, temperatureUnitPreference: unit)
+            return String(localized: "A periodic check found a skin temperature of \(reading) today, above your \(limit) limit.")
         }
     }
 

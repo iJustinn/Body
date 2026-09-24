@@ -2929,13 +2929,28 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     }
 
     func testStarredMetricParsingHonorsEligibility() {
-        XCTAssertEqual(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.readiness.rawValue), .readiness)
-        XCTAssertNil(BodyHomeCardKind.starredMetric(from: ""))
-        XCTAssertNil(BodyHomeCardKind.starredMetric(from: "not-a-kind"))
-        // Real card kinds that aren't star-eligible must not parse as a star metric
-        // (Readiness is currently the only eligible metric).
-        XCTAssertNil(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.activityRings.rawValue))
-        XCTAssertNil(BodyHomeCardKind.starredMetric(from: BodyHomeCardKind.sleep.rawValue))
+        // `readiness` keeps the raw value stored while the star was a home card kind.
+        XCTAssertEqual(BodyStarMetric.from(rawValue: BodyHomeCardKind.readiness.rawValue), .readiness)
+        XCTAssertEqual(BodyStarMetric.from(rawValue: "dayRing"), .dayRing)
+        XCTAssertNil(BodyStarMetric.from(rawValue: ""))
+        XCTAssertNil(BodyStarMetric.from(rawValue: "not-a-kind"))
+        // Real card kinds without a hero must not parse as a home hero.
+        XCTAssertNil(BodyStarMetric.from(rawValue: BodyHomeCardKind.activityRings.rawValue))
+        XCTAssertNil(BodyStarMetric.from(rawValue: BodyHomeCardKind.sleep.rawValue))
+        XCTAssertEqual(BodyStarMetric.readiness.homeCard, .readiness)
+        XCTAssertNil(BodyStarMetric.dayRing.homeCard)
+    }
+
+    func testDashboardFetchSelectionStarredDayRingRequestsSleepAlone() {
+        let cards = BodySummaryCardSelection(selectedCards: [.steps])
+        let trends = BodyHomeTrendCardSelection(selectedCards: [])
+        let dayRing = BodyDashboardFetchSelection(summaryCards: cards, trendCards: trends, starredMetric: .dayRing)
+        let none = BodyDashboardFetchSelection(summaryCards: cards, trendCards: trends, starredMetric: nil)
+
+        XCTAssertTrue(dayRing.includes(.sleep))
+        XCTAssertFalse(dayRing.includes(.readiness))
+        XCTAssertFalse(none.includes(.sleep))
+        XCTAssertNotEqual(dayRing, none)
     }
 
     func testDashboardFetchSelectionIncludesVisibleSummaryAndTrendCards() {
@@ -2979,7 +2994,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertTrue(BodyHomeCardKind.readiness.isBeta)
         XCTAssertTrue(BodyHomeCardKind.bodyRadar.isBeta)
         XCTAssertEqual(BodyHomeCardKind.bodyRadar.betaVersionLabel, "Beta v2")
-        XCTAssertFalse(BodyHomeCardKind.starEligible.contains(.vitals))
+        XCTAssertNil(BodyStarMetric.from(rawValue: BodyHomeCardKind.vitals.rawValue))
     }
 
     /// A metric detail page's About card reads its chip from the summary card that
@@ -3058,6 +3073,67 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(recentWeek.bodyFat.points.last?.value, 12.9)
         XCTAssertEqual(recentWeek.bodyMassIndex.points.last?.value, 21.45)
         XCTAssertFalse(recentWeek.isEmpty)
+    }
+
+    func testBasicsTimeOfDaySamplesFollowTheRangeAndPersist() throws {
+        let calendar = Calendar.bodyGregorian
+        let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 15)))
+        // One 07:30 sample a day: the timestamp, not the start of day, is kept.
+        let samples = try HealthTrendSeries(points: (-9...0).map { offset in
+            let day = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: currentDate)))
+            return HealthTrendDataPoint(date: day.addingTimeInterval(7.5 * 3600), value: 70 + Double(offset))
+        })
+        var basics = BasicsTrendSummary.empty
+        basics.weightSamples = samples
+        basics.bodyFatSamples = samples
+
+        let recentWeek = basics.limited(to: .recentWeek, calendar: calendar, date: currentDate)
+        XCTAssertEqual(recentWeek.weightSamples.points.count, 7)
+        XCTAssertEqual(recentWeek.bodyFatSamples.points.count, 7)
+        XCTAssertEqual(calendar.component(.hour, from: try XCTUnwrap(recentWeek.weightSamples.points.first?.date)), 7)
+
+        var trends = HealthTrendSnapshot.empty
+        trends.bodyMassSamples = samples
+        trends.bodyFatPercentageSamples = samples
+        trends.bodyMassIndexSamples = samples
+        let decoded = try JSONDecoder().decode(HealthTrendSnapshot.self, from: JSONEncoder().encode(trends))
+        XCTAssertEqual(decoded.bodyMassSamples, samples)
+        XCTAssertEqual(decoded.bodyFatPercentageSamples, samples)
+        XCTAssertEqual(decoded.bodyMassIndexSamples, samples)
+
+        // The samples ride their daily leaf through reconciliation.
+        var live = HealthTrendSnapshot.empty
+        XCTAssertFalse(HealthTrendReconciliationLeaf.bodyMass.hasSameValue(in: live, and: trends))
+        HealthTrendReconciliationLeaf.bodyMass.copy(from: trends, to: &live, retainingFrom: nil)
+        XCTAssertEqual(live.bodyMassSamples, samples)
+        XCTAssertTrue(live.bodyFatPercentageSamples.isEmpty)
+    }
+
+    func testBasicsAfternoonMorningWeightDifferenceNeedsBothHalvesOfTheDay() throws {
+        let calendar = Calendar.bodyGregorian
+        let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11)))
+        func sample(hour: Double, _ value: Double) -> HealthTrendDataPoint {
+            HealthTrendDataPoint(date: day.addingTimeInterval(hour * 3600), value: value)
+        }
+        var basics = BasicsTrendSummary.empty
+        basics.weightSamples = HealthTrendSeries(points: [sample(hour: 7, 70), sample(hour: 8, 70.4)])
+        XCTAssertNil(basics.weightAfternoonMorningDifference(calendar: calendar))
+
+        // Noon itself counts as after noon.
+        basics.weightSamples.points += [sample(hour: 12, 71), sample(hour: 22, 71.4)]
+        XCTAssertEqual(try XCTUnwrap(basics.weightAfternoonMorningDifference(calendar: calendar)), 1.0, accuracy: 0.0001)
+    }
+
+    func testBasicsTimeOfDayAxisDomainKeepsEveryTickWhole() throws {
+        let now = Date()
+        let samples = HealthTrendSeries(points: [70.4, 71.2, 74.6].enumerated().map { index, value in
+            HealthTrendDataPoint(date: now.addingTimeInterval(Double(index) * 60), value: value)
+        })
+        // 70...76: a span of 6, so the thirds ticks read 70, 72, 74, 76.
+        XCTAssertEqual(BodyBasicsTimeOfDayChart.wholeNumberDomain(for: samples), 70...76)
+        // A single value still gets a span of 3.
+        XCTAssertEqual(BodyBasicsTimeOfDayChart.wholeNumberDomain(for: HealthTrendSeries(points: [samples.points[0]])), 70...73)
+        XCTAssertNil(BodyBasicsTimeOfDayChart.wholeNumberDomain(for: .empty))
     }
 
     func testBasicsTrendSummaryExposesWeightAndBodyFatAveragesForLegend() throws {

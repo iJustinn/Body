@@ -217,7 +217,25 @@ enum WatchMetricsSnapshotBuilder {
     // MARK: - Per-metric builders
 
     private static func readinessMetric(_ readiness: ReadinessSummary) -> WatchMetric {
-        let score = readiness.score
+        var metric = readinessMetric(score: readiness.score, isDrained: readiness.activityDrainMorningScore != nil)
+        if let score = readiness.score,
+           let cycleStart = readiness.activityDrainCycleStart,
+           let contributions = readiness.activityDrainContributions {
+            metric.drain = WatchReadinessDrainReport(
+                undrainedScore: readiness.activityDrainMorningScore ?? score,
+                cycleStart: cycleStart,
+                contributions: contributions.map {
+                    .init(id: $0.id.uuidString, start: $0.start, points: $0.points)
+                }
+            )
+        }
+        return metric
+    }
+
+    /// Every display field a readiness score decides. Separate from the
+    /// summary-taking builder above so `WatchReadinessDrainReconciler` can
+    /// render a reconciled score through the identical mapping.
+    static func readinessMetric(score: Int?, isDrained: Bool) -> WatchMetric {
         let status = ReadinessStatus.status(for: score)
         return WatchMetric(
             kind: WatchMetricKindKey.readiness,
@@ -246,7 +264,7 @@ enum WatchMetricsSnapshotBuilder {
             // when today's workouts actually drained (same gate as the iOS
             // week chart). The sparkline still requires it to sit strictly
             // below today's plotted slot before drawing.
-            weeklyCurrentValue: readiness.activityDrainMorningScore != nil
+            weeklyCurrentValue: isDrained
                 ? score.map(Double.init)
                 : nil
         )

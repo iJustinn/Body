@@ -53,10 +53,17 @@ struct BodyApp: App {
                 .preferredColorScheme(selectedTheme.colorScheme)
                 .onChange(of: workoutColorOverridesRawValue) { _, _ in
                     BodyWidgetReloadCoalescer.shared.requestReload()
+                    // The watch Day Ring draws the phone's resolved workout colors.
+                    workoutStore.republishCompanionSnapshots()
                 }
                 .task(priority: .utility) {
                     BodyAppRuntime.setForegroundActive(scenePhase == .active)
                     BodyDataRefreshScheduler.schedule()
+                    // Bootstrap Siri's Spotlight copy from the snapshots already
+                    // on disk, so an update indexes without waiting for a refresh.
+                    Task.detached(priority: .utility) {
+                        await BodySiriIndexCoordinator.shared.requestReindex()
+                    }
                     // The intraday day-sample sidecar is the only cached series not
                     // restored synchronously in the store's init, so the Day View
                     // charts would otherwise stay empty until a full refresh or a

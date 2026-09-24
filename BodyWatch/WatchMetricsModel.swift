@@ -36,7 +36,30 @@ final class WatchMetricsModel: NSObject, ObservableObject {
 
     private let healthStore = WatchHealthStore()
     private let computeCoordinator = WatchComputeCoordinator()
+    /// The compute path's outside world (see `WatchComputeEnvironment`).
+    private let environment: WatchComputeEnvironment
     private var hasRequestedLiveAuthorization = false
+    /// A detected workout change that readiness has not been republished from
+    /// yet (see `WatchPendingRecomputePolicy`). PERSISTED for the same reason
+    /// as `lastComputeAttemptDate`: watchOS evicts the app routinely, and an
+    /// in-memory record would forget the workout on every relaunch.
+    private var pendingWork = WatchPendingReadinessWork() {
+        didSet {
+            guard pendingWork != oldValue else { return }
+            if pendingWork == WatchPendingReadinessWork() {
+                environment.defaults.removeObject(forKey: Self.pendingWorkKey)
+            } else if let data = try? JSONEncoder().encode(pendingWork) {
+                environment.defaults.set(data, forKey: Self.pendingWorkKey)
+            }
+        }
+    }
+    private static let pendingWorkKey = "watchPendingReadinessWork"
+    /// In-process stand-in for the scheduled background refresh while the app
+    /// stays in the foreground, where watchOS won't deliver one.
+    private var pendingRetryTask: Task<Void, Never>?
+    /// Created by `startWorkoutObserver` (the app delegate), never by `init`,
+    /// so a model built in a test registers nothing with HealthKit.
+    private var workoutObserver: WatchWorkoutObserver?
     /// The in-flight (or completed) broader compute-authorization request, held
     /// as a Task rather than a `Bool` latch so every compute path AWAITS it.
     /// A plain latch was set before its own `await` and therefore raced:
@@ -61,7 +84,8 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// effectively always true and ran a full ~20-query compute on every single
     /// app open — the failure mode that killed the June 2026 attempt. A
     /// non-forced run now also has to be `staleInterval` past the last ATTEMPT.
-    /// The manual refresh button (`force`) ignores this entirely.
+    /// The manual refresh button (`force`) ignores this entirely, and so does a
+    /// detected workout change, within its own budget (`pendingWork`).
     ///
     /// PERSISTED (UserDefaults): watchOS routinely evicts and relaunches the
     /// app well inside the 30-minute window, and an in-memory-only timestamp
@@ -108,10 +132,25 @@ final class WatchMetricsModel: NSObject, ObservableObject {
 
     init(
         persistSnapshot: @escaping (WatchMetricsSnapshot) -> Bool = { WatchMetricsSnapshotStore.save($0) },
-        reloadTimelines: @escaping () -> Void = { WidgetCenter.shared.reloadAllTimelines() }
+        reloadTimelines: @escaping () -> Void = { WidgetCenter.shared.reloadAllTimelines() },
+        environment: WatchComputeEnvironment? = nil
     ) {
         self.persistSnapshot = persistSnapshot
         self.reloadTimelines = reloadTimelines
+        let environment = environment ?? .live(
+            healthStore: healthStore,
+            coordinator: computeCoordinator,
+            // Same gate as the live path: until the phone's selection has
+            // synced at least once, `BodyHealthPermissionSelection.load()`
+            // would fall back to all-enabled and could read categories the
+            // user hid on the phone.
+            isEligible: { Self.hasSyncedPermissionSelection() && WatchComputeSeedStore.hasStoredSeed() }
+        )
+        self.environment = environment
+        if let data = environment.defaults.data(forKey: Self.pendingWorkKey),
+           let stored = try? JSONDecoder().decode(WatchPendingReadinessWork.self, from: data) {
+            pendingWork = stored
+        }
         // Runs before the first `BodyHealthPermissionSelection.load()` on this
         // process: `load` is a pure read, so the migrations have to happen here.
         BodyHealthPermissionSelection.migrateIfNeeded()
@@ -231,6 +270,12 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             }
         }
         finishReceivedContext(resolution, seedChanged: seedChanged, settingsChanged: settingsChanged)
+        // A push is an execution opportunity: if a workout changed on this
+        // watch and no compute has published it yet, run one now, against the
+        // seed this push just delivered. Pending work only, and NOT awaited:
+        // the intake stream (and the background task it holds open) must not
+        // wait on a compute.
+        Task { await recomputeIfStale(trigger: .background) }
     }
 
     /// Whether this intake switched the COMPUTE SETTINGS the stored seed was
@@ -498,6 +543,8 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         // already running under the old selection.
         computeAuthorizationTask = nil
         bumpComputeGeneration()
+        // Workouts may have just been turned on or off.
+        reconcileWorkoutObserver()
         // Every locally-derived value on screen was derived under the OLD
         // selection (a readiness score may still carry a now-disabled
         // category's contribution), and the disable push announcing this change
@@ -523,14 +570,17 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// Known limit: the merge base is still the sanitized in-memory `snapshot`,
     /// so a metric cleared at display time can still be persisted through a
     /// later merge. This phase only stops the direct write of sanitized output.
-    private func apply(_ raw: WatchMetricsSnapshot) {
+    ///
+    /// Returns whether `raw` is what disk holds once this call is done.
+    @discardableResult
+    private func apply(_ raw: WatchMetricsSnapshot) -> Bool {
         let display = raw.sanitized()
         if display != snapshot { snapshot = display }
-        guard raw != lastPersistedSnapshot else { return }
-        if persistSnapshot(raw) {
-            lastPersistedSnapshot = raw
-            reloadTimelines()
-        }
+        guard raw != lastPersistedSnapshot else { return true }
+        guard persistSnapshot(raw) else { return false }
+        lastPersistedSnapshot = raw
+        reloadTimelines()
+        return true
     }
 
     /// Test seam for `apply`: every production caller is private and reaches it
@@ -686,33 +736,59 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// freshness limit, or no successful compute inside the snapshot stale
     /// window — rate-limited by the last ATTEMPT so an unfixably-stale metric
     /// can't turn every app open into a full compute (see `isComputeStale`).
-    func recomputeIfStale(force: Bool = false) async {
-        // Same gate as the live path: until the phone's selection has synced at
-        // least once, `BodyHealthPermissionSelection.load()` would fall back to
-        // all-enabled and could read categories the user hid on the phone.
-        guard Self.hasSyncedPermissionSelection(), WatchComputeSeedStore.hasStoredSeed() else { return }
-        let now = Date()
-        guard force || isComputeStale(now: now) else { return }
+    ///
+    /// A detected WORKOUT CHANGE is the one thing allowed past that rate limit
+    /// (`WatchPendingRecomputePolicy`): opening the app right after a workout
+    /// must show its drain even if Body was opened minutes before it, and the
+    /// change stays pending, on its own small retry budget, until a compute has
+    /// provably published readiness from it.
+    ///
+    /// A `.background` trigger (the workout observer, a pushed context, a
+    /// scheduled refresh) runs ONLY for pending work, never for ordinary
+    /// staleness, and never raises an authorization sheet.
+    func recomputeIfStale(force: Bool = false, trigger: ComputeTrigger = .foreground) async {
+        guard environment.isEligible() else { return }
+        let now = environment.now()
+        let permission = environment.loadPermission()
+        if trigger == .background {
+            guard await environment.isAuthorizationSettled(permission) else { return }
+        }
+
+        await detectWorkoutChanges(permission: permission, now: now)
+        let runsForPending = WatchPendingRecomputePolicy.decision(pendingWork, now: now) == .runNow
+        let runsOrdinarily = trigger == .foreground && (force || isComputeStale(now: now))
+        guard runsForPending || runsOrdinarily else {
+            schedulePendingRetryIfNeeded()
+            return
+        }
         if !force {
             // Record the ATTEMPT before the first suspension, so the next
             // trigger inside the stale window is refused whether or not this one
             // produces a mergeable result.
             lastComputeAttemptDate = now
         }
+        pendingWork = WatchPendingRecomputePolicy.attempting(pendingWork, at: now)
 
-        let permission = BodyHealthPermissionSelection.load()
         // Every path awaits the SAME authorization request (see
         // `computeAuthorizationTask`); a second trigger arriving mid-request
         // must not start computing before HealthKit has granted the broader
-        // read set.
+        // read set. Settled already on the background path, so no sheet there.
         await awaitComputeAuthorization(for: permission)
+        reconcileWorkoutObserver()
 
         let generation = computeGeneration
-        guard let result = await computeCoordinator.recompute(
-            permission: permission,
-            generation: generation,
-            now: now
-        ) else { return }
+        var result = await environment.compute(permission, generation, now)
+        // The coordinator coalesces same-generation callers, so this can be the
+        // result of a run that started BEFORE the change was detected and whose
+        // queries may predate it. It can't consume the pending work; run again
+        // rather than leave the workout waiting out the retry spacing.
+        if runsForPending, let coalesced = result, coalesced.coverage < now {
+            result = await environment.compute(permission, generation, now)
+        }
+        guard let result else {
+            schedulePendingRetryIfNeeded()
+            return
+        }
 
         // Re-verify AFTER the await: a reset tombstone, a replaced seed, or a
         // permission change that landed while the compute ran invalidates it.
@@ -725,11 +801,94 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             if result.generation != computeGeneration {
                 lastComputeAttemptDate = nil
             }
+            schedulePendingRetryIfNeeded()
             return
         }
 
-        lastComputeDate = Date()
-        apply(WatchComputeMerge.mergingComputed(result, into: snapshot))
+        lastComputeDate = environment.now()
+        let persisted = apply(WatchComputeMerge.mergingComputed(result, into: snapshot))
+        pendingWork = WatchPendingRecomputePolicy.consuming(
+            pendingWork,
+            coverage: result.coverage,
+            publishedReadiness: result.dataAsOf[WatchMetricKindKey.readiness] != nil,
+            persisted: persisted
+        )
+        schedulePendingRetryIfNeeded()
+    }
+
+    enum ComputeTrigger {
+        case foreground
+        case background
+    }
+
+    /// Test seam: the pending work record is private state with no UI.
+    var pendingWorkForTesting: WatchPendingReadinessWork { pendingWork }
+
+    /// Runs the workout change cursor and records a detection as pending work
+    /// BEFORE the cursor advances, so a process that dies in between re-detects
+    /// the change instead of losing it. `pendingSince` is this trigger's own
+    /// `now`: the compute that follows stamps the same instant as its coverage
+    /// and queries HealthKit after this detection, so it may consume it.
+    private func detectWorkoutChanges(permission: BodyHealthPermissionSelection, now: Date) async {
+        guard permission.includes(.workouts) else {
+            pendingWork = WatchPendingReadinessWork()
+            return
+        }
+        guard await environment.changeTracker.detectChanges(now: now) else { return }
+        pendingWork = WatchPendingRecomputePolicy.detecting(pendingWork, at: now)
+        await environment.changeTracker.commitDetectedChanges()
+    }
+
+    /// Arranges the next attempt for pending work that has to wait out its
+    /// retry spacing: a background refresh request for a closed app (best
+    /// effort, watchOS decides), and an in-process timer for an open one, where
+    /// no background refresh is delivered. Bounded by the policy's attempt cap.
+    private func schedulePendingRetryIfNeeded() {
+        guard case .retryAt(let date) = WatchPendingRecomputePolicy.decision(pendingWork, now: environment.now()) else {
+            return
+        }
+        environment.scheduleBackgroundRefresh(date)
+        pendingRetryTask?.cancel()
+        let delay = max(0, date.timeIntervalSince(environment.now()))
+        pendingRetryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self?.recomputeIfStale(trigger: .background)
+        }
+    }
+
+    // MARK: - Workout observer
+
+    /// Registers the background workout observer. Called once at launch,
+    /// INCLUDING a launch straight into the background, which is the case that
+    /// matters: an evicted app that watchOS relaunches for a workout has no UI
+    /// pass to set anything up.
+    func startWorkoutObserver() {
+        guard workoutObserver == nil else { return }
+        workoutObserver = WatchWorkoutObserver(
+            backend: WatchHealthKitWorkoutObserverBackend(),
+            isWanted: { [weak self] in await self?.isWorkoutObserverWanted() ?? false },
+            onChange: { [weak self] in
+                await self?.recomputeIfStale(trigger: .background)
+            }
+        )
+        reconcileWorkoutObserver()
+    }
+
+    /// Persisted state only, so it holds on a cold background launch: the
+    /// synced selection, and HealthKit's own record that the read set was
+    /// already put to the user (the in-memory `computeAuthorizationTask` is
+    /// gone after a relaunch, and this path must never raise a sheet).
+    private func isWorkoutObserverWanted() async -> Bool {
+        guard environment.isEligible() else { return false }
+        let permission = environment.loadPermission()
+        guard permission.includes(.workouts) else { return false }
+        return await environment.isAuthorizationSettled(permission)
+    }
+
+    private func reconcileWorkoutObserver() {
+        guard let workoutObserver else { return }
+        Task { await workoutObserver.reconcile() }
     }
 
     /// Awaits the broader compute-read authorization, requesting it once and
@@ -742,8 +901,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             await computeAuthorizationTask.value
             return
         }
-        let task = Task { [healthStore] in
-            await healthStore.requestComputeAuthorization(for: permission)
+        let requestAuthorization = environment.requestAuthorization
+        let task = Task {
+            await requestAuthorization(permission)
         }
         computeAuthorizationTask = task
         await task.value

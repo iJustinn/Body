@@ -210,6 +210,7 @@ struct BodyProfileView: View {
     }
 
     private func playHaptic() {
+        guard BodyHaptics.isMasterEnabled else { return }
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.prepare()
         generator.impactOccurred()

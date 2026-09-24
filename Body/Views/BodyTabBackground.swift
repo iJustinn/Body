@@ -40,8 +40,12 @@ struct BodyHomePageBackground: View {
     @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var homeBackgroundColorsRawValue = ""
     @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var homeBackgroundSeparatorsRawValue = ""
 
+    private var starMetric: BodyStarMetric? {
+        BodyStarMetric.from(rawValue: starredMetricRawValue)
+    }
+
     private var isReadinessStarred: Bool {
-        BodyHomeCardKind.starredMetric(from: starredMetricRawValue) == .readiness
+        starMetric == .readiness
     }
 
     var body: some View {
@@ -78,6 +82,22 @@ struct BodyHomePageBackground: View {
                 .transition(.opacity)
             }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: status)
+        } else if starMetric == .dayRing {
+            // The same ring glow, colored for the part of the day and crossfading as it turns.
+            TimelineView(.everyMinute) { context in
+                let part = DayRingDayPart(hour: Calendar.bodyGregorian.component(.hour, from: context.date))
+                ZStack {
+                    let heroWidth = BodyReadinessArcGeometry.heroWidth(pageWidth: pageWidth)
+                    BodyReadinessGlowBackground(
+                        tint: part.glowColor,
+                        circleCenterY: safeAreaTop + 10 + BodyReadinessArcGeometry.arcCenterY(width: heroWidth),
+                        glowRadius: BodyReadinessArcGeometry.glowRadius(width: heroWidth)
+                    )
+                    .id(part)
+                    .transition(.opacity)
+                }
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: part)
+            }
         } else if homeBackgroundEnabled {
             let isPro = proStore?.isPro ?? false
             BodyActivityRingsCard.heroBackground(
@@ -91,19 +111,19 @@ struct BodyHomePageBackground: View {
 }
 
 /// A main tab page's full-bleed background: the Summary page's ring glow while
-/// Readiness is starred, the app mix everywhere else. `TabView` swaps pages instantly
+/// a home hero is pinned, the app mix everywhere else. `TabView` swaps pages instantly
 /// and every page paints this, so the background it lands on is picked from the
 /// selected tab and switches with the page, without any fade between the two.
 struct BodyTabPageBackground: View {
     @Environment(\.selectedMainTab) private var selectedTab
     @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
 
-    private var isReadinessStarred: Bool {
-        BodyHomeCardKind.starredMetric(from: starredMetricRawValue) == .readiness
+    private var hasStarMetric: Bool {
+        BodyStarMetric.from(rawValue: starredMetricRawValue) != nil
     }
 
     var body: some View {
-        if isReadinessStarred && selectedTab == .summary {
+        if hasStarMetric && selectedTab == .summary {
             BodyHomePageBackground()
         } else {
             BodyAppBackground().ignoresSafeArea()

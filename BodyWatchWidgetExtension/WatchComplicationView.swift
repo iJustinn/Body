@@ -5,12 +5,27 @@
 //  Renders a single metric as the magenta ring (accessoryCircular), a ring +
 //  label row (accessoryRectangular), or a curved bezel gauge (accessoryCorner).
 //  Score-style metrics (Readiness, Sleep) show their 0–100 score in the center;
-//  the rest show their value.
+//  the rest show their value. Readiness uses this view only for its corner
+//  gauge; its circular and rectangular families are `ReadinessComplicationView`.
 //
 
 import Foundation
 import SwiftUI
 import WidgetKit
+
+/// Value font scale for text inside a complication ring. Two digits use
+/// `base`; from three digits up ("100", "1.05", "93.4") the text uses the
+/// smaller `compact` so it clears the ring instead of leaning on
+/// `minimumScaleFactor`.
+func complicationRingFontScale(for text: String, base: Double, compact: Double) -> Double {
+    text.filter(\.isNumber).count >= 3 ? compact : base
+}
+
+/// Ring text scales per family: (two digits, three or more digits).
+enum ComplicationRingFontScale {
+    static let circular = (base: 0.35, compact: 0.255)
+    static let rectangular = (base: 0.40, compact: 0.34)
+}
 
 struct WatchComplicationView: View {
     @Environment(\.widgetFamily) private var family
@@ -35,19 +50,31 @@ struct WatchComplicationView: View {
         return metric.displayValue
     }
 
+    /// Text inside the ring. A Training Load under 1 drops its leading zero
+    /// ("0.85" reads ".85") so the two digits that matter get the ring's width;
+    /// the rectangular row and the corner keep the full value.
+    private func ringText(_ metric: WatchMetric) -> String {
+        let value = ringValue(metric)
+        guard metric.kind == WatchMetricKindKey.trainingLoad,
+              value.count > 2, value.first == "0",
+              let separator = value.dropFirst().first, !separator.isNumber
+        else { return value }
+        return String(value.dropFirst())
+    }
+
     @ViewBuilder private var circular: some View {
         ZStack {
             AccessoryWidgetBackground()
             if let metric {
                 WatchMetricRingView(
                     fillFraction: metric.fillFraction,
-                    value: ringValue(metric),
+                    value: ringText(metric),
                     unit: "",
                     symbolName: WatchMetricKindKey.symbolName(forKind: metric.kind),
                     tint: metric.resolvedTint,
                     showsUnit: false,
                     showsGlyph: true,
-                    valueFontScale: 0.35
+                    valueFontScale: complicationRingFontScale(for: ringText(metric), base: ComplicationRingFontScale.circular.base, compact: ComplicationRingFontScale.circular.compact)
                 )
                 .padding(1)
             } else {
@@ -139,29 +166,44 @@ struct WatchComplicationView: View {
             if let metric {
                 WatchMetricRingView(
                     fillFraction: metric.fillFraction,
-                    value: ringValue(metric),
+                    value: ringText(metric),
                     unit: "",
                     symbolName: WatchMetricKindKey.symbolName(forKind: metric.kind),
                     tint: metric.resolvedTint,
                     showsUnit: false,
-                    showsGlyph: false
+                    showsGlyph: false,
+                    valueFontScale: complicationRingFontScale(for: ringText(metric), base: ComplicationRingFontScale.rectangular.base, compact: ComplicationRingFontScale.rectangular.compact)
                 )
-                .frame(width: 38, height: 38)
+                .frame(width: 46, height: 46)
+                // The ring is open at the bottom, so its drawn part sits high
+                // in its frame; nudge it down to center what is visible.
+                .offset(y: 2)
 
+                // Both lines the same size, the reading over the title. A
+                // banded metric (Training Load) names its level, since the ring
+                // already shows the number; the rest show value and unit.
                 VStack(alignment: .leading, spacing: 1) {
+                    if let level = metric.statusBand?.label {
+                        Text(level)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    } else {
+                        HStack(alignment: .firstTextBaseline, spacing: 3) {
+                            Text(metric.displayValue)
+                                .font(.headline)
+                            if !metric.unit.isEmpty {
+                                Text(metric.unit)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .lineLimit(1)
+                    }
                     Text(metric.title)
                         .font(.headline)
                         .lineLimit(1)
-                    HStack(alignment: .firstTextBaseline, spacing: 3) {
-                        Text(metric.displayValue)
-                            .font(.title3)
-                            .bold()
-                        if !metric.unit.isEmpty {
-                            Text(metric.unit)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                        .minimumScaleFactor(0.7)
                 }
                 Spacer(minLength: 0)
             } else {

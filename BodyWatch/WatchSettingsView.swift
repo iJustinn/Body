@@ -9,7 +9,11 @@
 import SwiftUI
 
 struct WatchSettingsView: View {
+    /// Whether the dashboard's refresh button plays its click and success taps. Default true.
+    static let hapticsEnabledKey = "watchHapticsEnabled"
+
     @EnvironmentObject private var model: WatchMetricsModel
+    @AppStorage(Self.hapticsEnabledKey) private var hapticsEnabled = true
 
     var body: some View {
         Form {
@@ -25,6 +29,14 @@ struct WatchSettingsView: View {
                 } footer: {
                     Text("Choose which metrics appear on the watch home screen.")
                 }
+            }
+
+            Section {
+                Toggle(isOn: $hapticsEnabled) {
+                    Label("Vibration", systemImage: "waveform")
+                }
+            } footer: {
+                Text("A click when you tap refresh and a tap when it finishes.")
             }
 
             Section {

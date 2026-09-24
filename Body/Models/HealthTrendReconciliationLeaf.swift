@@ -6,6 +6,7 @@ enum HealthTrendReconciliationLeaf: CaseIterable, Hashable {
 
     private struct Fields {
         var series: WritableKeyPath<HealthTrendSnapshot, HealthTrendSeries>?
+        var samples: WritableKeyPath<HealthTrendSnapshot, HealthTrendSeries>?
         var range: WritableKeyPath<HealthTrendSnapshot, HealthTrendRangeSeries>?
         var sleep: WritableKeyPath<HealthTrendSnapshot, SleepHistorySnapshot>?
     }
@@ -23,9 +24,9 @@ enum HealthTrendReconciliationLeaf: CaseIterable, Hashable {
         case .oxygenSaturationRangesSecondary: return .init(range: \.oxygenSaturationRangesSecondary)
         case .restingHeartRate: return .init(series: \.restingHeartRate)
         case .restingHeartRateSecondary: return .init(series: \.restingHeartRateSecondary)
-        case .bodyMass: return .init(series: \.bodyMass)
-        case .bodyFatPercentage: return .init(series: \.bodyFatPercentage)
-        case .bodyMassIndex: return .init(series: \.bodyMassIndex)
+        case .bodyMass: return .init(series: \.bodyMass, samples: \.bodyMassSamples)
+        case .bodyFatPercentage: return .init(series: \.bodyFatPercentage, samples: \.bodyFatPercentageSamples)
+        case .bodyMassIndex: return .init(series: \.bodyMassIndex, samples: \.bodyMassIndexSamples)
         case .activeEnergy: return .init(series: \.activeEnergy)
         case .activeEnergySecondary: return .init(series: \.activeEnergySecondary)
         case .restingEnergy: return .init(series: \.restingEnergy)
@@ -43,6 +44,7 @@ enum HealthTrendReconciliationLeaf: CaseIterable, Hashable {
     func hasSameValue(in lhs: HealthTrendSnapshot, and rhs: HealthTrendSnapshot) -> Bool {
         let fields = fields
         if let path = fields.series, lhs[keyPath: path] != rhs[keyPath: path] { return false }
+        if let path = fields.samples, lhs[keyPath: path] != rhs[keyPath: path] { return false }
         if let path = fields.range, lhs[keyPath: path] != rhs[keyPath: path] { return false }
         if let path = fields.sleep, lhs[keyPath: path] != rhs[keyPath: path] { return false }
         return true
@@ -51,6 +53,12 @@ enum HealthTrendReconciliationLeaf: CaseIterable, Hashable {
     func copy(from fetched: HealthTrendSnapshot, to live: inout HealthTrendSnapshot, retainingFrom cutoff: Date?) {
         let fields = fields
         if let path = fields.series {
+            let value = fetched[keyPath: path]
+            live[keyPath: path] = cutoff.map { start in
+                HealthTrendSeries(points: value.points.filter { $0.date >= start })
+            } ?? value
+        }
+        if let path = fields.samples {
             let value = fetched[keyPath: path]
             live[keyPath: path] = cutoff.map { start in
                 HealthTrendSeries(points: value.points.filter { $0.date >= start })
