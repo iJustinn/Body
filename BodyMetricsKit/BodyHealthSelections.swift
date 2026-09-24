@@ -22,6 +22,9 @@ enum BodyAppearancePreference {
     static let showsSubMinuteAwakeSleepStagesKey = "showsSubMinuteAwakeSleepStages"
     static let showsLeadingTrailingAwakeSleepStagesKey = "showsLeadingTrailingAwakeSleepStages"
     static let showSleepScoreKey = "showSleepScore"
+    /// Whether the Sleep page shows the Sleep Debt card and About Sleep Debt.
+    /// Default true.
+    static let showSleepDebtKey = "showSleepDebt"
     /// Whether the Effort card shows on workout detail pages at all. Off, the
     /// card is hidden everywhere and the effort settings below it do nothing.
     /// Default true.

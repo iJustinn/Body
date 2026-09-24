@@ -1079,6 +1079,16 @@ struct BodyDashboardFetchSelection: Equatable {
             metrics.formUnion(Self.vitalsMetricKinds)
         }
 
+        // The Sleep page's Sleep Debt adds a training adjustment read from the
+        // Training Load ratio, so any layout that renders sleep fetches it too:
+        // hiding the Readiness or Training Load card must not change the debt.
+        // Sleep fetched only as a Stress or Body Radar input stays without it.
+        // It follows rendered sleep rather than the Sleep Debt toggle, so
+        // turning the card back on shows it at once, without a refetch.
+        if metrics.contains(.sleep) {
+            metrics.insert(.trainingLoad)
+        }
+
         // The derived metrics expand LAST, and only into what is still missing:
         // a dependency some other card renders keeps its full payload, while the
         // rest are input-only. No other expansion can add a meta kind, so closing
@@ -1517,11 +1527,15 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     /// About Sleep Score card.
     static let sleepScoreVersionLabel: LocalizedStringKey = "v3"
 
+    /// The Sleep Debt's own chip. It rides beside the Sleep Debt toggle in Settings
+    /// and on the About Sleep Debt card.
+    static let sleepDebtVersionLabel: LocalizedStringKey = "v1"
+
     /// True for cards whose headline number Body derives itself (a score, ratio, or
     /// baseline comparison) rather than reading it straight out of HealthKit.
     /// Splits the Summary Cards settings sheet into its two sections. Sleep is a
-    /// direct reading; only its score is Body's own, and that toggle sits in the
-    /// computed section on its own.
+    /// direct reading; only its score and debt are Body's own, and their toggles
+    /// lead the computed section.
     var isBodyComputed: Bool {
         switch self {
         case .readiness,

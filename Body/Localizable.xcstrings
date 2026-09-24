@@ -4,6 +4,22 @@
     "" : {
 
     },
+    "14 Night Debt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "14 Night Debt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "14晚负债"
+          }
+        }
+      }
+    },
     " %@" : {
       "localizations" : {
         "en" : {
@@ -16,6 +32,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : " %@"
+          }
+        }
+      }
+    },
+    "%@: no sleep recorded, debt %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: no sleep recorded, debt %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@：无睡眠记录，负债%2$@"
+          }
+        }
+      }
+    },
+    "%@: slept %@, need %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: slept %@, need %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@：实际睡眠%2$@，所需睡眠%3$@"
+          }
+        }
+      }
+    },
+    "%@: slept %@, need %@, debt %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: slept %@, need %@, debt %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@：实际睡眠%2$@，所需睡眠%3$@，负债%4$@"
           }
         }
       }
@@ -981,6 +1048,187 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "+/-"
+          }
+        }
+      }
+    },
+    "About Sleep Debt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Sleep Debt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于睡眠负债"
+          }
+        }
+      }
+    },
+    "Based on %lld of 14 nights" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Based on %lld of 14 nights"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "基于14晚中的%lld晚"
+          }
+        }
+      }
+    },
+    "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines. Sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band. The total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines. Sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band. The total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 会根据该睡眠时段可用的数据为每晚评分：睡眠量、连续性、入睡时间规律性、深睡和快速眼动占比、睡眠心率变异性带来的压力、睡眠体征以及皮肤温度。压力、体征和体温会与你近期的夜间基准进行比较评分，其中睡眠体征采用与生命体征图表相同的典型范围，数值偏离该范围越远、扣分也越多，总分经过校准，只有真正优质的夜晚才会得高分。缺失的传感器数据会被跳过，而不会按零分计算。"
+          }
+        }
+      }
+    },
+    "Missed sleep over the last 14 nights" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Missed sleep over the last 14 nights"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近14晚累计少睡的时间"
+          }
+        }
+      }
+    },
+    "Need" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Need"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所需睡眠"
+          }
+        }
+      }
+    },
+    "Need includes %@ for low HRV" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Need includes %@ for low HRV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所需睡眠已含心率变异性偏低增加的%@"
+          }
+        }
+      }
+    },
+    "Need includes %@ for training" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Need includes %@ for training"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所需睡眠已含训练增加的%@"
+          }
+        }
+      }
+    },
+    "Need includes %@ for training and %@ for low HRV" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Need includes %@ for training and %@ for low HRV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所需睡眠已含训练增加的%1$@和心率变异性偏低增加的%2$@"
+          }
+        }
+      }
+    },
+    "Sleep Debt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Debt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠负债"
+          }
+        }
+      }
+    },
+    "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed, based on your sleep goal, your recent training, and your overnight HRV. Longer nights pay some of the debt back. The dashed lines mark 2 and 5 hours, where a debt goes from low to moderate and then to high. This is an estimate to help you spot a trend, not a medical measurement." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed, based on your sleep goal, your recent training, and your overnight HRV. Longer nights pay some of the debt back. The dashed lines mark 2 and 5 hours, where a debt goes from low to moderate and then to high. This is an estimate to help you spot a trend, not a medical measurement."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠负债估算你在最近14晚中少睡了多少。Body会把每晚的实际睡眠与所需睡眠进行比较，所需睡眠取决于你的睡眠目标、近期训练和夜间心率变异性。睡得更久的夜晚可以偿还部分负债。图表中的虚线标出了2小时和5小时，负债在这两处由低变为中等，再变为高。这只是帮助你发现趋势的估算，并非医学测量。"
+          }
+        }
+      }
+    },
+    "Slept" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slept"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实际睡眠"
           }
         }
       }
@@ -3122,22 +3370,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body 在本地读取健康 App 数据，为 App 和小组件提供支持。"
-          }
-        }
-      }
-    },
-    "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Body 会根据该睡眠时段可用的数据为每晚评分：睡眠量、连续性、入睡时间规律性、深睡和快速眼动占比、睡眠心率变异性带来的压力、睡眠体征以及皮肤温度。压力、体征和体温会与你近期的夜间基准进行比较评分，其中睡眠体征采用与生命体征图表相同的典型范围，数值偏离该范围越远、扣分也越多，总分经过校准，只有真正优质的夜晚才会得高分。缺失的传感器数据会被跳过，而不会按零分计算。"
           }
         }
       }

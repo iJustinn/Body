@@ -640,6 +640,68 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    func testSleepDebtStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // The About text is read back out of the source, so an edit to the copy
+        // can never leave this list behind.
+        let aboutText = try detailSourceText(matching: #"Text\("(Sleep Debt estimates[^"]*)"\)"#)
+
+        // Sleep page › Sleep Debt card: header, night row, chart VoiceOver
+        // labels, the About card, and its Summary Cards toggle.
+        let keys = [
+            "Sleep Debt",
+            "Slept",
+            "Need",
+            "14 Night Debt",
+            "Need includes %@ for training",
+            "Need includes %@ for low HRV",
+            "Need includes %@ for training and %@ for low HRV",
+            "Based on %lld of 14 nights",
+            "%@: slept %@, need %@, debt %@",
+            "%@: no sleep recorded, debt %@",
+            "%@: slept %@, need %@",
+            "%@: no sleep data",
+            "Not enough sleep data yet",
+            "About Sleep Debt",
+            aboutText,
+            "Missed sleep over the last 14 nights"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+        try assertNoDashes(keys, in: catalog)
+    }
+
+    func testAboutSleepScoreCopyIsTranslatedWithoutDashes() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+        let aboutText = try detailSourceText(matching: #"Text\("(Body scores each night[^"]*)"\)"#)
+
+        try assertKeysTranslated([aboutText], in: catalog)
+        try assertNoDashes([aboutText], in: catalog)
+    }
+
+    /// The project's copy rule: no dashes as punctuation, in either language.
+    private func assertNoDashes(_ keys: [String], in catalog: [String: Any]) throws {
+        for key in keys {
+            for language in ["en", "zh-Hans"] {
+                let text = try value(of: key, language: language, in: catalog)
+                XCTAssertFalse(text.contains("—") || text.contains("–") || text.contains(" - "), "\(key) \(language)")
+            }
+        }
+    }
+
+    /// The first capture group of `pattern` in the metric detail view's source.
+    private func detailSourceText(matching pattern: String) throws -> String {
+        let source = try String(
+            contentsOf: projectRoot.appendingPathComponent("Body/Views/Health/BodyHealthMetricDetailView.swift"),
+            encoding: .utf8
+        )
+        let match = try XCTUnwrap(
+            NSRegularExpression(pattern: pattern).firstMatch(in: source, range: NSRange(source.startIndex..., in: source))
+        )
+        return String(source[try XCTUnwrap(Range(match.range(at: 1), in: source))])
+    }
+
     func testWorkoutDetailsExplanationKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 

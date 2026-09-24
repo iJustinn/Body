@@ -1610,14 +1610,33 @@ private struct BodyUnitChoiceButton: View {
 private struct BodySummaryCardsSettingsSheet: View {
     @Binding var selection: BodySummaryCardSelection
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    @AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Summary Cards") {
             VStack(alignment: .leading, spacing: 20) {
                 BodySettingsCardSection("Body Computed") {
-                    // The score is Body's own grading of a night; the Sleep card it
-                    // grades is a direct reading and sits in the other section.
-                    BodySleepScoreToggleRow(isEnabled: $showSleepScore)
+                    // The score and the debt are Body's own readings of your nights;
+                    // the Sleep card they read is a direct reading and sits in the
+                    // other section.
+                    BodySleepToggleRow(
+                        title: "Sleep Score",
+                        versionLabel: BodyHomeCardKind.sleepScoreVersionLabel,
+                        subtitle: "Nightly score from sleep stages, vitals, and timing",
+                        iconName: "moon.stars.fill",
+                        isEnabled: $showSleepScore
+                    )
+
+                    Divider()
+                        .padding(.leading, 76)
+
+                    BodySleepToggleRow(
+                        title: "Sleep Debt",
+                        versionLabel: BodyHomeCardKind.sleepDebtVersionLabel,
+                        subtitle: "Missed sleep over the last 14 nights",
+                        iconName: "moon.zzz.fill",
+                        isEnabled: $showSleepDebt
+                    )
 
                     Divider()
                         .padding(.leading, 76)
@@ -3019,26 +3038,32 @@ private struct BodyStarMetricOptionRow: View {
     }
 }
 
-private struct BodySleepScoreToggleRow: View {
+/// A Body Computed toggle for one of Body's own readings of your nights (Sleep
+/// Score, Sleep Debt), with its version chip.
+private struct BodySleepToggleRow: View {
+    let title: LocalizedStringKey
+    let versionLabel: LocalizedStringKey
+    let subtitle: LocalizedStringKey
+    let iconName: String
     @Binding var isEnabled: Bool
 
     var body: some View {
         HStack(spacing: 14) {
             BodySettingsIconTile(
-                iconName: "moon.stars.fill",
+                iconName: iconName,
                 color: Color(red: 0.20, green: 0.72, blue: 1.00)
             )
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Text("Sleep Score")
+                    Text(title)
                         .font(.system(.headline, design: .rounded))
                         .fontWeight(.semibold)
                         .foregroundColor(.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
 
-                    Text(BodyHomeCardKind.sleepScoreVersionLabel)
+                    Text(versionLabel)
                         .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(.blue)
                         .padding(.horizontal, 7)
@@ -3046,7 +3071,7 @@ private struct BodySleepScoreToggleRow: View {
                         .background(.blue.opacity(0.14), in: Capsule())
                 }
 
-                Text("Nightly score from sleep stages, vitals, and timing")
+                Text(subtitle)
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -3056,7 +3081,7 @@ private struct BodySleepScoreToggleRow: View {
 
             Spacer(minLength: 12)
 
-            Toggle("Sleep Score", isOn: $isEnabled)
+            Toggle(title, isOn: $isEnabled)
                 .labelsHidden()
                 .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
                 .accessibilityValue(isEnabled ? "On" : "Off")

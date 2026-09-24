@@ -418,6 +418,7 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    @AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true
     @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = true
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
@@ -448,6 +449,7 @@ struct BodyHealthMetricDetailView: View {
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
     @StateObject private var sleepConsistencyCache = BodySleepConsistencyChartCache()
+    @StateObject private var sleepDebtCache = BodySleepDebtChartCache()
     @StateObject private var workoutIndex = BodyCachedWorkoutIndex()
     @StateObject private var rangePointsCache = BodyTrendRangePointsCache()
 
@@ -1162,6 +1164,9 @@ struct BodyHealthMetricDetailView: View {
         }
 
         sleepConsistencyCard
+        if showSleepDebt {
+            sleepDebtCard
+        }
     }
 
     @ViewBuilder
@@ -1594,6 +1599,9 @@ struct BodyHealthMetricDetailView: View {
             aboutRestorativeSleepCard
             if showSleepScore {
                 aboutSleepScoreCard
+            }
+            if showSleepDebt {
+                aboutSleepDebtCard
             }
             dataSourceFooter
         } else if isVitalsDetail {
@@ -2880,7 +2888,7 @@ struct BodyHealthMetricDetailView: View {
     }
 
     /// Shared selection entry point for every day-picker surface (the date tiles and the
-    /// Sleep Consistency chart): a locked day opens the paywall instead of silently
+    /// Sleep Consistency and Sleep Debt charts): a locked day opens the paywall instead of silently
     /// clamping. Callers still gate out future days themselves where applicable.
     private func selectDatePickerDay(_ date: Date, for picker: BodyMetricDetailDatePicker) {
         if isDatePickerDateLocked(date) {
@@ -3276,6 +3284,37 @@ struct BodyHealthMetricDetailView: View {
         return sleepConsistencyCache.model(entries: entries, calendar: calendar)
     }
 
+    private var sleepDebtCard: some View {
+        BodySleepDebtCard(
+            model: sleepDebtChartModel,
+            selectedDay: selectedSleepDay,
+            tint: model.symbolColor,
+            floatingCallout: floatingCallout,
+            onSelectDay: { day in
+                selectDatePickerDay(day, for: .sleep)
+            }
+        )
+    }
+
+    // Gathering the inputs is a single pass over the history each render; the
+    // cache rebuilds the model, with its HRV baselines, only when they or the
+    // goal change. The Training Load series comes straight from the store, like
+    // `liveDaySeries`, since the detail model doesn't carry it.
+    private var sleepDebtChartModel: SleepDebtChartModel {
+        let calendar = Calendar.bodyGregorian
+        let now = Date()
+        return sleepDebtCache.model(
+            inputs: SleepDebtChartModel.inputs(
+                sleepHistory: model.sleepHistory,
+                currentDaySummary: currentSleepSummary(for: calendar.startOfDay(for: now)),
+                trainingLoad: workoutStore.healthTrends.trainingLoad,
+                today: now,
+                calendar: calendar
+            ),
+            sleepGoal: BodySleepDurationGoal.duration(from: sleepDurationGoalMinutes)
+        )
+    }
+
     private var aboutRestorativeSleepCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("About Restorative Sleep")
@@ -3309,7 +3348,34 @@ struct BodyHealthMetricDetailView: View {
                     .background(.blue.opacity(0.14), in: Capsule())
             }
 
-            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero.")
+            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines. Sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band. The total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero.")
+                .font(.system(.body, design: .rounded))
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(translucent: true)
+    }
+
+    private var aboutSleepDebtCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("About Sleep Debt")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                // Same chip the Sleep Debt toggle carries in Settings.
+                Text(BodyHomeCardKind.sleepDebtVersionLabel)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.blue.opacity(0.14), in: Capsule())
+            }
+
+            Text("Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed, based on your sleep goal, your recent training, and your overnight HRV. Longer nights pay some of the debt back. The dashed lines mark 2 and 5 hours, where a debt goes from low to moderate and then to high. This is an estimate to help you spot a trend, not a medical measurement.")
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
@@ -3762,6 +3828,26 @@ final class BodySleepConsistencyChartCache: ObservableObject {
 
         let model = SleepConsistencyChartModel.make(entries: entries, calendar: calendar)
         cached = (key, model)
+        return model
+    }
+}
+
+/// Memoizes the Sleep Debt model. Gathering its inputs is cheap, but building it
+/// judges each of its 44 nights' sleep HRV against a baseline, and the detail
+/// view asks for it on every `body` evaluation (each day selection or
+/// progressive-refresh tick). Keyed on the gathered inputs, one value per night,
+/// and the sleep goal.
+@MainActor
+final class BodySleepDebtChartCache: ObservableObject {
+    private var cached: (inputs: SleepDebtChartModel.Inputs, sleepGoal: TimeInterval, model: SleepDebtChartModel)?
+
+    func model(inputs: SleepDebtChartModel.Inputs, sleepGoal: TimeInterval) -> SleepDebtChartModel {
+        if let cached, cached.inputs == inputs, cached.sleepGoal == sleepGoal {
+            return cached.model
+        }
+
+        let model = SleepDebtChartModel.make(entries: SleepDebtChartModel.entries(from: inputs), sleepGoal: sleepGoal)
+        cached = (inputs, sleepGoal, model)
         return model
     }
 }

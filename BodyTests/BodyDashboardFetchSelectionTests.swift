@@ -120,6 +120,11 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
         if direct.contains(.vitals) {
             union.formUnion(Self.vitalsMetricKinds)
         }
+        // Rendered sleep brings the Training Load ratio Sleep Debt reads; the
+        // Stress and Body Radar input tier below does not.
+        if union.contains(.sleep) {
+            union.insert(.trainingLoad)
+        }
         if direct.contains(.stress) {
             union.formUnion(Self.stressDependencyKinds)
         }
@@ -265,6 +270,50 @@ final class BodyDashboardFetchSelectionTests: XCTestCase {
 
         for kind: HealthMetricKind in [.heartRate, .steps, .activeEnergy] {
             XCTAssertTrue(fetch.isInputOnly(kind), "\(kind) should remain input-only")
+        }
+    }
+
+    /// Sleep Debt reads the Training Load ratio, so every layout that renders
+    /// sleep fetches Training Load as a full payload, with or without the
+    /// Readiness and Training Load cards. Sleep fetched only as a Stress or
+    /// Body Radar input does not pull it.
+    func testRenderedSleepAlwaysFetchesTrainingLoadForSleepDebt() {
+        let noTrendCards = BodyHomeTrendCardSelection(selectedCards: [])
+        let layouts: [(name: String, fetch: BodyDashboardFetchSelection)] = [
+            ("sleep card", BodyDashboardFetchSelection(
+                summaryCards: BodySummaryCardSelection(selectedCards: [.sleep]),
+                trendCards: noTrendCards
+            )),
+            ("sleep trend card", BodyDashboardFetchSelection(
+                summaryCards: BodySummaryCardSelection(selectedCards: []),
+                trendCards: BodyHomeTrendCardSelection(selectedCards: [.sleep])
+            )),
+            ("vitals card", BodyDashboardFetchSelection(
+                summaryCards: BodySummaryCardSelection(selectedCards: [.vitals]),
+                trendCards: noTrendCards
+            )),
+            ("day ring hero", BodyDashboardFetchSelection(
+                summaryCards: BodySummaryCardSelection(selectedCards: [.steps]),
+                trendCards: noTrendCards,
+                starredMetric: .dayRing
+            )),
+            ("sleep with readiness and training load cards", BodyDashboardFetchSelection(
+                summaryCards: BodySummaryCardSelection(selectedCards: [.sleep, .readiness, .trainingLoad]),
+                trendCards: noTrendCards
+            ))
+        ]
+
+        for layout in layouts {
+            XCTAssertTrue(layout.fetch.includesFullPayload(.trainingLoad), layout.name)
+        }
+
+        for derivedCard: BodyHomeCardKind in [.stress, .bodyRadar] {
+            let fetch = BodyDashboardFetchSelection(
+                summaryCards: BodySummaryCardSelection(selectedCards: [derivedCard]),
+                trendCards: noTrendCards
+            )
+            XCTAssertTrue(fetch.isInputOnly(.sleep), "\(derivedCard)")
+            XCTAssertFalse(fetch.includes(.trainingLoad), "\(derivedCard)")
         }
     }
 

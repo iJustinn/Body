@@ -1199,6 +1199,15 @@ final class SourceGuardTests: XCTestCase {
             detailBodyBlock.range(of: "detailTrendComparisonCard", range: sleepSelectedCardsStart..<detailBodyBlock.endIndex)?.lowerBound
         )
         let sleepAboutStart = try XCTUnwrap(detailBodyBlock.range(of: "aboutSleepScoreCard")?.lowerBound)
+        let sleepDebtAboutStart = try XCTUnwrap(detailBodyBlock.range(of: "aboutSleepDebtCard")?.lowerBound)
+        // Sleep Debt sits right under Sleep Consistency, the other 14 night card.
+        let selectedSleepCardsStart = try XCTUnwrap(source.range(of: "private var selectedSleepCards: some View")?.lowerBound)
+        let selectedSleepCardsEnd = try XCTUnwrap(
+            source.range(of: "private var helpTextCard", range: selectedSleepCardsStart..<source.endIndex)?.lowerBound
+        )
+        let selectedSleepCardsBlock = String(source[selectedSleepCardsStart..<selectedSleepCardsEnd])
+        let sleepConsistencyCardStart = try XCTUnwrap(selectedSleepCardsBlock.range(of: "sleepConsistencyCard")?.lowerBound)
+        let sleepDebtCardStart = try XCTUnwrap(selectedSleepCardsBlock.range(of: "sleepDebtCard")?.lowerBound)
         let dayViewStart = try XCTUnwrap(detailBodyBlock.range(of: "if supportsMetricDayView")?.lowerBound)
         let metricDayChartStart = try XCTUnwrap(
             detailBodyBlock.range(of: "metricDayChartCard", range: dayViewStart..<detailBodyBlock.endIndex)?.lowerBound
@@ -1224,6 +1233,8 @@ final class SourceGuardTests: XCTestCase {
 
         XCTAssertLessThan(sleepSelectedCardsStart, sleepTrendCardStart)
         XCTAssertLessThan(sleepTrendCardStart, sleepAboutStart)
+        XCTAssertLessThan(sleepConsistencyCardStart, sleepDebtCardStart)
+        XCTAssertLessThan(sleepAboutStart, sleepDebtAboutStart)
         XCTAssertLessThan(metricDayChartStart, dayViewTrendCardStart)
         XCTAssertLessThan(metricDayChartStart, metricActivityAveragesStart)
         XCTAssertLessThan(metricActivityAveragesStart, dayViewTrendCardStart)
@@ -1923,9 +1934,75 @@ final class SourceGuardTests: XCTestCase {
         let selectInGuard = try XCTUnwrap(guardBlock.range(of: "selectDate(date, for: picker)"))
         XCTAssertTrue(guardBlock.contains("isDatePickerDateLocked(date)"))
         XCTAssertLessThan(paywallInGuard.lowerBound, selectInGuard.lowerBound)
-        // Both the date tiles and the Sleep Consistency chart call the guard, not selectDate.
+        // The date tiles and the Sleep Consistency and Sleep Debt charts call the guard, not selectDate.
         XCTAssertTrue(source.contains("selectDatePickerDay(dayStart, for: picker)"))
-        XCTAssertTrue(source.contains("selectDatePickerDay(day, for: .sleep)"))
+        XCTAssertEqual(source.occurrenceCount(of: "selectDatePickerDay(day, for: .sleep)"), 2)
+    }
+
+    func testSleepDebtCardFollowsTheSelectedNightAndSelectsByTapOnly() throws {
+        let detail = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let card = try text(at: "Body/Views/Health/BodySleepDebtCard.swift")
+        let chart = try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift")
+
+        // The night row always describes the page's selected day, never a stand-in night.
+        XCTAssertTrue(detail.contains("selectedDay: selectedSleepDay"))
+        XCTAssertTrue(card.contains("model.night(on: selectedDay)"))
+        XCTAssertFalse(card.contains("?? model.latestNight"))
+        // The training adjustment reads the same stored series Readiness does.
+        XCTAssertTrue(detail.contains("trainingLoad: workoutStore.healthTrends.trainingLoad"))
+        // Taps select a night. A hold only shows a callout on the page's floating layer,
+        // so no hold can select a night or open the paywall; nothing drags, so a swipe
+        // that starts on the chart scrolls the page.
+        XCTAssertTrue(chart.contains(".onTapGesture"))
+        XCTAssertTrue(chart.contains("BodyChartScrubGesture("))
+        XCTAssertTrue(chart.contains("floatingCallout?.publish("))
+        let scrubStart = try XCTUnwrap(chart.range(of: "private func scrub(to location:")?.lowerBound)
+        let scrubEnd = try XCTUnwrap(chart.range(of: "private func clearScrub()")?.lowerBound)
+        XCTAssertFalse(chart[scrubStart..<scrubEnd].contains("onSelectDay"))
+        XCTAssertTrue(card.contains("floatingCallout: floatingCallout"))
+        let debtCardStart = try XCTUnwrap(detail.range(of: "private var sleepDebtCard: some View")?.lowerBound)
+        XCTAssertTrue(detail[debtCardStart...].prefix(400).contains("floatingCallout: floatingCallout"))
+        XCTAssertFalse(chart.contains("DragGesture"))
+        XCTAssertFalse(chart.contains("chartXSelection"))
+        // The model's HRV baselines rebuild only when what it reads, or the goal, changes.
+        XCTAssertTrue(detail.contains("sleepDebtCache.model("))
+    }
+
+    func testSleepDebtChartColorsEachNightByBandAndBlendsTheLine() throws {
+        let chart = try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift")
+
+        // The line, the dots, and the callout all take the night's band color,
+        // and each segment fades from one night's color to the next's.
+        XCTAssertEqual(chart.occurrenceCount(of: "Self.bandColor(for: debt, lowColor: color)"), 3)
+        XCTAssertTrue(chart.contains("Gradient(colors: [previous.color, pointColor])"))
+    }
+
+    func testSleepDebtFollowsItsSummaryCardsToggleLikeSleepScore() throws {
+        let selections = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
+        let settings = try text(at: "Body/Views/BodySettingsView.swift")
+        let detail = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let card = try text(at: "Body/Views/Health/BodySleepDebtCard.swift")
+
+        XCTAssertTrue(selections.contains(#"static let showSleepDebtKey = "showSleepDebt""#))
+
+        // Summary Cards › Body Computed: Sleep Score, then Sleep Debt, then the computed cards.
+        let sheetStart = try XCTUnwrap(settings.range(of: "private struct BodySummaryCardsSettingsSheet")?.lowerBound)
+        let sheet = String(settings[sheetStart...].prefix(4_000))
+        XCTAssertTrue(sheet.contains("@AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true"))
+        let scoreRow = try XCTUnwrap(sheet.range(of: "isEnabled: $showSleepScore")?.lowerBound)
+        let debtRow = try XCTUnwrap(sheet.range(of: "isEnabled: $showSleepDebt")?.lowerBound)
+        let computedRows = try XCTUnwrap(sheet.range(of: "rows(for: BodyHomeCardKind.bodyComputedOrder)")?.lowerBound)
+        XCTAssertLessThan(scoreRow, debtRow)
+        XCTAssertLessThan(debtRow, computedRows)
+
+        // Off, the Sleep page drops the card and its About card, as Sleep Score's toggle does.
+        XCTAssertTrue(detail.contains("@AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true"))
+        XCTAssertNotNil(detail.range(of: #"if showSleepDebt \{\s*sleepDebtCard\s*\}"#, options: .regularExpression))
+        XCTAssertNotNil(detail.range(of: #"if showSleepDebt \{\s*aboutSleepDebtCard\s*\}"#, options: .regularExpression))
+
+        // The header is the title and the number; About Sleep Debt explains the window.
+        XCTAssertFalse(card.contains("Last 14 nights through"))
+        XCTAssertFalse(card.contains("of the last 14 nights recorded"))
     }
 
     func testHealthDataSourcePickerRowsShowSourceNamesOnly() throws {
@@ -4523,11 +4600,13 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("if let betaVersionLabel = card.betaVersionLabel"))
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v1")"#), 1)
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v2")"#), 0)
-        // The Sleep Score chip has one definition, read by both the Settings toggle
-        // row and the About Sleep Score card on the Sleep detail page.
+        // The Sleep Score and Sleep Debt chips each have one definition, read by both
+        // their Settings toggle row and their About card on the Sleep detail page.
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v3")"#), 0)
         XCTAssertTrue(appearanceSource.contains(#"static let sleepScoreVersionLabel: LocalizedStringKey = "v3""#))
-        XCTAssertEqual(settingsSource.occurrenceCount(of: "Text(BodyHomeCardKind.sleepScoreVersionLabel)"), 1)
+        XCTAssertTrue(appearanceSource.contains(#"static let sleepDebtVersionLabel: LocalizedStringKey = "v1""#))
+        XCTAssertEqual(settingsSource.occurrenceCount(of: "versionLabel: BodyHomeCardKind.sleepScoreVersionLabel"), 1)
+        XCTAssertEqual(settingsSource.occurrenceCount(of: "versionLabel: BodyHomeCardKind.sleepDebtVersionLabel"), 1)
         // The Readiness AI sheet's toggle row carries the only Beta v2 badge; the
         // Body Radar summary-card row carries its own "Beta v1" chip via betaVersionLabel.
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("Beta v2")"#), 1)
@@ -4538,6 +4617,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(detailSource.contains(#"Text("Beta v2")"#))
         XCTAssertFalse(detailSource.contains(#"Text("v1")"#))
         XCTAssertEqual(detailSource.occurrenceCount(of: "Text(BodyHomeCardKind.sleepScoreVersionLabel)"), 1)
+        XCTAssertEqual(detailSource.occurrenceCount(of: "Text(BodyHomeCardKind.sleepDebtVersionLabel)"), 1)
         XCTAssertTrue(appearanceSource.contains("static func betaVersionLabel(for kind: HealthMetricKind) -> LocalizedStringKey?"))
         // Body Radar draws its glyph white on both surfaces, from one definition.
         XCTAssertTrue(appearanceSource.contains("var iconTintColor: Color"))
