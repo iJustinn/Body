@@ -3299,7 +3299,8 @@ struct BodyHealthMetricDetailView: View {
     // Gathering the inputs is a single pass over the history each render; the
     // cache rebuilds the model, with its HRV baselines, only when they or the
     // goal change. The Training Load series comes straight from the store, like
-    // `liveDaySeries`, since the detail model doesn't carry it.
+    // `liveDaySeries`, since the detail model doesn't carry it; this page's
+    // pull refreshes it along with sleep (`performHealthMetricRefresh`).
     private var sleepDebtChartModel: SleepDebtChartModel {
         let calendar = Calendar.bodyGregorian
         let now = Date()

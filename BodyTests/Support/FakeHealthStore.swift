@@ -74,6 +74,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
     }
 
     private var sampleScripts: [String: Script] = [:]
+    private var predicateSampleScripts: [(identifier: String, predicate: NSPredicate, script: Script)] = []
     private var sourceScripts: [String: Script] = [:]
     private var statisticsScripts: [String: Script] = [:]
     private var statisticsCollectionScripts: [String: Script] = [:]
@@ -117,6 +118,15 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
 
     func scriptSamples(for type: HKSampleType, _ script: Script) {
         lock.lock(); sampleScripts[type.identifier] = script; lock.unlock()
+    }
+
+    /// Answers `samples` reads of `type` whose predicate equals `predicate`
+    /// ahead of the type's own script, such as one workout's effort score
+    /// behind its relationship predicate.
+    func scriptSamples(for type: HKSampleType, matching predicate: NSPredicate, _ script: Script) {
+        lock.lock(); defer { lock.unlock() }
+        predicateSampleScripts.removeAll { $0.identifier == type.identifier && $0.predicate == predicate }
+        predicateSampleScripts.append((type.identifier, predicate, script))
     }
 
     func scriptSources(for type: HKSampleType, _ script: Script) {
@@ -229,7 +239,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
 
     func samples(_ request: BodySampleRequest) async -> BodyHealthReadOutcome<[HKSample]> {
         let identifier = request.sampleType.identifier
-        let response = script(sampleScripts, identifier)
+        let response = predicateScript(identifier, request.predicate) ?? script(sampleScripts, identifier)
         record(.samples(identifier))
         return await resolve(response) { script in
             switch script {
@@ -349,6 +359,12 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
 
     private func script(_ table: [String: Script], _ identifier: String) -> Script {
         lock.lock(); defer { lock.unlock() }; return table[identifier] ?? .never
+    }
+
+    private func predicateScript(_ identifier: String, _ predicate: NSPredicate?) -> Script? {
+        guard let predicate else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        return predicateSampleScripts.first { $0.identifier == identifier && $0.predicate == predicate }?.script
     }
 
     /// Applies `map` to the script; `nil` (the script cannot answer this read

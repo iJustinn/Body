@@ -3,6 +3,7 @@
 //  BodyTests
 //
 
+import HealthKit
 import SwiftUI
 import XCTest
 @testable import Body
@@ -584,6 +585,76 @@ final class SleepDebtTests: XCTestCase {
         XCTAssertEqual(color(hours(5)), radarPink)
         XCTAssertEqual(color(hours(5) + 1), radarRed)
         XCTAssertEqual(color(hours(12)), radarRed)
+    }
+
+    // MARK: - Refresh
+
+    /// The Sleep page's pull re-reads Training Load with sleep, efforts
+    /// included, so a workout that synced or was re-rated since the last
+    /// refresh reaches the need at once.
+    @MainActor
+    func testSleepPullRereadsChangedWorkoutsIntoTheNeed() async throws {
+        let restoreLoadDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreLoadDefaults() }
+        let now = Date()
+        let fake = FakeHealthStore()
+        let workoutType = HKObjectType.workoutType()
+        let effortType = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .workoutEffortScore))
+        let sampleTypes: [HKSampleType] = [
+            try XCTUnwrap(HKObjectType.categoryType(forIdentifier: .sleepAnalysis)),
+            effortType,
+            workoutType
+        ]
+        for type in sampleTypes {
+            fake.scriptSources(for: type, .sources([]))
+            fake.scriptSamples(for: type, .samples([]))
+        }
+        let store = HealthKitWorkoutStore(
+            initialMonthSnapshots: [], initialHealthDashboardSnapshot: .empty,
+            initialPermissionSelection: BodyHealthPermissionSelection(enabledPermissions: [.sleep, .workouts]),
+            initialHealthDataSourceSelection: .defaultValue, initialSecondaryHealthDataSourceSelection: .defaultValue,
+            initialCombinesHealthDataSourcesByName: false, initialCustomHealthSourceGroups: [], engineHealthStore: fake
+        )
+        store.contextRefreshOverride = { _ in }
+        func run(daysAgo count: Int, hours: Double) -> HKWorkout {
+            let start = daysAgo(count, from: now).addingTimeInterval(7 * 3_600)
+            return makeTestWorkout(activityType: .running, start: start, end: start.addingTimeInterval(hours * 3_600), metadata: nil)
+        }
+        func effort(_ score: Double) -> HKQuantitySample {
+            HKQuantitySample(type: effortType, quantity: HKQuantity(unit: .appleEffortScore(), doubleValue: score), start: now, end: now)
+        }
+        func todaysNeed() -> TimeInterval? {
+            let entries = SleepDebtChartModel.entries(
+                sleepHistory: store.healthTrends.sleepHistory,
+                currentDaySummary: nil,
+                trainingLoad: store.healthTrends.trainingLoad,
+                today: now,
+                calendar: calendar
+            )
+            return SleepDebtChartModel.make(entries: entries, sleepGoal: goal).nights.last?.needDuration
+        }
+
+        // Four months of an hour's run every other day settle the ratio, and
+        // yesterday was a rest day, so today's need is the goal.
+        let usual = stride(from: 120, through: 2, by: -2).map { run(daysAgo: $0, hours: 1) }
+        fake.scriptSamples(for: workoutType, .samples(usual))
+        await store.refreshHealthMetric(.sleep, date: now)
+        XCTAssertEqual(todaysNeed(), goal)
+
+        // A long run rated 5 then syncs for yesterday, and only the Sleep page
+        // is pulled.
+        let longRun = run(daysAgo: 1, hours: 3)
+        let longRunEffort = HKQuery.predicateForWorkoutEffortSamplesRelated(workout: longRun, activity: nil)
+        fake.scriptSamples(for: effortType, matching: longRunEffort, .samples([effort(5)]))
+        fake.scriptSamples(for: workoutType, .samples(usual + [longRun]))
+        await store.refreshHealthMetric(.sleep, date: now)
+        XCTAssertEqual(todaysNeed(), goal + SleepDebtChartModel.maximumTrainingAdjustment)
+
+        // The same run is re-rated 2, keeping its UUID. Its cached 5 would stay
+        // valid for a day, so only a fresh effort read lowers the need.
+        fake.scriptSamples(for: effortType, matching: longRunEffort, .samples([effort(2)]))
+        await store.refreshHealthMetric(.sleep, date: now)
+        XCTAssertEqual(todaysNeed(), goal + 20 * 60)
     }
 
     // MARK: - Helpers

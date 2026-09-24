@@ -365,8 +365,9 @@ actor HealthKitFetchEngine {
 
     /// Full reconcile: drops every cached effort outcome, in memory and on disk,
     /// so the next fetch re-asks HealthKit for the whole window. Reserved for
-    /// the explicit Training Load pull and Settings' Clear Cache — a
-    /// pull-to-refresh uses the scoped variant below.
+    /// the explicit Training Load pull, the Sleep page's pull (Sleep Debt reads
+    /// Training Load), and Settings' Clear Cache — a pull-to-refresh uses the
+    /// scoped variant below.
     func clearWorkoutEffortCache() async {
         guard HealthDashboardPublicationToken.quietCurrent?.isValid != false else { return }
         effortLevelsByWorkoutID = [:]

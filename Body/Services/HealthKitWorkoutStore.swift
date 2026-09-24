@@ -1676,6 +1676,18 @@ final class HealthKitWorkoutStore {
             await engine.clearWorkoutEffortCache()
             guard mayApplyRefreshResults, !Task.isCancelled else { return false }
         }
+        // Sleep Debt on the Sleep page reads Training Load, so a pull there
+        // re-reads it alongside sleep and handles it the way the Training Load
+        // page's pull does: the effort cache dropped in full first, so a
+        // re-rated workout reaches the need, then the watch watermark and seed,
+        // and a failed read fails the pull's badge. Observed sleep changes skip
+        // it: vitals observed all day also map to sleep, and Training Load has
+        // its own observed refresh.
+        let refreshesTrainingLoad = kind == .sleep && !observed
+        if refreshesTrainingLoad {
+            await engine.clearWorkoutEffortCache()
+            guard mayApplyRefreshResults, !Task.isCancelled else { return false }
+        }
         setRefreshStage(kind == .trainingLoad ? .computing(.trainingLoad) : .updating(kind))
         if observed {
             if !sourcesPrepared {
@@ -1687,6 +1699,9 @@ final class HealthKitWorkoutStore {
         guard let context = await captureHealthMetricReadContext(date: date, calendar: calendar) else { return false }
         let existing = HealthDashboardSnapshot(summary: healthSummary, trends: healthTrends, activityRingHistory: activityRingHistory)
         let receipts = observed ? [] : (await healthChangeCoordinator?.captureReceipts() ?? [])
+        async let trainingLoadFetch: HealthKitFetchEngine.HealthDashboardMetricFetchResult? = refreshesTrainingLoad
+            ? engine.fetchHealthDashboardSnapshot(for: .trainingLoad, calendar: calendar, existing: existing)
+            : nil
         let metricFetch = await engine.fetchHealthDashboardSnapshot(
             for: kind,
             calendar: calendar,
@@ -1695,6 +1710,9 @@ final class HealthKitWorkoutStore {
             reconcilesRetainedIntradayWindow: intent == .userInitiated
         )
         let applied = await applyHealthMetricRefresh(kind, metricFetch: metricFetch, context: context, observed: observed)
+        if let trainingLoadFetch = await trainingLoadFetch, applied {
+            _ = await applyHealthMetricRefresh(.trainingLoad, metricFetch: trainingLoadFetch, context: context, observed: false)
+        }
         if !observed, applied, mayApplyRefreshResults {
             let durable = await persistDashboardSnapshotDurably()
             recordSyncResult(failed: !durable)
