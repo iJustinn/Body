@@ -32,7 +32,6 @@ struct BodyHeartRateRangeTrendChart: View {
     private let secondarySourceName: String?
 
     @State private var selectedDate: Date?
-    @GestureState private var isSelecting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -239,8 +238,7 @@ struct BodyHeartRateRangeTrendChart: View {
                     }
                 }
             }
-            .chartXSelection(value: $selectedDate)
-            .simultaneousGesture(chartPressGesture)
+            .bodyChartHoldToScrub($selectedDate)
             .bodyChartScrubHaptics(selection: selectedRangePoint?.date)
             .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedRangePoint?.date) {
                 guard let point = selectedRangePoint,
@@ -366,7 +364,7 @@ struct BodyHeartRateRangeTrendChart: View {
     }
 
     private var selectedRangePoint: HealthTrendRangeCalendarPoint? {
-        guard isSelecting, let selectedDate else {
+        guard let selectedDate else {
             return nil
         }
 
@@ -428,16 +426,6 @@ struct BodyHeartRateRangeTrendChart: View {
 
     private func color(for role: BodyHealthSourceRole) -> Color {
         role == .primary ? symbolColor : secondaryColor
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 
     private static func computeYDomain(from values: [Double]) -> ClosedRange<Double> {

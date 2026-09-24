@@ -595,6 +595,33 @@ extension View {
     func bodyChartScrubHaptics(selection: AnyHashable?, isEmphasized: Bool = false) -> some View {
         modifier(BodyChartScrubHaptics(selection: selection, isEmphasized: isEmphasized))
     }
+
+    /// Hold-to-scrub for a Swift Charts chart inside a `ScrollView`, in place of
+    /// `chartXSelection` plus a zero-distance drag, which claimed every touch on
+    /// the chart: a swipe that starts on the plot scrolls the page, and only a
+    /// stationary hold (see `BodyChartScrubGesture`) writes the x value under the
+    /// finger into `selection`, which returns to nil when the hold ends.
+    func bodyChartHoldToScrub<Value: Plottable>(_ selection: Binding<Value?>, isEnabled: Bool = true) -> some View {
+        chartOverlay { chartProxy in
+            GeometryReader { geo in
+                Rectangle()
+                    .fill(.clear)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        BodyChartScrubGesture(isEnabled: isEnabled) { location in
+                            guard let location, let plotFrame = chartProxy.plotFrame else {
+                                selection.wrappedValue = nil
+                                return
+                            }
+
+                            let plotRect = geo[plotFrame]
+                            let x = min(max(location.x - plotRect.minX, 0), plotRect.width)
+                            selection.wrappedValue = chartProxy.value(atX: x, as: Value.self)
+                        }
+                    )
+            }
+        }
+    }
 }
 
 extension DateInterval {

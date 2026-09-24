@@ -16,7 +16,6 @@ struct BodySleepStageChart: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedStageDate: Date?
-    @GestureState private var isSelectingStage = false
     /// Lags `snapshot` while the date-switch choreography runs: the old night
     /// stays rendered through the collapse, swaps mid-flight while flattened,
     /// and the new night renders through the expansion. `nil` until the first
@@ -134,10 +133,9 @@ struct BodySleepStageChart: View {
                 }
             }
         }
-        .chartXSelection(value: $selectedStageDate)
+        .bodyChartHoldToScrub($selectedStageDate, isEnabled: !renderSnapshot.segments.isEmpty)
         // Every snap here crosses into another stage, so each one is the firmer tick.
         .bodyChartScrubHaptics(selection: selectedStageSegment?.id, isEmphasized: true)
-        .simultaneousGesture(stageChartPressGesture)
         // Scoped like the day chart's morph animations: the detail view wraps
         // this chart in a `.transaction { animation = nil }`, so the phases
         // animate via these value-keyed modifiers, not ambient transactions.
@@ -415,7 +413,7 @@ struct BodySleepStageChart: View {
     }
 
     private var selectedStageSegment: SleepStageSegment? {
-        guard isSelectingStage, let selectedStageDate else {
+        guard let selectedStageDate else {
             return nil
         }
 
@@ -428,16 +426,6 @@ struct BodySleepStageChart: View {
         }
 
         return segmentSelection(for: realDate)
-    }
-
-    private var stageChartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelectingStage) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedStageDate = nil
-            }
     }
 
     private func segmentSelection(for date: Date) -> SleepStageSegment? {

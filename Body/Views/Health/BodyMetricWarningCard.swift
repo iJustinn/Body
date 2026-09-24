@@ -26,7 +26,6 @@ struct BodyMetricWarningCard: View {
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
 
     @State private var selectedDate: Date?
-    @GestureState private var isSelecting = false
 
     private var temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference {
         if followsSystemUnits {
@@ -296,8 +295,7 @@ struct BodyMetricWarningCard: View {
         // 128, but it also carries a divider and an averages row this one has
         // no equivalent of, so the chart absorbs the 77pt difference.
         .frame(height: 205)
-        .chartXSelection(value: $selectedDate)
-        .simultaneousGesture(chartPressGesture)
+        .bodyChartHoldToScrub($selectedDate)
         .bodyChartScrubHaptics(selection: selectedSample?.date)
         .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedSample?.date, centersOnDayInterval: false) {
             guard let selectedSample else {
@@ -309,23 +307,13 @@ struct BodyMetricWarningCard: View {
 
     /// The reading under the finger, matched by time the way the trend charts do.
     private var selectedSample: HealthTrendDataPoint? {
-        guard isSelecting, let selectedDate else {
+        guard let selectedDate else {
             return nil
         }
 
         return displaySamples.min { first, second in
             abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
         }
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 
     private func selectionAnnotation(for sample: HealthTrendDataPoint) -> BodyChartSelectionAnnotation {

@@ -214,7 +214,6 @@ struct BodyVitalsOutlierTrendChart: View {
     private let chartXDomain: ClosedRange<Date>
 
     @State private var selectedDate: Date?
-    @GestureState private var isSelecting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -366,8 +365,7 @@ struct BodyVitalsOutlierTrendChart: View {
             // highlighted typical band carry the reference on their own, so no
             // Y axis is drawn at all.
             .chartYAxis(.hidden)
-            .chartXSelection(value: $selectedDate)
-            .simultaneousGesture(chartPressGesture)
+            .bodyChartHoldToScrub($selectedDate)
             .bodyChartScrubHaptics(selection: selectedBucket?.date)
             .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedBucket?.date) {
                 guard let bucket = selectedBucket else {
@@ -396,7 +394,7 @@ struct BodyVitalsOutlierTrendChart: View {
     }
 
     private var selectedBucket: BodyVitalsOutlierBucket? {
-        guard isSelecting, let selectedDate else {
+        guard let selectedDate else {
             return nil
         }
 
@@ -416,16 +414,6 @@ struct BodyVitalsOutlierTrendChart: View {
     private func dateText(for bucket: BodyVitalsOutlierBucket) -> String {
         bodyChartSelectionDateText(startDate: bucket.date, endDate: bucket.endDate)
             ?? bucket.date.formatted(.dateTime.month(.abbreviated).day().year())
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 
     static func dayGrid(

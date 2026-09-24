@@ -121,7 +121,6 @@ struct BodyRadarChart: View {
     let floatingCallout: BodyChartFloatingCalloutState?
 
     @State private var selectedDate: Date?
-    @GestureState private var isSelecting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(nights: [BodyRadarNight], floatingCallout: BodyChartFloatingCalloutState? = nil) {
@@ -210,8 +209,7 @@ struct BodyRadarChart: View {
             // touch that drives it.
             .allowsHitTesting(false)
         }
-        .chartXSelection(value: $selectedDate)
-        .simultaneousGesture(chartPressGesture)
+        .bodyChartHoldToScrub($selectedDate)
         .bodyChartScrubHaptics(selection: selectedPoint?.id)
         .bodyFloatingCalloutReporter(
             floatingCallout,
@@ -286,7 +284,7 @@ struct BodyRadarChart: View {
     }
 
     private var selectedPoint: BodyRadarChartPoint? {
-        guard isSelecting, let selectedDate else {
+        guard let selectedDate else {
             return nil
         }
 
@@ -308,16 +306,6 @@ struct BodyRadarChart: View {
             point: point,
             dateText: point.night.date.formatted(.dateTime.month(.abbreviated).day().year())
         )
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 
     private func dateText(for date: Date) -> String {

@@ -33,7 +33,6 @@ struct BodyBasicsTrendChart: View {
     private let bodyFatSamples: HealthTrendSeries
 
     @State private var selectedDate: Date?
-    @GestureState private var isSelecting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let axisTickValues = [0.0, 0.25, 0.5, 0.75, 1.0]
@@ -326,8 +325,7 @@ struct BodyBasicsTrendChart: View {
                 }
             }
         }
-        .chartXSelection(value: $selectedDate)
-        .simultaneousGesture(chartPressGesture)
+        .bodyChartHoldToScrub($selectedDate)
         .bodyChartScrubHaptics(selection: selectedTrendDate)
         .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedTrendDate) {
             guard let selectedTrendDate else {
@@ -369,7 +367,7 @@ struct BodyBasicsTrendChart: View {
     }
 
     private var selectedTrendPoint: HealthTrendCalendarPoint? {
-        guard isSelecting, let selectedDate else {
+        guard let selectedDate else {
             return nil
         }
 
@@ -447,16 +445,6 @@ struct BodyBasicsTrendChart: View {
 
     private func denormalizedValue(for normalizedValue: Double, in domain: ClosedRange<Double>) -> Double {
         domain.lowerBound + (domain.upperBound - domain.lowerBound) * normalizedValue
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 
     private func selectionValues(for date: Date) -> [BodyChartSelectionValue] {
@@ -544,7 +532,6 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
     private let latestCalendarDate: Date?
 
     @State private var selectedDate: Date?
-    @GestureState private var isSelecting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -705,8 +692,7 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
                 }
             }
         }
-        .chartXSelection(value: $selectedDate)
-        .simultaneousGesture(chartPressGesture)
+        .bodyChartHoldToScrub($selectedDate)
         .bodyChartScrubHaptics(selection: selectedPoint?.date)
         // Stable across range switches: a per-range id would replace the chart
         // instead of updating it, popping every mark rather than letting them
@@ -727,7 +713,7 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
     }
 
     private var selectedPoint: HealthTrendCalendarPoint? {
-        guard isSelecting, let selectedDate else {
+        guard let selectedDate else {
             return nil
         }
 
@@ -746,16 +732,6 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
 
     private var lineStrokeWidth: CGFloat {
         selectedRange.usesPreviewLineChartStyle ? BodyLineChartPreviewStyle.lineWidth : selectedRange.trendLineWidth
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 
     private func selectionAnnotation(for selectedPoint: HealthTrendCalendarPoint, value: Double) -> BodyChartSelectionAnnotation {
@@ -838,7 +814,6 @@ struct BodyBasicsTimeOfDayChart: View {
     var calendar: Calendar = .bodyGregorian
 
     @State private var selectedHour: Double?
-    @GestureState private var isSelecting = false
 
     private struct Dot: Identifiable {
         let date: Date
@@ -863,9 +838,9 @@ struct BodyBasicsTimeOfDayChart: View {
             + dots(from: weightSamples, isWeight: true, domain: weightDomain)
         // Nearest in time of day, like the date scrub on the trend charts, plus
         // the other measure's record from the same minute (one weigh-in).
-        let nearest = isSelecting ? selectedHour.flatMap { hour in
+        let nearest = selectedHour.flatMap { hour in
             dots.min { abs($0.hour - hour) < abs($1.hour - hour) }
-        } : nil
+        }
         let selectedDots = nearest.map { nearest in
             dots.filter { $0.id == nearest.id || ($0.isWeight != nearest.isWeight && minute($0.date) == minute(nearest.date)) }
         } ?? []
@@ -961,16 +936,7 @@ struct BodyBasicsTimeOfDayChart: View {
                 }
             }
         }
-        .chartXSelection(value: $selectedHour)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .updating($isSelecting) { _, isSelecting, _ in
-                    isSelecting = true
-                }
-                .onEnded { _ in
-                    selectedHour = nil
-                }
-        )
+        .bodyChartHoldToScrub($selectedHour, isEnabled: !dots.isEmpty)
         .bodyChartScrubHaptics(selection: nearest?.id)
     }
 

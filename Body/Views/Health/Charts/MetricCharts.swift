@@ -62,7 +62,6 @@ struct BodyHealthMetricTrendChart: View {
 
     @State private var selectedDate: Date?
     @State private var lastSelectedTrendPoint: HealthTrendCalendarPoint?
-    @GestureState private var isSelecting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -495,8 +494,7 @@ struct BodyHealthMetricTrendChart: View {
                     }
                 }
             }
-            .chartXSelection(value: $selectedDate)
-            .simultaneousGesture(chartPressGesture)
+            .bodyChartHoldToScrub($selectedDate)
             .bodyChartScrubHaptics(
                 selection: selectedTrendPoint?.date,
                 isEmphasized: selectedTrendPoint.map { extremePointDates.contains($0.date) } ?? false
@@ -564,7 +562,7 @@ struct BodyHealthMetricTrendChart: View {
     }
 
     private var selectedTrendPoint: HealthTrendCalendarPoint? {
-        guard isSelecting, let selectedDate else {
+        guard let selectedDate else {
             return nil
         }
 
@@ -631,16 +629,6 @@ struct BodyHealthMetricTrendChart: View {
 
     private func syncActiveHighlightedValue() {
         activeHighlightedValue?.wrappedValue = activeHighlightSourceValue
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 
     static func computeYDomain(
@@ -901,7 +889,6 @@ struct BodyHealthMetricDayChart: View {
     let floatingCallout: BodyChartFloatingCalloutState?
 
     @State private var selectedDate: Date?
-    @GestureState private var isSelecting = false
 
     init(
         series: HealthTrendSeries,
@@ -1151,8 +1138,7 @@ struct BodyHealthMetricDayChart: View {
                 }
             }
         }
-        .chartXSelection(value: $selectedDate)
-        .simultaneousGesture(chartPressGesture)
+        .bodyChartHoldToScrub($selectedDate)
         .bodyChartScrubHaptics(selection: selectedBucket?.plotDate)
         .bodyFloatingCalloutReporter(
             floatingCallout,
@@ -1177,7 +1163,7 @@ struct BodyHealthMetricDayChart: View {
     }
 
     private var selectedBucket: BodyHealthMetricDayChartEntry? {
-        guard isSelecting, let selectedDate else {
+        guard let selectedDate else {
             return nil
         }
 
@@ -1228,16 +1214,6 @@ struct BodyHealthMetricDayChart: View {
 
     private var contextTopLineLowerBound: Double {
         BodyHealthMetricDayContextBand.topStripeLowerBound(for: chartYDomain)
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 
     private static func computeYDomain(

@@ -91,7 +91,6 @@ struct BodyHealthSourceComparisonLineChart: View {
     private let chartYDomain: ClosedRange<Double>
 
     @State private var selectedDate: Date?
-    @GestureState private var isSelecting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -302,8 +301,7 @@ struct BodyHealthSourceComparisonLineChart: View {
                 }
             }
         }
-        .chartXSelection(value: $selectedDate)
-        .simultaneousGesture(chartPressGesture)
+        .bodyChartHoldToScrub($selectedDate)
         .bodyChartScrubHaptics(selection: selectedPoint?.date)
         .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedPoint?.date) {
             guard let selectedPoint else {
@@ -336,7 +334,7 @@ struct BodyHealthSourceComparisonLineChart: View {
     }
 
     private var selectedPoint: BodyHealthSourceComparisonLineEntry? {
-        guard isSelecting, let selectedDate else {
+        guard let selectedDate else {
             return nil
         }
 
@@ -391,16 +389,6 @@ struct BodyHealthSourceComparisonLineChart: View {
 
     private var lineStrokeWidth: CGFloat {
         selectedRange.usesPreviewLineChartStyle ? BodyLineChartPreviewStyle.lineWidth : selectedRange.trendLineWidth
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 
     /// Both sources' entries at `range`'s own compressed line points, used to
@@ -573,7 +561,6 @@ struct BodyHealthSourceComparisonBarChart: View {
     private let chartYDomain: ClosedRange<Double>
 
     @State private var selectedDate: Date?
-    @GestureState private var isSelecting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -733,8 +720,7 @@ struct BodyHealthSourceComparisonBarChart: View {
                     }
                 }
             }
-            .chartXSelection(value: $selectedDate)
-            .simultaneousGesture(chartPressGesture)
+            .bodyChartHoldToScrub($selectedDate)
             .bodyChartScrubHaptics(selection: selectedPoint?.chartDate)
             // Paired bars select an exact offset timestamp, not a `.day`-unit mark.
             .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedPoint?.chartDate, centersOnDayInterval: false) {
@@ -778,7 +764,7 @@ struct BodyHealthSourceComparisonBarChart: View {
     }
 
     private var selectedPoint: BodyHealthSourceComparisonBarEntry? {
-        guard isSelecting, let selectedDate else {
+        guard let selectedDate else {
             return nil
         }
 
@@ -808,16 +794,6 @@ struct BodyHealthSourceComparisonBarChart: View {
 
     private func color(for entry: BodyHealthSourceComparisonBarEntry) -> Color {
         entry.sourceRole == .primary ? primaryColor : secondaryColor
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 
     /// Both sources' entries at `range`'s own doubled-bucket aggregation and
@@ -923,7 +899,6 @@ struct BodyHealthSourceComparisonRangeChart: View {
     private let chartYDomain: ClosedRange<Double>
 
     @State private var selectedDate: Date?
-    @GestureState private var isSelecting = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -1106,8 +1081,7 @@ struct BodyHealthSourceComparisonRangeChart: View {
                     }
                 }
             }
-            .chartXSelection(value: $selectedDate)
-            .simultaneousGesture(chartPressGesture)
+            .bodyChartHoldToScrub($selectedDate)
             .bodyChartScrubHaptics(selection: selectedPoint?.chartDate)
             // Paired bars select an exact offset timestamp, not a `.day`-unit mark.
             .bodyFloatingCalloutReporter(floatingCallout, selectionDate: selectedPoint?.chartDate, centersOnDayInterval: false) {
@@ -1143,7 +1117,7 @@ struct BodyHealthSourceComparisonRangeChart: View {
     }
 
     private var selectedPoint: BodyHealthSourceComparisonRangeEntry? {
-        guard isSelecting, let selectedDate else {
+        guard let selectedDate else {
             return nil
         }
 
@@ -1174,16 +1148,6 @@ struct BodyHealthSourceComparisonRangeChart: View {
 
     private func color(for entry: BodyHealthSourceComparisonRangeEntry) -> Color {
         entry.sourceRole == .primary ? primaryColor : secondaryColor
-    }
-
-    private var chartPressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .updating($isSelecting) { _, isSelecting, _ in
-                isSelecting = true
-            }
-            .onEnded { _ in
-                selectedDate = nil
-            }
     }
 
     private static func computeYDomain(from values: [Double]) -> ClosedRange<Double> {
