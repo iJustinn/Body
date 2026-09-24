@@ -9,6 +9,7 @@
 - **Settings › Data › Cache has a new Export Body Radar Replay row.** It writes a JSON file on device with each recent night's inputs, baselines, and scoring steps alongside the frozen verdicts, then opens the share sheet. Nothing is uploaded; the file leaves the phone only if you share it. The row works in Release builds too, so real nights can be compared with other trackers.
 - Updating recomputes Body Radar. Verdicts saved by 1.1.2 still load but are replaced: the Last 21 Nights chart is scored again from cached sleep data under the new rules, so some past nights may change, and saved nights older than the chart range are not kept. Nights whose sleep data is no longer cached stay unscored.
 - For the curious, docs/BodyRadarBeta3Analysis.md explains how these rules were chosen by replaying an Oura export and Apple Watch data, and Scripts/body_radar_replay.py reproduces every number and replays exported files.
+- **Charts no longer steal scrolling.** A swipe that starts on any metric detail chart now scrolls the page: the Week, Month, 6 Month, and Year trend charts (including Body Radar, Vitals, heart rate ranges, and the source comparison charts), the Day View chart, the Sleep Stages and Nap Stages charts, warning card charts, and the Basics Weight and Body Fat, BMI, and Time of Day charts. To see a callout, press and hold on the chart for about a third of a second, then slide to scrub.
 
 ## 1.1.2 (build 8)
 
