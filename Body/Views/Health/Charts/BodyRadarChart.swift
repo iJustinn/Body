@@ -21,6 +21,9 @@ enum BodyRadarChartStyle {
     /// Opacity of a night with no data or no verdict: the same ring, faded, on
     /// the chart and the card preview.
     static let placeholderOpacity = 0.35
+    /// Widest the callout's explanation line may grow before it wraps, so the
+    /// hold note stays readable on a phone instead of running off the edge.
+    static let calloutExplanationMaxWidth: CGFloat = 240
     /// The bands themselves, sized so the hero stands as tall as every other
     /// detail chart once the date axis is added under the plot.
     static let axisHeight: CGFloat = 24
@@ -322,35 +325,70 @@ struct BodyRadarChart: View {
     }
 }
 
+/// What the callout says under a scored night's verdict: an explanation line,
+/// the flagged signals with their signed arrows, or both when a held night
+/// kept its flags. An unscored night shows neither.
+struct BodyRadarCalloutModel {
+    struct Row: Identifiable {
+        let kind: BodyRadarSignalKind
+        let arrowSymbolName: String
+
+        var id: BodyRadarSignalKind {
+            kind
+        }
+    }
+
+    let explanation: String?
+    let rows: [Row]
+
+    init(night: BodyRadarNight) {
+        guard night.state.isScored else {
+            explanation = nil
+            rows = []
+            return
+        }
+
+        rows = night.flaggedSignals.map { signal in
+            Row(kind: signal.kind, arrowSymbolName: signal.deviation >= 0 ? "arrow.up" : "arrow.down")
+        }
+        explanation = night.holdExplanation ?? (rows.isEmpty ? night.unflaggedExplanation : nil)
+    }
+}
+
 /// The scrubbed night: its verdict, the signals that were flagged, and when.
 struct BodyRadarSelectionAnnotation: View {
     let point: BodyRadarChartPoint
     let dateText: String
 
     var body: some View {
+        let callout = BodyRadarCalloutModel(night: point.night)
+
         VStack(alignment: .leading, spacing: 5) {
             Text(point.night.state.title)
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundColor(.primary)
 
-            if point.isScored {
-                if point.night.flaggedSignals.isEmpty {
-                    Text(point.night.unflaggedExplanation)
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(point.night.flaggedSignals) { signal in
-                        HStack(spacing: 6) {
-                            Image(systemName: signal.deviation >= 0 ? "arrow.up" : "arrow.down")
-                                .foregroundStyle(BodyRadarChartStyle.color(for: point.night.region))
-                                .accessibilityHidden(true)
+            if let explanation = callout.explanation {
+                // The hold note is a full sentence; wrap it inside the callout
+                // rather than let the floating callout grow past the screen.
+                Text(explanation)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: BodyRadarChartStyle.calloutExplanationMaxWidth, alignment: .leading)
+            }
 
-                            Text(signal.kind.shortTitle)
-                                .foregroundColor(.secondary)
-                        }
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                    }
+            ForEach(callout.rows) { row in
+                HStack(spacing: 6) {
+                    Image(systemName: row.arrowSymbolName)
+                        .foregroundStyle(BodyRadarChartStyle.color(for: point.night.region))
+                        .accessibilityHidden(true)
+
+                    Text(row.kind.shortTitle)
+                        .foregroundColor(.secondary)
                 }
+                .font(.system(size: 16, weight: .bold, design: .rounded))
             }
 
             Text(dateText)

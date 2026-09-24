@@ -48,7 +48,7 @@ enum HealthMetricKind: String, CaseIterable, Identifiable {
         case .bodyRadar:
             return HealthMetricDetailHelpText(
                 title: String(localized: "bodyRadar.detail.helpTitle", defaultValue: "About Body Radar", table: "BodyMetricsKit"),
-                body: String(localized: "bodyRadar.detail.help", defaultValue: "Body Radar looks for signs of overnight strain by comparing sleeping heart rate, respiratory rate, skin temperature, and heart rate variability with your personal range, learned from up to eight weeks of sleep data. At least two signals need about two weeks of baseline data and seven observations in the last fourteen nights.\nMissing Sleep means there is no qualifying night. Insufficient Data means too few overnight readings are available; Calibrating means more baseline or recent data is needed. Unscored nights can update when more data arrives. A scored result stays fixed for the rest of the day. Several small changes can add up to Minor signs even when no individual signal stands out. Major signs require at least two individually unusual signals.\nIt is not a medical device and does not diagnose conditions.", table: "BodyMetricsKit")
+                body: String(localized: "bodyRadar.detail.help", defaultValue: "Body Radar looks for signs of overnight strain by comparing four signals with your personal range, learned from up to eight weeks of sleep data: sleeping heart rate, respiratory rate, skin temperature, and heart rate variability. Respiratory rate counts whether it rises or falls. At least two signals need about two weeks of baseline data and seven observations in the last fourteen nights.\nMissing Sleep means there is no qualifying night. Insufficient Data means too few overnight readings are available; Calibrating means more baseline or recent data is needed. Unscored nights can update when more data arrives. A scored result stays fixed for the rest of the day. Several small changes can add up to Minor signs even when no individual signal stands out. Minor or Major signs need either two kinds of change on the same night (heart signals, breathing, or temperature) or a change that continued from the previous night; otherwise the night shows No Signs with a note. Major signs require at least two individually unusual signals.\nIt is not a medical device and does not diagnose conditions.", table: "BodyMetricsKit")
             )
         case .sleep:
             return HealthMetricDetailHelpText(
@@ -506,7 +506,7 @@ struct HealthSummarySnapshot: Codable, Equatable {
         stressCurrentScore = nil
         bodyRadar = (try? container.decodeIfPresent(BodyRadarSummary.self, forKey: .bodyRadar))
         // A cold launch must not label the previous algorithm's cached verdict
-        // Beta 2 while the next refresh rebuilds its derived records.
+        // Beta 3 while the next refresh rebuilds its derived records.
         if bodyRadar?.latest?.isCurrentAlgorithm == false {
             bodyRadar = nil
         }

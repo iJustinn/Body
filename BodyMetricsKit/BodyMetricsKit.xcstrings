@@ -1466,13 +1466,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body Radar looks for signs of overnight strain by comparing sleeping heart rate, respiratory rate, skin temperature, and heart rate variability with your personal range, learned from up to eight weeks of sleep data. At least two signals need about two weeks of baseline data and seven observations in the last fourteen nights.\nMissing Sleep means there is no qualifying night. Insufficient Data means too few overnight readings are available; Calibrating means more baseline or recent data is needed. Unscored nights can update when more data arrives. A scored result stays fixed for the rest of the day. Several small changes can add up to Minor signs even when no individual signal stands out. Major signs require at least two individually unusual signals.\nIt is not a medical device and does not diagnose conditions."
+            "value" : "Body Radar looks for signs of overnight strain by comparing four signals with your personal range, learned from up to eight weeks of sleep data: sleeping heart rate, respiratory rate, skin temperature, and heart rate variability. Respiratory rate counts whether it rises or falls. At least two signals need about two weeks of baseline data and seven observations in the last fourteen nights.\nMissing Sleep means there is no qualifying night. Insufficient Data means too few overnight readings are available; Calibrating means more baseline or recent data is needed. Unscored nights can update when more data arrives. A scored result stays fixed for the rest of the day. Several small changes can add up to Minor signs even when no individual signal stands out. Minor or Major signs need either two kinds of change on the same night (heart signals, breathing, or temperature) or a change that continued from the previous night; otherwise the night shows No Signs with a note. Major signs require at least two individually unusual signals.\nIt is not a medical device and does not diagnose conditions."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "身体雷达将睡眠心率、呼吸频率、皮肤温度和心率变异性与根据最多八周睡眠数据学习到的个人范围进行比较，以发现夜间身体承受压力的迹象。至少需要两项信号，每项约两周的基线数据，以及最近十四晚中的七次观测。\n“缺少睡眠”表示没有符合条件的夜间睡眠。“数据不足”表示可用的夜间读数太少；“校准中”表示需要更多基线或近期数据。未评分的夜晚可在更多数据到达后更新。已评分的结果在当天保持不变。即使没有单项信号明显异常，多项小幅变化也可能累积为轻微迹象。明显迹象需要至少两项信号各自出现明显异常。\n这不是医疗设备，不能诊断疾病。"
+            "value" : "身体雷达将睡眠心率、呼吸频率、皮肤温度和心率变异性这四项信号与根据最多八周睡眠数据学习到的个人范围进行比较，以发现夜间身体承受压力的迹象。呼吸频率无论升高还是降低都会计入。至少需要两项信号，每项约两周的基线数据，以及最近十四晚中的七次观测。\n“缺少睡眠”表示没有符合条件的夜间睡眠。“数据不足”表示可用的夜间读数太少；“校准中”表示需要更多基线或近期数据。未评分的夜晚可在更多数据到达后更新。已评分的结果在当天保持不变。即使没有单项信号明显异常，多项小幅变化也可能累积为轻微迹象。轻微或明显迹象需要同一晚出现两类变化（心脏信号、呼吸或体温），或变化从前一晚延续而来；否则该晚显示为“无迹象”并附有说明。明显迹象需要至少两项信号各自出现明显异常。\n这不是医疗设备，不能诊断疾病。"
           }
         }
       }
@@ -1490,6 +1490,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于身体雷达"
+          }
+        }
+      }
+    },
+    "bodyRadar.heldNight" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes on one night only, not enough to confirm strain"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅一晚出现变化，尚不足以确认身体承受压力"
           }
         }
       }

@@ -2917,7 +2917,7 @@ final class SourceGuardTests: XCTestCase {
         }
 
         let base = signature(BodyHealthDataSourceSelection(selectedOptions: [:]))
-        XCTAssertTrue(base.hasSuffix(";radar[2]"))
+        XCTAssertTrue(base.hasSuffix(";radar[3]"))
         for kind in [HealthMetricKind.heartRate, .heartRateVariability, .respiratoryRate, .wristTemperature] {
             let pinned = BodyHealthDataSourceSelection(
                 selectedOptions: [kind: BodyHealthDataSourceOption(id: "com.example.tracker", name: "Tracker")]

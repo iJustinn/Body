@@ -1472,14 +1472,14 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     }
 
     /// Per-kind beta chip label — Readiness and Stress carry the "v1" chip, Body
-    /// Radar shows "Beta v2" instead, and every other card carries no chip at
+    /// Radar shows "Beta v3" instead, and every other card carries no chip at
     /// all.
     var betaVersionLabel: LocalizedStringKey? {
         switch self {
         case .readiness, .stress:
             return "v1"
         case .bodyRadar:
-            return "Beta v2"
+            return "Beta v3"
         case .vitals,
              .cardioFitness,
              .activityRings,

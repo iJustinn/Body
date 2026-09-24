@@ -902,6 +902,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "bodyRadar.state.insufficientData",
             "bodyRadar.combinedChanges",
             "bodyRadar.allTypical",
+            "bodyRadar.heldNight",
             "bodyRadar.state.noSigns",
             "bodyRadar.state.minorSigns",
             "bodyRadar.state.majorSigns",
@@ -932,7 +933,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "bodyRadar.card.allTypical",
             "bodyRadar.detail.recentNights",
             "bodyRadar.chart.bandsDescription",
-            "Beta v2",
+            "Beta v3",
             "bodyRadar.state.noData"
         ]
 
