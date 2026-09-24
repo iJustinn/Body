@@ -312,12 +312,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.1.3;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 1;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
         // All six targets (app, widget, tests, watch app, watch complications, watch tests)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.1.3;"), 12)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 1;"), 12)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 2;"), 12)
         // Strict concurrency stays on project-wide (targeted for now; complete and
         // Swift 6 are separate migrations) so actor and Sendable annotations are checked.
         XCTAssertEqual(project.occurrenceCount(of: "SWIFT_STRICT_CONCURRENCY = targeted;"), 2)
@@ -542,7 +542,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.1.3 build 1)"))
+        XCTAssertTrue(testPlan.contains("app version 1.1.3 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.3 build 1)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.2 build 8)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.2 build 7)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.2 build 6)"))
