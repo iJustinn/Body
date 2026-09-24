@@ -6,7 +6,13 @@ import HealthKit
 final class BodyObservedQuantityBatchTests: XCTestCase {
     private actor ReadGate {
         private var open = false
+        private var entered = false
         private var waiters: [CheckedContinuation<Void, Never>] = []
+        /// True for the first caller only.
+        func claimFirstEntry() -> Bool {
+            defer { entered = true }
+            return !entered
+        }
         func wait() async {
             guard !open else { return }
             await withCheckedContinuation { waiters.append($0) }
@@ -132,9 +138,15 @@ final class BodyObservedQuantityBatchTests: XCTestCase {
             fixture.store.markRefreshSucceeded(date: Date(), refreshedVitals: true, publishesWatch: false)
             let gate = ReadGate()
             let admitted = expectation(description: "quiet read started")
+            // Only the first read, the quiet repair's, fulfills. A later body mass read,
+            // such as a body mass dashboard fetch that reaches this script while the
+            // test runs, must not fulfill again: over-fulfilling raises off the main
+            // thread and aborts the whole test process.
             fixture.health.scriptSamples(for: fixture.types[1], .gated({
-                XCTAssertEqual(HealthKitQueryPool.current, .background)
-                admitted.fulfill()
+                if await gate.claimFirstEntry() {
+                    XCTAssertEqual(HealthKitQueryPool.current, .background)
+                    admitted.fulfill()
+                }
                 await gate.wait()
             }, then: .samples([])))
             let receipts = try await fixture.receipts()
