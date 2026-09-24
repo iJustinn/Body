@@ -3700,22 +3700,6 @@ private struct WorkoutShareVideoPayload: Identifiable {
     let clipID: UUID
 }
 
-/// Wraps `UIActivityViewController` so the system share sheet can be presented via
-/// `.sheet(item:)` — embedding it in a sheet also avoids the iPad popover-anchor crash.
-/// Takes the activity items as-is: a `UIImage` for a card, a file URL for a video.
-private struct BodyShareActivityView: UIViewControllerRepresentable {
-    let items: [Any]
-    let onComplete: () -> Void
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        controller.completionWithItemsHandler = { _, _, _, _ in onComplete() }
-        return controller
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
-
 /// The tray tile scroller: a soft fade over each edge, and a content margin of exactly
 /// that width on each end. The two are what make the fade self-correcting — an edge
 /// with nothing hidden behind it has an empty `fade`-wide gutter under the gradient, so

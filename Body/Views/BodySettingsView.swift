@@ -5038,6 +5038,10 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
 private struct BodyCacheSettingsSheet: View {
     let workoutStore: HealthKitWorkoutStore
     @State private var showingRebuild = false
+    @State private var isExportingReplay = false
+    /// Held until the share sheet dismisses, so the file outlives the hand off.
+    @State private var replayFile: BodyRadarReplayFile?
+    @State private var showingReplayExportError = false
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Cache") {
@@ -5063,6 +5067,24 @@ private struct BodyCacheSettingsSheet: View {
                     Divider()
                         .padding(.leading, 76)
 
+                    Button {
+                        exportBodyRadarReplay()
+                    } label: {
+                        BodySettingsRowLabel(
+                            title: "Export Body Radar Replay",
+                            value: nil,
+                            iconName: "square.and.arrow.up.fill",
+                            tintColor: .indigo,
+                            accessory: .chevron
+                        )
+                    }
+                    .disabled(workoutStore.isRefreshing || isExportingReplay)
+                    .buttonStyle(.plain)
+                    .opacity(workoutStore.isRefreshing || isExportingReplay ? 0.65 : 1)
+
+                    Divider()
+                        .padding(.leading, 76)
+
                     Button(role: .destructive) {
                         Task {
                             await workoutStore.clearLocalCache()
@@ -5081,6 +5103,13 @@ private struct BodyCacheSettingsSheet: View {
                     .opacity(workoutStore.isRefreshing ? 0.65 : 1)
                 }
                 .bodyCardBackground(translucent: true)
+
+                Text("Saves a local file with the nightly inputs and results Body Radar used, for checking the algorithm. Nothing is uploaded.")
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
             }
         }
         .fullScreenCover(isPresented: $showingRebuild) {
@@ -5088,6 +5117,69 @@ private struct BodyCacheSettingsSheet: View {
             // environment, so hand it to the cover explicitly.
             BodyCacheRebuildView(entry: .settings)
                 .environment(workoutStore)
+        }
+        .sheet(item: $replayFile) { file in
+            BodyShareActivityView(items: [file.url]) {
+                replayFile = nil
+                try? FileManager.default.removeItem(at: file.url)
+            }
+        }
+        .alert(Text("Couldn't Export Body Radar Replay"), isPresented: $showingReplayExportError) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    /// Scores one snapshot of the cached inputs under the production rules and
+    /// writes the replay JSON to a temporary file, off the main actor.
+    private func exportBodyRadarReplay() {
+        isExportingReplay = true
+        let sleepHistory = workoutStore.healthTrends.sleepHistory
+        let currentDaySleep = workoutStore.healthSummary.sleep
+        let recorded = workoutStore.healthTrends.recordedBodyRadar
+        // Empty until the first record is captured.
+        let recordContext = workoutStore.healthTrends.recordedBodyRadarContext
+        let recordContextSignature = recordContext.isEmpty ? nil : recordContext
+        let configuredSourceSelection = workoutStore.bodyRadarRecordContextSignature()
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
+                Result {
+                    let now = Date()
+                    var export = BodyRadarCalculator.replay(
+                        sleepHistory: sleepHistory,
+                        currentDaySleep: currentDaySleep,
+                        recorded: recorded,
+                        today: now,
+                        rules: .beta3
+                    )
+                    export.meta.exportedAt = now
+                    export.meta.appVersion = appVersion
+                    export.meta.build = build
+                    export.meta.recordContextSignature = recordContextSignature
+                    export.meta.configuredSourceSelection = configuredSourceSelection
+                    let data = try BodyRadarReplayExport.makeEncoder().encode(export)
+
+                    let formatter = DateFormatter()
+                    formatter.locale = Locale(identifier: "en_US_POSIX")
+                    formatter.dateFormat = "yyyyMMdd-HHmmss"
+                    let suffix = UUID().uuidString.prefix(8).lowercased()
+                    let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+                        "BodyRadarReplay-\(formatter.string(from: now))-\(suffix).json"
+                    )
+                    try data.write(to: url, options: .atomic)
+                    return url
+                }
+            }.value
+
+            isExportingReplay = false
+            switch result {
+            case .success(let url):
+                replayFile = BodyRadarReplayFile(url: url)
+            case .failure:
+                showingReplayExportError = true
+            }
         }
     }
 
@@ -5099,6 +5191,12 @@ private struct BodyCacheSettingsSheet: View {
             details: workoutStore.cacheStatus.detailLines
         )
     }
+}
+
+/// The exported replay waiting for the share sheet.
+private struct BodyRadarReplayFile: Identifiable {
+    let id = UUID()
+    let url: URL
 }
 
 private struct BodyPermissionSwitchToggleStyle: ToggleStyle {

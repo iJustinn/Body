@@ -8372,7 +8372,8 @@ final class HealthKitWorkoutStore {
             + customSourceGroupsSignatureSuffix + ";radar[\(BodyRadarCalculator.algorithmVersion)]"
     }
 
-    private func bodyRadarRecordContextSignature() -> String {
+    /// Internal so the Body Radar replay export can report the configured context.
+    func bodyRadarRecordContextSignature() -> String {
         Self.bodyRadarRecordContextSignature(
             permissionSelection: permissionSelection,
             healthDataSourceSelection: healthDataSourceSelection,

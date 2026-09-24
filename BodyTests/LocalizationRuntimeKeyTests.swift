@@ -626,6 +626,20 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    func testBodyRadarReplayExportStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // Settings › Data › Cache › Export Body Radar Replay: the row, its
+        // footnote, and the failure alert.
+        let keys = [
+            "Export Body Radar Replay",
+            "Saves a local file with the nightly inputs and results Body Radar used, for checking the algorithm. Nothing is uploaded.",
+            "Couldn't Export Body Radar Replay"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
     func testWorkoutDetailsExplanationKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
