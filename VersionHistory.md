@@ -1,3 +1,7 @@
+## 1.1.3 (build 3)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.3 build 3.
+
 ## 1.1.3 (build 2)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.3 build 2.
