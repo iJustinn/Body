@@ -861,7 +861,7 @@ final class HealthKitWorkoutStore {
             timeZoneIdentifier: calendar.timeZone.identifier,
             summaryDayStart: calendar.startOfDay(for: now),
             idealSleepDuration: Self.storedIdealSleepDuration(),
-            fetchSelection: BodyDashboardFetchSelection.load()
+            fetchSelection: BodyDashboardFetchSelection.load(isProUnlocked: isProUnlocked)
         )
         // Preserve the explicit settings action across coalesced edits. Passive
         // context detection must not downgrade a user-requested repair.
@@ -5683,7 +5683,7 @@ final class HealthKitWorkoutStore {
             monthCount = Self.recentChartMonthCount
         }
         let keys = Self.recentMonthKeys(count: monthCount, from: date, calendar: calendar)
-        let dashboardFetchSelection = BodyDashboardFetchSelection.load()
+        let dashboardFetchSelection = BodyDashboardFetchSelection.load(isProUnlocked: isProUnlocked)
         let includesWorkouts = permissionSelection.includes(.workouts)
         if !includesWorkouts {
             clearWorkoutSnapshots(calendar: calendar)
@@ -5894,7 +5894,7 @@ final class HealthKitWorkoutStore {
 
         var hadQueryFailure = false
         var fetchedPartialTrendWindow = false
-        let dashboardFetchSelection = BodyDashboardFetchSelection.load()
+        let dashboardFetchSelection = BodyDashboardFetchSelection.load(isProUnlocked: isProUnlocked)
         do {
             if updatesHealthSummary {
                 await fetchHealthDataSourceOptions(calendar: calendar, force: true)
@@ -7204,7 +7204,7 @@ final class HealthKitWorkoutStore {
     }
 
     private func dashboardFreshnessContextSignature() -> String {
-        let selection = BodyDashboardFetchSelection.load()
+        let selection = BodyDashboardFetchSelection.load(isProUnlocked: isProUnlocked)
         let tiers = HealthMetricKind.allCases.sorted { $0.rawValue < $1.rawValue }.map {
             "\($0.rawValue):\(selection.includes($0)):\(selection.includesFullPayload($0))"
         }
@@ -8094,9 +8094,15 @@ final class HealthKitWorkoutStore {
             readinessHeroShowsLevel: UserDefaults.standard.object(
                 forKey: BodyAppearancePreference.readinessHeroShowsLevelKey
             ) as? Bool ?? true,
-            homeHeroRaw: UserDefaults.standard.string(
-                forKey: BodyAppearancePreference.starredMetricKey
-            ) ?? BodyStarMetric.readiness.rawValue,
+            // The watch mirrors the hero the phone actually shows, so a free user's
+            // stored Day Ring is clamped here too.
+            homeHeroRaw: (BodyStarMetric.proGated(
+                BodyStarMetric.from(
+                    rawValue: UserDefaults.standard.string(forKey: BodyAppearancePreference.starredMetricKey)
+                        ?? BodyStarMetric.readiness.rawValue
+                ),
+                isProUnlocked: isProUnlocked
+            ) ?? .readiness).rawValue,
             dayRingShowsCaption: UserDefaults.standard.object(
                 forKey: BodyAppearancePreference.dayRingShowsCaptionKey
             ) as? Bool ?? true,

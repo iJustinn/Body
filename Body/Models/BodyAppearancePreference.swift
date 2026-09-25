@@ -1120,13 +1120,18 @@ struct BodyDashboardFetchSelection: Equatable {
         metricKinds.contains(kind) && !fullPayloadKinds.contains(kind)
     }
 
-    static func load(defaults: UserDefaults = .standard) -> BodyDashboardFetchSelection {
+    /// `isProUnlocked` clamps a stored Pro hero to the one a free user sees, so its
+    /// metric (readiness) is fetched for the hero that actually renders.
+    static func load(defaults: UserDefaults = .standard, isProUnlocked: Bool = true) -> BodyDashboardFetchSelection {
         BodyDashboardFetchSelection(
             summaryCards: BodySummaryCardSelection.load(defaults: defaults),
             trendCards: BodyHomeTrendCardSelection.load(defaults: defaults),
-            starredMetric: BodyStarMetric.from(
-                rawValue: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
-                    ?? BodyStarMetric.readiness.rawValue
+            starredMetric: BodyStarMetric.proGated(
+                BodyStarMetric.from(
+                    rawValue: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
+                        ?? BodyStarMetric.readiness.rawValue
+                ),
+                isProUnlocked: isProUnlocked
             )
         )
     }
@@ -1873,6 +1878,19 @@ enum BodyStarMetric: String, CaseIterable, Identifiable {
     /// Parses the stored star-metric preference; empty / unknown -> nil (None).
     static func from(rawValue: String) -> BodyStarMetric? {
         BodyStarMetric(rawValue: rawValue)
+    }
+
+    /// The Day Ring is a Body Pro hero; the Readiness Ring and None are free.
+    var isProGated: Bool {
+        self == .dayRing
+    }
+
+    /// The hero a user actually gets: a stored Pro hero falls back to the Readiness
+    /// Ring until Pro unlocks. The stored pick is left alone, as backgrounds and
+    /// workout colors do, so buying Pro brings it back without re-picking.
+    static func proGated(_ metric: BodyStarMetric?, isProUnlocked: Bool) -> BodyStarMetric? {
+        guard let metric, metric.isProGated, !isProUnlocked else { return metric }
+        return .readiness
     }
 
     var id: String {

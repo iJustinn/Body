@@ -8921,6 +8921,23 @@
         }
       }
     },
+    "More Home Heroes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More Home Heroes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更多首页主视图"
+          }
+        }
+      }
+    },
     "Move" : {
       "extractionState" : "manual",
       "localizations" : {

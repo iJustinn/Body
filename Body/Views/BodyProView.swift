@@ -1578,6 +1578,11 @@ private struct BodyProFeature: Identifiable {
 
         // Elsewhere in the app.
         BodyProFeature(
+            id: "home-heroes",
+            title: String(localized: "More Home Heroes"),
+            iconName: "star.fill"
+        ),
+        BodyProFeature(
             id: "custom-backgrounds",
             title: String(localized: "Custom Backgrounds"),
             iconName: "paintpalette.fill"

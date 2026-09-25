@@ -43,7 +43,10 @@ struct BodyHomePageBackground: View {
     @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var homeBackgroundSeparatorsRawValue = ""
 
     private var starMetric: BodyStarMetric? {
-        BodyStarMetric.from(rawValue: starredMetricRawValue)
+        BodyStarMetric.proGated(
+            BodyStarMetric.from(rawValue: starredMetricRawValue),
+            isProUnlocked: proStore?.isPro ?? false
+        )
     }
 
     private var isReadinessStarred: Bool {
@@ -144,10 +147,14 @@ struct BodyHomePageBackground: View {
 /// selected tab and switches with the page, without any fade between the two.
 struct BodyTabPageBackground: View {
     @Environment(\.selectedMainTab) private var selectedTab
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
 
     private var hasStarMetric: Bool {
-        BodyStarMetric.from(rawValue: starredMetricRawValue) != nil
+        BodyStarMetric.proGated(
+            BodyStarMetric.from(rawValue: starredMetricRawValue),
+            isProUnlocked: proStore?.isPro ?? false
+        ) != nil
     }
 
     var body: some View {

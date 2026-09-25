@@ -650,8 +650,12 @@ struct BodySettingsView: View {
         }
     }
 
+    // The hero a free user actually sees, not a stored Day Ring waiting on Pro.
     private var starredMetricSummaryText: String {
-        BodyStarMetric.from(rawValue: starredMetricRawValue)?.title ?? String(localized: "None")
+        BodyStarMetric.proGated(
+            BodyStarMetric.from(rawValue: starredMetricRawValue),
+            isProUnlocked: proStore?.isPro ?? false
+        )?.title ?? String(localized: "None")
     }
 
     // When the background is on, the row names the matching saved profile so the
@@ -1674,8 +1678,20 @@ private struct BodySummaryCardsSettingsSheet: View {
 
 private struct BodyStarMetricPickerSheet: View {
     @Binding var selection: BodyStarMetric?
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
     @AppStorage(BodyAppearancePreference.dayRingShowsCaptionKey) private var dayRingShowsCaption = true
+    @State private var showBodyProPaywall = false
+
+    private var isProUnlocked: Bool {
+        proStore?.isPro ?? false
+    }
+
+    /// The checkmark follows the hero a free user sees, not a stored Day Ring
+    /// waiting on Pro, so a locked row can never read as selected.
+    private var effectiveSelection: BodyStarMetric? {
+        BodyStarMetric.proGated(selection, isProUnlocked: isProUnlocked)
+    }
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Home Hero") {
@@ -1685,12 +1701,14 @@ private struct BodyStarMetricPickerSheet: View {
                     subtitle: String(localized: "No metric pinned to the top of Home"),
                     iconName: "circle.slash",
                     tintColor: .secondary,
-                    isSelected: selection == nil
+                    isSelected: effectiveSelection == nil
                 ) {
                     selection = nil
                 }
 
                 ForEach(BodyStarMetric.allCases) { card in
+                    let isLocked = card.isProGated && !isProUnlocked
+
                     Divider()
                         .padding(.leading, 76)
 
@@ -1699,20 +1717,25 @@ private struct BodyStarMetricPickerSheet: View {
                         subtitle: card.subtitle,
                         iconName: card.iconName,
                         tintColor: card.tintColor,
-                        isSelected: selection == card
+                        isSelected: effectiveSelection == card,
+                        isLocked: isLocked
                     ) {
-                        selection = card
+                        if isLocked {
+                            showBodyProPaywall = true
+                        } else {
+                            selection = card
+                        }
                     }
 
                     // Its options show only while the ring is the one pinned.
-                    if card == .readiness, selection == .readiness {
+                    if card == .readiness, effectiveSelection == .readiness {
                         BodyStarMetricSubOptionToggleRow(
                             title: "Readiness Level",
                             subtitle: "Show today's level under the score",
                             isEnabled: $readinessHeroShowsLevel
                         )
                     }
-                    if card == .dayRing, selection == .dayRing {
+                    if card == .dayRing, effectiveSelection == .dayRing {
                         BodyStarMetricSubOptionToggleRow(
                             title: "Day Caption",
                             subtitle: "Show a caption under the number",
@@ -1722,6 +1745,9 @@ private struct BodyStarMetricPickerSheet: View {
                 }
             }
             .bodyCardBackground(translucent: true)
+        }
+        .sheet(isPresented: $showBodyProPaywall) {
+            NavigationStack { BodyProView(showsCloseButton: true) }
         }
     }
 }
@@ -2998,6 +3024,9 @@ private struct BodyStarMetricOptionRow: View {
     let iconName: String
     let tintColor: Color
     let isSelected: Bool
+    /// A Body Pro option a free user is looking at: a lock stands in for the
+    /// checkmark, and the action opens the paywall.
+    var isLocked = false
     let action: () -> Void
 
     var body: some View {
@@ -3023,7 +3052,11 @@ private struct BodyStarMetricOptionRow: View {
 
                 Spacer(minLength: 12)
 
-                if isSelected {
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.secondary)
+                } else if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 21, weight: .semibold))
                         .foregroundColor(tintColor)
@@ -3035,6 +3068,7 @@ private struct BodyStarMetricOptionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityHint(isLocked ? "Requires Body Pro" : "")
         .bodySelectionHaptics(isSelected: isSelected)
     }
 }

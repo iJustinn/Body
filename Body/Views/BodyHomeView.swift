@@ -975,7 +975,10 @@ struct BodyHomeView: View {
     }
 
     private var starMetric: BodyStarMetric? {
-        BodyStarMetric.from(rawValue: starredMetricRawValue)
+        BodyStarMetric.proGated(
+            BodyStarMetric.from(rawValue: starredMetricRawValue),
+            isProUnlocked: workoutStore.isProUnlocked
+        )
     }
 
     /// The Summary card the pinned hero stands in for. The Day Ring replaces none.

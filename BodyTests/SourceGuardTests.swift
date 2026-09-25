@@ -1918,9 +1918,9 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(source.contains("isProUnlocked: isBodyProUnlocked"))
         XCTAssertTrue(source.contains("onLockedRangeTap: { showBodyProPaywall = true }"))
 
-        // Day-picker gate: a 3-day free window, and the effective selected day is clamped
+        // Day-picker gate: a 2-day free window, and the effective selected day is clamped
         // so a locked day never renders.
-        XCTAssertTrue(source.contains("static let freeDatePickerDayCount = 3"))
+        XCTAssertTrue(source.contains("static let freeDatePickerDayCount = 2"))
         XCTAssertTrue(source.contains("func isDatePickerDateLocked"))
         XCTAssertTrue(source.contains("func clampedDatePickerDay"))
         XCTAssertTrue(source.contains("clampedDatePickerDay(selectedMetricDate)"))
@@ -2542,6 +2542,30 @@ final class SourceGuardTests: XCTestCase {
     /// and the three `source*ComparisonTrend` accessors all resolve through them. A
     /// chokepoint that goes back to the raw static silently freezes the comparison charts,
     /// the source picker sheet and the Settings default-source rows on a Pro flip.
+
+    /// Every reader of the stored Home Hero clamps it through `BodyStarMetric.proGated`,
+    /// so a free user's stored Day Ring never renders anywhere: Home, the page
+    /// background, the watch mirror, the dashboard fetch, or the Settings row.
+    func testStoredHomeHeroIsProGatedAtEveryReader() throws {
+        for (path, count) in [
+            ("Body/Views/BodyHomeView.swift", 1),
+            ("Body/Views/BodyTabBackground.swift", 2),
+            ("Body/Services/HealthKitWorkoutStore.swift", 1),
+            ("Body/Models/BodyAppearancePreference.swift", 1),
+            ("Body/Views/BodySettingsView.swift", 2)
+        ] {
+            let source = try BodyTestSupport.sourceText(at: path)
+            XCTAssertEqual(source.occurrenceCount(of: "BodyStarMetric.proGated("), count, path)
+        }
+
+        // The store passes its entitlement to every fetch selection load whose hero
+        // clamp can change what is fetched.
+        let store = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        XCTAssertEqual(store.occurrenceCount(of: "BodyDashboardFetchSelection.load(isProUnlocked: isProUnlocked)"), 4)
+
+        let pro = try BodyTestSupport.sourceText(at: "Body/Views/BodyProView.swift")
+        XCTAssertTrue(pro.contains("id: \"home-heroes\""))
+    }
 
     func testProGatedSourceResolutionReadsTheEntitlementGeneration() throws {
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
@@ -4854,8 +4878,9 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(bodyProSource.contains("LazyVGrid(columns: columns, spacing: 10)"))
         XCTAssertFalse(bodyProSource.contains("BodyProFeatureCheckmark"))
         XCTAssertFalse(bodyProSource.contains("let detail: String\n    let iconName: String"))
-        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 11)
+        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 12)
         XCTAssertTrue(bodyProSource.contains("Longer-Range Charts"))
+        XCTAssertTrue(bodyProSource.contains("More Home Heroes"))
         XCTAssertTrue(bodyProSource.contains("Full Day History"))
         XCTAssertTrue(bodyProSource.contains("Custom Backgrounds"))
         XCTAssertTrue(bodyProSource.contains("Secondary Data Source"))
@@ -4910,7 +4935,8 @@ final class SourceGuardTests: XCTestCase {
         // Sheets presented from locked controls (and the paywall as a flow step) get a
         // close button; the Settings entry pushes the page and keeps its back button.
         XCTAssertTrue(bodyProSource.contains("if showsCloseButton || onContinue != nil {"))
-        XCTAssertEqual(settingsSource.occurrenceCount(of: "NavigationStack { BodyProView(showsCloseButton: true) }"), 2)
+        // Sources, Workouts colors, and the Home Hero sheet (its Day Ring row).
+        XCTAssertEqual(settingsSource.occurrenceCount(of: "NavigationStack { BodyProView(showsCloseButton: true) }"), 3)
         for sheetPath in [
             "Body/Views/Health/BodyWorkoutShareSheet.swift",
             "Body/Views/Health/BodyHealthMetricDetailView.swift",
@@ -5303,8 +5329,9 @@ final class SourceGuardTests: XCTestCase {
         let hero = try BodyTestSupport.sourceText(at: "Body/Views/BodyDayRingHero.swift")
             + BodyTestSupport.sourceText(at: "BodyWatchSnapshotKit/BodyDayRingTrack.swift")
 
-        // The caption toggle shows only while the Day Ring is the pinned hero.
-        XCTAssertTrue(settings.contains("if card == .dayRing, selection == .dayRing {"))
+        // The caption toggle shows only while the Day Ring is the pinned hero, and it reads
+        // the Pro-clamped selection so a free user's stored Day Ring shows no toggle.
+        XCTAssertTrue(settings.contains("if card == .dayRing, effectiveSelection == .dayRing {"))
         XCTAssertTrue(settings.contains("title: \"Day Caption\""))
         // Picking it must start a fetch: the Day Ring adds sleep to the fetch selection.
         XCTAssertTrue(settings.contains(".onChange(of: starredMetricRawValue) {"))
