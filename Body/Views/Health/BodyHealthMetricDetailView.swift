@@ -453,15 +453,22 @@ struct BodyHealthMetricDetailView: View {
     @StateObject private var workoutIndex = BodyCachedWorkoutIndex()
     @StateObject private var rangePointsCache = BodyTrendRangePointsCache()
 
+    /// Set when the page is shown in a foldable's left pane: the navigation bar is
+    /// hidden and a header with a Back chevron (calling this), the title, and the
+    /// page's actions stands in for it.
+    private let paneClose: (() -> Void)?
+
     init(
         model: BodyHealthMetricDetailModel,
         initialTrendRange: BodyHealthTrendRange = BodyHealthTrendRange.defaultValue,
         zoomNamespace: Namespace.ID? = nil,
-        floatingCallout: BodyChartFloatingCalloutState? = nil
+        floatingCallout: BodyChartFloatingCalloutState? = nil,
+        paneClose: (() -> Void)? = nil
     ) {
         self.model = model
         self.zoomNamespace = zoomNamespace
         self.floatingCallout = floatingCallout
+        self.paneClose = paneClose
         _selectedTrendRangeSelection = State(initialValue: initialTrendRange)
     }
 
@@ -576,9 +583,24 @@ struct BodyHealthMetricDetailView: View {
                 endPoint: UnitPoint(x: 0.5, y: 0.5)
             )
             .ignoresSafeArea()
+            // In a foldable's pane the backdrop fades out along its trailing edge into
+            // the tab background beside it rather than ending in a hard vertical edge.
+            .mask {
+                BodyPaneBackdropMask(fadesTrailingEdge: paneClose != nil)
+            }
         }
         .navigationTitle(String(localized: String.LocalizationValue(model.title)))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(paneClose == nil ? .automatic : .hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let paneClose {
+                BodyPaneDetailHeader(title: String(localized: String.LocalizationValue(model.title)), onClose: paneClose) {
+                    if isBasicsDetail {
+                        addMeasurementButton
+                    }
+                }
+            }
+        }
         .onChange(of: selectedTrendRange) { _, _ in
             // The hero charts are keyed by range, so switching mid-scrub destroys the chart
             // instance before it can report the selection ending. The reporter's
@@ -596,12 +618,7 @@ struct BodyHealthMetricDetailView: View {
         .toolbar {
             if isBasicsDetail {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showsAddMeasurementSheet = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("Add Measurement")
+                    addMeasurementButton
                 }
             }
         }
@@ -624,6 +641,15 @@ struct BodyHealthMetricDetailView: View {
             )
             .environment(workoutStore)
         }
+    }
+
+    private var addMeasurementButton: some View {
+        Button {
+            showsAddMeasurementSheet = true
+        } label: {
+            Image(systemName: "plus")
+        }
+        .accessibilityLabel("Add Measurement")
     }
 
     private var selectedEnergyUnitPreference: BodyValueFormat.EnergyUnitPreference {

@@ -370,6 +370,10 @@ private struct BodyActivityRingCompletionStar: View {
 }
 
 struct BodyActivityRingsDetailView: View {
+    /// Set when the page is shown in a foldable's left pane: the navigation bar is
+    /// hidden and a header with a Back chevron (calling this), the title, and the
+    /// Today button stands in for it.
+    var paneClose: (() -> Void)? = nil
     @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var calendarMonths: [ActivityRingCalendarMonth] = []
@@ -536,13 +540,29 @@ struct BodyActivityRingsDetailView: View {
                 refreshCalendarMonths()
             }
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background {
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
+                .mask {
+                    BodyPaneBackdropMask(fadesTrailingEdge: paneClose != nil)
+                }
+        }
         .navigationTitle("Activity Rings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if isAwayFromToday {
                 ToolbarItem(placement: .topBarTrailing) {
                     todayToolbarButton
+                }
+            }
+        }
+        .toolbar(paneClose == nil ? .automatic : .hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let paneClose {
+                BodyPaneDetailHeader(title: String(localized: "Activity Rings"), onClose: paneClose) {
+                    if isAwayFromToday {
+                        todayToolbarButton
+                    }
                 }
             }
         }
