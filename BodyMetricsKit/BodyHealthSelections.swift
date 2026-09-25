@@ -69,6 +69,10 @@ enum BodyAppearancePreference {
     /// Marketing version the user last completed the update page (the cache
     /// rebuild explainer) on; empty until then. See `BodyOnboardingGate`.
     static let updateOnboardingCompletedVersionKey = "updateOnboardingCompletedVersion"
+    /// Set once the Body Pro paywall has been shown as part of a flow: at the end
+    /// of first-run onboarding, or once to installs that were set up before the
+    /// subscriptions arrived. See `BodyOnboardingGate.shouldPresentProIntro`.
+    static let proIntroPaywallShownKey = "proIntroPaywallShown"
 
     /// Whether the app's UI is currently running in English. Short uppercase
     /// month names only read correctly in English, so the setting that turns
@@ -935,6 +939,17 @@ enum BodyOnboardingGate {
             return false
         }
         return (updateCompletedVersion ?? "").compare(updateOnboardingVersion, options: .numeric) == .orderedAscending
+    }
+
+    /// Whether the one-time Body Pro paywall is due on launch: an install that
+    /// finished onboarding before the subscriptions existed (first-run onboarding
+    /// now ends on the paywall and sets the flag itself), once the update page is
+    /// out of the way, and only until it has been shown. Whether the customer
+    /// already owns Pro is the caller's check, once the entitlement resolves.
+    static func shouldPresentProIntro(shown: Bool, completedVersion: String?, updateCompletedVersion: String?) -> Bool {
+        !shown
+            && !shouldPresent(completedVersion: completedVersion)
+            && !shouldPresentUpdate(completedVersion: completedVersion, updateCompletedVersion: updateCompletedVersion)
     }
 
     /// What the update page records on completion: marketing version plus

@@ -11,7 +11,8 @@ import SwiftUI
 /// reachable from Settings › About › Onboarding, which shows a Close button
 /// and skips the Health load the first run already ran. The first run also
 /// opens with `BodyIntroAnimationView`, the word field that streams across the
-/// welcome page (tap to skip, Reduce Motion drops it).
+/// welcome page (tap to skip, Reduce Motion drops it), and ends on the Body Pro
+/// paywall, where Continue for Free is the way on (members who own Pro skip it).
 struct BodyOnboardingView: View {
     enum Mode {
         case firstRun
@@ -37,12 +38,16 @@ struct BodyOnboardingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(HealthKitWorkoutStore.self) private var workoutStore
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.updateOnboardingCompletedVersionKey) private var updateOnboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
+    @AppStorage(BodyAppearancePreference.proIntroPaywallShownKey) private var proIntroPaywallShown = false
     @State private var showsWorkoutEffortWriteDenied = false
+    /// The first run's last step: the Body Pro paywall over the finished pages.
+    @State private var showsProPaywall = false
     /// Retains the opt-in auto-apply pass so switching it off cancels the
     /// in-flight batch (same contract as the Settings sheet).
     @State private var pageWidth: CGFloat = 0
@@ -164,6 +169,17 @@ struct BodyOnboardingView: View {
                 .allowsHitTesting(introState == .playing)
             }
         }
+        // The pages stay mounted under the paywall (the Health load keeps running),
+        // but VoiceOver only reaches the paywall.
+        .accessibilityHidden(showsProPaywall)
+        .overlay {
+            if showsProPaywall {
+                NavigationStack {
+                    BodyProView(onContinue: finish)
+                }
+                .transition(.move(edge: .trailing))
+            }
+        }
         .interactiveDismissDisabled(mode == .firstRun)
         .onChange(of: sleepDurationGoalMinutes) { republishCompanionSnapshotsIfFirstRun() }
         .onAppear {
@@ -230,7 +246,7 @@ struct BodyOnboardingView: View {
             case .firstRun:
                 if showsSkipButton {
                     Button {
-                        finish()
+                        finishPages()
                     } label: {
                         Text("onboarding.skip")
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -1054,7 +1070,7 @@ struct BodyOnboardingView: View {
         }
 
         if step == Self.lastStep {
-            finish()
+            finishPages()
             return
         }
 
@@ -1105,7 +1121,26 @@ struct BodyOnboardingView: View {
         }
     }
 
+    /// Leaving the pages, by Get Started or Skip. The first run moves on to the Body Pro
+    /// paywall, whose Continue for Free (or a purchase) then finishes the flow; members
+    /// who already own Pro, and the Settings replay, finish straight away.
+    private func finishPages() {
+        guard mode == .firstRun, !(proStore?.isPro ?? false) else {
+            finish()
+            return
+        }
+
+        withAnimation(reduceMotion ? nil : .snappy) {
+            showsProPaywall = true
+        }
+    }
+
     private func finish() {
+        // The first run shows the paywall itself, so the one-time introduction for
+        // installs set up before the subscriptions never follows it.
+        if mode == .firstRun {
+            proIntroPaywallShown = true
+        }
         onboardingCompletedVersion = BodyOnboardingGate.currentAppVersion()
         // A fresh install has nothing to rebuild, so first-run completion also
         // settles the update page (`BodyOnboardingGate.shouldPresentUpdate`).

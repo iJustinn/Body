@@ -5014,6 +5014,51 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(widgetSource.contains("usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked"))
     }
 
+    /// The Body Pro paywall as a step in the app's own flows: first-run onboarding ends on
+    /// it, and installs set up before the subscriptions see it once on launch. Both offer
+    /// Continue for Free, and members who already own Pro never see either.
+    func testProPaywallEndsOnboardingAndShowsOnceToExistingInstalls() throws {
+        let selections = try BodyTestSupport.sourceText(at: "BodyMetricsKit/BodyHealthSelections.swift")
+        XCTAssertTrue(selections.contains(#"static let proIntroPaywallShownKey = "proIntroPaywallShown""#))
+
+        // Due only for an install that finished onboarding (a fresh install gets the
+        // paywall at the end of onboarding instead), after the update page, and once.
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: nil, updateCompletedVersion: nil))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "", updateCompletedVersion: nil))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: true, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.0.3", updateCompletedVersion: nil))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.0.3", updateCompletedVersion: "1.1.3.3"))
+
+        // Onboarding: Get Started and Skip both lead to the paywall on the first run,
+        // and only its Continue for Free (or a purchase) finishes the flow, which also
+        // settles the one-time introduction.
+        let onboardingView = try BodyTestSupport.sourceText(at: "Body/Views/BodyOnboardingView.swift")
+        XCTAssertEqual(onboardingView.occurrenceCount(of: "finishPages()"), 2 + 1)
+        XCTAssertTrue(onboardingView.contains("guard mode == .firstRun, !(proStore?.isPro ?? false) else {"))
+        XCTAssertTrue(onboardingView.contains("BodyProView(onContinue: finish)"))
+        XCTAssertTrue(onboardingView.contains("if mode == .firstRun {\n            proIntroPaywallShown = true\n        }"))
+
+        // Launch: shown once, recorded the moment it is due, never to Pro members, and
+        // the notification prompt waits for it.
+        let mainTabView = try BodyTestSupport.sourceText(at: "Body/Views/MainTabView.swift")
+        XCTAssertTrue(mainTabView.contains("&& (proStore?.hasResolved ?? false)"))
+        XCTAssertTrue(mainTabView.contains("BodyOnboardingGate.shouldPresentProIntro("))
+        XCTAssertTrue(mainTabView.contains("proIntroPaywallShown = true\n                if !(proStore?.isPro ?? false) {\n                    isProIntroPresented = true"))
+        XCTAssertTrue(mainTabView.contains(".fullScreenCover(isPresented: $isProIntroPresented)"))
+        XCTAssertTrue(mainTabView.contains("BodyProView(onContinue: { isProIntroPresented = false })"))
+        XCTAssertTrue(mainTabView.contains("&& !isProIntroPresented && !workoutStore.needsInitialHealthDataLoad"))
+
+        // The paywall keeps Continue for Free on screen in a flow even without plans,
+        // its close button continues the flow, and a purchase carries on by itself.
+        let bodyProSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyProView.swift")
+        XCTAssertTrue(bodyProSource.contains("var onContinue: (() -> Void)?"))
+        XCTAssertTrue(bodyProSource.contains("if offersPlans || onContinue != nil {"))
+        XCTAssertTrue(bodyProSource.contains(#"Text("Continue for Free")"#))
+        XCTAssertTrue(bodyProSource.contains("if showsCloseButton || onContinue != nil {"))
+        XCTAssertTrue(bodyProSource.contains("try? await Task.sleep(for: .seconds(1.2))\n                    onContinue()"))
+    }
+
     func testShareTrayScrollerPinsItsAnchorAndAlwaysFadesBothEdges() throws {
         let shareSheetSource = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyWorkoutShareSheet.swift")
 

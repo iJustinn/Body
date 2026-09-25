@@ -40,6 +40,7 @@ struct MainTabView: View {
     @Bindable private var notificationRoute = BodyAppRuntime.shared.notificationRoute
     @Environment(\.scenePhase) private var scenePhase
     @Environment(HealthKitWorkoutStore.self) private var workoutStore
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @State private var showsNotificationExplainer = false
     @State private var readinessHeroState = BodyReadinessHeroState()
     /// The hinge posture on a foldable iPhone, read once here for every tab.
@@ -54,6 +55,8 @@ struct MainTabView: View {
     @AppStorage(BodyAppearancePreference.navigationBarShowsLabelsKey) private var navigationBarShowsLabels = false
     @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.updateOnboardingCompletedVersionKey) private var updateOnboardingCompletedVersion = ""
+    @AppStorage(BodyAppearancePreference.proIntroPaywallShownKey) private var proIntroPaywallShown = false
+    @State private var isProIntroPresented = false
 
     /// Shown until onboarding has been completed on 1.0.0 or later
     /// (`BodyOnboardingGate`); pre-release installs recorded nothing, so they
@@ -100,6 +103,20 @@ struct MainTabView: View {
         }
     }
 
+    /// Installs set up before the subscriptions existed see the new Body Pro paywall once,
+    /// after onboarding and the update page, and only once the entitlement has resolved
+    /// so members who already own Pro are never shown it (`BodyOnboardingGate`). The
+    /// first run ends on the paywall inside onboarding instead.
+    private var proIntroReady: Bool {
+        scenePhase == .active
+            && (proStore?.hasResolved ?? false)
+            && BodyOnboardingGate.shouldPresentProIntro(
+                shown: proIntroPaywallShown,
+                completedVersion: onboardingCompletedVersion,
+                updateCompletedVersion: updateOnboardingCompletedVersion
+            )
+    }
+
     /// Wraps the tab selection so re-tapping the already-active Summary tab bumps
     /// `summaryReselectCount`. Both the native tab bar and the custom pill bar route
     /// selection through this; the selection itself still updates normally.
@@ -116,7 +133,7 @@ struct MainTabView: View {
 
     private var notificationReady: Bool {
         scenePhase == .active && !showsOnboarding && !showsUpdateOnboarding && !isFirstLaunchOverlayPresented
-            && !workoutStore.needsInitialHealthDataLoad && !workoutStore.isRefreshing
+            && !isProIntroPresented && !workoutStore.needsInitialHealthDataLoad && !workoutStore.isRefreshing
     }
 
     /// A tapped notification navigates as soon as the cached dashboard has data: the
@@ -168,6 +185,23 @@ struct MainTabView: View {
             }
             .fullScreenCover(isPresented: isUpdateOnboardingPresented) {
                 BodyCacheRebuildView(entry: .update)
+            }
+            .task(id: proIntroReady) {
+                guard proIntroReady else { return }
+                // Lets a cover that just closed (the update page) finish animating away.
+                try? await Task.sleep(for: .milliseconds(700))
+                guard !Task.isCancelled, proIntroReady else { return }
+                // Recorded as soon as it is due, so it shows once even if the app is
+                // closed on it; members who already own Pro just settle the flag.
+                proIntroPaywallShown = true
+                if !(proStore?.isPro ?? false) {
+                    isProIntroPresented = true
+                }
+            }
+            .fullScreenCover(isPresented: $isProIntroPresented) {
+                NavigationStack {
+                    BodyProView(onContinue: { isProIntroPresented = false })
+                }
             }
     }
 
