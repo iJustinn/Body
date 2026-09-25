@@ -629,9 +629,10 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
         XCTAssertLessThanOrEqual(score, 30, "perfect sleep must not dilute a crashed autonomic core")
     }
 
-    /// Extreme vitals anomalies must keep forcing a Poor-band score even with
-    /// a neutral autonomic core (replacement for the old severe limiter).
-    func testSevereVitalsAnomalyCapsScoreAtPoor() throws {
+    /// v2: one out-of-range vital only trims the score. With a neutral
+    /// autonomic core (72) the 20% ceiling lands near 58, not the old 25 cap,
+    /// and the vital still surfaces as a driver.
+    func testSingleSevereVitalsAnomalyNoLongerCapsScore() throws {
         let calendar = Calendar.bodyGregorian
         let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
 
@@ -640,16 +641,105 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
         trends.restingHeartRate = constantSeries(baseline: 58, today: 58, on: scoreDay, calendar: calendar)
         trends.wristTemperature = constantSeries(baseline: 35.7, today: 36.5, on: scoreDay, calendar: calendar)
 
+        let summary = ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+        )
+        let score = try XCTUnwrap(summary.score)
+
+        XCTAssertGreaterThanOrEqual(score, 55, "a single severe vital must not pin a neutral core into Poor")
+        XCTAssertLessThanOrEqual(score, 60, "the vitals trim is capped at 20% of the core")
+        XCTAssertTrue(summary.drivers.contains { $0.kind == .wristTemperatureAboveBaseline })
+    }
+
+    /// v2: strong heart signals carry the score even through a severe single
+    /// vital anomaly (a feverish night with great HRV must not read Poor).
+    func testStrongHRVWithOneSevereVitalStaysAboveLow() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = strongAutonomicTrends(on: scoreDay, calendar: calendar)
+        trends.wristTemperature = constantSeries(baseline: 35.7, today: 36.5, on: scoreDay, calendar: calendar)
+
         let score = try XCTUnwrap(ReadinessScoreCalculator.summary(
             on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
         ).score)
 
-        XCTAssertLessThanOrEqual(score, 25, "a severe temperature anomaly must cap readiness at Poor")
-        XCTAssertTrue(
-            ReadinessScoreCalculator.summary(
-                on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
-            ).drivers.contains { $0.kind == .wristTemperatureAboveBaseline }
+        XCTAssertGreaterThanOrEqual(score, 70, "strong HRV and resting heart rate must outweigh one severe vital")
+    }
+
+    /// v2: a mildly elevated vital (about half anomaly progress) leaves a
+    /// strong core in the High band.
+    func testStrongHRVWithMildVitalAnomalyStaysHigh() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = strongAutonomicTrends(on: scoreDay, calendar: calendar)
+        // Spread sits on the 0.2 °C floor, so +0.25 °C is z ≈ 1.25: halfway
+        // along the 0.5…2.0 anomaly ramp.
+        trends.wristTemperature = constantSeries(baseline: 35.7, today: 35.95, on: scoreDay, calendar: calendar)
+
+        let summary = ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
         )
+        let score = try XCTUnwrap(summary.score)
+
+        XCTAssertGreaterThanOrEqual(score, 80, "a mild vital anomaly must leave a strong core in High")
+        XCTAssertTrue(summary.drivers.contains { $0.kind == .wristTemperatureAboveBaseline })
+    }
+
+    /// v2: only two or more severe vitals at once (fever plus fast breathing)
+    /// cap the score, and into Low rather than Poor.
+    func testTwoSevereVitalsCapScoreAtLow() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = strongAutonomicTrends(on: scoreDay, calendar: calendar)
+        trends.wristTemperature = constantSeries(baseline: 35.7, today: 36.5, on: scoreDay, calendar: calendar)
+        trends.respiratoryRate = constantSeries(baseline: 15, today: 17.5, on: scoreDay, calendar: calendar)
+
+        let score = try XCTUnwrap(ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+        ).score)
+
+        XCTAssertLessThanOrEqual(score, 64, "two severe vitals must cap the score at the top of Low")
+        XCTAssertGreaterThan(score, 25, "the cap lands in Low, not the old Poor cap")
+    }
+
+    /// The top-end stretch leaves everything at or below 80 untouched and maps
+    /// the raw ceiling (about 96) onto 100, so a raw 92 reads Prime.
+    func testTopEndStretchAnchors() {
+        XCTAssertEqual(ReadinessScoreCalculator.stretchedTopEnd(40), 40)
+        XCTAssertEqual(ReadinessScoreCalculator.stretchedTopEnd(80), 80)
+        XCTAssertEqual(ReadinessScoreCalculator.stretchedTopEnd(88).rounded(), 90)
+        XCTAssertEqual(ReadinessScoreCalculator.stretchedTopEnd(92).rounded(), 95)
+        XCTAssertEqual(ReadinessScoreCalculator.stretchedTopEnd(96.12).rounded(), 100)
+        XCTAssertLessThanOrEqual(ReadinessScoreCalculator.stretchedTopEnd(84), ReadinessScoreCalculator.stretchedTopEnd(84.5))
+    }
+
+    /// Strong heart signals with a full, unbroken night must be able to reach
+    /// Prime; before the stretch the best possible score was 96 only with a
+    /// 2 SD day and literally perfect sleep.
+    func testStrongCoreWithPerfectSleepReachesPrime() throws {
+        let calendar = Calendar.bodyGregorian
+        let scoreDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17)))
+
+        var trends = strongAutonomicTrends(on: scoreDay, calendar: calendar)
+        trends.sleepHistory = SleepHistorySnapshot(days: [
+            SleepDaySummary(
+                date: scoreDay,
+                summary: SleepSummary(
+                    duration: 8 * 3_600,
+                    stageSnapshot: stageSnapshot(on: scoreDay, asleepHours: 8, awakeHours: 0, calendar: calendar)
+                )
+            )
+        ])
+
+        let summary = ReadinessScoreCalculator.summary(
+            on: scoreDay, healthSummary: .empty, trends: trends, calendar: calendar
+        )
+
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(summary.score), 95)
+        XCTAssertEqual(summary.status, .prime)
     }
 
     /// Duration-only nights (no stage snapshot) must score sleep on duration
@@ -1305,6 +1395,21 @@ final class ReadinessScoreCalculatorTests: XCTestCase {
 
         let replaced = trends.replacingMetric(.readiness, with: .empty)
         XCTAssertEqual(replaced.recordedReadiness, trends.recordedReadiness, "carry-forward foundation: replacingMetric keeps the record")
+    }
+
+    /// HRV well above and resting heart rate below their baselines, giving a
+    /// combined autonomic z near the favorable cap (core ≈ 95).
+    private func strongAutonomicTrends(on scoreDay: Date, calendar: Calendar) -> HealthTrendSnapshot {
+        var trends = HealthTrendSnapshot.empty
+        trends.heartRateVariability = variedSeries(
+            baseline: 60,
+            offsets: [-10, -5, 5, 10, 0],
+            today: 75,
+            on: scoreDay,
+            calendar: calendar
+        )
+        trends.restingHeartRate = constantSeries(baseline: 58, today: 55, on: scoreDay, calendar: calendar)
+        return trends
     }
 
     private func moderateDayTrends(on scoreDay: Date, calendar: Calendar) -> HealthTrendSnapshot {

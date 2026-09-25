@@ -373,5 +373,8 @@ final class HealthKitWorkoutStoreTimeZoneTests: XCTestCase {
         // frozen morning readiness records are invalidated and recomputed.
         XCTAssertNotEqual(base, signature(showsSubMinuteAwake: true, showsLeadingTrailingAwake: false))
         XCTAssertNotEqual(base, signature(showsSubMinuteAwake: false, showsLeadingTrailingAwake: true))
+        // The scoring-rule version rides in the signature so an algorithm bump
+        // drops the frozen records too.
+        XCTAssertTrue(base.hasSuffix(";readiness[\(ReadinessScoreCalculator.algorithmVersion)]"))
     }
 }

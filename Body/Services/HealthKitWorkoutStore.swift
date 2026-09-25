@@ -8334,7 +8334,11 @@ final class HealthKitWorkoutStore {
         // readiness sleep-continuity input (awake duration / sleep window), so
         // toggling either must drop and recompute the frozen morning records too.
         let awakeFlags = "a[\(showsSubMinuteAwakeStages ? "1" : "0")];l[\(showsLeadingTrailingAwakeStages ? "1" : "0")]"
-        return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];g[\(sleepGoalMinutes)];\(awakeFlags)" + customSourceGroupsSignatureSuffix
+        // The algorithm version rides along too, so a scoring-rule change (v2's
+        // softer vitals penalty) drops the frozen morning records and rescores
+        // them, the same way Body Radar tags its nights.
+        return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];g[\(sleepGoalMinutes)];\(awakeFlags)"
+            + customSourceGroupsSignatureSuffix + ";readiness[\(ReadinessScoreCalculator.algorithmVersion)]"
     }
 
     /// The Stress counterpart of `readinessRecordContextSignature`: which Stress
