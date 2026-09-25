@@ -77,6 +77,11 @@ struct BodyWorkoutsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.workoutColorPalette) private var workoutColorPalette
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(BodyHingeState.self) private var hingeState: BodyHingeState?
+    /// The folded outer screen's content width (recorded by Home), which the inner
+    /// screen's right column reproduces so the page looks the same open or closed.
+    @AppStorage(BodyAppearancePreference.foldedHomeContentWidthKey) private var foldedHomeContentWidth: Double = 0
     @State private var selectedMonth = Calendar.bodyGregorian.component(.month, from: Date())
     @State private var selectedYear = Calendar.bodyGregorian.component(.year, from: Date())
     @State private var observedCurrentMonthYear = BodyMonthYear.current()
@@ -101,6 +106,16 @@ struct BodyWorkoutsView: View {
     /// whose record standings intersect this set.
     @State private var selectedRecordStandings: Set<WorkoutRecordStanding> = []
     @State private var selectedWorkoutForDetails: WorkoutSummary?
+    /// The detail actually pushed on the navigation stack. Folded it mirrors the
+    /// selection; on a foldable's inner screen it stays nil (the selection shows in the
+    /// side pane), so unfolding pops a pushed detail into the pane and folding pushes
+    /// the pane's detail.
+    @State private var pushedWorkoutForDetails: WorkoutSummary?
+    /// Retries the pop that an unfold asks for while the stack is still resizing.
+    @State private var unfoldPopTask: Task<Void, Never>?
+    /// The last posture the size class reported: an open foldable iPhone. Read by the
+    /// retries above, which must stop as soon as the phone folds again.
+    @State private var isUnfoldedPhone = false
     @Bindable private var notificationRoute = BodyAppRuntime.shared.notificationRoute
     @State private var notificationWorkoutUnavailable = false
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
@@ -176,8 +191,31 @@ struct BodyWorkoutsView: View {
         )
 
         NavigationStack {
+            GeometryReader { page in
+            let foldedColumnWidth = AppLayout.foldedHomeColumnWidth(stored: foldedHomeContentWidth)
+            // A foldable's inner screen: the folded page keeps its width as the right
+            // column and the left pane shows the selected workout (or the other chart).
+            let isSplit = AppLayout.isFoldableSplit(contentWidth: page.size.width - 32, columnWidth: foldedColumnWidth)
+            let columnWidth = AppLayout.foldableHomeColumnWidth(
+                hinge: hingeState?.status ?? .unknown,
+                pageWidth: page.size.width,
+                safeAreaLeading: page.safeAreaInsets.leading,
+                safeAreaTrailing: page.safeAreaInsets.trailing,
+                foldedColumnWidth: foldedColumnWidth
+            )
             ZStack {
                 BodyTabPageBackground()
+
+                // The side pane is its own slot, so the page keeps its identity (and its
+                // scroll position) when a fold adds or removes the pane beside it.
+                HStack(spacing: 0) {
+                if isSplit {
+                    // Edge to edge, so a detail's backdrop reaches the screen's leading
+                    // edge; the chart card pads itself instead.
+                    foldableSidePane(snapshot: displaySnapshot, workouts: matchingWorkouts)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .transition(.opacity)
+                }
 
                 VStack(spacing: 0) {
                     BodyMonthYearPicker(
@@ -302,10 +340,51 @@ struct BodyWorkoutsView: View {
                         }
                     )
                 }
-                .readableContentColumn()
+                // Split: the folded page's width plus its own horizontal padding, pinned
+                // at the trailing edge. Otherwise the usual centered reading column.
+                .frame(maxWidth: isSplit ? columnWidth + 32 : AppLayout.readableContentWidth)
+                .frame(maxWidth: isSplit ? columnWidth + 32 : .infinity)
                 // Let the list scroll under the floating tab bar so the Liquid Glass bar
                 // refracts content instead of the background's plain lower region.
                 .ignoresSafeArea(.container, edges: .bottom)
+                }
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isSplit)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: columnWidth)
+            }
+            // While split the detail lives in the side pane and nothing is pushed; a
+            // fold with a workout selected pushes it, and unfolding pops it back into
+            // the pane, so the detail stays on screen either way.
+            .navigationDestination(item: $pushedWorkoutForDetails) { workout in
+                BodyWorkoutDetailSheet(workout: workout)
+                    .environment(workoutStore)
+                    .navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))
+            }
+            .onChange(of: isSplit, initial: true) { _, isSplit in
+                // A fold's push and pop are the same detail changing homes, so they
+                // skip the slide the stack would otherwise animate.
+                withoutNavigationAnimation {
+                    pushedWorkoutForDetails = isSplit ? nil : selectedWorkoutForDetails
+                }
+            }
+            .onChange(of: selectedWorkoutForDetails) { _, selected in
+                if !isSplit {
+                    pushedWorkoutForDetails = selected
+                }
+            }
+            .onChange(of: pushedWorkoutForDetails) { _, pushed in
+                // Popped by Back or a swipe back: the selection ends with it. Not when
+                // the pop is the unfold, whose selection the pane takes over.
+                let isUnfolding = horizontalSizeClass == .regular && UIDevice.current.userInterfaceIdiom == .phone
+                if pushed == nil, !isSplit, !isUnfolding {
+                    selectedWorkoutForDetails = nil
+                }
+            }
+            .onChange(of: selectedWorkoutForDetails) { _, selected in
+                // A user pop or a new pick ends the unfold's retries.
+                if selected == nil || (!isSplit && selected != nil) {
+                    unfoldPopTask?.cancel()
+                }
+            }
             }
             .overlay(alignment: .top) {
                 if pendingMonthSelection != nil {
@@ -330,10 +409,30 @@ struct BodyWorkoutsView: View {
                 // because a month summary has no per-workout records to read.
                 BodyWorkoutShareSheet(monthSummary: request.summary)
             }
-            .navigationDestination(item: $selectedWorkoutForDetails) { workout in
-                BodyWorkoutDetailSheet(workout: workout)
-                    .environment(workoutStore)
-                    .navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))
+            // The page behind a pushed detail is neither laid out nor updated, so the
+            // width-based split inside cannot flip while the detail covers it. This
+            // sits on the stack itself: unfolding (phone idiom turning regular) pops
+            // the detail, and the pane shows the same selection once the page lays out.
+            .onChange(of: horizontalSizeClass) { _, sizeClass in
+                // Any posture change ends the previous unfold's retries first: folding
+                // back inside their window would otherwise let a late retry pop the
+                // detail the fold just pushed.
+                unfoldPopTask?.cancel()
+                isUnfoldedPhone = sizeClass == .regular && UIDevice.current.userInterfaceIdiom == .phone
+                guard isUnfoldedPhone else { return }
+                // The stack is mid-transition while the window resizes and refuses a pop
+                // then, writing the presented item straight back; so keep asking until
+                // the transition has ended and the pop sticks, as long as the phone is
+                // still open.
+                unfoldPopTask = Task { @MainActor in
+                    for delay in [0, 250, 500, 900, 1400] {
+                        try? await Task.sleep(for: .milliseconds(delay))
+                        guard !Task.isCancelled, isUnfoldedPhone else { return }
+                        withoutNavigationAnimation {
+                            pushedWorkoutForDetails = nil
+                        }
+                    }
+                }
             }
             .sheet(item: $selectedWorkoutListSelection) { selection in
                 BodyWorkoutListSheet(selection: selection)
@@ -633,6 +732,58 @@ struct BodyWorkoutsView: View {
             .foregroundColor(.accentColor)
             .frame(width: 46, height: 46)
             .bodyWorkoutsToolbarCardBackground()
+    }
+
+    /// Runs `change` with animations disabled, for the fold-driven push and pop of the
+    /// workout detail that should appear in place rather than slide.
+    private func withoutNavigationAnimation(_ change: () -> Void) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, change)
+    }
+
+    /// A foldable's left pane: the selected workout's detail, closed by its Back button,
+    /// or until one is chosen the month chart the right column is not showing (the type
+    /// breakdown, or the calendar when the breakdown is the main chart), so both charts
+    /// are on screen at once. The detail crossfades in place of the folded page's zoom.
+    @ViewBuilder
+    private func foldableSidePane(snapshot: WorkoutMonthSnapshot, workouts: [WorkoutSummary]) -> some View {
+        ZStack {
+            if let workout = selectedWorkoutForDetails {
+                NavigationStack {
+                    BodyWorkoutDetailSheet(workout: workout, onClose: { selectedWorkoutForDetails = nil }, fadesTrailingEdge: true)
+                        .environment(workoutStore)
+                        // The stack asserts the window's trailing inset (the camera column)
+                        // inside the pane, which never reaches that edge; without this the
+                        // page came up that much short.
+                        .ignoresSafeArea(.container, edges: .trailing)
+                }
+                // The inner screen has no top inset, so the page's Back and Share
+                // buttons, which sit at the top of the safe area, would land inside
+                // the display's rounded corner; this holds them clear of it while the
+                // backdrop still fills behind.
+                .safeAreaPadding(.top, 20)
+                .id(workout.id)
+                .transition(.opacity)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    Group {
+                        if workoutsChartShowsTypeBreakdown {
+                            workoutCalendarCard(snapshot: snapshot)
+                        } else {
+                            workoutTypeSummaryCard(snapshot: snapshot, workouts: workouts)
+                        }
+                    }
+                    .id("side-chart-\(monthIdentity)")
+                    .transition(chartSwitchTransition)
+                    .padding(.leading, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 110)
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: selectedWorkoutForDetails?.id)
     }
 
     private func workoutTypeSummaryCard(snapshot: WorkoutMonthSnapshot, workouts: [WorkoutSummary]) -> some View {
@@ -1411,8 +1562,18 @@ struct BodyWorkoutDetailSheet: View {
     @State private var resolvedMaxHeartRate: Double?
     let workout: WorkoutSummary
 
-    init(workout: WorkoutSummary) {
+    /// Shown in a foldable's side pane rather than pushed: the Back button calls this
+    /// (clearing the selection) instead of `dismiss`, which has nothing to pop there.
+    private let onClose: (() -> Void)?
+    /// In a foldable's side pane the page's backdrop (tint wash, route map) fades out
+    /// along its trailing edge, so the pane blends into the tab's background beside it
+    /// instead of ending in a hard vertical edge. The content over it stays opaque.
+    private let fadesTrailingEdge: Bool
+
+    init(workout: WorkoutSummary, onClose: (() -> Void)? = nil, fadesTrailingEdge: Bool = false) {
         self.workout = workout
+        self.onClose = onClose
+        self.fadesTrailingEdge = fadesTrailingEdge
     }
 
     private let metricColumns = [
@@ -1530,7 +1691,10 @@ struct BodyWorkoutDetailSheet: View {
         )
     }
 
-    var body: some View {
+    /// The page's full-bleed backing: a route hero over black or the tint wash, the
+    /// shimmer while a route loads, or the wash alone. The content scrolls over it.
+    @ViewBuilder
+    private var backdropLayers: some View {
         ZStack(alignment: .top) {
             if let route = displayedRoute {
                 switch routeStyle {
@@ -1622,6 +1786,24 @@ struct BodyWorkoutDetailSheet: View {
             } else {
                 sheetBackdrop
             }
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            backdropLayers
+                .mask {
+                    if fadesTrailingEdge {
+                        HStack(spacing: 0) {
+                            Color.black
+                            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 72)
+                        }
+                        .ignoresSafeArea()
+                    } else {
+                        Color.black.ignoresSafeArea()
+                    }
+                }
 
             ScrollView(.vertical, showsIndicators: false) {
                 compactWorkoutContent
@@ -1647,7 +1829,11 @@ struct BodyWorkoutDetailSheet: View {
             // (no route/settle gating) since both entry paths (push from the list,
             // full-screen cover from the list sheet) need a way back.
             Button {
-                dismiss()
+                if let onClose {
+                    onClose()
+                } else {
+                    dismiss()
+                }
             } label: {
                 Image(systemName: "chevron.backward")
                     .font(.system(size: 17, weight: .semibold))

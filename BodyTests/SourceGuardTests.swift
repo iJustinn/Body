@@ -3308,8 +3308,9 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertLessThan(summaryCall.lowerBound, listStack.lowerBound)
 
         // On BOTH branches — one alone would fade the incoming card in over a
-        // card that never faded out, which is a replace, not a cross-fade.
-        XCTAssertEqual(source.occurrenceCount(of: ".transition(chartSwitchTransition)"), 2)
+        // card that never faded out, which is a replace, not a cross-fade. The
+        // third is a foldable's side pane, which shows the chart the page is not.
+        XCTAssertEqual(source.occurrenceCount(of: ".transition(chartSwitchTransition)"), 3)
         // `withAnimation`, not `.animation(value:)` on the slot: the workout
         // list that has to move is the slot's sibling, outside that scope.
         XCTAssertTrue(source.contains("withAnimation(chartSwitchAnimation)"))
@@ -4076,7 +4077,9 @@ final class SourceGuardTests: XCTestCase {
         // is no close (✕) button — a top-left glass chevron Back button stands in for the
         // hidden nav bar's back button instead, alongside the zoom transition's
         // drag-to-dismiss.
-        XCTAssertTrue(workoutsSource.contains(".navigationDestination(item: $selectedWorkoutForDetails) { workout in"))
+        // The push binds to its own state: on a foldable's inner screen the selection
+        // shows in the side pane instead, and folds move it between pane and push.
+        XCTAssertTrue(workoutsSource.contains(".navigationDestination(item: $pushedWorkoutForDetails) { workout in"))
         XCTAssertTrue(workoutsSource.contains(".navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))"))
         XCTAssertTrue(workoutsSource.contains("async let loadedRoute = workoutStore.loadWorkoutRoute(for: workout)"))
         XCTAssertTrue(workoutsSource.contains("async let loadedSplitData = workoutStore.loadWorkoutSplitData(for: workout)"))
