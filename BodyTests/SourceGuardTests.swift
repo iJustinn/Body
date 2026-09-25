@@ -5177,12 +5177,13 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(home.contains("flatBarBottom: BodyDayRingGeometry.flatBarBottom"))
         XCTAssertTrue(home.contains("gridContentY - heroContentY - (flatBarBottom + BodyReadinessArcGeometry.heldGridGap)"))
         XCTAssertTrue(hero.contains("let overrun = Geometry.dialOverrun / (1 - 2 * track.axisInset)"))
-        XCTAssertTrue(hero.contains("Image(systemName: symbolName(for: activity))"))
         // Workouts closer than one bar's shortest glyph share a bar, grouped on the
         // resting track so the grouping holds still while the ring stretches or flattens.
         XCTAssertTrue(hero.contains("Geometry.segments(for: timeline, trackLength: Geometry.track(width: width).dayLength)"))
         XCTAssertTrue(hero.contains("span.start - last.end < minimum"))
-        XCTAssertTrue(hero.contains(#"Text("×\(segment.workoutCount)")"#))
+        // A merged bar shows only its longest activity's icon, with a small plus after it.
+        XCTAssertTrue(hero.contains("Image(systemName: symbolName(for: segment.leadActivity))"))
+        XCTAssertTrue(hero.contains("guard segment.isMerged else { return }"))
         // The Readiness Ring's warning signs: the shared row, its tap targets, and the
         // same lift for the caption and drop without badges.
         XCTAssertTrue(hero.contains("BodyHeroWarningBadgeRow(badges: warningBadges, opacity: textOpacity)"))
