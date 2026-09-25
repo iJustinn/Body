@@ -12,7 +12,7 @@
 //  machines and don't belong in a normal CI run. To run it deliberately,
 //  select the class in Xcode's Test navigator, or from the CLI:
 //  xcodebuild -project body.xcodeproj -scheme Body \
-//    -destination 'platform=iOS Simulator,name=iPhone 17' \
+//    -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0' \
 //    -only-testing:BodyTests/PerformanceBenchmarks test
 //
 

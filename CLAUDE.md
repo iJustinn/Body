@@ -75,7 +75,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ## Running tests
 
 Use `./test.sh` (optionally `WORKERS=n`, `DEST=...`, `PLANS=Body`), never a bare `xcodebuild test`. It pins the
-simulator destination so runs are reproducible.
+simulator destination (iPhone 18 Pro, iOS 27.0) so runs are reproducible.
 
 Every test plan is serial (`parallelizable: false`), so neither ⌘U nor `test.sh` creates simulator
 clones. `Body.xctestplan` and `BodySerial.xctestplan` are complementary halves, not alternatives:

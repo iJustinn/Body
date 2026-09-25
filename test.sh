@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-DEST=${DEST:-'platform=iOS Simulator,name=iPhone 17,OS=27.0'}
+DEST=${DEST:-'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0'}
 WORKERS=${WORKERS:-2}
 PLANS=${PLANS:-'Body BodySerial'}
 

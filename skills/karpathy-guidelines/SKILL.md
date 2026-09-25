@@ -67,13 +67,13 @@ Use `rtk` for shell commands in this repo.
 Focused test pattern:
 
 ```bash
-rtk xcodebuild test -project body.xcodeproj -scheme Body -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath /private/tmp/body-test-derived CODE_SIGNING_ALLOWED=NO -only-testing:BodyTests/WorkoutMonthSnapshotTests/testName
+rtk xcodebuild test -project body.xcodeproj -scheme Body -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0' -derivedDataPath /private/tmp/body-test-derived CODE_SIGNING_ALLOWED=NO -only-testing:BodyTests/WorkoutMonthSnapshotTests/testName
 ```
 
 Full test pattern:
 
 ```bash
-rtk xcodebuild test -project body.xcodeproj -scheme Body -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath /private/tmp/body-test-derived CODE_SIGNING_ALLOWED=NO
+rtk xcodebuild test -project body.xcodeproj -scheme Body -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0' -derivedDataPath /private/tmp/body-test-derived CODE_SIGNING_ALLOWED=NO
 ```
 
 Build fallback:
