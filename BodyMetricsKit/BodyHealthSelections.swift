@@ -49,6 +49,7 @@ enum BodyAppearancePreference {
     static let knownWorkoutTypesKey = "knownWorkoutTypes"
     static let defaultTrendRangeKey = "defaultTrendRange"
     static let homeTrendCardSelectionKey = "homeTrendCardSelection"
+    static let foldedHomeContentWidthKey = "foldedHomeContentWidth"
     static let metricDayViewSelectionKey = "metricDayViewSelection"
     static let metricWarningsKey = "metricWarnings"
     static let metricWarningThresholdsKey = "metricWarningThresholds"

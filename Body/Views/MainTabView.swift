@@ -42,6 +42,8 @@ struct MainTabView: View {
     @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @State private var showsNotificationExplainer = false
     @State private var readinessHeroState = BodyReadinessHeroState()
+    /// The hinge posture on a foldable iPhone, read once here for every tab.
+    @State private var hingeState = BodyHingeState()
 
     private var selectedTab: BodyMainTab {
         get { notificationRoute.selectedTab }
@@ -152,6 +154,8 @@ struct MainTabView: View {
             .environment(\.summaryReselectCount, summaryReselectCount)
             .environment(\.selectedMainTab, selectedTab)
             .environment(readinessHeroState)
+            .environment(hingeState)
+            .background(BodyHingeReader(state: hingeState))
             .accessibilityHidden(isFirstLaunchOverlayPresented || showsOnboarding || showsUpdateOnboarding)
             .overlay(alignment: .top) {
                 BodyHealthSyncBadge(isSuppressed: isFirstLaunchOverlayPresented || showsOnboarding || showsUpdateOnboarding)
