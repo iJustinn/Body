@@ -57,7 +57,6 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.navigationBarShowsLabelsKey) private var navigationBarShowsLabels = false
     @AppStorage(BodyNotificationPreferences.masterKey) private var notificationsEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
-    @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
     // Empty `Data` is "no photo" — `@AppStorage` has no optional-Data overload.
     @AppStorage(BodyAppearancePreference.profileAvatarDataKey) private var profileAvatarData = Data()
@@ -246,17 +245,19 @@ struct BodySettingsView: View {
             BodyProView()
         } label: {
             HStack(spacing: 15) {
-                Image(BodyAppearancePreference.bodyProIconAssetName(showsBack: bodyProIconShowsBack))
+                Image(BodyAppIconOption.option(named: UIApplication.shared.alternateIconName).previewAssetName)
                     .resizable()
                     .scaledToFit()
                     .frame(width: 58, height: 58)
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Body Pro")
                         .font(.system(size: 23, weight: .bold, design: .rounded))
                         .foregroundColor(.primary)
 
-                    Text("Unlock premium features")
+                    // A member is told so, not sold to.
+                    Text(proStore?.isPro ?? false ? "You are a Pro" : "Unlock premium features")
                         .font(.system(.subheadline, design: .rounded))
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)

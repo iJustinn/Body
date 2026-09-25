@@ -4,23 +4,6 @@
     "" : {
 
     },
-    "--h --m" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "--h --m"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "--小时--分"
-          }
-        }
-      }
-    },
     " %@" : {
       "localizations" : {
         "en" : {
@@ -37,57 +20,6 @@
         }
       }
     },
-    "%@: no sleep recorded, debt %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@: no sleep recorded, debt %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@：无睡眠记录，负债%2$@"
-          }
-        }
-      }
-    },
-    "%@: slept %@, need %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@: slept %@, need %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@：实际睡眠%2$@，所需睡眠%3$@"
-          }
-        }
-      }
-    },
-    "%@: slept %@, need %@, debt %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@: slept %@, need %@, debt %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@：实际睡眠%2$@，所需睡眠%3$@，负债%4$@"
-          }
-        }
-      }
-    },
     "--/100" : {
       "localizations" : {
         "en" : {
@@ -100,6 +32,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "--/100"
+          }
+        }
+      }
+    },
+    "--h --m" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--h --m"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "--小时--分"
           }
         }
       }
@@ -381,6 +330,40 @@
         }
       }
     },
+    "%@ free" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ free"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "免费试用%@"
+          }
+        }
+      }
+    },
+    "%@ free, then %@. Cancel anytime." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ free, then %@. Cancel anytime."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "免费试用%1$@，之后%2$@。可随时取消。"
+          }
+        }
+      }
+    },
     "%@ has no %@ data yet, so %@ is still used." : {
       "localizations" : {
         "en" : {
@@ -425,6 +408,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@标签"
+          }
+        }
+      }
+    },
+    "%@ per month" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ per month"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每月 %@"
+          }
+        }
+      }
+    },
+    "%@ per month, billed yearly" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ per month, billed yearly"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "折合每月 %@，按年付费"
+          }
+        }
+      }
+    },
+    "%@ per year" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ per year"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每年 %@"
           }
         }
       }
@@ -687,6 +721,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@：无睡眠数据"
+          }
+        }
+      }
+    },
+    "%@: no sleep recorded, debt %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: no sleep recorded, debt %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@：无睡眠记录，负债%2$@"
+          }
+        }
+      }
+    },
+    "%@: slept %@, need %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: slept %@, need %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@：实际睡眠%2$@，所需睡眠%3$@"
+          }
+        }
+      }
+    },
+    "%@: slept %@, need %@, debt %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: slept %@, need %@, debt %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@：实际睡眠%2$@，所需睡眠%3$@，负债%4$@"
+          }
+        }
+      }
+    },
+    "%@. Renews automatically, cancel anytime." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@. Renews automatically, cancel anytime."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@，自动续期，可随时取消。"
           }
         }
       }
@@ -1053,255 +1155,6 @@
         }
       }
     },
-    "About Sleep Debt" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "About Sleep Debt"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关于睡眠负债"
-          }
-        }
-      }
-    },
-    "Based on %lld of 14 nights" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Based on %lld of 14 nights"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "基于14晚中的%lld晚"
-          }
-        }
-      }
-    },
-    "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines. Sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band. The total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines. Sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band. The total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Body 会根据该睡眠时段可用的数据为每晚评分：睡眠量、连续性、入睡时间规律性、深睡和快速眼动占比、睡眠心率变异性带来的压力、睡眠体征以及皮肤温度。压力、体征和体温会与你近期的夜间基准进行比较评分，其中睡眠体征采用与生命体征图表相同的典型范围，数值偏离该范围越远、扣分也越多，总分经过校准，只有真正优质的夜晚才会得高分。缺失的传感器数据会被跳过，而不会按零分计算。"
-          }
-        }
-      }
-    },
-    "HIGH DEBT" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "HIGH DEBT"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "负债高"
-          }
-        }
-      }
-    },
-    "LOW DEBT" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "LOW DEBT"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "负债低"
-          }
-        }
-      }
-    },
-    "Missed sleep over the last 14 nights" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Missed sleep over the last 14 nights"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最近14晚累计少睡的时间"
-          }
-        }
-      }
-    },
-    "MODERATE DEBT" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "MODERATE DEBT"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "负债中等"
-          }
-        }
-      }
-    },
-    "Need" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Need"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所需睡眠"
-          }
-        }
-      }
-    },
-    "Need includes %@ for low HRV" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Need includes %@ for low HRV"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所需睡眠已含心率变异性偏低增加的%@"
-          }
-        }
-      }
-    },
-    "Need includes %@ for training" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Need includes %@ for training"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所需睡眠已含训练增加的%@"
-          }
-        }
-      }
-    },
-    "Need includes %@ for training and %@ for low HRV" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Need includes %@ for training and %@ for low HRV"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所需睡眠已含训练增加的%1$@和心率变异性偏低增加的%2$@"
-          }
-        }
-      }
-    },
-    "Need uses your sleep goal until 28 nights are recorded" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Need uses your sleep goal until 28 nights are recorded"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在记录满28晚之前，所需睡眠采用你的睡眠目标"
-          }
-        }
-      }
-    },
-    "Sleep Debt" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sleep Debt"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "睡眠负债"
-          }
-        }
-      }
-    },
-    "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay some of the debt back. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay some of the debt back. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "睡眠负债估算你在最近14晚中少睡了多少。Body会把每晚的实际睡眠与所需睡眠进行比较。所需睡眠以你的睡眠目标为起点，向最近8周里你在睡得较久的夜晚所达到的时长靠近三分之一，并在高强度训练后或夜间心率变异性偏低的夜晚之后再额外增加一些。在记录满28晚之前，会以你的睡眠目标代替学习得出的所需睡眠。睡得更久的夜晚可以偿还部分负债。图表中的虚线标出了2小时和4小时，负债在这两处由低变为中等，再变为高，总量最多计为6小时。这只是帮助你发现趋势的估算，并非医学测量。"
-          }
-        }
-      }
-    },
-    "Slept" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Slept"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "实际睡眠"
-          }
-        }
-      }
-    },
     "1 day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1576,6 +1429,23 @@
         }
       }
     },
+    "A whole year, at a glance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A whole year, at a glance"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一年趋势，一目了然"
+          }
+        }
+      }
+    },
     "About" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1655,6 +1525,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "关于恢复性睡眠"
+          }
+        }
+      }
+    },
+    "About Sleep Debt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Sleep Debt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于睡眠负债"
           }
         }
       }
@@ -2841,6 +2727,23 @@
         }
       }
     },
+    "Based on %lld of 14 nights" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Based on %lld of 14 nights"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "基于14晚中的%lld晚"
+          }
+        }
+      }
+    },
     "Baseline" : {
       "localizations" : {
         "en" : {
@@ -2891,6 +2794,23 @@
         }
       }
     },
+    "Best Value" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Best Value"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最超值"
+          }
+        }
+      }
+    },
     "Beta v1" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2937,6 +2857,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Beta v3"
+          }
+        }
+      }
+    },
+    "Billing starts at %@. Cancel at least 24 hours before and you won't be charged." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Billing starts at %@. Cancel at least 24 hours before and you won't be charged."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "届时开始扣费，%@。至少提前 24 小时取消即不会扣费。"
           }
         }
       }
@@ -3293,6 +3230,23 @@
         }
       }
     },
+    "Body on your Home Screen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body on your Home Screen"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主屏幕上的 Body"
+          }
+        }
+      }
+    },
     "Body Pro" : {
       "localizations" : {
         "en" : {
@@ -3305,23 +3259,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body Pro"
-          }
-        }
-      }
-    },
-    "Body Pro icon" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Body Pro icon"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Body Pro 图标"
           }
         }
       }
@@ -3423,6 +3360,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body 在本地读取健康 App 数据，为 App 和小组件提供支持。"
+          }
+        }
+      }
+    },
+    "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines. Sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band. The total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines. Sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band. The total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 会根据该睡眠时段可用的数据为每晚评分：睡眠量、连续性、入睡时间规律性、深睡和快速眼动占比、睡眠心率变异性带来的压力、睡眠体征以及皮肤温度。压力、体征和体温会与你近期的夜间基准进行比较评分，其中睡眠体征采用与生命体征图表相同的典型范围，数值偏离该范围越远、扣分也越多，总分经过校准，只有真正优质的夜晚才会得高分。缺失的传感器数据会被跳过，而不会按零分计算。"
           }
         }
       }
@@ -3987,6 +3940,23 @@
         }
       }
     },
+    "Cancel anytime" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel anytime"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可随时取消"
+          }
+        }
+      }
+    },
     "Card Vibration" : {
       "localizations" : {
         "en" : {
@@ -4169,18 +4139,19 @@
         }
       }
     },
-    "Choose which metrics your workout share card shows." : {
+    "Choose Your Plan" : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choose which metrics your workout share card shows."
+            "value" : "Choose Your Plan"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选择运动分享卡片显示哪些指标。"
+            "value" : "选择你的方案"
           }
         }
       }
@@ -4301,19 +4272,19 @@
         }
       }
     },
-    "Compare a secondary data source on your metric charts." : {
+    "Compare a second source, or merge several into a custom one." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Compare a secondary data source on your metric charts."
+            "value" : "Compare a second source, or merge several into a custom one."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在指标图表上对比另一个数据来源。"
+            "value" : "对比第二个数据来源，或将多个来源合并为自定义来源。"
           }
         }
       }
@@ -4426,6 +4397,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上下文顶部起始"
+          }
+        }
+      }
+    },
+    "Continue for Free" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue for Free"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "继续使用免费版"
           }
         }
       }
@@ -4683,22 +4671,6 @@
         }
       }
     },
-    "Create your own sources that merge several data sources into one." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Create your own sources that merge several data sources into one."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "创建自己的来源，将多个数据来源合并为一个。"
-          }
-        }
-      }
-    },
     "Current" : {
       "localizations" : {
         "en" : {
@@ -4728,6 +4700,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自定义背景"
+          }
+        }
+      }
+    },
+    "Custom backgrounds, saved as profiles you can switch anytime." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom backgrounds, saved as profiles you can switch anytime."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义背景，保存为方案，随时切换。"
           }
         }
       }
@@ -6318,6 +6307,23 @@
         }
       }
     },
+    "Everything in Pro" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Everything in Pro"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pro 的全部功能"
+          }
+        }
+      }
+    },
     "Exercise" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6416,6 +6422,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "失败"
+          }
+        }
+      }
+    },
+    "Family" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Family"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "家庭"
           }
         }
       }
@@ -6598,23 +6621,6 @@
         }
       }
     },
-    "Flips the icon" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Flips the icon"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "翻转图标"
-          }
-        }
-      }
-    },
     "Follow System" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6743,6 +6749,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在生成点评…"
+          }
+        }
+      }
+    },
+    "Get full access to every Pro feature." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get full access to every Pro feature."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即使用全部 Pro 功能。"
           }
         }
       }
@@ -7156,6 +7179,23 @@
         }
       }
     },
+    "HIGH DEBT" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HIGH DEBT"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "负债高"
+          }
+        }
+      }
+    },
     "High Deviation" : {
       "localizations" : {
         "en" : {
@@ -7471,6 +7511,23 @@
         }
       }
     },
+    "How Your Free Trial Works" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How Your Free Trial Works"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "免费试用说明"
+          }
+        }
+      }
+    },
     "However much you train, there is a limit to how far one day's workouts can pull your readiness down. Each row shows only what its own session actually moved the score, so once earlier workouts have taken the day close to that limit, a later one is credited with just the remainder and can read much smaller than the same session would on a fresh day." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7749,6 +7806,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "跳转到月份"
+          }
+        }
+      }
+    },
+    "Just Me" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Just Me"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅自己"
           }
         }
       }
@@ -8330,6 +8404,23 @@
         }
       }
     },
+    "LOW DEBT" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LOW DEBT"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "负债低"
+          }
+        }
+      }
+    },
     "Low Deviation" : {
       "localizations" : {
         "en" : {
@@ -8391,6 +8482,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复状态偏低"
+          }
+        }
+      }
+    },
+    "Make it yours" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Make it yours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打造你的风格"
           }
         }
       }
@@ -8562,6 +8670,40 @@
         }
       }
     },
+    "Missed sleep over the last 14 nights" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Missed sleep over the last 14 nights"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近14晚累计少睡的时间"
+          }
+        }
+      }
+    },
+    "MODERATE DEBT" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MODERATE DEBT"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "负债中等"
+          }
+        }
+      }
+    },
     "Moderate readiness" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8679,6 +8821,40 @@
         }
       }
     },
+    "Month, 6 month, and year charts for every metric." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Month, 6 month, and year charts for every metric."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每项指标都有月、6个月和年度图表。"
+          }
+        }
+      }
+    },
+    "Monthly" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monthly"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月度订阅"
+          }
+        }
+      }
+    },
     "months" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8709,23 +8885,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "更多"
-          }
-        }
-      }
-    },
-    "More Body Pro features will be added in future updates." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "More Body Pro features will be added in future updates."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "更多 Body Pro 功能将在未来更新中加入。"
           }
         }
       }
@@ -8904,6 +9063,90 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "导航栏"
+          }
+        }
+      }
+    },
+    "Need" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Need"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所需睡眠"
+          }
+        }
+      }
+    },
+    "Need includes %@ for low HRV" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Need includes %@ for low HRV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所需睡眠已含心率变异性偏低增加的%@"
+          }
+        }
+      }
+    },
+    "Need includes %@ for training" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Need includes %@ for training"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所需睡眠已含训练增加的%@"
+          }
+        }
+      }
+    },
+    "Need includes %@ for training and %@ for low HRV" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Need includes %@ for training and %@ for low HRV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所需睡眠已含训练增加的%1$@和心率变异性偏低增加的%2$@"
+          }
+        }
+      }
+    },
+    "Need uses your sleep goal until 28 nights are recorded" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Need uses your sleep goal until 28 nights are recorded"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在记录满28晚之前，所需睡眠采用你的睡眠目标"
           }
         }
       }
@@ -11654,6 +11897,57 @@
         }
       }
     },
+    "One payment of %@, shared with your family." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One payment of %@, shared with your family."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一次性支付 %@，可与家人共享。"
+          }
+        }
+      }
+    },
+    "One payment of %@. No subscription." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One payment of %@. No subscription."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一次性支付 %@，无需订阅。"
+          }
+        }
+      }
+    },
+    "one time" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "one time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一次性"
+          }
+        }
+      }
+    },
     "Only the past 2 days. Body fills workouts that ended within the last 48 hours and leaves older ones alone." : {
       "localizations" : {
         "en" : {
@@ -11670,23 +11964,6 @@
         }
       }
     },
-    "Open any past day in the metric and sleep day views, beyond the most recent three." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open any past day in the metric and sleep day views, beyond the most recent three."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在指标和睡眠日视图中打开任意过去日期，不限于最近三天。"
-          }
-        }
-      }
-    },
     "Open Body once to load your health data, then ask again." : {
       "localizations" : {
         "en" : {
@@ -11699,23 +11976,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请先打开 Body 加载健康数据，然后再问一次。"
-          }
-        }
-      }
-    },
-    "Open month, six-month, and year views for metric charts." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open month, six-month, and year views for metric charts."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "查看指标图表的月、6个月和年视图。"
           }
         }
       }
@@ -11782,6 +12042,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "原版"
+          }
+        }
+      }
+    },
+    "Other Wearables" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Other Wearables"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "其他穿戴设备"
           }
         }
       }
@@ -11904,6 +12181,40 @@
         }
       }
     },
+    "Pay once, keep Pro forever" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pay once, keep Pro forever"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一次付费，永久使用 Pro"
+          }
+        }
+      }
+    },
+    "Payment is charged to your Apple Account when you confirm the purchase, or when a free trial ends. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple Account settings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Payment is charged to your Apple Account when you confirm the purchase, or when a free trial ends. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple Account settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认购买时（或免费试用结束时）将从你的 Apple 账户扣费。订阅会自动续期，除非在当前订阅期结束前至少 24 小时取消。你可以随时在 Apple 账户设置中管理或取消订阅。"
+          }
+        }
+      }
+    },
     "Pct." : {
       "localizations" : {
         "en" : {
@@ -11916,6 +12227,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "百分比"
+          }
+        }
+      }
+    },
+    "per month" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "per month"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每月"
+          }
+        }
+      }
+    },
+    "per year" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "per year"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每年"
           }
         }
       }
@@ -11965,23 +12310,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "权限"
-          }
-        }
-      }
-    },
-    "Personalize the app background with your own color mixes and saved profiles." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Personalize the app background with your own color mixes and saved profiles."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "使用自己的混色和已存配置方案，个性化 App 背景。"
           }
         }
       }
@@ -12447,6 +12775,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "隐私"
+          }
+        }
+      }
+    },
+    "Privacy Policy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy Policy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐私政策"
           }
         }
       }
@@ -13616,6 +13961,23 @@
         }
       }
     },
+    "Save %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "省 %@"
+          }
+        }
+      }
+    },
     "Save Current" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14225,6 +14587,23 @@
         }
       }
     },
+    "Share with up to 5 family members" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share with up to 5 family members"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最多可与 5 位家庭成员共享"
+          }
+        }
+      }
+    },
     "Share Workout" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14242,18 +14621,19 @@
         }
       }
     },
-    "Share workout cards with the route drawn as a 3D elevation ribbon on any background." : {
+    "Share workouts with the route as an elevation ribbon, over a photo or video." : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Share workout cards with the route drawn as a 3D elevation ribbon on any background."
+            "value" : "Share workouts with the route as an elevation ribbon, over a photo or video."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在任意背景上以 3D 海拔丝带绘制路线来分享运动卡片。"
+            "value" : "分享运动时，路线化作海拔丝带，还可叠加照片或视频。"
           }
         }
       }
@@ -14845,6 +15225,38 @@
         }
       }
     },
+    "Sleep Debt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Debt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠负债"
+          }
+        }
+      }
+    },
+    "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay some of the debt back. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay some of the debt back. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠负债估算你在最近14晚中少睡了多少。Body会把每晚的实际睡眠与所需睡眠进行比较。所需睡眠以你的睡眠目标为起点，向最近8周里你在睡得较久的夜晚所达到的时长靠近三分之一，并在高强度训练后或夜间心率变异性偏低的夜晚之后再额外增加一些。在记录满28晚之前，会以你的睡眠目标代替学习得出的所需睡眠。睡得更久的夜晚可以偿还部分负债。图表中的虚线标出了2小时和4小时，负债在这两处由低变为中等，再变为高，总量最多计为6小时。这只是帮助你发现趋势的估算，并非医学测量。"
+          }
+        }
+      }
+    },
     "Sleep Duration" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15043,6 +15455,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "睡眠期间皮肤温度趋势"
+          }
+        }
+      }
+    },
+    "Slept" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slept"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实际睡眠"
           }
         }
       }
@@ -15324,6 +15752,23 @@
         }
       }
     },
+    "Start Free Trial" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start Free Trial"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开始免费试用"
+          }
+        }
+      }
+    },
     "Started today with %lld%%" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15559,6 +16004,23 @@
         }
       }
     },
+    "Subscribe" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subscribe"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "订阅"
+          }
+        }
+      }
+    },
     "Summary" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15688,6 +16150,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "温度"
+          }
+        }
+      }
+    },
+    "Terms of Use" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terms of Use"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用条款"
           }
         }
       }
@@ -16422,6 +16901,23 @@
         }
       }
     },
+    "Two sources, one chart" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Two sources, one chart"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "两个来源，一张图表"
+          }
+        }
+      }
+    },
     "Typical" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -16603,19 +17099,19 @@
         }
       }
     },
-    "Unlock All Pro Features" : {
+    "Unlock Lifetime" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Unlock All Pro Features"
+            "value" : "Unlock Lifetime"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "解锁全部 Pro 功能"
+            "value" : "解锁终身版"
           }
         }
       }
@@ -17207,23 +17703,6 @@
         }
       }
     },
-    "Use Body widgets to keep workout and metric context on the Home Screen." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use Body widgets to keep workout and metric context on the Home Screen."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "使用 Body 小组件，在主屏幕上随时了解运动和指标动态。"
-          }
-        }
-      }
-    },
     "Use Default" : {
       "localizations" : {
         "en" : {
@@ -17236,38 +17715,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用默认值"
-          }
-        }
-      }
-    },
-    "Use your own photos as the background of workout share cards." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use your own photos as the background of workout share cards."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "使用自己的照片作为运动分享卡片的背景。"
-          }
-        }
-      }
-    },
-    "Use your own videos as the background of workout share cards." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use your own videos as the background of workout share cards."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "用你自己的视频作为体能训练分享卡片的背景。"
           }
         }
       }
@@ -17854,6 +18301,23 @@
         }
       }
     },
+    "Widgets for your workouts and every metric." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Widgets for your workouts and every metric."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运动和每项指标的小组件。"
+          }
+        }
+      }
+    },
     "workout" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -18426,6 +18890,40 @@
         }
       }
     },
+    "Yearly" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yearly"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "年度订阅"
+          }
+        }
+      }
+    },
+    "You are a Pro" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You are a Pro"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你已是 Pro 会员"
+          }
+        }
+      }
+    },
     "You have Body Pro" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -18926,6 +19424,23 @@
         }
       }
     },
+    "Your routes, in 3D" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your routes, in 3D"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的路线，立体呈现"
+          }
+        }
+      }
+    },
     "your skin temperature" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -19072,652 +19587,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "区间"
-          }
-        }
-      }
-    },
-    "Choose Your Plan" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose Your Plan"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择你的方案"
-          }
-        }
-      }
-    },
-    "Yearly" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yearly"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "年度订阅"
-          }
-        }
-      }
-    },
-    "Monthly" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Monthly"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "月度订阅"
-          }
-        }
-      }
-    },
-    "per year" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "per year"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每年"
-          }
-        }
-      }
-    },
-    "per month" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "per month"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每月"
-          }
-        }
-      }
-    },
-    "one time" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "one time"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "一次性"
-          }
-        }
-      }
-    },
-    "Save %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "省 %@"
-          }
-        }
-      }
-    },
-    "Best Value" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Best Value"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最超值"
-          }
-        }
-      }
-    },
-    "%@ free" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ free"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "免费试用%@"
-          }
-        }
-      }
-    },
-    "%@ per month, billed yearly" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ per month, billed yearly"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "折合每月 %@，按年付费"
-          }
-        }
-      }
-    },
-    "Cancel anytime" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cancel anytime"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可随时取消"
-          }
-        }
-      }
-    },
-    "Share with up to 5 family members" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Share with up to 5 family members"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最多可与 5 位家庭成员共享"
-          }
-        }
-      }
-    },
-    "Pay once, keep Pro forever" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pay once, keep Pro forever"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "一次付费，永久使用 Pro"
-          }
-        }
-      }
-    },
-    "Start Free Trial" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Start Free Trial"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开始免费试用"
-          }
-        }
-      }
-    },
-    "Subscribe" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Subscribe"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "订阅"
-          }
-        }
-      }
-    },
-    "Unlock Lifetime" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unlock Lifetime"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "解锁终身版"
-          }
-        }
-      }
-    },
-    "One payment of %@. No subscription." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "One payment of %@. No subscription."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "一次性支付 %@，无需订阅。"
-          }
-        }
-      }
-    },
-    "One payment of %@, shared with your family." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "One payment of %@, shared with your family."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "一次性支付 %@，可与家人共享。"
-          }
-        }
-      }
-    },
-    "%@ free, then %@. Cancel anytime." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ free, then %@. Cancel anytime."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "免费试用%1$@，之后%2$@。可随时取消。"
-          }
-        }
-      }
-    },
-    "%@. Renews automatically, cancel anytime." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@. Renews automatically, cancel anytime."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@，自动续期，可随时取消。"
-          }
-        }
-      }
-    },
-    "%@ per month" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ per month"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每月 %@"
-          }
-        }
-      }
-    },
-    "%@ per year" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ per year"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每年 %@"
-          }
-        }
-      }
-    },
-    "See the Full Picture" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "See the Full Picture"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "看见健康全貌"
-          }
-        }
-      }
-    },
-    "Unlock every chart, data source, and share style in Body." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unlock every chart, data source, and share style in Body."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "解锁 Body 的全部图表、数据源和分享样式。"
-          }
-        }
-      }
-    },
-    "Year Charts" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Year Charts"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "年度图表"
-          }
-        }
-      }
-    },
-    "More Sources" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "More Sources"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "更多数据源"
-          }
-        }
-      }
-    },
-    "3D Routes" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "3D Routes"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "3D 路线"
-          }
-        }
-      }
-    },
-    "Widgets" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Widgets"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "小组件"
-          }
-        }
-      }
-    },
-    "Just Me" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Just Me"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅自己"
-          }
-        }
-      }
-    },
-    "Family" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Family"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "家庭"
-          }
-        }
-      }
-    },
-    "How Your Free Trial Works" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "How Your Free Trial Works"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "免费试用说明"
-          }
-        }
-      }
-    },
-    "Get full access to every Pro feature." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Get full access to every Pro feature."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "立即使用全部 Pro 功能。"
-          }
-        }
-      }
-    },
-    "Billing starts at %@. Cancel at least 24 hours before and you won't be charged." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Billing starts at %@. Cancel at least 24 hours before and you won't be charged."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "届时开始扣费，%@。至少提前 24 小时取消即不会扣费。"
-          }
-        }
-      }
-    },
-    "Terms of Use" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terms of Use"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "使用条款"
-          }
-        }
-      }
-    },
-    "Privacy Policy" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Privacy Policy"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "隐私政策"
-          }
-        }
-      }
-    },
-    "Payment is charged to your Apple Account when you confirm the purchase, or when a free trial ends. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple Account settings." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Payment is charged to your Apple Account when you confirm the purchase, or when a free trial ends. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple Account settings."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "确认购买时（或免费试用结束时）将从你的 Apple 账户扣费。订阅会自动续期，除非在当前订阅期结束前至少 24 小时取消。你可以随时在 Apple 账户设置中管理或取消订阅。"
-          }
-        }
-      }
-    },
-    "Export workout share cards as 16:9, 3:4, 4:3, or square, or as a long image of the whole workout." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Export workout share cards as 16:9, 3:4, 4:3, or square, or as a long image of the whole workout."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将运动分享卡片导出为 16:9、3:4、4:3 或方形，也可导出整个运动的长图。"
-          }
-        }
-      }
-    },
-    "Continue for Free" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Continue for Free"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "继续使用免费版"
           }
         }
       }

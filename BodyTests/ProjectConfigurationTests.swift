@@ -711,7 +711,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `codex/body-v0.3.4`"))
         XCTAssertTrue(testPlan.contains("Body/Views/BodyProView.swift"))
         XCTAssertTrue(testPlan.contains("Body Pro entry navigation"))
-        XCTAssertTrue(testPlan.contains("Body Pro icon flip"))
+        XCTAssertTrue(testPlan.contains("Body Pro artwork is the app icon"))
+        XCTAssertFalse(testPlan.contains("Body Pro icon flip"))
         XCTAssertFalse(testPlan.contains("version-card unlock"))
         XCTAssertFalse(testPlan.contains("creator-surprise icon sheet"))
     }

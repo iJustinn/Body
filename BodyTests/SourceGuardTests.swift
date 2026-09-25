@@ -4802,15 +4802,58 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("NavigationLink {"))
         XCTAssertTrue(settingsSource.contains("BodyProView()"))
         XCTAssertTrue(settingsSource.contains("BodySettingsTypography.sectionTitleFontSize"))
-        XCTAssertTrue(bodyProSource.contains("BodyProFlippableIcon"))
+        // The Pro artwork is the app icon itself (whichever is chosen in Settings), on the
+        // Settings card and in the owned card's glow; the flippable heart and its assets
+        // are gone.
+        XCTAssertTrue(settingsSource.contains("Image(BodyAppIconOption.option(named: UIApplication.shared.alternateIconName).previewAssetName)"))
+        XCTAssertTrue(bodyProSource.contains("Image(BodyAppIconOption.option(named: UIApplication.shared.alternateIconName).previewAssetName)"))
+        XCTAssertFalse(bodyProSource.contains("BodyProFlippableIcon"))
+        XCTAssertFalse(settingsSource.contains("bodyProIconShowsBack"))
+        XCTAssertTrue(settingsSource.contains(#"Text(proStore?.isPro ?? false ? "You are a Pro" : "Unlock premium features")"#))
         XCTAssertTrue(bodyProSource.contains("BodyProIconGlow()"))
         XCTAssertTrue(bodyProSource.contains("private struct BodyProIconGlow"))
         XCTAssertTrue(bodyProSource.contains("RadialGradient("))
-        XCTAssertTrue(bodyProSource.contains("BodyAppearancePreference.bodyProIconAssetName(showsBack:"))
-        XCTAssertTrue(bodyProSource.contains(#"Text("Unlock All Pro Features")"#))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: BodyTestSupport.projectRoot.appendingPathComponent("Body/Assets.xcassets/BodyProIcon.imageset").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: BodyTestSupport.projectRoot.appendingPathComponent("Body/Assets.xcassets/BodyProIconBack.imageset").path))
+        // The page sells by showing: a paged showcase of real Body surfaces over sample
+        // data (the Sleep detail's year chart behind the real range pills, a 3D route
+        // through the route hero's own projection and painter, two real widgets over the
+        // placeholder snapshot, two sources on one chart, four background profiles), on
+        // the app's own background. It moves on by itself unless Reduce Motion or
+        // VoiceOver is on. The old icon hero, its confetti, and the highlights row are gone;
+        // the app icon now thanks members above the showcase they keep.
+        XCTAssertTrue(bodyProSource.contains("BodyAppBackground()"))
+        XCTAssertFalse(bodyProSource.contains("BodyProBackdrop"))
+        XCTAssertTrue(bodyProSource.contains("private struct BodyProShowcase: View"))
+        XCTAssertTrue(bodyProSource.contains("private static let slides = BodyProShowcaseSlide.allCases"))
+        XCTAssertTrue(bodyProSource.contains(".tabViewStyle(.page(indexDisplayMode: .never))"))
+        XCTAssertTrue(bodyProSource.contains("guard !reduceMotion, !voiceOverEnabled else { return }"))
+        XCTAssertTrue(bodyProSource.contains("BodyHealthTrendRangeSelector(selectedRange: .constant(.recentYear), appearance: .onGradient)"))
+        XCTAssertTrue(bodyProSource.contains("selectedRange: .recentYear,"))
+        XCTAssertTrue(bodyProSource.contains("WorkoutRoute3DProjection.projected(for: route)"))
+        XCTAssertTrue(bodyProSource.contains("BodyWorkoutRoute3DHero.drawRibbon("))
+        XCTAssertTrue(bodyProSource.contains("HealthWidgetMetricCardView(metric: metric, trend: Self.snapshot.trend(for: metric))"))
+        XCTAssertTrue(bodyProSource.contains("private static let snapshot = HealthWidgetSnapshot.placeholder"))
+        XCTAssertTrue(bodyProSource.contains("BodyActivityRingsCard.heroBackground("))
+        XCTAssertTrue(bodyProSource.contains("[.appDefault, .rose, .violet, .iJustin]"))
+        XCTAssertTrue(bodyProSource.contains("if isPro {\n                    BodyProOwnedCard()\n                }\n\n                BodyProShowcase()"))
+        XCTAssertTrue(bodyProSource.contains("BodyAppBackground()\n                .ignoresSafeArea()"))
+        // The page's accent is the app blue; gold stays on the Settings entry.
+        XCTAssertTrue(bodyProSource.contains("static let accent = Color.blue"))
+        XCTAssertFalse(bodyProSource.contains("BodyProPalette.gold)"))
+        XCTAssertTrue(bodyProSource.contains("BodyLineChartPreviewPointSymbol("))
+        XCTAssertTrue(bodyProSource.contains(#"Text("Other Wearables")"#))
+        XCTAssertFalse(bodyProSource.contains("BodyProConfetti"))
+        XCTAssertFalse(bodyProSource.contains("BodyProHighlights"))
+        XCTAssertFalse(bodyProSource.contains("See the Full Picture"))
+        // Everything Pro unlocks is a grid of short titles, not eleven descriptions.
+        XCTAssertTrue(bodyProSource.contains(#"Text("Everything in Pro")"#))
+        XCTAssertFalse(bodyProSource.contains(#"Text("Unlock All Pro Features")"#))
         XCTAssertFalse(bodyProSource.contains(#"Text("Unlock Body Pro")"#))
-        XCTAssertTrue(bodyProSource.contains("private struct BodyProFeatureCheckmark"))
-        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeatureCheckmark()"), 2)
+        XCTAssertTrue(bodyProSource.contains("private struct BodyProFeatureGrid"))
+        XCTAssertTrue(bodyProSource.contains("LazyVGrid(columns: columns, spacing: 10)"))
+        XCTAssertFalse(bodyProSource.contains("BodyProFeatureCheckmark"))
+        XCTAssertFalse(bodyProSource.contains("let detail: String\n    let iconName: String"))
         XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 11)
         XCTAssertTrue(bodyProSource.contains("Longer-Range Charts"))
         XCTAssertTrue(bodyProSource.contains("Full Day History"))
@@ -4875,16 +4918,6 @@ final class SourceGuardTests: XCTestCase {
         ] {
             let sheetSource = try BodyTestSupport.sourceText(at: sheetPath)
             XCTAssertTrue(sheetSource.contains("NavigationStack { BodyProView(showsCloseButton: true) }"), sheetPath)
-        }
-
-        let proIconPaths = [
-            "Body/Assets.xcassets/BodyProIcon.imageset/BodyProIcon.png",
-            "Body/Assets.xcassets/BodyProIconBack.imageset/BodyProIconBack.png"
-        ]
-
-        for path in proIconPaths {
-            let data = try Data(contentsOf: BodyTestSupport.projectRoot.appendingPathComponent(path))
-            XCTAssertGreaterThan(data.count, 0, path)
         }
     }
 

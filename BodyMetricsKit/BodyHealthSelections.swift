@@ -62,7 +62,6 @@ enum BodyAppearancePreference {
     static let secondaryHealthDataSourceSelectionKey = "secondaryHealthDataSourceSelection"
     static let combinesHealthDataSourcesByNameKey = "combinesHealthDataSourcesByName"
     static let customHealthSourceGroupsKey = "customHealthSourceGroups"
-    static let bodyProIconShowsBackKey = "bodyProIconShowsBack"
     /// Marketing version the user last completed (or skipped) onboarding on;
     /// empty until then. See `BodyOnboardingGate`.
     static let onboardingCompletedVersionKey = "onboardingCompletedVersion"
@@ -81,9 +80,6 @@ enum BodyAppearancePreference {
         Bundle.main.preferredLocalizations.first?.hasPrefix("en") == true
     }
 
-    static func bodyProIconAssetName(showsBack: Bool) -> String {
-        showsBack ? "BodyProIconBack" : "BodyProIcon"
-    }
 }
 
 enum BodySleepDurationGoal {

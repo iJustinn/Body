@@ -3,15 +3,18 @@
 //  Body
 //
 
+import Charts
 import RevenueCatUI
 import StoreKit
 import SwiftUI
 import UIKit
 
 enum BodyProPalette {
+    /// The Pro accent elsewhere in the app (the Settings entry, the profile card).
     static let gold = Color(red: 1.0, green: 0.76, blue: 0.18)
-    /// The lighter top of the purchase button's gradient.
-    static let goldHighlight = Color(red: 1.0, green: 0.86, blue: 0.47)
+    /// The Pro page itself uses the app's blue, like onboarding's Continue button, so it
+    /// reads as part of the app rather than a store.
+    static let accent = Color.blue
 }
 
 /// Legal links every subscription paywall must carry. Body uses Apple's standard license
@@ -21,6 +24,12 @@ enum BodyProLinks {
     static let privacyPolicy = URL(string: "https://docs.ijustinz.com/body/privacy")!
 }
 
+/// The Body Pro page. Sells by showing: a showcase of real Body surfaces drawn from sample
+/// data (a year of sleep, a 3D route, widgets, two sources on one chart, background
+/// profiles) leads, then the plans, the trial terms, and a compact grid of everything Pro
+/// unlocks. Sits on the app's own background, like every other page, with gold reserved
+/// for the Pro accents. A member gets the app icon with a thank-you on top, the showcase
+/// under it, and no plans.
 struct BodyProView: View {
     /// Adds a close button. The paywall sheets presented from locked controls need one; the
     /// Settings entry pushes this page and gets the back button instead.
@@ -28,7 +37,7 @@ struct BodyProView: View {
     /// Set when the paywall is a step in a flow the app started (the end of onboarding, the
     /// one-time introduction after an update) rather than a page the user opened. The page
     /// then always offers Continue for Free, its close button continues too, and a purchase
-    /// carries on by itself once the owned card has had a moment on screen.
+    /// carries on by itself once the owned state has had a moment on screen.
     var onContinue: (() -> Void)?
 
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
@@ -38,8 +47,6 @@ struct BodyProView: View {
     @State private var selectedPlan: BodyProPlan = .yearly
     @State private var showRedeemSheet = false
     @State private var showCustomerCenter = false
-
-    private let features = BodyProFeature.defaultFeatures
 
     private var isPro: Bool { proStore?.isPro ?? false }
     private var products: [BodyProPlan: BodyProProduct] { proStore?.products ?? [:] }
@@ -126,20 +133,32 @@ struct BodyProView: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 30) {
-                BodyProHeroView()
+                // A member's thank-you leads; the showcase then shows what they have.
+                if isPro {
+                    BodyProOwnedCard()
+                }
 
-                planSection
+                BodyProShowcase()
+
+                if !isPro {
+                    planSection
+                }
 
                 if offersPlans, let plan = activePlan, let product = activeProduct, let trial = product.freeTrial {
                     BodyProTrialTimeline(trial: trial, renewalText: renewalText(plan: plan, product: product))
                 }
 
-                featureList
-                restoreSection
-                BodyProLegalFooter()
+                BodyProFeatureGrid()
+
+                // The recovery row and the legal links read as one footer; their 44pt tap
+                // targets already keep them apart.
+                VStack(spacing: 0) {
+                    restoreSection
+                    BodyProLegalFooter()
+                }
             }
             .padding(.horizontal, 18)
-            .padding(.top, 8)
+            .padding(.top, 6)
             .padding(.bottom, 24)
             .readableContentColumn()
         }
@@ -151,7 +170,10 @@ struct BodyProView: View {
             }
         }
         .background {
-            BodyProBackdrop()
+            // The same backdrop as Settings and onboarding, so the page reads as part of
+            // the app rather than a store bolted onto it.
+            BodyAppBackground()
+                .ignoresSafeArea()
         }
         .navigationTitle("Body Pro")
         .navigationBarTitleDisplayMode(.inline)
@@ -189,35 +211,31 @@ struct BodyProView: View {
 
     private var planSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if isPro {
-                BodyProOwnedCard()
-            } else {
-                Text("Choose Your Plan")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
+            Text("Choose Your Plan")
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
 
-                if !hasResolved {
-                    BodyProCheckingCard()
-                } else if purchaseState == .completedNotUnlocked {
-                    // A completed purchase awaiting its entitlement must not re-offer the buy
-                    // cards (an enabled purchase button right after "your purchase completed"
-                    // reads as a double-charge invitation) — the recovery path is Restore.
-                    BodyProVerifyingPurchaseCard()
-                } else if activePlan != nil {
-                    planCards
-                } else if productLoadFailed {
-                    BodyProUnavailableCard {
-                        Task { await proStore?.loadProducts() }
-                    }
-                } else {
-                    BodyProLoadingPriceCard()
+            if !hasResolved {
+                BodyProCheckingCard()
+            } else if purchaseState == .completedNotUnlocked {
+                // A completed purchase awaiting its entitlement must not re-offer the buy
+                // cards (an enabled purchase button right after "your purchase completed"
+                // reads as a double-charge invitation) — the recovery path is Restore.
+                BodyProVerifyingPurchaseCard()
+            } else if activePlan != nil {
+                planCards
+            } else if productLoadFailed {
+                BodyProUnavailableCard {
+                    Task { await proStore?.loadProducts() }
                 }
+            } else {
+                BodyProLoadingPriceCard()
             }
         }
     }
 
     private var planCards: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             if let yearly = products[.yearly] {
                 let savingsPercent = products[.monthly].flatMap { yearly.yearlySavingsPercent(comparedWith: $0) }
 
@@ -272,7 +290,7 @@ struct BodyProView: View {
                 }
             }
         }
-        .padding(.top, 4)
+        .padding(.top, 2)
     }
 
     /// The sticky purchase button, with the price disclosure App Review expects right
@@ -290,8 +308,11 @@ struct BodyProView: View {
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundColor(.primary)
                         .frame(maxWidth: .infinity, minHeight: 46)
-                        .background(Capsule().strokeBorder(Color.primary.opacity(0.22), lineWidth: 1))
-                        .contentShape(Capsule())
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(Color.primary.opacity(0.22), lineWidth: 1)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(purchaseState == .purchasing)
@@ -303,12 +324,17 @@ struct BodyProView: View {
         .readableContentColumn()
         .background {
             // Content scrolls under the bar: it fades out just above the button, and the
-            // bar itself is solid so nothing shows through behind the price terms.
+            // bar itself is solid so nothing shows through behind the price terms. The
+            // app background has faded to the plain page color by here.
             VStack(spacing: 0) {
-                LinearGradient(colors: [.black.opacity(0), .black], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 28)
+                LinearGradient(
+                    colors: [Color(.systemGroupedBackground).opacity(0), Color(.systemGroupedBackground)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 28)
 
-                Color.black
+                Color(.systemGroupedBackground)
             }
             .padding(.top, -28)
             .ignoresSafeArea(edges: .bottom)
@@ -318,7 +344,7 @@ struct BodyProView: View {
     @ViewBuilder
     private func purchaseControls(plan: BodyProPlan, product: BodyProProduct) -> some View {
         // Pending approval or a failure lands here, beside the button that caused it,
-        // rather than below the feature list.
+        // rather than below the feature grid.
         if let statusText {
             Text(statusText)
                 .font(.system(.footnote, design: .rounded))
@@ -337,26 +363,17 @@ struct BodyProView: View {
 
                 if purchaseState == .purchasing {
                     ProgressView()
-                        .tint(.black)
+                        .tint(.white)
                 }
             }
-            .font(.system(size: 18, weight: .bold, design: .rounded))
-            .foregroundColor(.black)
+            .font(.system(size: 17, weight: .bold, design: .rounded))
+            .foregroundColor(.white)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
-            .frame(maxWidth: .infinity, minHeight: 54)
-            .background(
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [BodyProPalette.goldHighlight, BodyProPalette.gold],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            )
-            .shadow(color: BodyProPalette.gold.opacity(0.3), radius: 16, x: 0, y: 6)
-            .contentShape(Capsule())
+            .frame(maxWidth: .infinity, minHeight: 52)
+            // The onboarding Continue button's flat glass chip.
+            .background(BodyGlassChip(color: BodyProPalette.accent, cornerRadius: 16, fillOpacity: 0.7))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isPurchaseFlowActive)
@@ -399,31 +416,6 @@ struct BodyProView: View {
             : String(localized: "\(product.displayPrice) per year")
     }
 
-    private var featureList: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Unlock All Pro Features")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundColor(.primary)
-
-            VStack(spacing: 0) {
-                ForEach(features) { feature in
-                    BodyProFeatureRow(feature: feature)
-
-                    if feature.id != features.last?.id {
-                        Divider()
-                            .padding(.leading, 68)
-                    }
-                }
-
-                Divider()
-                    .padding(.leading, 68)
-
-                BodyProFutureUpdatesNote()
-            }
-            .bodyCardBackground(cornerRadius: 26, translucent: true)
-        }
-    }
-
     private var restoreSection: some View {
         VStack(spacing: 12) {
             // While plans are on sale the purchase bar shows this instead.
@@ -442,7 +434,7 @@ struct BodyProView: View {
                     showRedeemSheet = true
                 } label: {
                     Text("Redeem")
-                        .foregroundColor(BodyProPalette.gold)
+                        .foregroundColor(BodyProPalette.accent)
                         // Each label carries its own tap target: text this size is
                         // well under the 44pt minimum on its own.
                         .frame(minHeight: 44)
@@ -458,7 +450,7 @@ struct BodyProView: View {
                     Task { await proStore?.restore() }
                 } label: {
                     Text("Restore")
-                        .foregroundColor(BodyProPalette.gold)
+                        .foregroundColor(BodyProPalette.accent)
                         .frame(minHeight: 44)
                         .contentShape(Rectangle())
                 }
@@ -473,7 +465,7 @@ struct BodyProView: View {
                     showCustomerCenter = true
                 } label: {
                     Text("Manage")
-                        .foregroundColor(BodyProPalette.gold)
+                        .foregroundColor(BodyProPalette.accent)
                         .frame(minHeight: 44)
                         .contentShape(Rectangle())
                 }
@@ -499,158 +491,563 @@ struct BodyProView: View {
     }
 }
 
-/// Black with a warm gold glow falling from the top, so the page reads as premium without
-/// competing with the plan cards.
-private struct BodyProBackdrop: View {
-    var body: some View {
-        ZStack {
-            Color.black
+// MARK: - Showcase
 
-            RadialGradient(
-                colors: [BodyProPalette.gold.opacity(0.2), .clear],
-                center: .top,
-                startRadius: 0,
-                endRadius: 460
-            )
+/// What Pro looks like, one real surface at a time: a paged carousel of scenes built from
+/// Body's own views over sample data, with a caption for each. It moves on by itself every
+/// few seconds (a swipe restarts the clock), and holds still under Reduce Motion or VoiceOver.
+private struct BodyProShowcase: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @State private var selection = 0
+
+    private static let slides = BodyProShowcaseSlide.allCases
+    private static let dwell: Duration = .seconds(4.5)
+    /// The page's horizontal padding, which the pager reaches back across.
+    private static let margin: CGFloat = 18
+    /// The fade sits inside the margin and stops short of it, so a scene in place is never
+    /// touched; only what slides through the margins fades.
+    private static let fadeWidth: CGFloat = margin - 2
+
+    private var edgeMask: some View {
+        HStack(spacing: 0) {
+            LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                .frame(width: Self.fadeWidth)
+
+            Rectangle().fill(Color.black)
+
+            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: Self.fadeWidth)
         }
-        .ignoresSafeArea()
     }
-}
 
-private struct BodyProHeroView: View {
+    private var slide: BodyProShowcaseSlide {
+        Self.slides[selection]
+    }
+
     var body: some View {
         VStack(spacing: 14) {
-            ZStack {
-                BodyProConfetti()
-
-                BodyProIconGlow()
-
-                BodyProFlippableIcon()
+            // The pager runs out to the screen edges under the page margins and fades
+            // there, like the detail page's day slider, so a scene slides in and out
+            // through a soft edge instead of a hard cut at the column.
+            TabView(selection: $selection) {
+                ForEach(Array(Self.slides.enumerated()), id: \.offset) { index, slide in
+                    slide.scene
+                        .padding(.horizontal, Self.margin)
+                        .tag(index)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text(slide.title))
+                        .accessibilityValue(Text(slide.subtitle))
+                }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 150)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 276)
+            .padding(.horizontal, -Self.margin)
+            // The mask reaches out across the margins with the pager, so its fades land in
+            // the margins rather than on the resting scene.
+            .mask(edgeMask.padding(.horizontal, -Self.margin))
 
-            VStack(spacing: 8) {
-                Text("See the Full Picture")
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
+            VStack(spacing: 5) {
+                Text(slide.title)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
 
-                Text("Unlock every chart, data source, and share style in Body.")
-                    .font(.system(.body, design: .rounded))
+                Text(slide.subtitle)
+                    .font(.system(.subheadline, design: .rounded))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity, minHeight: 70, alignment: .top)
+            .id(selection)
+            .transition(.opacity)
 
-            BodyProHighlights()
-                .padding(.top, 6)
+            BodyProShowcaseDots(count: Self.slides.count, selection: selection)
         }
-        .padding(.top, 4)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: selection)
+        .task(id: selection) {
+            // A swipe lands on a new selection, which restarts the dwell from there.
+            guard !reduceMotion, !voiceOverEnabled else { return }
+            try? await Task.sleep(for: Self.dwell)
+            guard !Task.isCancelled else { return }
+            selection = (selection + 1) % Self.slides.count
+        }
     }
 }
 
-/// Four headline benefits, scannable before the plans. The full list sits further down.
-private struct BodyProHighlights: View {
-    private let items: [(iconName: String, title: LocalizedStringKey)] = [
-        ("chart.line.uptrend.xyaxis", "Year Charts"),
-        ("square.stack.3d.up.fill", "More Sources"),
-        ("move.3d", "3D Routes"),
-        ("square.grid.2x2.fill", "Widgets")
-    ]
+private struct BodyProShowcaseDots: View {
+    let count: Int
+    let selection: Int
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            ForEach(items.indices, id: \.self) { index in
-                VStack(spacing: 7) {
-                    Image(systemName: items[index].iconName)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(BodyProPalette.gold)
-                        .frame(width: 46, height: 46)
-                        .background(Circle().fill(BodyProPalette.gold.opacity(0.14)))
-
-                    Text(items[index].title)
-                        .font(.system(.caption, design: .rounded))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.85)
-                }
-                .frame(maxWidth: .infinity)
+        HStack(spacing: 6) {
+            ForEach(0..<count, id: \.self) { index in
+                Capsule()
+                    .fill(index == selection ? BodyProPalette.accent : Color.primary.opacity(0.22))
+                    .frame(width: index == selection ? 18 : 6, height: 6)
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityHidden(true)
     }
 }
 
-private struct BodyProFlippableIcon: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var isShowingBack = false
-    @State private var rotationDegrees = 0.0
-    @State private var isFlipping = false
+private enum BodyProShowcaseSlide: CaseIterable {
+    case yearChart
+    case route
+    case widgets
+    case sources
+    case backgrounds
 
-    var body: some View {
-        Button(action: flipIcon) {
-            iconImage
-                .frame(width: 164, height: 104)
-                .rotation3DEffect(
-                    .degrees(rotationDegrees),
-                    axis: (x: 0, y: 1, z: 0),
-                    perspective: 0.58
-                )
-                .scaleEffect(isFlipping ? 1.03 : 1)
-                .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+    var title: LocalizedStringKey {
+        switch self {
+        case .yearChart: return "A whole year, at a glance"
+        case .route: return "Your routes, in 3D"
+        case .widgets: return "Body on your Home Screen"
+        case .sources: return "Two sources, one chart"
+        case .backgrounds: return "Make it yours"
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Body Pro icon")
-        .accessibilityHint("Flips the icon")
     }
 
-    private var iconImage: some View {
-        Image(BodyAppearancePreference.bodyProIconAssetName(showsBack: isShowingBack))
+    var subtitle: LocalizedStringKey {
+        switch self {
+        case .yearChart: return "Month, 6 month, and year charts for every metric."
+        case .route: return "Share workouts with the route as an elevation ribbon, over a photo or video."
+        case .widgets: return "Widgets for your workouts and every metric."
+        case .sources: return "Compare a second source, or merge several into a custom one."
+        case .backgrounds: return "Custom backgrounds, saved as profiles you can switch anytime."
+        }
+    }
+
+    @ViewBuilder
+    var scene: some View {
+        switch self {
+        case .yearChart: BodyProYearChartSlide()
+        case .route: BodyProRouteSlide()
+        case .widgets: BodyProWidgetsSlide()
+        case .sources: BodyProSourcesSlide()
+        case .backgrounds: BodyProBackgroundsSlide()
+        }
+    }
+}
+
+private extension View {
+    /// One showcase scene: a screen-shaped card on the page color, optionally with the
+    /// metric detail page's wash (the tint fading out by the midpoint) at the top.
+    func bodyProShowcaseScene(wash: Color? = nil) -> some View {
+        bodyProShowcaseScene {
+            if let wash {
+                LinearGradient(
+                    stops: [
+                        .init(color: wash.opacity(0.45), location: 0),
+                        .init(color: .clear, location: 0.6)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+        }
+    }
+
+    func bodyProShowcaseScene<Backdrop: View>(@ViewBuilder backdrop: () -> Backdrop) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 28, style: .continuous)
+        return frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                ZStack {
+                    Color(.systemGroupedBackground)
+                    backdrop()
+                }
+            }
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+            .allowsHitTesting(false)
+    }
+}
+
+/// Deterministic noise for the sample data, so every launch draws the same scenes.
+private struct BodyProSampleNoise {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed
+    }
+
+    /// Uniform in 0..<1.
+    mutating func next() -> Double {
+        state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+        return Double(state >> 11) / Double(1 << 53)
+    }
+}
+
+/// The HRV detail page over a sample year: the real range pills with Year chosen and
+/// the real trend chart. A line metric, so the year's shape shows; a bar metric's axis
+/// starts at zero and flattens a year into a wall.
+private struct BodyProYearChartSlide: View {
+    private static let tint = HealthWidgetMetric.heartRateVariability.tintColor
+
+    /// A year of nights: a slow climb through a training block, a seasonal dip, and the
+    /// night to night scatter HRV really has.
+    private static let series: HealthTrendSeries = {
+        let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: Date())
+        var noise = BodyProSampleNoise(seed: 0x5EED_5EED)
+        let points = (0..<365).compactMap { offset -> HealthTrendDataPoint? in
+            guard let date = calendar.date(byAdding: .day, value: offset - 364, to: today) else {
+                return nil
+            }
+            let progress = Double(offset) / 365
+            let season = 5 * sin(progress * 2 * .pi - 1.4)
+            let block = 7 * progress
+            let value = 44 + season + block + (noise.next() - 0.5) * 12
+            return HealthTrendDataPoint(date: date, value: value.rounded())
+        }
+        return HealthTrendSeries(points: points)
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            BodyHealthTrendRangeSelector(selectedRange: .constant(.recentYear), appearance: .onGradient)
+
+            BodyHealthMetricTrendChart(
+                title: String(localized: "HRV"),
+                chartStyle: .line,
+                symbolColor: Self.tint,
+                selectedRange: .recentYear,
+                series: Self.series,
+                valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
+                isSleepDetail: false,
+                chartIdentity: "bodyProShowcaseHRV"
+            )
+            .frame(maxHeight: .infinity)
+        }
+        .padding(16)
+        .bodyProShowcaseScene(wash: Self.tint)
+    }
+}
+
+/// A workout share card in the 3D route style: the ribbon drawn by the route hero's own
+/// projection and painter over a sample loop, with the card's stats in the corner.
+private struct BodyProRouteSlide: View {
+    private static let workoutType = BodyWorkoutType.running
+
+    /// A hilly loop: altitude on every fix, and enough climb for the ribbon's full relief.
+    private static let projected: WorkoutRoute3DProjection.Projected3D? = {
+        let route = (0..<160).map { index -> RouteCoordinate in
+            let angle = Double(index) / 160 * 2 * .pi
+            return RouteCoordinate(
+                latitude: 37.7749 + 0.0030 * sin(angle) + 0.0009 * sin(3 * angle) + 0.0004 * cos(7 * angle),
+                longitude: -122.4194 + 0.0045 * cos(angle) + 0.0007 * cos(2 * angle) + 0.0003 * sin(6 * angle),
+                speed: 3.1,
+                altitude: 120 + 110 * sin(2 * angle + 0.6) + 30 * sin(5 * angle)
+            )
+        }
+        return WorkoutRoute3DProjection.projected(for: route)
+    }()
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            Canvas { context, size in
+                guard let projected = Self.projected,
+                      let fit = BodyWorkoutRouteHeroFit.transform(
+                          fitting: projected.fitReference,
+                          in: size,
+                          targetCenterY: size.height * 0.44,
+                          topInset: 0
+                      ) else {
+                    return
+                }
+                let place = { (point: CGPoint) in
+                    CGPoint(x: fit.offset.x + point.x * fit.scale, y: fit.offset.y + point.y * fit.scale)
+                }
+                BodyWorkoutRoute3DHero.drawRibbon(
+                    top: projected.top.map(place),
+                    base: projected.base.map(place),
+                    tint: Self.workoutType.color,
+                    in: &context
+                )
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Label {
+                    Text(Self.workoutType.displayName)
+                } icon: {
+                    Image(systemName: Self.workoutType.symbolName)
+                }
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+
+                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    stat("8.4", unit: "km")
+                    stat("42:18", unit: nil)
+                    stat("5'02\"", unit: "/km")
+                }
+            }
+            .padding(18)
+        }
+        .bodyProShowcaseScene {
+            RadialGradient(
+                colors: [Self.workoutType.color.opacity(0.32), .clear],
+                center: .init(x: 0.7, y: 0.25),
+                startRadius: 0,
+                endRadius: 260
+            )
+        }
+    }
+
+    private func stat(_ value: String, unit: String?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Text(verbatim: value)
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            if let unit {
+                Text(verbatim: unit)
+                    .font(.system(.footnote, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+/// Two small metric widgets, as the widget gallery draws them over the placeholder
+/// snapshot, on the app's own background.
+private struct BodyProWidgetsSlide: View {
+    private static let snapshot = HealthWidgetSnapshot.placeholder
+
+    var body: some View {
+        HStack(spacing: 14) {
+            widget(.heartRate)
+            widget(.sleep)
+        }
+        .padding(16)
+        .bodyProShowcaseScene {
+            BodyActivityRingsCard.heroBackground(colors: BodyHomeBackground.defaultColors)
+        }
+    }
+
+    private func widget(_ metric: HealthWidgetMetric) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+        return HealthWidgetMetricCardView(metric: metric, trend: Self.snapshot.trend(for: metric))
+            .padding(.horizontal, 15)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+            .aspectRatio(1, contentMode: .fit)
+            .frame(maxWidth: 150)
+            .background {
+                // The widget's Gradient background: the tint washing down from the top.
+                shape
+                    .fill(Color(.secondarySystemBackground))
+                    .overlay {
+                        LinearGradient(
+                            stops: [
+                                .init(color: metric.tintColor.opacity(0.45), location: 0),
+                                .init(color: .clear, location: 0.5)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .clipShape(shape)
+                    }
+            }
+            .shadow(color: .black.opacity(0.3), radius: 16, x: 0, y: 8)
+    }
+}
+
+/// A week of steps from two sources on one chart, in the detail chart's own line and
+/// point style, the way a secondary source shows there.
+private struct BodyProSourcesSlide: View {
+    private static let tint = HealthWidgetMetric.steps.tintColor
+    private static let secondaryTint = Color(red: 0.62, green: 0.84, blue: 1.0)
+
+    private struct Day: Identifiable {
+        let id: Int
+        let date: Date
+        let watch: Double
+        let phone: Double
+    }
+
+    private static let days: [Day] = {
+        let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: Date())
+        let watch: [Double] = [8_420, 11_260, 6_930, 9_780, 12_410, 7_350, 10_120]
+        let phone: [Double] = [7_100, 10_340, 6_020, 8_610, 11_160, 6_480, 9_130]
+        return watch.indices.compactMap { index in
+            calendar.date(byAdding: .day, value: index - 6, to: today).map {
+                Day(id: index, date: $0, watch: watch[index], phone: phone[index])
+            }
+        }
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                legend(Self.tint, name: Text(verbatim: "Apple Watch"))
+                legend(Self.secondaryTint, name: Text("Other Wearables"))
+
+                Spacer(minLength: 0)
+
+                Text("Steps")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+
+            Chart {
+                ForEach(Self.days) { day in
+                    line(day.watch, of: day, series: "watch", tint: Self.tint)
+                    line(day.phone, of: day, series: "other", tint: Self.secondaryTint)
+                }
+            }
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .day)) { _ in
+                    AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
+                        .font(.system(.caption2, design: .rounded))
+                }
+            }
+            .chartYAxis(.hidden)
+            .chartYScale(domain: 3_000...14_000)
+            .chartLegend(.hidden)
+            .frame(maxHeight: .infinity)
+        }
+        .padding(16)
+        .bodyProShowcaseScene(wash: Self.tint)
+    }
+
+    /// One source's line and dots, drawn as the week range draws them on a detail chart:
+    /// straight segments and ringed points, the latest one filled.
+    @ChartContentBuilder
+    private func line(_ value: Double, of day: Day, series: String, tint: Color) -> some ChartContent {
+        LineMark(
+            x: .value("Date", day.date, unit: .day),
+            y: .value("Steps", value),
+            series: .value("Source", series)
+        )
+        .interpolationMethod(.linear)
+        .foregroundStyle(tint)
+        .lineStyle(StrokeStyle(lineWidth: BodyLineChartPreviewStyle.lineWidth, lineCap: .round, lineJoin: .round))
+
+        PointMark(
+            x: .value("Date", day.date, unit: .day),
+            y: .value("Steps", value)
+        )
+        .symbol {
+            BodyLineChartPreviewPointSymbol(
+                tintColor: tint,
+                isCurrent: day.id == Self.days.count - 1,
+                pointDiameter: BodyHealthTrendRange.recentWeek.linePointDiameter,
+                currentPointDiameter: BodyHealthTrendRange.recentWeek.lineCurrentPointDiameter
+            )
+        }
+    }
+
+    private func legend(_ color: Color, name: Text) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+
+            name
+                .font(.system(.footnote, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+        }
+    }
+}
+
+/// Four saved background profiles, each on a small screen with the shapes of the Summary
+/// page, so the mixes read as the app rather than as swatches.
+private struct BodyProBackgroundsSlide: View {
+    private static let profiles: [BodyHomeBackgroundProfile] = [.appDefault, .rose, .violet, .iJustin]
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ForEach(Self.profiles) { profile in
+                screen(profile)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 20)
+        .bodyProShowcaseScene()
+    }
+
+    private func screen(_ profile: BodyHomeBackgroundProfile) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return ZStack(alignment: .top) {
+            BodyActivityRingsCard.heroBackground(
+                colors: BodyHomeBackground.colors(from: profile.colorsRawValue),
+                separators: BodyHomeBackground.separators(from: profile.separatorsRawValue)
+            )
+
+            VStack(spacing: 8) {
+                Circle()
+                    .strokeBorder(Color.primary.opacity(0.18), lineWidth: 4)
+                    .frame(width: 34, height: 34)
+                    .padding(.top, 22)
+
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.09))
+                    .frame(height: 40)
+
+                HStack(spacing: 8) {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.primary.opacity(0.09))
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.primary.opacity(0.09))
+                }
+                .frame(height: 40)
+            }
+            .padding(.horizontal, 9)
+        }
+        .aspectRatio(0.46, contentMode: .fit)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+    }
+}
+
+// MARK: - Owned
+
+/// A member's page leads with this card, the app icon and a thank-you, above the showcase.
+private struct BodyProOwnedCard: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                BodyProIconGlow()
+
+                BodyProAppIcon()
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 140)
+
+            VStack(spacing: 6) {
+                Text("You have Body Pro")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Text("Thanks for your support. All Pro features are unlocked.")
+                    .font(.system(.subheadline, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 18)
+        .frame(maxWidth: .infinity)
+        .bodyCardBackground(cornerRadius: 26, translucent: true)
+    }
+}
+
+/// The app's icon, whichever one is chosen in Settings, as onboarding's Welcome shows it.
+private struct BodyProAppIcon: View {
+    var body: some View {
+        Image(BodyAppIconOption.option(named: UIApplication.shared.alternateIconName).previewAssetName)
             .resizable()
             .scaledToFit()
-    }
-
-    private func flipIcon() {
-        guard !isFlipping else {
-            return
-        }
-
-        playFlipHaptic()
-
-        let nextIsShowingBack = !isShowingBack
-
-        guard !reduceMotion else {
-            isShowingBack = nextIsShowingBack
-            return
-        }
-
-        isFlipping = true
-
-        withAnimation(.easeIn(duration: 0.18)) {
-            rotationDegrees = 86
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-            isShowingBack = nextIsShowingBack
-            rotationDegrees = -86
-
-            withAnimation(.interpolatingSpring(stiffness: 230, damping: 18)) {
-                rotationDegrees = 0
-            }
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.48) {
-            isFlipping = false
-        }
-    }
-
-    private func playFlipHaptic() {
-        guard BodyHaptics.isMasterEnabled else { return }
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.prepare()
-        generator.impactOccurred(intensity: 0.75)
+            .frame(width: 96, height: 96)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .accessibilityHidden(true)
     }
 }
 
@@ -661,8 +1058,8 @@ private struct BodyProIconGlow: View {
                 .fill(
                     RadialGradient(
                         colors: [
-                            BodyProPalette.gold.opacity(0.28),
-                            BodyProPalette.gold.opacity(0.10),
+                            BodyProPalette.accent.opacity(0.15),
+                            BodyProPalette.accent.opacity(0.05),
                             .clear
                         ],
                         center: .center,
@@ -674,7 +1071,7 @@ private struct BodyProIconGlow: View {
                 .blur(radius: 18)
 
             Ellipse()
-                .fill(BodyProPalette.gold.opacity(0.08))
+                .fill(BodyProPalette.accent.opacity(0.04))
                 .frame(width: 180, height: 70)
                 .blur(radius: 22)
                 .offset(y: 18)
@@ -685,31 +1082,7 @@ private struct BodyProIconGlow: View {
     }
 }
 
-struct BodyProConfetti: View {
-    private let items: [(icon: String, color: Color, x: CGFloat, y: CGFloat, rotation: Double, size: CGFloat)] = [
-        ("diamond.fill", .green, -118, -38, 18, 11),
-        ("sparkle", .blue, -82, 22, -12, 20),
-        ("circle.fill", .pink, -124, 44, 0, 9),
-        ("sparkles", .purple, 104, -24, 18, 25),
-        ("diamond.fill", .orange, 96, 38, 24, 10),
-        ("circle.fill", .red, -42, 58, 0, 8),
-        ("diamond.fill", .blue, 48, -58, 20, 9)
-    ]
-
-    var body: some View {
-        ZStack {
-            ForEach(items.indices, id: \.self) { index in
-                let item = items[index]
-
-                Image(systemName: item.icon)
-                    .font(.system(size: item.size, weight: .bold))
-                    .foregroundColor(item.color)
-                    .rotationEffect(.degrees(item.rotation))
-                    .offset(x: item.x, y: item.y)
-            }
-        }
-    }
-}
+// MARK: - Plans
 
 /// One selectable plan. The whole row is the tap target; `accessory` renders below it
 /// inside the same card (the Lifetime card's Just Me / Family switch).
@@ -719,7 +1092,7 @@ private struct BodyProPlanCard<Accessory: View>: View {
     let price: String
     let priceCaption: LocalizedStringKey
     var savingsPercent: Int?
-    /// Gold tag on the card's top edge ("7 days free", "Best Value").
+    /// Tag on the card's top edge ("7 days free", "Best Value").
     var ribbon: String?
     let isSelected: Bool
     let onSelect: () -> Void
@@ -745,10 +1118,10 @@ private struct BodyProPlanCard<Accessory: View>: View {
                                 Text("Save \((Double(savingsPercent) / 100).formatted(.percent))")
                                     .font(.system(.caption, design: .rounded))
                                     .fontWeight(.bold)
-                                    .foregroundColor(BodyProPalette.gold)
+                                    .foregroundColor(BodyProPalette.accent)
                                     .padding(.horizontal, 7)
                                     .padding(.vertical, 3)
-                                    .background(Capsule().fill(BodyProPalette.gold.opacity(0.16)))
+                                    .background(Capsule().fill(BodyProPalette.accent.opacity(0.16)))
                             }
                         }
 
@@ -780,10 +1153,10 @@ private struct BodyProPlanCard<Accessory: View>: View {
             accessory()
         }
         .padding(16)
-        .background(cardShape.fill(isSelected ? BodyProPalette.gold.opacity(0.1) : Color.primary.opacity(0.06)))
+        .background(cardShape.fill(isSelected ? BodyProPalette.accent.opacity(0.12) : Color.primary.opacity(0.06)))
         .overlay(
             cardShape.strokeBorder(
-                isSelected ? BodyProPalette.gold : Color.primary.opacity(0.1),
+                isSelected ? BodyProPalette.accent : Color.primary.opacity(0.1),
                 lineWidth: isSelected ? 2 : 1
             )
         )
@@ -793,11 +1166,11 @@ private struct BodyProPlanCard<Accessory: View>: View {
                     .font(.system(.caption2, design: .rounded))
                     .fontWeight(.heavy)
                     .textCase(.uppercase)
-                    .foregroundColor(.black)
+                    .foregroundColor(.white)
                     .lineLimit(1)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
-                    .background(Capsule().fill(BodyProPalette.gold))
+                    .background(Capsule().fill(BodyProPalette.accent))
                     .offset(x: -16, y: -10)
             }
         }
@@ -836,14 +1209,14 @@ private struct BodyProSelectionMark: View {
     var body: some View {
         ZStack {
             Circle()
-                .strokeBorder(isSelected ? BodyProPalette.gold : Color.primary.opacity(0.25), lineWidth: 2)
+                .strokeBorder(isSelected ? BodyProPalette.accent : Color.primary.opacity(0.25), lineWidth: 2)
 
             if isSelected {
                 Image(systemName: "checkmark")
                     .font(.system(size: 11, weight: .heavy))
-                    .foregroundColor(.black)
+                    .foregroundColor(.white)
                     .frame(width: 24, height: 24)
-                    .background(Circle().fill(BodyProPalette.gold))
+                    .background(Circle().fill(BodyProPalette.accent))
             }
         }
         .frame(width: 24, height: 24)
@@ -874,10 +1247,10 @@ private struct BodyProLifetimeSwitch: View {
             Label(title, systemImage: iconName)
                 .font(.system(.subheadline, design: .rounded))
                 .fontWeight(.semibold)
-                .foregroundColor(isOn ? .black : .secondary)
+                .foregroundColor(isOn ? .white : .secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, minHeight: 36)
-                .background(Capsule().fill(isOn ? BodyProPalette.gold : Color.clear))
+                .background(Capsule().fill(isOn ? BodyProPalette.accent : Color.clear))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -929,9 +1302,9 @@ private struct BodyProTimelineStep: View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: iconName)
                 .font(.system(size: 14, weight: .bold))
-                .foregroundColor(.black)
+                .foregroundColor(.white)
                 .frame(width: 34, height: 34)
-                .background(Circle().fill(BodyProPalette.gold))
+                .background(Circle().fill(BodyProPalette.accent))
 
             VStack(alignment: .leading, spacing: 3) {
                 title
@@ -952,7 +1325,7 @@ private struct BodyProTimelineStep: View {
         .background(alignment: .topLeading) {
             if continues {
                 Rectangle()
-                    .fill(BodyProPalette.gold.opacity(0.35))
+                    .fill(BodyProPalette.accent.opacity(0.35))
                     .frame(width: 2)
                     .padding(.top, 34)
                     .padding(.leading, 16)
@@ -997,6 +1370,8 @@ private struct BodyProLegalFooter: View {
         .frame(maxWidth: .infinity)
     }
 }
+
+// MARK: - Store states
 
 private struct BodyProCheckingCard: View {
     var body: some View {
@@ -1049,7 +1424,7 @@ private struct BodyProUnavailableCard: View {
                     .fontWeight(.semibold)
             }
             .buttonStyle(.bordered)
-            .tint(BodyProPalette.gold)
+            .tint(BodyProPalette.accent)
         }
         .padding(16)
         .bodyCardBackground(cornerRadius: 24, translucent: true)
@@ -1061,7 +1436,7 @@ private struct BodyProVerifyingPurchaseCard: View {
         HStack(spacing: 14) {
             Image(systemName: "exclamationmark.seal.fill")
                 .font(.system(size: 30, weight: .bold))
-                .foregroundColor(BodyProPalette.gold)
+                .foregroundColor(BodyProPalette.accent)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Purchase Completed")
@@ -1081,103 +1456,84 @@ private struct BodyProVerifyingPurchaseCard: View {
     }
 }
 
-private struct BodyProOwnedCard: View {
+// MARK: - Everything in Pro
+
+/// The complete list, as a grid of short titles: the showcase has already shown what
+/// they look like, so this is the checklist, not the pitch.
+private struct BodyProFeatureGrid: View {
+    private let features = BodyProFeature.defaultFeatures
+    private let columns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
+    ]
+
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 30, weight: .bold))
-                .foregroundColor(BodyProPalette.gold)
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Everything in Pro")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("You have Body Pro")
-                    .font(.system(size: 19, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(features) { feature in
+                    BodyProFeatureTile(iconName: feature.iconName, title: feature.title)
+                }
 
-                Text("Thanks for your support. All Pro features are unlocked.")
-                    .font(.system(.subheadline, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                BodyProFeatureTile(iconName: "bolt.fill", title: String(localized: "Future Pro Updates"))
             }
-
-            Spacer(minLength: 8)
         }
-        .padding(16)
-        .bodyCardBackground(cornerRadius: 24, translucent: true)
     }
 }
 
-private struct BodyProFeatureRow: View {
-    let feature: BodyProFeature
-
-    var body: some View {
-        HStack(spacing: 14) {
-            BodyProFeatureIconTile(iconName: feature.iconName, color: BodyProPalette.gold)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(feature.title)
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
-
-                Text(feature.detail)
-                    .font(.system(.subheadline, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 6)
-
-            BodyProFeatureCheckmark()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-    }
-}
-
-private struct BodyProFeatureIconTile: View {
+private struct BodyProFeatureTile: View {
     let iconName: String
-    let color: Color
+    let title: String
 
     var body: some View {
-        Image(systemName: iconName)
-            .font(.system(size: 21, weight: .semibold))
-            .foregroundColor(color)
-            .frame(width: 44, height: 44)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(color.opacity(0.14))
-            )
-    }
-}
+        HStack(spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(BodyProPalette.accent)
+                .frame(width: 32, height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(BodyProPalette.accent.opacity(0.14))
+                )
 
-private struct BodyProFeatureCheckmark: View {
-    var body: some View {
-        Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 23, weight: .semibold))
-            .foregroundColor(BodyProPalette.gold)
+            Text(title)
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+        .bodyCardBackground(cornerRadius: 18, translucent: true)
+        .accessibilityElement(children: .combine)
     }
 }
 
 private struct BodyProFeature: Identifiable {
     let id: String
     let title: String
-    let detail: String
     let iconName: String
 
     /// Grouped by what they touch — metric depth, data sources, share cards, then
-    /// the rest of the app — so neighbouring rows read as one subject.
+    /// the rest of the app — so neighbouring tiles read as one subject.
     static let defaultFeatures = [
         // Metric depth: how far back the charts and day views reach.
         BodyProFeature(
             id: "longer-range-charts",
             title: String(localized: "Longer-Range Charts"),
-            detail: String(localized: "Open month, six-month, and year views for metric charts."),
             iconName: "chart.line.uptrend.xyaxis"
         ),
         BodyProFeature(
             id: "full-day-history",
             title: String(localized: "Full Day History"),
-            detail: String(localized: "Open any past day in the metric and sleep day views, beyond the most recent three."),
             iconName: "calendar"
         ),
 
@@ -1185,13 +1541,11 @@ private struct BodyProFeature: Identifiable {
         BodyProFeature(
             id: "secondary-source",
             title: String(localized: "Secondary Data Source"),
-            detail: String(localized: "Compare a secondary data source on your metric charts."),
             iconName: "square.stack.3d.up.fill"
         ),
         BodyProFeature(
             id: "custom-sources",
             title: String(localized: "Custom Data Sources"),
-            detail: String(localized: "Create your own sources that merge several data sources into one."),
             iconName: "heart.fill"
         ),
 
@@ -1199,31 +1553,26 @@ private struct BodyProFeature: Identifiable {
         BodyProFeature(
             id: "photo-share",
             title: String(localized: "Photo Activity Share"),
-            detail: String(localized: "Use your own photos as the background of workout share cards."),
             iconName: "photo.fill"
         ),
         BodyProFeature(
             id: "video-share",
             title: String(localized: "Video Activity Share"),
-            detail: String(localized: "Use your own videos as the background of workout share cards."),
             iconName: "video.fill"
         ),
         BodyProFeature(
             id: "three-d-route-share",
             title: String(localized: "3D Route Share"),
-            detail: String(localized: "Share workout cards with the route drawn as a 3D elevation ribbon on any background."),
             iconName: "move.3d"
         ),
         BodyProFeature(
             id: "share-ratios",
             title: String(localized: "Share Card Sizes"),
-            detail: String(localized: "Export workout share cards as 16:9, 3:4, 4:3, or square, or as a long image of the whole workout."),
             iconName: "aspectratio"
         ),
         BodyProFeature(
             id: "share-metrics",
             title: String(localized: "Share Card Metrics"),
-            detail: String(localized: "Choose which metrics your workout share card shows."),
             iconName: "list.bullet.rectangle.portrait"
         ),
 
@@ -1231,42 +1580,14 @@ private struct BodyProFeature: Identifiable {
         BodyProFeature(
             id: "custom-backgrounds",
             title: String(localized: "Custom Backgrounds"),
-            detail: String(localized: "Personalize the app background with your own color mixes and saved profiles."),
             iconName: "paintpalette.fill"
         ),
         BodyProFeature(
             id: "body-widgets",
             title: String(localized: "Body Widgets"),
-            detail: String(localized: "Use Body widgets to keep workout and metric context on the Home Screen."),
             iconName: "square.grid.2x2.fill"
         )
     ]
-}
-
-private struct BodyProFutureUpdatesNote: View {
-    var body: some View {
-        HStack(spacing: 14) {
-            BodyProFeatureIconTile(iconName: "bolt.fill", color: BodyProPalette.gold)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Future Pro Updates")
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
-
-                Text("More Body Pro features will be added in future updates.")
-                    .font(.system(.subheadline, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 6)
-
-            BodyProFeatureCheckmark()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-    }
 }
 
 #if DEBUG

@@ -322,7 +322,6 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Couldn't Save Video",
             "Drag to move the video. Pinch to zoom. Double-tap to reset.",
             "Video Activity Share",
-            "Use your own videos as the background of workout share cards.",
             // Font row label and the option names, built via String(localized:) in
             // WorkoutShareFontChoice.localizedName.
             "Font",
@@ -350,7 +349,6 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Landscape 4:3",
             "Square",
             "Share Card Sizes",
-            "Export workout share cards as 16:9, 3:4, 4:3, or square, or as a long image of the whole workout.",
             // Long Image tray tile, its metrics caption, its min-1 hint, and the
             // disabled-background hint.
             "Long Image",
@@ -369,7 +367,6 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Requires Body Pro",
             "Pick up to 5 metrics.",
             "Share Card Metrics",
-            "Choose which metrics your workout share card shows.",
             // Profile attribution rail icon, its tray tile names and disabled-tile
             // hint, and the missing-data caption shown while the tray is open.
             "Profile",
@@ -677,19 +674,28 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertNoDashes(keys, in: catalog)
     }
 
-    /// The subscription paywall: plan cards, the purchase button and its price disclosure,
-    /// the free trial timeline, and the legal footer. Several are built at runtime from
+    /// The subscription paywall: the showcase captions, plan cards, the purchase button and
+    /// its price disclosure, the free trial timeline, and the legal footer. Several are built at runtime from
     /// store prices (BodyProView), so string extraction alone would not prove they resolve.
     func testBodyProPaywallStringsAreTranslated() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
         let keys = [
-            "See the Full Picture",
-            "Unlock every chart, data source, and share style in Body.",
-            "Year Charts",
-            "More Sources",
-            "3D Routes",
-            "Widgets",
+            // The showcase captions, one per scene.
+            "A whole year, at a glance",
+            "Month, 6 month, and year charts for every metric.",
+            "Your routes, in 3D",
+            "Share workouts with the route as an elevation ribbon, over a photo or video.",
+            "Body on your Home Screen",
+            "Widgets for your workouts and every metric.",
+            "Two sources, one chart",
+            "Other Wearables",
+            "Compare a second source, or merge several into a custom one.",
+            "Make it yours",
+            "Custom backgrounds, saved as profiles you can switch anytime.",
+            "Everything in Pro",
+            // The Settings card's subtitle once Pro is owned.
+            "You are a Pro",
             "Choose Your Plan",
             "Yearly",
             "Monthly",
