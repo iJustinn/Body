@@ -34,8 +34,10 @@ struct BodyHomePageBackground: View {
     @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @Environment(BodyReadinessHeroState.self) private var heroState: BodyReadinessHeroState?
+    @Environment(BodyHingeState.self) private var hingeState: BodyHingeState?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(BodyAppearancePreference.starredMetricKey) private var starredMetricRawValue = BodyHomeCardKind.readiness.rawValue
+    @AppStorage(BodyAppearancePreference.foldedHomeContentWidthKey) private var foldedHomeContentWidth: Double = 0
     @AppStorage(BodyAppearancePreference.homeBackgroundEnabledKey) private var homeBackgroundEnabled = true
     @AppStorage(BodyAppearancePreference.homeBackgroundColorsKey) private var homeBackgroundColorsRawValue = ""
     @AppStorage(BodyAppearancePreference.homeBackgroundSeparatorsKey) private var homeBackgroundSeparatorsRawValue = ""
@@ -48,17 +50,41 @@ struct BodyHomePageBackground: View {
         starMetric == .readiness
     }
 
+    /// The hero's width and horizontal center in the full-bleed background: centered in
+    /// the page (the safe area, which a foldable's outer screen insets for its camera,
+    /// so the full-bleed center would miss the ring), or on a foldable's inner screen
+    /// centered on the folded right column that holds the hero there (`BodyHomeView`).
+    private func heroGeometry(pageWidth: CGFloat, safeAreaLeading: CGFloat, safeAreaTrailing: CGFloat) -> (width: CGFloat, centerX: CGFloat) {
+        let foldedColumnWidth = AppLayout.foldedHomeColumnWidth(stored: foldedHomeContentWidth)
+        if AppLayout.isFoldableSplit(contentWidth: min(pageWidth, AppLayout.homeContentWidth) - 32, columnWidth: foldedColumnWidth) {
+            let columnWidth = AppLayout.foldableHomeColumnWidth(
+                hinge: hingeState?.status ?? .unknown,
+                pageWidth: pageWidth,
+                safeAreaLeading: safeAreaLeading,
+                safeAreaTrailing: safeAreaTrailing,
+                foldedColumnWidth: foldedColumnWidth
+            )
+            return (columnWidth, safeAreaLeading + AppLayout.foldedHomeColumnCenterX(pageWidth: pageWidth, columnWidth: columnWidth))
+        }
+        return (BodyReadinessArcGeometry.heroWidth(pageWidth: pageWidth), safeAreaLeading + pageWidth / 2)
+    }
+
     var body: some View {
         // The reader sits inside the safe area, so its top inset is the status bar strip
         // the full-bleed background extends behind; the glow needs it to land on the ring.
         GeometryReader { geo in
-            content(safeAreaTop: geo.safeAreaInsets.top, pageWidth: geo.size.width)
-                .ignoresSafeArea()
+            content(
+                safeAreaTop: geo.safeAreaInsets.top,
+                safeAreaLeading: geo.safeAreaInsets.leading,
+                safeAreaTrailing: geo.safeAreaInsets.trailing,
+                pageWidth: geo.size.width
+            )
+            .ignoresSafeArea()
         }
     }
 
     @ViewBuilder
-    private func content(safeAreaTop: CGFloat, pageWidth: CGFloat) -> some View {
+    private func content(safeAreaTop: CGFloat, safeAreaLeading: CGFloat, safeAreaTrailing: CGFloat, pageWidth: CGFloat) -> some View {
         if isReadinessStarred {
             let readiness = workoutStore.healthSummary.readiness
             // The glow is off while the pill is sliding and fades in on the band it
@@ -72,11 +98,12 @@ struct BodyHomePageBackground: View {
                 readiness.score == nil ? nil : readiness.status
             }
             ZStack {
-                let heroWidth = BodyReadinessArcGeometry.heroWidth(pageWidth: pageWidth)
+                let hero = heroGeometry(pageWidth: pageWidth, safeAreaLeading: safeAreaLeading, safeAreaTrailing: safeAreaTrailing)
                 BodyReadinessGlowBackground(
                     tint: status.map { BodyReadinessStatusPresentation.color(for: $0) },
-                    circleCenterY: safeAreaTop + 10 + BodyReadinessArcGeometry.arcCenterY(width: heroWidth),
-                    glowRadius: BodyReadinessArcGeometry.glowRadius(width: heroWidth)
+                    circleCenterY: safeAreaTop + 10 + BodyReadinessArcGeometry.arcCenterY(width: hero.width),
+                    glowRadius: BodyReadinessArcGeometry.glowRadius(width: hero.width),
+                    circleCenterX: hero.centerX
                 )
                 .id(status)
                 .transition(.opacity)
@@ -87,11 +114,12 @@ struct BodyHomePageBackground: View {
             TimelineView(.everyMinute) { context in
                 let part = DayRingDayPart(hour: Calendar.bodyGregorian.component(.hour, from: context.date))
                 ZStack {
-                    let heroWidth = BodyReadinessArcGeometry.heroWidth(pageWidth: pageWidth)
+                    let hero = heroGeometry(pageWidth: pageWidth, safeAreaLeading: safeAreaLeading, safeAreaTrailing: safeAreaTrailing)
                     BodyReadinessGlowBackground(
                         tint: part.glowColor,
-                        circleCenterY: safeAreaTop + 10 + BodyReadinessArcGeometry.arcCenterY(width: heroWidth),
-                        glowRadius: BodyReadinessArcGeometry.glowRadius(width: heroWidth)
+                        circleCenterY: safeAreaTop + 10 + BodyReadinessArcGeometry.arcCenterY(width: hero.width),
+                        glowRadius: BodyReadinessArcGeometry.glowRadius(width: hero.width),
+                        circleCenterX: hero.centerX
                     )
                     .id(part)
                     .transition(.opacity)

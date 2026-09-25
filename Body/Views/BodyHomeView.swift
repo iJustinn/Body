@@ -428,6 +428,92 @@ private struct BodyHomeBackgroundScrollDim: View {
     }
 }
 
+/// A card's tap target: a `NavigationLink` pushing `route`, or with `onSelect` set (a
+/// foldable's inner screen) a plain button handing the route to the left pane, so
+/// nothing pushes on the stack behind it.
+struct BodyHomeRouteLink<Label: View>: View {
+    let route: HomeMetricRoute
+    let onSelect: ((HomeMetricRoute) -> Void)?
+    @ViewBuilder let label: () -> Label
+
+    var body: some View {
+        if let onSelect {
+            Button {
+                onSelect(route)
+            } label: {
+                label()
+            }
+        } else {
+            NavigationLink(value: route) {
+                label()
+            }
+        }
+    }
+}
+
+/// What Home's page measured, for the foldable pane laid out beside the stack.
+struct BodyHomePageGeometry: Equatable {
+    var width: CGFloat
+    var safeAreaLeading: CGFloat
+    var safeAreaTrailing: CGFloat
+}
+
+/// Home's iPhone page layout for both foldable postures, with one child order so the
+/// children keep their identity across a fold: subview 0 is the folded page (hero,
+/// notice, metric grid) and subview 1, when present, the trend cards. Stacked, the
+/// page sits above the trends at full width; split, the trends take the left of the
+/// width and the page is a `columnWidth` column on the right.
+struct BodyHomeFoldableLayout: Layout {
+    var isSplit: Bool
+    var columnWidth: CGFloat
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 0
+        guard let page = subviews.first else { return .zero }
+        let trends = subviews.dropFirst().first
+        if isSplit {
+            let pageHeight = page.sizeThatFits(.init(width: columnWidth, height: nil)).height
+            let trendsHeight = trends?.sizeThatFits(.init(width: trendsWidth(in: width), height: nil)).height ?? 0
+            return CGSize(width: width, height: max(pageHeight, trendsHeight))
+        }
+        let pageHeight = page.sizeThatFits(.init(width: width, height: nil)).height
+        guard let trends else { return CGSize(width: width, height: pageHeight) }
+        let trendsHeight = trends.sizeThatFits(.init(width: width, height: nil)).height
+        return CGSize(width: width, height: pageHeight + spacing + trendsHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let page = subviews.first else { return }
+        let trends = subviews.dropFirst().first
+        if isSplit {
+            let trendsWidth = trendsWidth(in: bounds.width)
+            trends?.place(
+                at: bounds.origin,
+                anchor: .topLeading,
+                proposal: .init(width: trendsWidth, height: nil)
+            )
+            page.place(
+                at: CGPoint(x: bounds.maxX - columnWidth, y: bounds.minY),
+                anchor: .topLeading,
+                proposal: .init(width: columnWidth, height: nil)
+            )
+            return
+        }
+        let pageHeight = page.sizeThatFits(.init(width: bounds.width, height: nil)).height
+        page.place(at: bounds.origin, anchor: .topLeading, proposal: .init(width: bounds.width, height: nil))
+        trends?.place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY + pageHeight + spacing),
+            anchor: .topLeading,
+            proposal: .init(width: bounds.width, height: nil)
+        )
+    }
+
+    private func trendsWidth(in width: CGFloat) -> CGFloat {
+        max(0, width - columnWidth - spacing)
+    }
+}
+
 /// Reports the metric grid's top in Home's content space to the scroll state, for the
 /// hero pin's hold. The value only changes when layout does, so scrolling doesn't
 /// write it.
@@ -460,6 +546,19 @@ enum HomeMetricRoute: Hashable {
 struct BodyHomeView: View {
     @Bindable private var notificationRoute = BodyAppRuntime.shared.notificationRoute
     @State private var metricNavigationPath: [HomeMetricRoute] = []
+    /// On a foldable's inner screen, the detail shown in the left pane in place of a
+    /// push. Folding pushes it; unfolding a pushed detail moves it back here.
+    @State private var sideRoute: HomeMetricRoute?
+    /// Pages pushed inside the left pane's own stack, above `sideRoute`. Set together
+    /// with it through `showInPane` so the pair never disagrees.
+    @State private var panePath: [HomeMetricRoute] = []
+    /// The page's width and side insets, for sizing the left pane beside the stack.
+    @State private var pageGeometry = BodyHomePageGeometry(width: 0, safeAreaLeading: 0, safeAreaTrailing: 0)
+    /// Retries the pop that an unfold asks for while the stack is still resizing.
+    @State private var unfoldPopTask: Task<Void, Never>?
+    /// The last posture the size class reported: an open foldable iPhone. Read by the
+    /// retries above, which must stop as soon as the phone folds again.
+    @State private var isUnfoldedPhone = false
     @Environment(HealthKitWorkoutStore.self) private var workoutStore
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
@@ -488,6 +587,8 @@ struct BodyHomeView: View {
     // hero pin wrapper that reads it — not this whole body. (The metric-card models are
     // additionally memoized in BodyHomeTrendComputationCache, keyed on their full input set.)
     @State private var scrollState = BodyHomeScrollState()
+    /// The hinge posture on a foldable iPhone, which sets the inner screen's columns.
+    @Environment(BodyHingeState.self) private var hingeState: BodyHingeState?
     // Which card a readiness-hero warning badge just scrolled to, held in its own
     // @Observable for the same reason as the scroll offset: setting it on this view
     // would rebuild every metric card model twice per tap.
@@ -518,6 +619,9 @@ struct BodyHomeView: View {
     /// The measured width still wins (Split View, Stage Manager, rotation). Zero
     /// only when no scene is connected yet, and the grid renders a placeholder then.
     @State private var homeContentWidth: CGFloat = BodyHomeView.initialContentWidthEstimate()
+    /// The folded outer screen's content width on a foldable iPhone, kept across
+    /// launches so an app opened on the inner screen still knows the column to draw.
+    @AppStorage(BodyAppearancePreference.foldedHomeContentWidthKey) private var foldedHomeContentWidth: Double = 0
 
     /// Same quantization as the `onGeometryChange` below, applied to the scene width
     /// capped at the home column's maximum, which is what the layout measures on
@@ -559,34 +663,22 @@ struct BodyHomeView: View {
                 ScrollViewReader { scrollProxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 14) {
-                            starMetricHero(
-                                proxy: scrollProxy,
-                                lookup: metricCardLookup,
-                                // The hero's ring, and so its height, are sized from this.
-                                // A layout pass that proposes nothing (the page before it
-                                // has been measured) would otherwise collapse the hero and
-                                // let it spring back open inside the pill's animation, so
-                                // the measured page width falls back to the estimate Home
-                                // starts with rather than to zero.
-                                width: BodyReadinessArcGeometry.heroWidth(
-                                    pageWidth: page.size.width > 0 ? page.size.width : homeContentWidth
+                            if horizontalSizeClass == .regular, UIDevice.current.userInterfaceIdiom != .phone {
+                                heroAndNotice(
+                                    proxy: scrollProxy,
+                                    lookup: metricCardLookup,
+                                    // The hero's ring, and so its height, are sized from this.
+                                    // A layout pass that proposes nothing (the page before it
+                                    // has been measured) would otherwise collapse the hero and
+                                    // let it spring back open inside the pill's animation, so
+                                    // the measured page width falls back to the estimate Home
+                                    // starts with rather than to zero.
+                                    width: BodyReadinessArcGeometry.heroWidth(
+                                        pageWidth: page.size.width > 0 ? page.size.width : homeContentWidth
+                                    )
                                 )
-                            )
 
-                            // Between the hero text and the grid, one card gap from each.
-                            // Under the readiness hero it fades with the comment, so it
-                            // never slides beneath the held bar.
-                            if let healthDataNotice = workoutStore.healthDataNotice {
-                                if starMetric != nil {
-                                    BodyReadinessHeroCommentFade {
-                                        BodyHealthNoticeBanner(message: healthDataNotice)
-                                    }
-                                } else {
-                                    BodyHealthNoticeBanner(message: healthDataNotice)
-                                }
-                            }
-
-                            if horizontalSizeClass == .regular {
+                                // iPad: metrics left, trends right.
                                 HStack(alignment: .top, spacing: 14) {
                                     metricCardsGrid(lookup: metricCardLookup)
                                         .frame(maxWidth: .infinity, alignment: .top)
@@ -598,10 +690,46 @@ struct BodyHomeView: View {
                                     }
                                 }
                             } else {
-                                metricCardsGrid(lookup: metricCardLookup)
-                                    .modifier(BodyHomeGridPositionReporter(scrollState: scrollState))
+                                // iPhone, folded or open. One layout for both postures, so a
+                                // fold moves the same hero, grid and trend cards instead of
+                                // rebuilding them (an if/else here blanked the page while
+                                // every card rendered afresh). Stacked on a single column;
+                                // on a foldable's inner screen the trend cards take the left
+                                // half and the folded page (hero, notice, grid) keeps the
+                                // outer screen's width as the right column.
+                                let columnWidth = foldableColumnWidth(page: page)
+                                BodyHomeFoldableLayout(
+                                    isSplit: isFoldableSplit,
+                                    columnWidth: columnWidth,
+                                    spacing: 14
+                                ) {
+                                    VStack(spacing: 14) {
+                                        heroAndNotice(
+                                            proxy: scrollProxy,
+                                            lookup: metricCardLookup,
+                                            width: isFoldableSplit
+                                                ? columnWidth
+                                                : BodyReadinessArcGeometry.heroWidth(
+                                                    pageWidth: page.size.width > 0 ? page.size.width : homeContentWidth
+                                                )
+                                        )
 
-                                homeTrendsSection(trendCards)
+                                        metricCardsGrid(lookup: metricCardLookup)
+                                            .modifier(BodyHomeGridPositionReporter(scrollState: scrollState))
+                                    }
+
+                                    if !trendCards.visible.isEmpty {
+                                        homeTrendsSection(trendCards, showsDivider: !isFoldableSplit)
+                                            // Under the pane the trend cards would show through
+                                            // the pane backdrop's fading edge as ghost shapes and
+                                            // spoil the blend into the page, so they hide with it.
+                                            .opacity(isFoldableSplit && sideRoute != nil ? 0 : 1)
+                                            .accessibilityHidden(isFoldableSplit && sideRoute != nil)
+                                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: sideRoute)
+                                    }
+                                }
+                                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isFoldableSplit)
+                                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: columnWidth)
                             }
                         }
                         .padding(.horizontal)
@@ -612,12 +740,23 @@ struct BodyHomeView: View {
                         .coordinateSpace(name: Self.contentCoordinateSpace)
                         .readableContentColumn(maxWidth: AppLayout.homeContentWidth)
                         .onGeometryChange(for: CGFloat.self) { proxy in
+                            proxy.size.width
+                        } action: { width in
                             // Rounded up to the next 8 pt: the preview sizing reads
                             // thresholds, so a sub-point difference must not churn
                             // the memoized card models.
-                            (proxy.size.width / 8).rounded(.up) * 8
-                        } action: { width in
-                            homeContentWidth = width
+                            homeContentWidth = (width / 8).rounded(.up) * 8
+                            // Remember the folded outer screen's content width (this
+                            // frame less the page's horizontal padding), which the inner
+                            // screen's right column reproduces once the phone opens. The
+                            // fold's resize passes through inner-screen widths while the
+                            // size class already reads compact, so only a phone-sized
+                            // width counts.
+                            if horizontalSizeClass == .compact,
+                               UIDevice.current.userInterfaceIdiom == .phone,
+                               width < BodyHomeMetricCardPreview.regularScreenMinimumWidth {
+                                foldedHomeContentWidth = max(0, width - 32)
+                            }
                         }
                         // Pin the content to the page width: a vertical ScrollView becomes
                         // horizontally pannable as soon as its content reports even a fraction
@@ -637,8 +776,19 @@ struct BodyHomeView: View {
                     // The hero pin measures its resting position in this space.
                     .coordinateSpace(name: Self.viewportCoordinateSpace)
                 }
+
             }
             .frame(width: page.size.width, height: page.size.height)
+            // The page's geometry, for the left pane that floats beside the stack.
+            .onGeometryChange(for: BodyHomePageGeometry.self) { proxy in
+                BodyHomePageGeometry(
+                    width: proxy.size.width,
+                    safeAreaLeading: proxy.safeAreaInsets.leading,
+                    safeAreaTrailing: proxy.safeAreaInsets.trailing
+                )
+            } action: { geometry in
+                pageGeometry = geometry
+            }
             }
             .accessibilityHidden(readinessDetailPresented)
             .task(id: notificationRoute.ready ? notificationRoute.sleepRequestID : nil) {
@@ -659,20 +809,81 @@ struct BodyHomeView: View {
                 }
             }
             .navigationDestination(for: HomeMetricRoute.self) { route in
-                switch route {
-                case .metric(let kind), .trend(let kind), .basicsTrend(let kind):
-                    BodyHealthMetricDetailView(
-                        model: detailModel(for: kind),
-                        initialTrendRange: defaultTrendRange,
-                        zoomNamespace: metricZoom,
-                        floatingCallout: heroChartCallout
-                    )
-                    .navigationTransition(.zoom(sourceID: route, in: metricZoom))
-                case .activityRings:
-                    BodyActivityRingsDetailView()
-                        .navigationTransition(.zoom(sourceID: route, in: metricZoom))
+                metricDestination(for: route, zooms: true)
+            }
+            // A programmatic push (a notification route) while split lands in the pane.
+            .onChange(of: metricNavigationPath) { _, path in
+                if isFoldableSplit, !path.isEmpty {
+                    showInPane(path)
+                    metricNavigationPath = []
                 }
             }
+            // Folding: the pane's whole stack (its detail and whatever that pushed)
+            // becomes the push stack, in place, no slide, so Back history survives.
+            .onChange(of: isFoldableSplit) { _, isSplit in
+                if !isSplit, let route = sideRoute {
+                    let stack = [route] + panePath
+                    withoutNavigationAnimation {
+                        metricNavigationPath = stack
+                        showInPane([])
+                    }
+                }
+            }
+            // Unfolding: the page behind a pushed detail is not laid out, so the
+            // width-based split cannot flip while the detail covers it; the size class
+            // still reaches the stack. The stack refuses a pop mid-resize and writes the
+            // path back, so keep asking until it sticks, while the phone stays open. Any
+            // posture change ends the previous retries first.
+            .onChange(of: horizontalSizeClass) { _, sizeClass in
+                unfoldPopTask?.cancel()
+                isUnfoldedPhone = sizeClass == .regular && UIDevice.current.userInterfaceIdiom == .phone
+                guard isUnfoldedPhone else { return }
+                unfoldPopTask = Task { @MainActor in
+                    for delay in [0, 250, 500, 900, 1400] {
+                        try? await Task.sleep(for: .milliseconds(delay))
+                        guard !Task.isCancelled, isUnfoldedPhone else { return }
+                        // The whole pushed stack moves into the pane, Back history included.
+                        if !metricNavigationPath.isEmpty {
+                            showInPane(metricNavigationPath)
+                        }
+                        withoutNavigationAnimation {
+                            metricNavigationPath = []
+                        }
+                    }
+                }
+            }
+        }
+        // A foldable's left pane: the tapped metric's detail over the trend column,
+        // fixed to the viewport with its own scrolling and navigation bar (Back chevron,
+        // the page's title and toolbar) in place of the push the folded screen makes.
+        // It sits beside the stack, not inside it: a stack nested in another stack's
+        // content draws no bar and re-hosts with a black flash.
+        .overlay(alignment: .topLeading) {
+            ZStack(alignment: .topLeading) {
+                if isFoldableSplit, let route = sideRoute {
+                    // Its own stack: a page's links (the Basics page's trend cards) push
+                    // inside the pane, each page drawing the pane header in place of
+                    // the bar; the root's Back closes the pane, a pushed page's pops.
+                    // Each page ignores the trailing inset: the stack asserts the window's
+                    // (the camera column) inside the pane, which never reaches that edge,
+                    // and the content came up that much short otherwise.
+                    NavigationStack(path: $panePath) {
+                        metricDestination(for: route, zooms: false, paneClose: { showInPane([]) })
+                            .ignoresSafeArea(.container, edges: .trailing)
+                            .navigationDestination(for: HomeMetricRoute.self) { pushed in
+                                metricDestination(for: pushed, zooms: false, paneClose: {
+                                    if !panePath.isEmpty { panePath.removeLast() }
+                                })
+                                .ignoresSafeArea(.container, edges: .trailing)
+                            }
+                    }
+                    .frame(width: foldablePaneWidth)
+                    .id(route)
+                    .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: sideRoute)
         }
         // Readiness star: cross-fade its detail in/out over Home as an overlay instead of a
         // navigation push (SwiftUI has no fade push transition, and the full-bleed hero has
@@ -1076,6 +1287,122 @@ struct BodyHomeView: View {
         }
     }
 
+    /// A foldable iPhone's inner screen, which lays the page out as two columns.
+    private var isFoldableSplit: Bool {
+        AppLayout.isFoldableSplit(contentWidth: homeContentWidth, columnWidth: foldedColumnWidth)
+    }
+
+    /// The folded outer screen's content width: the inner screen's right column when
+    /// the phone is flat, and the width the metric cards size their previews from in
+    /// every open posture so they match the folded screen.
+    private var foldedColumnWidth: CGFloat {
+        AppLayout.foldedHomeColumnWidth(stored: foldedHomeContentWidth)
+    }
+
+    /// The inner screen's right column for the current hinge posture: split at the
+    /// hinge while the phone is half open, the folded width once it is flat.
+    private func foldableColumnWidth(page: GeometryProxy) -> CGFloat {
+        AppLayout.foldableHomeColumnWidth(
+            hinge: hingeState?.status ?? .unknown,
+            pageWidth: page.size.width,
+            safeAreaLeading: page.safeAreaInsets.leading,
+            safeAreaTrailing: page.safeAreaInsets.trailing,
+            foldedColumnWidth: foldedColumnWidth
+        )
+    }
+
+    /// The left pane's width on a foldable's inner screen: from the leading edge to the
+    /// gap before the right column.
+    private var foldablePaneWidth: CGFloat {
+        let column = AppLayout.foldableHomeColumnWidth(
+            hinge: hingeState?.status ?? .unknown,
+            pageWidth: pageGeometry.width,
+            safeAreaLeading: pageGeometry.safeAreaLeading,
+            safeAreaTrailing: pageGeometry.safeAreaTrailing,
+            foldedColumnWidth: foldedColumnWidth
+        )
+        return max(0, pageGeometry.width - 30 - column)
+    }
+
+    /// While split, where a card's tap goes: the left pane instead of a push. Nil on
+    /// every other layout, where the cards stay navigation links.
+    private var sideRouteHandler: ((HomeMetricRoute) -> Void)? {
+        guard isFoldableSplit else { return nil }
+        return { route in showInPane([route]) }
+    }
+
+    /// Shows a route stack in the left pane: the first route as the pane's page and the
+    /// rest pushed above it inside the pane's own stack. Empty closes the pane.
+    private func showInPane(_ stack: [HomeMetricRoute]) {
+        sideRoute = stack.first
+        panePath = Array(stack.dropFirst())
+    }
+
+    /// The detail page for a route, zooming from its card when pushed.
+    @ViewBuilder
+    private func metricDestination(for route: HomeMetricRoute, zooms: Bool, paneClose: (() -> Void)? = nil) -> some View {
+        if zooms {
+            metricDetailPage(for: route, paneClose: paneClose)
+                .navigationTransition(.zoom(sourceID: route, in: metricZoom))
+        } else {
+            metricDetailPage(for: route, paneClose: paneClose)
+        }
+    }
+
+    @ViewBuilder
+    private func metricDetailPage(for route: HomeMetricRoute, paneClose: (() -> Void)?) -> some View {
+        switch route {
+        case .metric(let kind), .trend(let kind), .basicsTrend(let kind):
+            BodyHealthMetricDetailView(
+                model: detailModel(for: kind),
+                initialTrendRange: defaultTrendRange,
+                zoomNamespace: metricZoom,
+                floatingCallout: heroChartCallout,
+                paneClose: paneClose
+            )
+        case .activityRings:
+            BodyActivityRingsDetailView(paneClose: paneClose)
+        }
+    }
+
+    /// Runs `change` with animations disabled, for the fold-driven push and pop of a
+    /// metric detail that should appear in place rather than slide.
+    private func withoutNavigationAnimation(_ change: () -> Void) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, change)
+    }
+
+    /// The width the metric cards size their previews from. It is a page width (the
+    /// preview thresholds are screen sizes), so on a foldable's inner screen it is the
+    /// folded column plus the page padding the folded screen measured with, which
+    /// lands the same preview as the folded screen; the whole page elsewhere.
+    private var metricCardContainerWidth: CGFloat {
+        isFoldableSplit ? foldedColumnWidth + 32 : homeContentWidth
+    }
+
+    /// The hero with the health notice under it, one card gap from the grid below.
+    /// Under the readiness hero the notice fades with the comment, so it never
+    /// slides beneath the held bar.
+    @ViewBuilder
+    private func heroAndNotice(
+        proxy: ScrollViewProxy,
+        lookup: [HealthMetricKind: BodyHealthMetricCard.Model],
+        width: CGFloat
+    ) -> some View {
+        starMetricHero(proxy: proxy, lookup: lookup, width: width)
+
+        if let healthDataNotice = workoutStore.healthDataNotice {
+            if starMetric != nil {
+                BodyReadinessHeroCommentFade {
+                    BodyHealthNoticeBanner(message: healthDataNotice)
+                }
+            } else {
+                BodyHealthNoticeBanner(message: healthDataNotice)
+            }
+        }
+    }
+
     private var summaryCardSelection: BodySummaryCardSelection {
         BodySummaryCardSelection.storedValue(from: summaryCardSelectionRawValue)
     }
@@ -1102,20 +1429,24 @@ struct BodyHomeView: View {
                 canToggleAll: cards.canToggleAll,
                 showsAllTrends: showsAllHomeTrends,
                 toggleAll: toggleAllHomeTrends,
-                zoomNamespace: metricZoom
+                zoomNamespace: metricZoom,
+                onSelect: sideRouteHandler
             )
         }
     }
 
-    /// iPhone layout: trends stacked beneath the metrics with a divider separator.
+    /// iPhone layout: the trends block, with the divider that separates it from the
+    /// metrics above it when stacked (a foldable's side column has no divider).
     @ViewBuilder
-    private func homeTrendsSection(_ cards: HomeTrendCards) -> some View {
-        if !cards.visible.isEmpty {
-            BodyHomeSectionDivider()
-                .padding(.top, 8)
+    private func homeTrendsSection(_ cards: HomeTrendCards, showsDivider: Bool) -> some View {
+        VStack(spacing: 14) {
+            if showsDivider {
+                BodyHomeSectionDivider()
+                    .padding(.top, 8)
+            }
 
             homeTrendsContent(cards)
-                .padding(.top, 8)
+                .padding(.top, showsDivider ? 8 : 0)
         }
     }
 
@@ -1144,7 +1475,7 @@ struct BodyHomeView: View {
             showSleepScore: showSleepScore,
             sleepDurationGoalMinutes: sleepDurationGoalMinutes,
             dayStart: Calendar.bodyGregorian.startOfDay(for: Date()),
-            previewDayCount: BodyHomeMetricCardPreview.dayCount(forScreenWidth: homeContentWidth),
+            previewDayCount: BodyHomeMetricCardPreview.dayCount(forScreenWidth: metricCardContainerWidth),
             localeIdentifier: Locale.current.identifier,
             timeZoneIdentifier: TimeZone.current.identifier,
             metricWarningSelectionRawValue: metricWarningSelectionRawValue
@@ -1855,7 +2186,7 @@ struct BodyHomeView: View {
     ) -> some View {
         switch card {
         case .activityRings:
-            NavigationLink(value: HomeMetricRoute.activityRings) {
+            BodyHomeRouteLink(route: .activityRings, onSelect: sideRouteHandler) {
                 BodyActivityRingsCard(summary: workoutStore.healthSummary.activityRings)
                     .matchedTransitionSource(id: HomeMetricRoute.activityRings, in: metricZoom) {
                         $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
@@ -1866,11 +2197,11 @@ struct BodyHomeView: View {
         default:
             if let metricKind = card.healthMetricKind,
                let metric = lookup[metricKind] {
-                NavigationLink(value: HomeMetricRoute.metric(metric.kind)) {
+                BodyHomeRouteLink(route: .metric(metric.kind), onSelect: sideRouteHandler) {
                     BodyHealthMetricCard(
                         metric: metric,
                         isRefreshing: workoutStore.isRefreshing,
-                        containerWidth: homeContentWidth
+                        containerWidth: metricCardContainerWidth
                     )
                         .matchedTransitionSource(id: HomeMetricRoute.metric(metric.kind), in: metricZoom) {
                             $0.clipShape(.rect(cornerRadius: 28, style: .continuous))

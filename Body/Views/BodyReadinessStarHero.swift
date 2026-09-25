@@ -538,6 +538,8 @@ struct BodyReadinessGlowBackground: View {
     let tint: Color?
     let circleCenterY: CGFloat
     let glowRadius: CGFloat
+    /// The glow's horizontal center in points; nil centers it on the page.
+    var circleCenterX: CGFloat? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -551,7 +553,10 @@ struct BodyReadinessGlowBackground: View {
                             .init(color: tint.opacity(0.10), location: 0.55),
                             .init(color: .clear, location: 1)
                         ],
-                        center: UnitPoint(x: 0.5, y: geo.size.height > 0 ? circleCenterY / geo.size.height : 0),
+                        center: UnitPoint(
+                            x: circleCenterX.map { geo.size.width > 0 ? $0 / geo.size.width : 0.5 } ?? 0.5,
+                            y: geo.size.height > 0 ? circleCenterY / geo.size.height : 0
+                        ),
                         startRadius: 0,
                         endRadius: glowRadius
                     )

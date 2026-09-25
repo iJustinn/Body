@@ -23,12 +23,15 @@ struct BodyHomeTrendsSection: View {
     let toggleAll: () -> Void
     /// Shared with `BodyHomeView` so each trend card is a zoom source for its detail push.
     let zoomNamespace: Namespace.ID
+    /// Set on a foldable's inner screen: cards hand their route to Home's left pane
+    /// instead of pushing.
+    var onSelect: ((HomeMetricRoute) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(spacing: 14) {
                 ForEach(cards) { card in
-                    NavigationLink(value: HomeMetricRoute.trend(card.presentation.kind)) {
+                    BodyHomeRouteLink(route: .trend(card.presentation.kind), onSelect: onSelect) {
                         BodyHomeTrendCard(model: card, translucentFillOpacity: 0.09)
                             .matchedTransitionSource(id: HomeMetricRoute.trend(card.presentation.kind), in: zoomNamespace) {
                                 $0.clipShape(.rect(cornerRadius: 28, style: .continuous))
