@@ -483,9 +483,9 @@ struct BodyHealthMetricDetailView: View {
         isBodyProUnlocked ? selectedTrendRangeSelection : .recentWeek
     }
 
-    /// Free users can browse the 3 most recent days in every metric day-picker; older
+    /// Free users can browse the 2 most recent days in every metric day-picker; older
     /// days are a Body Pro feature.
-    private static let freeDatePickerDayCount = 3
+    private static let freeDatePickerDayCount = 2
 
     /// The oldest day a non-Pro user may select, or `nil` for Pro (no day limit).
     private var oldestUnlockedDatePickerDay: Date? {
