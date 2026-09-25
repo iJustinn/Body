@@ -1566,7 +1566,7 @@ struct BodyHealthMetricDetailView: View {
                     onLockedRangeTap: { showBodyProPaywall = true }
                 )
                 .sheet(isPresented: $showBodyProPaywall) {
-                    NavigationStack { BodyProView() }
+                    NavigationStack { BodyProView(showsCloseButton: true) }
                 }
             }
 

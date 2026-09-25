@@ -350,7 +350,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Landscape 4:3",
             "Square",
             "Share Card Sizes",
-            "Export workout share cards as 16:9, 3:4, 4:3, or square — or as a long image of the whole workout.",
+            "Export workout share cards as 16:9, 3:4, 4:3, or square, or as a long image of the whole workout.",
             // Long Image tray tile, its metrics caption, its min-1 hint, and the
             // disabled-background hint.
             "Long Image",
@@ -675,6 +675,60 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
 
         try assertKeysTranslated(keys, in: catalog)
         try assertNoDashes(keys, in: catalog)
+    }
+
+    /// The subscription paywall: plan cards, the purchase button and its price disclosure,
+    /// the free trial timeline, and the legal footer. Several are built at runtime from
+    /// store prices (BodyProView), so string extraction alone would not prove they resolve.
+    func testBodyProPaywallStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "See the Full Picture",
+            "Unlock every chart, data source, and share style in Body.",
+            "Year Charts",
+            "More Sources",
+            "3D Routes",
+            "Widgets",
+            "Choose Your Plan",
+            "Yearly",
+            "Monthly",
+            "Lifetime",
+            "per year",
+            "per month",
+            "one time",
+            "Save %@",
+            "Best Value",
+            "%@ free",
+            "%@ per month, billed yearly",
+            "Cancel anytime",
+            "Share with up to 5 family members",
+            "Pay once, keep Pro forever",
+            "Just Me",
+            "Family",
+            "Start Free Trial",
+            "Subscribe",
+            "Unlock Lifetime",
+            // The way on when the paywall ends onboarding or shows once after an update.
+            "Continue for Free",
+            "%@ free, then %@. Cancel anytime.",
+            "%@. Renews automatically, cancel anytime.",
+            "One payment of %@. No subscription.",
+            "One payment of %@, shared with your family.",
+            "%@ per month",
+            "%@ per year",
+            "How Your Free Trial Works",
+            "Today",
+            "Get full access to every Pro feature.",
+            "Billing starts at %@. Cancel at least 24 hours before and you won't be charged.",
+            "Terms of Use",
+            "Privacy Policy",
+            "Payment is charged to your Apple Account when you confirm the purchase, or when a free trial ends. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple Account settings.",
+            "Close"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+        try assertNoDashes(keys.filter { $0 != "Close" && $0 != "Today" && $0 != "Lifetime" }, in: catalog)
     }
 
     func testAboutSleepScoreCopyIsTranslatedWithoutDashes() throws {

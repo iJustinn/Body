@@ -4823,9 +4823,10 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(bodyProSource.contains("Share Card Metrics"))
         XCTAssertFalse(bodyProSource.contains("Six-Month and Year Charts"))
         XCTAssertTrue(bodyProSource.contains("Body Widgets"))
-        // StoreKit purchase wiring replaced the placeholder stubs.
+        // StoreKit purchase wiring replaced the placeholder stubs. The purchase button buys
+        // whichever plan card is selected.
         XCTAssertTrue(bodyProSource.contains("BodyProStore"))
-        XCTAssertTrue(bodyProSource.contains("proStore?.purchase()"))
+        XCTAssertTrue(bodyProSource.contains("proStore?.purchase(plan)"))
         XCTAssertTrue(bodyProSource.contains("proStore?.restore()"))
         XCTAssertTrue(bodyProSource.contains("offerCodeRedemption"))
         // Resolve-gating: a checking state shows until entitlement resolves, the
@@ -4846,6 +4847,35 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(bodyProSource.contains("$2.59"))
         XCTAssertFalse(bodyProSource.contains("$8.99"))
         XCTAssertFalse(bodyProSource.contains("$15.99"))
+        XCTAssertFalse(bodyProSource.contains("$0.99"))
+        XCTAssertFalse(bodyProSource.contains("$19.99"))
+        XCTAssertFalse(bodyProSource.contains("$29.99"))
+        // Plans: Yearly (the default, with the free trial), Monthly, and Lifetime with a
+        // Just Me / Family switch. A trial is only promised when the store says this
+        // customer can still start it, and the renewal price sits beside the button.
+        XCTAssertTrue(bodyProSource.contains("@State private var selectedPlan: BodyProPlan = .yearly"))
+        XCTAssertTrue(bodyProSource.contains("BodyProLifetimeSwitch(selection: $selectedPlan)"))
+        XCTAssertTrue(bodyProSource.contains("if product.freeTrial != nil"))
+        XCTAssertTrue(bodyProSource.contains(#""\(trial.localizedDuration) free, then \(renewal). Cancel anytime.""#))
+        XCTAssertTrue(bodyProSource.contains(#""\(renewal). Renews automatically, cancel anytime.""#))
+        XCTAssertTrue(bodyProSource.contains("BodyProTrialTimeline(trial: trial"))
+        // Subscription paywall requirements: Terms of Use (Apple's standard EULA, as set in
+        // App Store Connect), the privacy policy, and the auto-renewal terms.
+        XCTAssertTrue(bodyProSource.contains(#"URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")"#))
+        XCTAssertTrue(bodyProSource.contains(#"URL(string: "https://docs.ijustinz.com/body/privacy")"#))
+        XCTAssertTrue(bodyProSource.contains("Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period."))
+        // Sheets presented from locked controls (and the paywall as a flow step) get a
+        // close button; the Settings entry pushes the page and keeps its back button.
+        XCTAssertTrue(bodyProSource.contains("if showsCloseButton || onContinue != nil {"))
+        XCTAssertEqual(settingsSource.occurrenceCount(of: "NavigationStack { BodyProView(showsCloseButton: true) }"), 2)
+        for sheetPath in [
+            "Body/Views/Health/BodyWorkoutShareSheet.swift",
+            "Body/Views/Health/BodyHealthMetricDetailView.swift",
+            "Body/Views/Health/BodyHealthDataSourcePickerSheet.swift"
+        ] {
+            let sheetSource = try BodyTestSupport.sourceText(at: sheetPath)
+            XCTAssertTrue(sheetSource.contains("NavigationStack { BodyProView(showsCloseButton: true) }"), sheetPath)
+        }
 
         let proIconPaths = [
             "Body/Assets.xcassets/BodyProIcon.imageset/BodyProIcon.png",
@@ -4878,7 +4908,39 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(storeSource.contains("Purchases.shared"))
         XCTAssertTrue(clientSource.contains("import RevenueCat"))
         XCTAssertTrue(storeSource.contains(#"static let lifetimeProductID = "com.zihengthedeveloper.body.pro.lifetime""#))
+        XCTAssertTrue(storeSource.contains(#"static let lifetimeFamilyProductID = "com.zihengthedeveloper.body.pro.lifetime.family""#))
+        XCTAssertTrue(storeSource.contains(#"static let yearlyProductID = "com.zihengthedeveloper.body.pro.yearly""#))
+        XCTAssertTrue(storeSource.contains(#"static let monthlyProductID = "com.zihengthedeveloper.body.pro.monthly""#))
         XCTAssertTrue(storeSource.contains("static let entitlementID"))
+
+        // Products are fetched by id (no Offering dependency), and a free trial reaches the
+        // paywall only when RevenueCat says this customer is still eligible for it.
+        XCTAssertTrue(clientSource.contains("Purchases.shared.products(ids)"))
+        XCTAssertTrue(clientSource.contains("checkTrialOrIntroDiscountEligibility(product: product) == .eligible"))
+        XCTAssertTrue(clientSource.contains("offer.paymentMode == .freeTrial"))
+
+        // The local StoreKit configuration mirrors App Store Connect: the two lifetime
+        // purchases (only Family shareable) and the Body Pro subscription group, where
+        // Yearly carries the one week free trial and Monthly has none.
+        let storeKitData = try Data(contentsOf: BodyTestSupport.projectRoot.appendingPathComponent("Body.storekit"))
+        let storeKit = try XCTUnwrap(JSONSerialization.jsonObject(with: storeKitData) as? [String: Any])
+        let oneTimeProducts = try XCTUnwrap(storeKit["products"] as? [[String: Any]])
+        XCTAssertEqual(
+            Dictionary(uniqueKeysWithValues: oneTimeProducts.compactMap { product in
+                (product["productID"] as? String).map { ($0, product["familyShareable"] as? Bool ?? false) }
+            }),
+            ["com.zihengthedeveloper.body.pro.lifetime": false, "com.zihengthedeveloper.body.pro.lifetime.family": true]
+        )
+        let groups = try XCTUnwrap(storeKit["subscriptionGroups"] as? [[String: Any]])
+        let subscriptions = groups.flatMap { $0["subscriptions"] as? [[String: Any]] ?? [] }
+        let yearly = try XCTUnwrap(subscriptions.first { $0["productID"] as? String == "com.zihengthedeveloper.body.pro.yearly" })
+        let monthly = try XCTUnwrap(subscriptions.first { $0["productID"] as? String == "com.zihengthedeveloper.body.pro.monthly" })
+        XCTAssertEqual(yearly["recurringSubscriptionPeriod"] as? String, "P1Y")
+        XCTAssertEqual(monthly["recurringSubscriptionPeriod"] as? String, "P1M")
+        let trial = try XCTUnwrap(yearly["introductoryOffer"] as? [String: Any])
+        XCTAssertEqual(trial["paymentMode"] as? String, "free")
+        XCTAssertEqual(trial["subscriptionPeriod"] as? String, "P1W")
+        XCTAssertTrue(monthly["introductoryOffer"] is NSNull)
 
         // Entitlement source of truth: RevenueCat CustomerInfo. The stream catches
         // this-device / post-call updates; purchase / restore / customerInfo cover the rest.
@@ -4907,7 +4969,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(clientSource.occurrenceCount(of: "customerInfo(fetchPolicy: .fetchCurrent)"), 2)
         XCTAssertTrue(storeSource.contains("purchaseState = isPro ? .idle : .completedNotUnlocked"))
         XCTAssertTrue(storeSource.contains("if unlocked && purchaseState == .completedNotUnlocked"))
-        XCTAssertTrue(clientSource.contains("allPurchasedProductIdentifiers.contains("))
+        XCTAssertTrue(clientSource.contains("allPurchasedProductIdentifiers.isDisjoint(with: BodyProStore.lifetimeProductIDs)"))
         XCTAssertTrue(storeSource.contains(#".failed(String(localized: "No purchases to restore."))"#))
 
         // The paywall must not re-offer an enabled buy card while a completed purchase

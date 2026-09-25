@@ -112,7 +112,7 @@ struct BodySettingsView: View {
                     .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showBodyProPaywall) {
-                NavigationStack { BodyProView() }
+                NavigationStack { BodyProView(showsCloseButton: true) }
             }
             .sheet(isPresented: $showingPrivacyBrowser) {
                 if let url = URL(string: privacyPolicyURLString) {
@@ -4600,7 +4600,7 @@ private struct BodySourceSettingsSheet: View {
             }
         }
         .sheet(isPresented: $showBodyProPaywall) {
-            NavigationStack { BodyProView() }
+            NavigationStack { BodyProView(showsCloseButton: true) }
         }
         .sheet(item: $customSourceEditorTarget) { target in
             BodyCustomSourceEditorSheet(workoutStore: workoutStore, group: target.group)

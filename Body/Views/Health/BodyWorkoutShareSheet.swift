@@ -1136,7 +1136,7 @@ struct BodyWorkoutShareSheet: View {
             .photosPicker(isPresented: $isPickerPresented, selection: $photoItem, matching: .images)
             .photosPicker(isPresented: $isVideoPickerPresented, selection: $videoItem, matching: .videos)
             .sheet(isPresented: $showBodyProPaywall) {
-                NavigationStack { BodyProView() }
+                NavigationStack { BodyProView(showsCloseButton: true) }
             }
             // The title stays set for accessibility/back-button inheritance; the
             // principal item is what actually draws, so the version badge can sit beside it.
