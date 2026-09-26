@@ -4419,6 +4419,21 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(persistence.contains("authoritativeDaySampleSeries: daySampleWriteIntent"))
     }
 
+    func testLaunchScreenShowsTheImageTheLaunchRevealStartsFrom() throws {
+        // The launch screen covers the wait before the first frame, and the reveal
+        // draws the same image in the same place, so the handoff is invisible.
+        let infoPlist = try BodyTestSupport.sourceText(at: "Body/Info.plist")
+        XCTAssertTrue(infoPlist.contains("<key>UILaunchScreen</key>\n\t<dict>\n\t\t<key>UIImageName</key>\n\t\t<string>LaunchIcon</string>"))
+        let reveal = try BodyTestSupport.sourceText(at: "Body/Views/BodyLaunchReveal.swift")
+        XCTAssertTrue(reveal.contains(#"Image("LaunchIcon")"#))
+        // Black in light and dark mode, on the launch screen and in the splash alike.
+        XCTAssertTrue(infoPlist.contains("<key>UIColorName</key>\n\t\t<string>LaunchBackground</string>"))
+        XCTAssertTrue(reveal.contains(#"Color("LaunchBackground")"#))
+        XCTAssertTrue(reveal.contains("static let iconSize: CGFloat = 68"))
+        let app = try BodyTestSupport.sourceText(at: "Body/BodyApp.swift")
+        XCTAssertTrue(app.contains("MainTabView()\n                .bodyLaunchReveal()"))
+    }
+
     func testBackgroundWarningRefreshIsRegisteredAndScoped() throws {
         // Info.plist must declare the background mode and the exact task
         // identifier the scheduler registers/submits, or BGTaskScheduler

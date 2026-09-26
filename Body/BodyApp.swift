@@ -43,6 +43,7 @@ struct BodyApp: App {
     var body: some Scene {
         WindowGroup {
             MainTabView()
+                .bodyLaunchReveal()
                 .bodyBaseInterfaceLevel()
                 .environment(workoutStore)
                 .environment(proStore)

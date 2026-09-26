@@ -1,6 +1,7 @@
 ## 1.1.3 (build 4)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.3 build 4.
+- **Launch animation.** The launch screen now shows the app icon (a new `LaunchIcon` image, rendered from `AppIcon.icon`, set as `UILaunchScreen` › `UIImageName`), so the second or two before the app draws its first frame shows the icon instead of a blank page. The app then takes over with the same image in the same place, so the handoff cannot be seen: the icon gives one heartbeat, a window in the icon's rounded shape opens where it sits, the icon dissolves into the app behind it, and the window speeds up as it grows, flying out past the screen edges without slowing near them, about 0.8 seconds from the first frame. The icon is 68 points. The app is never scaled during the reveal, since a scale on the tab view held the tab bar about 36 points too high, with the page cut off above the home indicator, until the reveal ended and it dropped into place. The page is black in light and dark mode alike, on the launch screen (`UIColorName` › `LaunchBackground`) and in the animation. The launch screen cannot follow an alternate icon, so both always show the default blue icon. Home's readiness pill waits for the reveal, so its launch slide and score haptic play as the page comes into view instead of under the cover. Returning from the background never replays it, a prewarmed launch waits until the app is on screen, and with Reduce Motion on the icon only fades in and the page fades away.
 
 ## 1.1.3 (build 3)
 
