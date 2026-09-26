@@ -53,6 +53,11 @@ struct BodyHealthMetricDetailModel {
     let headerMetrics: [BodyMetricDisplayValue]
     let helpText: HealthMetricDetailHelpText?
     let dataSourceText: HealthMetricDetailDataSourceText?
+    /// Names which data a page that can show more than one series is built
+    /// from (the HRV page's Recovery view); empty for the default series. It
+    /// travels with the model so the range chart's morph key changes in the
+    /// same update as the data, not one render earlier off the stored pick.
+    let trendVariant: String
 
     init(
         kind: HealthMetricKind,
@@ -88,7 +93,8 @@ struct BodyHealthMetricDetailModel {
         sourceLineComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
         headerMetrics: [BodyMetricDisplayValue] = [],
         helpText: HealthMetricDetailHelpText? = nil,
-        dataSourceText: HealthMetricDetailDataSourceText? = nil
+        dataSourceText: HealthMetricDetailDataSourceText? = nil,
+        trendVariant: String = ""
     ) {
         self.kind = kind
         self.title = title
@@ -124,6 +130,7 @@ struct BodyHealthMetricDetailModel {
         self.headerMetrics = headerMetrics
         self.helpText = helpText ?? kind.detailHelpText
         self.dataSourceText = dataSourceText
+        self.trendVariant = trendVariant
     }
 }
 
@@ -421,6 +428,7 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true
     @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = true
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.hrvDetailDisplayKindKey) private var hrvDetailDisplayKindRawValue = BodyHRVDisplayKind.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.metricWarningThresholdsKey) private var metricWarningThresholdsRawValue = BodyMetricWarningThresholds.defaultRawValue
     @State private var selectedTrendRangeSelection: BodyHealthTrendRange
@@ -619,6 +627,11 @@ struct BodyHealthMetricDetailView: View {
             if isBasicsDetail {
                 ToolbarItem(placement: .topBarTrailing) {
                     addMeasurementButton
+                }
+            }
+            if recoveryHRVAvailable {
+                ToolbarItem(placement: .topBarTrailing) {
+                    hrvDisplayKindMenu
                 }
             }
         }
@@ -1072,7 +1085,9 @@ struct BodyHealthMetricDetailView: View {
                 day: selectedMetricDay,
                 series: selectedMetricDaySeries,
                 sleepSummary: sleepSummary,
-                fallbackValue: sleepSummary?.vitals.heartRateVariability,
+                // The stored sleep HRV is SDNN, so it can't stand in for a
+                // Recovery night with no samples.
+                fallbackValue: showsRecoveryHRV ? nil : sleepSummary?.vitals.heartRateVariability,
                 source: workoutStore.selectedHealthDataSourceOption(for: model.kind).name
             )
         case .activeEnergy:
@@ -1092,13 +1107,56 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var liveDaySeries: HealthTrendSeries {
-        let storeSeries = workoutStore.healthTrends.daySeries(for: model.kind)
+        let storeSeries = showsRecoveryHRV
+            ? workoutStore.healthTrends.heartbeatRMSSDDaySamples
+            : workoutStore.healthTrends.daySeries(for: model.kind)
         return storeSeries.points.isEmpty ? model.daySeries : storeSeries
     }
 
     private var liveSecondaryDaySeries: HealthTrendSeries {
-        let storeSeries = workoutStore.healthTrends.secondaryDaySeries(for: model.kind)
+        let storeSeries = showsRecoveryHRV
+            ? workoutStore.healthTrends.recoveryHRVDaySamplesSecondary
+            : workoutStore.healthTrends.secondaryDaySeries(for: model.kind)
         return storeSeries.points.isEmpty ? model.secondaryDaySeries : storeSeries
+    }
+
+    /// The HRV page offers its Recovery view only once the watch has written
+    /// Apple's RMSSD (Series 12 and Ultra 4 on watchOS 27); every other watch
+    /// sees the Overall page unchanged, with no toggle.
+    private var recoveryHRVAvailable: Bool {
+        model.kind == .heartRateVariability && !workoutStore.healthTrends.recoveryHRV.isEmpty
+    }
+
+    /// Read off the model `BodyHomeView` built from the stored pick, not off
+    /// the stored pick itself: the two views observe the same default, and the
+    /// page must not flip its live series or morph key a render before the
+    /// model arrives.
+    private var showsRecoveryHRV: Bool {
+        model.kind == .heartRateVariability && model.trendVariant == BodyHRVDisplayKind.recovery.rawValue
+    }
+
+    /// Swapping Overall for Recovery keeps the same range chart on screen and
+    /// morphs its bars and line into the other series instead of popping.
+    private var rangeChartVariant: String {
+        model.trendVariant
+    }
+
+    /// Top-right menu picking Overall (SDNN) or Recovery (RMSSD), the system
+    /// popup with a checkmark on the current pick. Persisted, so the page
+    /// reopens on the last choice.
+    private var hrvDisplayKindMenu: some View {
+        Menu {
+            Picker(String(localized: "HRV View"), selection: $hrvDetailDisplayKindRawValue) {
+                Label("Overall HRV", systemImage: "waveform.path.ecg")
+                    .tag(BodyHRVDisplayKind.overall.rawValue)
+                Label("Recovery HRV", systemImage: "arrow.clockwise.heart")
+                    .tag(BodyHRVDisplayKind.recovery.rawValue)
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: "arrow.left.arrow.right")
+        }
+        .accessibilityLabel(String(localized: "HRV View"))
     }
 
     private var selectedSleepSummary: SleepSummary? {
@@ -1678,8 +1736,29 @@ struct BodyHealthMetricDetailView: View {
                 }
             }
             helpTextCard
+            if recoveryHRVAvailable {
+                aboutRecoveryHRVCard
+            }
             dataSourceFooter
         }
+    }
+
+    /// Follows About HRV, and only once the watch has written Recovery HRV.
+    private var aboutRecoveryHRVCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("About Recovery HRV")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            Text("Recovery HRV looks at the difference between each heartbeat and the next, taken through the day while you are still. That beat to beat view responds quickly to how recovered you are, so it rises after restful nights and drops after hard training, poor sleep, alcohol, illness, or stress. Overall HRV measures the spread of all your heartbeats over a longer window and speaks more to your general cardiovascular health. Both are in milliseconds, but the two are computed differently and are not directly comparable, so watch each against its own baseline.")
+                .font(.system(.body, design: .rounded))
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(translucent: true)
     }
 
     private var metricHeroValueRow: some View {
@@ -1824,6 +1903,7 @@ struct BodyHealthMetricDetailView: View {
             BodyHeartRateRangeTrendChart(
                 title: model.title,
                 selectedRange: selectedTrendRange,
+                variant: rangeChartVariant,
                 rangeSeries: sourceRangeComparisonTrend.primary.series,
                 secondaryRangeSeries: sourceRangeComparisonTrend.secondary.series,
                 primarySourceName: sourceRangeComparisonTrend.primary.sourceName,
@@ -1882,6 +1962,7 @@ struct BodyHealthMetricDetailView: View {
             BodyHeartRateRangeTrendChart(
                 title: model.title,
                 selectedRange: selectedTrendRange,
+                variant: rangeChartVariant,
                 // Untrimmed, for the same reason as the Basics chart above.
                 rangeSeries: metricRangeSeries,
                 symbolColor: model.symbolColor,
@@ -3316,6 +3397,8 @@ struct BodyHealthMetricDetailView: View {
             selectedDay: selectedSleepDay,
             tint: model.symbolColor,
             floatingCallout: floatingCallout,
+            isLocked: !isBodyProUnlocked,
+            onUnlock: { showBodyProPaywall = true },
             onSelectDay: { day in
                 selectDatePickerDay(day, for: .sleep)
             }

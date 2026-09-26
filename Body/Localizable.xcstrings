@@ -1513,6 +1513,22 @@
         }
       }
     },
+    "About Recovery HRV" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About Recovery HRV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关于恢复心率变异性"
+          }
+        }
+      }
+    },
     "About Restorative Sleep" : {
       "localizations" : {
         "en" : {
@@ -7579,6 +7595,22 @@
         }
       }
     },
+    "HRV View" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HRV View"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率变异性视图"
+          }
+        }
+      }
+    },
     "Icon" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8400,6 +8432,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "低血氧警告"
+          }
+        }
+      }
+    },
+    "Know your sleep debt" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Know your sleep debt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "了解你的睡眠负债"
           }
         }
       }
@@ -12114,6 +12163,22 @@
         }
       }
     },
+    "Overall HRV" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Overall HRV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总体心率变异性"
+          }
+        }
+      }
+    },
     "Overnight signals that may point to illness" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13247,6 +13312,38 @@
         }
       }
     },
+    "Recovery HRV" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recovery HRV"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复心率变异性"
+          }
+        }
+      }
+    },
+    "Recovery HRV looks at the difference between each heartbeat and the next, taken through the day while you are still. That beat to beat view responds quickly to how recovered you are, so it rises after restful nights and drops after hard training, poor sleep, alcohol, illness, or stress. Overall HRV measures the spread of all your heartbeats over a longer window and speaks more to your general cardiovascular health. Both are in milliseconds, but the two are computed differently and are not directly comparable, so watch each against its own baseline." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recovery HRV looks at the difference between each heartbeat and the next, taken through the day while you are still. That beat to beat view responds quickly to how recovered you are, so it rises after restful nights and drops after hard training, poor sleep, alcohol, illness, or stress. Overall HRV measures the spread of all your heartbeats over a longer window and speaks more to your general cardiovascular health. Both are in milliseconds, but the two are computed differently and are not directly comparable, so watch each against its own baseline."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复心率变异性关注相邻两次心跳之间的差异，在白天静止时测得。这种逐拍视角对恢复状况反应很快，休息充分的夜晚之后会上升，高强度训练、睡眠不佳、饮酒、疾病或压力之后会下降。总体心率变异性衡量的是较长时间窗内所有心跳的离散程度，更能反映整体心血管健康。两者单位都是毫秒，但计算方式不同，不能直接比较，请分别对照各自的基准来看。"
+          }
+        }
+      }
+    },
     "Redeem" : {
       "localizations" : {
         "en" : {
@@ -14208,6 +14305,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "对比来源"
+          }
+        }
+      }
+    },
+    "See the sleep you missed over the last 14 nights and how much you need." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "See the sleep you missed over the last 14 nights and how much you need."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看过去 14 晚你错过的睡眠以及你需要多少睡眠。"
           }
         }
       }
@@ -16422,6 +16536,23 @@
         }
       }
     },
+    "The sleep you missed over the last 14 nights, against what you need." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The sleep you missed over the last 14 nights, against what you need."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "过去 14 晚你错过的睡眠，与你的需求相比。"
+          }
+        }
+      }
+    },
     "The small badge above a tile's unit compares that value against your average for the same workout type over the 30 days before this session. It shows direction only, with no judgment about whether higher is better: an up arrow means this workout was above that average, a down arrow means below, and a value near zero means you were on par. While the history is still loading the badge holds a 0% stand-in and the label beside Details reads Calculating, then the digits roll into the real percentage. Once loading has settled without enough comparable history the badge reads --%, because a zero there would wrongly claim the metric matched your average. Some tiles carry no badge at all, either because the metric has no comparable value or because it arrived after the comparison was built." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17112,6 +17243,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未知来源"
+          }
+        }
+      }
+    },
+    "Unlock Body Pro" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unlock Body Pro"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "解锁 Body Pro"
           }
         }
       }

@@ -9,6 +9,10 @@ import SwiftUI
 struct BodyHeartRateRangeTrendChart: View {
     let title: String
     let selectedRange: BodyHealthTrendRange
+    /// Names which data the same chart is showing (the HRV page's Overall or
+    /// Recovery series). A change animates the marks the way a range switch
+    /// does, so the bars and line morph into the other series in place.
+    let variant: String
     let symbolColor: Color
     let secondaryColor: Color
     let valueFormatter: (Double) -> String
@@ -37,6 +41,7 @@ struct BodyHeartRateRangeTrendChart: View {
     init(
         title: String,
         selectedRange: BodyHealthTrendRange,
+        variant: String = "",
         rangeSeries: HealthTrendRangeSeries,
         secondaryRangeSeries: HealthTrendRangeSeries? = nil,
         primarySourceName: String = String(localized: "Primary"),
@@ -53,6 +58,7 @@ struct BodyHeartRateRangeTrendChart: View {
     ) {
         self.title = title
         self.selectedRange = selectedRange
+        self.variant = variant
         self.symbolColor = symbolColor
         self.secondaryColor = secondaryColor
         self.valueFormatter = valueFormatter
@@ -255,16 +261,25 @@ struct BodyHeartRateRangeTrendChart: View {
             .transition(
                 .opacity.animation(reduceMotion ? .linear(duration: 0) : .easeInOut(duration: 0.35))
             )
-            // Keyed on the range ONLY: a broader key would also animate
-            // scrub-mark removal.
-            .animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: selectedRange)
-            .onChange(of: selectedRange) {
+            // Keyed on the range and the data variant ONLY: a broader key
+            // would also animate scrub-mark removal.
+            .animation(reduceMotion ? nil : .smooth(duration: 0.55, extraBounce: 0), value: morphKey)
+            .onChange(of: morphKey) {
                 selectedDate = nil
             }
             .transaction { transaction in
                 transaction.animation = nil
             }
         }
+    }
+
+    private struct MorphKey: Equatable {
+        let range: BodyHealthTrendRange
+        let variant: String
+    }
+
+    private var morphKey: MorphKey {
+        MorphKey(range: selectedRange, variant: variant)
     }
 
     @ChartContentBuilder

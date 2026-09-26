@@ -1581,14 +1581,23 @@ final class HealthKitWorkoutStore {
         isRegularRefresh = true
         defer { finishRefresh() }
 
+        // A never-requested read type (one added by an update) may prompt on any
+        // refresh that runs while the app is on screen, not only on a gesture:
+        // a launch or foreground resume that deferred the sheet would otherwise
+        // sit at Syncing until the user pulled to refresh. Background and
+        // observed refreshes never reach this function, so they stay silent.
+        // HealthKit reports `.unnecessary` once a type has been asked about,
+        // granted or denied, so a decided type never re-prompts.
+        let allowPrompt = intent == .userInitiated || BodyAppRuntime.isForegroundActive
+
         // Only when a prompt can actually appear; otherwise the badge keeps its
         // default `.fetching`.
-        if intent == .userInitiated && authorizationState != .authorized {
+        if allowPrompt && authorizationState != .authorized {
             setRefreshStage(.authorizing)
         }
 
         do {
-            guard try await requestHealthKitAuthorization(allowPrompt: intent == .userInitiated) else {
+            guard try await requestHealthKitAuthorization(allowPrompt: allowPrompt) else {
                 return
             }
             // Clock starts here, after the authorization sheet has returned, so
@@ -3314,6 +3323,38 @@ final class HealthKitWorkoutStore {
                 )
             }
         }
+        // The HRV page's Recovery view rides this load: Apple's RMSSD samples
+        // for the primary source (they share the Stress input series, so they
+        // only merge when the watch writes any, keeping a beat-to-beat scan
+        // cached from an older watch) and for the comparison source.
+        var recoveryPrimarySamples: HealthTrendSeries?
+        var recoverySecondarySamples: HealthTrendSeries?
+        let recoveryPrimaryFetchStart = HealthKitFetchEngine.incrementalFetchStart(
+            after: healthTrends.heartbeatRMSSDDaySamples,
+            windowStart: interval.start
+        )
+        let recoverySecondaryFetchStart = secondaryIsDisabled
+            ? interval.start
+            : HealthKitFetchEngine.incrementalFetchStart(
+                after: healthTrends.recoveryHRVDaySamplesSecondary,
+                windowStart: interval.start
+            )
+        if kind == .heartRateVariability {
+            recoveryPrimarySamples = await withBackgroundQueryPool {
+                await engine.fetchRecoveryHRVSamples(
+                    startDate: recoveryPrimaryFetchStart,
+                    endDate: interval.end,
+                    calendar: calendar
+                )
+            }
+            recoverySecondarySamples = secondaryIsDisabled ? .empty : await withBackgroundQueryPool {
+                await engine.fetchSecondaryRecoveryHRVSamples(
+                    startDate: recoverySecondaryFetchStart,
+                    endDate: interval.end,
+                    calendar: calendar
+                )
+            }
+        }
 
         // A refresh may have started while the engine fetches above were
         // suspended. It captured `healthTrends` before these day samples existed
@@ -3327,8 +3368,9 @@ final class HealthKitWorkoutStore {
             return
         }
 
-        // Both queries failed — nothing to merge, keep every cached series.
-        if primarySamples == nil, secondarySamples == nil {
+        // Every query failed — nothing to merge, keep every cached series.
+        if primarySamples == nil, secondarySamples == nil,
+           recoveryPrimarySamples == nil, recoverySecondarySamples == nil {
             return
         }
 
@@ -3368,6 +3410,22 @@ final class HealthKitWorkoutStore {
         case .heartRateVariability:
             trends.heartRateVariabilityDaySamples = mergedPrimary
             trends.heartRateVariabilityDaySamplesSecondary = mergedSecondary
+            if let recoveryPrimarySamples, !recoveryPrimarySamples.isEmpty {
+                trends.heartbeatRMSSDDaySamples = HealthKitFetchEngine.mergeIntradaySamples(
+                    existing: trends.heartbeatRMSSDDaySamples,
+                    incoming: recoveryPrimarySamples,
+                    windowStart: interval.start,
+                    refetchStart: recoveryPrimaryFetchStart
+                )
+            }
+            if let recoverySecondarySamples {
+                trends.recoveryHRVDaySamplesSecondary = HealthKitFetchEngine.mergeIntradaySamples(
+                    existing: trends.recoveryHRVDaySamplesSecondary,
+                    incoming: recoverySecondarySamples,
+                    windowStart: interval.start,
+                    refetchStart: recoverySecondaryFetchStart
+                )
+            }
         case .respiratoryRate:
             trends.respiratoryRateDaySamples = mergedPrimary
         case .oxygenSaturation:
@@ -3399,10 +3457,16 @@ final class HealthKitWorkoutStore {
         // day chart straight from the sidecar.
         var successfulSeries: Set<HealthDaySampleSeries> = []
         for series in HealthDaySampleSeries.allCases
-        where series.kind == kind && series != .heartbeatRMSSDDaySamples {
+        where series.kind == kind && series != .heartbeatRMSSDDaySamples && series != .recoveryHRVDaySamplesSecondary {
             if series.isSecondary ? secondarySamples != nil : primarySamples != nil {
                 successfulSeries.insert(series)
             }
+        }
+        if let recoveryPrimarySamples, !recoveryPrimarySamples.isEmpty {
+            successfulSeries.insert(.heartbeatRMSSDDaySamples)
+        }
+        if recoverySecondarySamples != nil {
+            successfulSeries.insert(.recoveryHRVDaySamplesSecondary)
         }
         guard !publishDaySamples(from: trends, successfulSeries: successfulSeries,
                                  capturedRevisions: capturedDaySampleRevisions).isEmpty else { return }

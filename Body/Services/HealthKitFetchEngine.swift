@@ -1527,7 +1527,7 @@ actor HealthKitFetchEngine {
         }
     }
 
-    private func fetchDailyQuantityAverageAndRangeSeries(
+    func fetchDailyQuantityAverageAndRangeSeries(
         for identifier: HKQuantityTypeIdentifier,
         unit: HKUnit,
         calendar: Calendar,
@@ -3824,6 +3824,7 @@ actor HealthKitFetchEngine {
         // beat-to-beat RMSSD samples, and the backfill's walk marker. Carried
         // forward explicitly, exactly like `recordedReadiness`.
         let cachedHeartbeatRMSSDDaySamples = cachedTrends.heartbeatRMSSDDaySamples
+        let cachedRecoveryHRVDaySamplesSecondary = cachedTrends.recoveryHRVDaySamplesSecondary
         let cachedStress = cachedTrends.stress
         let cachedStressRanges = cachedTrends.stressRanges
         let cachedRecordedStressDays = cachedTrends.recordedStressDays
@@ -3981,6 +3982,28 @@ actor HealthKitFetchEngine {
             leaf: "trend.heartRateVariabilityRangesSecondary"
         ) {
             await fetchSecondaryRangeTrend(for: .heartRateVariability, calendar: calendar)
+        }
+        // Recovery HRV is page-only (Stress reads its samples, not this daily
+        // average), so it follows the HRV card's full payload rather than the
+        // input-capable pair above.
+        async let recoveryHRVPair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDashboardMetricIfNeeded(
+            .heartRateVariability,
+            selection: selection,
+            default: (HealthTrendSeries.empty, HealthTrendRangeSeries.empty),
+            leaf: "trend.recoveryHRVPair"
+        ) {
+            await fetchRecoveryHRVTrendPair(
+                calendar: calendar,
+                maxDays: cachedTrends.recoveryHRV.isEmpty ? nil : trendWindowDays
+            )
+        }
+        async let recoveryHRVRangesSecondary: HealthTrendRangeSeries? = fetchSecondaryDashboardMetricIfNeeded(
+            for: .heartRateVariability,
+            selection: selection,
+            default: HealthTrendRangeSeries.empty,
+            leaf: "trend.recoveryHRVRangesSecondary"
+        ) {
+            await fetchSecondaryRecoveryHRVRangeTrend(calendar: calendar)
         }
         async let respiratoryRatePair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchDashboardMetricIfNeeded(
             .respiratoryRate,
@@ -4178,6 +4201,7 @@ actor HealthKitFetchEngine {
         let fetchedHeartRate = merged(fetchedHeartRatePair?.0, cached: cachedTrends.heartRate, from: windowMergeStart(for: .heartRate), leaf: .heartRate)
         let fetchedHeartRateRanges = mergedRange(fetchedHeartRatePair?.1, cached: cachedTrends.heartRateRanges, from: windowMergeStart(for: .heartRate), leaf: .heartRate)
         let fetchedHeartRateVariabilityPair = await heartRateVariabilityPair
+        let fetchedRecoveryHRVPair = await recoveryHRVPair
         let fetchedHeartRateVariability = resolved(
             (fetchedHeartRateVariabilityPair?.0).map {
                 Self.mergeWindowedTrend(
@@ -4217,6 +4241,9 @@ actor HealthKitFetchEngine {
             heartRateVariability: fetchedHeartRateVariability,
             heartRateVariabilityRanges: fetchedHeartRateVariabilityRanges,
             heartRateVariabilityRangesSecondary: resolved(await heartRateVariabilityRangesSecondary, cached: cachedTrends.heartRateVariabilityRangesSecondary, leaf: .heartRateVariabilityRangesSecondary),
+            recoveryHRV: merged(fetchedRecoveryHRVPair?.0, cached: cachedTrends.recoveryHRV, from: heartRateVariabilityMergeStart, leaf: .recoveryHRV),
+            recoveryHRVRanges: mergedRange(fetchedRecoveryHRVPair?.1, cached: cachedTrends.recoveryHRVRanges, from: heartRateVariabilityMergeStart, leaf: .recoveryHRV),
+            recoveryHRVRangesSecondary: resolved(await recoveryHRVRangesSecondary, cached: cachedTrends.recoveryHRVRangesSecondary, leaf: .recoveryHRVRangesSecondary),
             respiratoryRate: fetchedRespiratoryRate,
             respiratoryRateRanges: fetchedRespiratoryRateRanges,
             oxygenSaturation: fetchedOxygenSaturation,
@@ -4253,6 +4280,7 @@ actor HealthKitFetchEngine {
             heartRateVariabilityDaySamples: cachedHeartRateVariabilityDaySamples,
             heartRateVariabilityDaySamplesSecondary: cachedHeartRateVariabilityDaySamplesSecondary,
             heartbeatRMSSDDaySamples: cachedHeartbeatRMSSDDaySamples,
+            recoveryHRVDaySamplesSecondary: cachedRecoveryHRVDaySamplesSecondary,
             respiratoryRateDaySamples: cachedRespiratoryRateDaySamples,
             oxygenSaturationDaySamples: cachedOxygenSaturationDaySamples,
             oxygenSaturationDaySamplesSecondary: cachedOxygenSaturationDaySamplesSecondary,
@@ -4362,7 +4390,8 @@ actor HealthKitFetchEngine {
         for kind: HealthMetricKind,
         cached: HealthTrendSeries,
         calendar: Calendar,
-        reconcilesRetainedWindow: Bool = false
+        reconcilesRetainedWindow: Bool = false,
+        fetch: ((Date, Date) async -> HealthTrendSeries?)? = nil
     ) async -> HealthTrendSeries? {
         // A no-comparison selection (the Pro gate, an unresolved source, or the
         // primary-collapse rule in `selectedSecondaryHealthDataSourceOption`) has
@@ -4390,12 +4419,20 @@ actor HealthKitFetchEngine {
         // returning `cached`) so the caller folds the failure into
         // `hadQueryFailure` while still keeping the cached series via
         // `resolvedTrend`.
-        guard let incoming = await fetchSecondaryDaySamples(
-            for: kind,
-            calendar: calendar,
-            startDate: fetchStart,
-            endDate: interval.end
-        ) else {
+        // `fetch` swaps in a query other than the kind's descriptor one (the
+        // HRV kind's Recovery HRV samples); the window and merge are the same.
+        let incoming: HealthTrendSeries?
+        if let fetch {
+            incoming = await fetch(fetchStart, interval.end)
+        } else {
+            incoming = await fetchSecondaryDaySamples(
+                for: kind,
+                calendar: calendar,
+                startDate: fetchStart,
+                endDate: interval.end
+            )
+        }
+        guard let incoming else {
             return nil
         }
         return Self.mergeIntradaySamples(
@@ -4608,6 +4645,24 @@ actor HealthKitFetchEngine {
                 calendar: calendar,
                 reconcilesRetainedWindow: reconcilesRetainedIntradayWindow
             )
+            // The Recovery view's series: the trend pair, the comparison
+            // range, both sources' samples. The primary samples are also the
+            // Stress input series, so they merge only when the watch wrote any.
+            async let recoveryHRVDaySamples: HealthTrendSeries? = refreshedRecoveryHRVDaySamples(
+                cached: existing.trends.heartbeatRMSSDDaySamples,
+                calendar: calendar,
+                reconcilesRetainedWindow: reconcilesRetainedIntradayWindow
+            )
+            async let recoveryHRVPair: (HealthTrendSeries, HealthTrendRangeSeries)? = fetchRecoveryHRVTrendPair(calendar: calendar)
+            async let recoveryHRVRangesSecondary: HealthTrendRangeSeries? = fetchSecondaryRecoveryHRVRangeTrend(calendar: calendar)
+            async let recoveryHRVDaySamplesSecondary = fetchIncrementalSecondaryDaySamples(
+                for: .heartRateVariability,
+                cached: existing.trends.recoveryHRVDaySamplesSecondary,
+                calendar: calendar,
+                reconcilesRetainedWindow: reconcilesRetainedIntradayWindow
+            ) { start, end in
+                await self.fetchSecondaryRecoveryHRVSamples(startDate: start, endDate: end, calendar: calendar)
+            }
 
             summary.heartRateVariability = resolvedDashboardSummary(fetched: await heartRateVariability, cached: existing.summary.heartRateVariability) ?? HealthSummarySnapshot.empty.heartRateVariability
             let fetchedHeartRateVariabilityPair = await heartRateVariabilityPair
@@ -4616,6 +4671,12 @@ actor HealthKitFetchEngine {
             trends.heartRateVariabilityRangesSecondary = resolvedTrend(await heartRateVariabilityRangesSecondary, cached: existing.trends.heartRateVariabilityRangesSecondary)
             trends.heartRateVariabilityDaySamples = resolvedDaySamples(await heartRateVariabilityDaySamples, cached: existing.trends.heartRateVariabilityDaySamples, series: .heartRateVariabilityDaySamples)
             trends.heartRateVariabilityDaySamplesSecondary = resolvedDaySamples(await heartRateVariabilityDaySamplesSecondary, cached: existing.trends.heartRateVariabilityDaySamplesSecondary, series: .heartRateVariabilityDaySamplesSecondary)
+            let fetchedRecoveryHRVPair = await recoveryHRVPair
+            trends.recoveryHRV = resolvedTrend(fetchedRecoveryHRVPair?.0, cached: existing.trends.recoveryHRV)
+            trends.recoveryHRVRanges = resolvedTrend(fetchedRecoveryHRVPair?.1, cached: existing.trends.recoveryHRVRanges)
+            trends.recoveryHRVRangesSecondary = resolvedTrend(await recoveryHRVRangesSecondary, cached: existing.trends.recoveryHRVRangesSecondary)
+            trends.heartbeatRMSSDDaySamples = resolvedDaySamples(await recoveryHRVDaySamples, cached: existing.trends.heartbeatRMSSDDaySamples, series: .heartbeatRMSSDDaySamples)
+            trends.recoveryHRVDaySamplesSecondary = resolvedDaySamples(await recoveryHRVDaySamplesSecondary, cached: existing.trends.recoveryHRVDaySamplesSecondary, series: .recoveryHRVDaySamplesSecondary)
         case .respiratoryRate:
             async let respiratoryRate = summaryLeaf(.respiratoryRate, calendar: calendar)
             async let highRespiratoryRateWarning = fetchTodayMetricWarning(.highRespiratoryRate, calendar: calendar)

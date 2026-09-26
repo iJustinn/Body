@@ -565,6 +565,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.selectedEnergyUnitKey) private var selectedEnergyUnitRawValue = BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
+    @AppStorage(BodyAppearancePreference.hrvDetailDisplayKindKey) private var hrvDetailDisplayKindRawValue = BodyHRVDisplayKind.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.homeCardOrderKey) private var homeCardOrderRawValue = BodyHomeCardKind.defaultRawValue
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
@@ -2236,6 +2237,53 @@ struct BodyHomeView: View {
         saveHomeCardOrder(order)
     }
 
+    /// The HRV page's Recovery view: Apple's RMSSD in place of SDNN, on the
+    /// same daily range bars and average line as Overall, with the comparison
+    /// source's RMSSD range beside it when one is picked (its day samples ride
+    /// the same detail-view cache as the SDNN ones). The hero shows the newest
+    /// sample, as the Overall view does.
+    private func recoveryHRVDetailModel(trends: HealthTrendSnapshot) -> BodyHealthMetricDetailModel {
+        let kind = HealthMetricKind.heartRateVariability
+        let secondaryOption = workoutStore.selectedSecondaryHealthDataSourceOption(for: kind)
+        let comparison: BodyHealthSourceRangeComparisonTrend? = secondaryOption.isNoComparison ? nil : BodyHealthSourceRangeComparisonTrend(
+            primary: BodyHealthSourceRangeTrend(
+                role: .primary,
+                sourceName: workoutStore.selectedHealthDataSourceOption(for: kind).name,
+                series: trends.recoveryHRVRanges
+            ),
+            secondary: BodyHealthSourceRangeTrend(
+                role: .secondary,
+                sourceName: secondaryOption.name,
+                series: trends.recoveryHRVRangesSecondary
+            )
+        )
+        return BodyHealthMetricDetailModel(
+            kind: kind,
+            title: "HRV",
+            value: trends.heartbeatRMSSDDaySamples.points.last.map { BodyValueFormat.numberText($0.value, decimals: 1) } ?? "--",
+            unit: "ms",
+            symbolName: "waveform.path.ecg",
+            symbolColor: Color(red: 1.00, green: 0.25, blue: 0.45),
+            series: trends.recoveryHRV,
+            daySeries: trends.heartbeatRMSSDDaySamples,
+            secondaryDaySeries: trends.recoveryHRVDaySamplesSecondary,
+            rangeSeries: trends.recoveryHRVRanges,
+            basicsTrend: nil,
+            sleepStageSnapshot: nil,
+            sleepScore: nil,
+            sleepVitals: nil,
+            sleepDuration: nil,
+            sleepHistory: trends.sleepHistory,
+            chartStyle: .line,
+            valueFormatter: { BodyValueFormat.numberText($0, decimals: 1) + " ms" },
+            secondaryValueFormatter: nil,
+            sourceRangeComparisonTrend: comparison,
+            helpText: kind.detailHelpText,
+            dataSourceText: kind.detailDataSourceText,
+            trendVariant: BodyHRVDisplayKind.recovery.rawValue
+        )
+    }
+
     private func detailModel(for kind: HealthMetricKind) -> BodyHealthMetricDetailModel {
         let summary = workoutStore.healthSummary
         let trends = workoutStore.healthTrends
@@ -2581,6 +2629,12 @@ struct BodyHomeView: View {
                 symbolColor: Color(red: 1.00, green: 0.68, blue: 0.08)
             )
         case .heartRateVariability:
+            // The page's Recovery toggle is only offered once Recovery HRV has
+            // data (`BodyHealthMetricDetailView.recoveryHRVAvailable`), so a
+            // stored `.recovery` on a watch that writes none falls back to Overall.
+            if hrvDetailDisplayKindRawValue == BodyHRVDisplayKind.recovery.rawValue, !trends.recoveryHRV.isEmpty {
+                return recoveryHRVDetailModel(trends: trends)
+            }
             return metricDetail(
                 kind: kind,
                 title: "HRV",

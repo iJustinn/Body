@@ -51,6 +51,9 @@ enum BodyAppearancePreference {
     static let homeTrendCardSelectionKey = "homeTrendCardSelection"
     static let foldedHomeContentWidthKey = "foldedHomeContentWidth"
     static let metricDayViewSelectionKey = "metricDayViewSelection"
+    /// Which HRV the HRV page shows: Overall (SDNN) or, once the watch has
+    /// written any, Recovery (Apple's RMSSD). Default overall.
+    static let hrvDetailDisplayKindKey = "hrvDetailDisplayKind"
     static let metricWarningsKey = "metricWarnings"
     static let metricWarningThresholdsKey = "metricWarningThresholds"
     static let metricWarningNotificationsKey = "metricWarningNotificationsEnabled"
@@ -959,4 +962,14 @@ enum BodyOnboardingGate {
     static func currentAppVersion(bundle: Bundle = .main) -> String {
         (bundle.infoDictionary?["CFBundleShortVersionString"] as? String) ?? minimumCompletedVersion
     }
+}
+
+/// The HRV page's two views. Overall is the SDNN chart every watch writes;
+/// Recovery is Apple's RMSSD, written by Apple Watch Series 12 and Ultra 4 on
+/// watchOS 27, so the page offers it only once that series has data.
+enum BodyHRVDisplayKind: String, CaseIterable {
+    case overall
+    case recovery
+
+    static let defaultValue: BodyHRVDisplayKind = .overall
 }

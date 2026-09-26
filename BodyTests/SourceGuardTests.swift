@@ -1391,8 +1391,10 @@ final class SourceGuardTests: XCTestCase {
 
     func testHeartRateVariabilityDayChartUsesSleepAndWorkoutContextOverlay() throws {
         let source = try bodyHomeViewText()
+        // Anchored on the Overall model's call, past the Recovery view branch
+        // that precedes it in the `.heartRateVariability` case.
         let detailStart = try XCTUnwrap(
-            source.range(of: "case .heartRateVariability:\n            return metricDetail(")?.lowerBound
+            source.range(of: "                summary: summary.heartRateVariability,\n                unit: \"ms\",")?.lowerBound
         )
         let detailBlock = String(source[detailStart...].prefix(900))
         let contextStart = try XCTUnwrap(source.range(of: "private var selectedMetricDayContextIntervals")?.lowerBound)
@@ -1474,7 +1476,8 @@ final class SourceGuardTests: XCTestCase {
     func testHeartRateRangeChartUsesStandardBarSelectionRule() throws {
         let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "struct BodyHeartRateRangeTrendChart")?.lowerBound)
-        let chartBlock = String(source[chartStart...].prefix(18_000))
+        // Wide enough to reach the average-line overlay past the variant morph key.
+        let chartBlock = String(source[chartStart...].prefix(19_000))
 
         XCTAssertTrue(source.contains("private var usesRangeTrendChart: Bool"))
         XCTAssertTrue(source.contains("model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .oxygenSaturation || model.kind == .respiratoryRate"))
@@ -2443,8 +2446,9 @@ final class SourceGuardTests: XCTestCase {
         let engineSource = try healthKitFetchEngineText()
 
         XCTAssertTrue(engineSource.contains("private func fetchIncrementalSecondaryDaySamples("))
-        // One definition plus one call site per sample-based kind (hr, hrv, spo2).
-        XCTAssertEqual(engineSource.occurrenceCount(of: "fetchIncrementalSecondaryDaySamples("), 4)
+        // One definition plus one call site per sample-based kind (hr, hrv, spo2),
+        // plus the HRV kind's second call for its Recovery HRV comparison samples.
+        XCTAssertEqual(engineSource.occurrenceCount(of: "fetchIncrementalSecondaryDaySamples("), 5)
         XCTAssertTrue(engineSource.contains("async let activeEnergyDaySamplesSecondary = fetchSecondaryDaySamples("))
         XCTAssertTrue(engineSource.contains("async let stepsDaySamplesSecondary = fetchSecondaryDaySamples("))
     }
@@ -2565,6 +2569,25 @@ final class SourceGuardTests: XCTestCase {
 
         let pro = try BodyTestSupport.sourceText(at: "Body/Views/BodyProView.swift")
         XCTAssertTrue(pro.contains("id: \"home-heroes\""))
+    }
+
+    /// Sleep Debt is Body Pro: the Sleep page's card locks (title kept, chart and night
+    /// row replaced by an unlock button to the paywall) and the Summary Cards row locks,
+    /// both reading the store's entitlement; the stored toggle is left alone.
+    func testSleepDebtIsProGatedOnTheCardAndInSettings() throws {
+        let detail = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let card = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodySleepDebtCard.swift")
+        let settings = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
+
+        XCTAssertTrue(detail.contains("isLocked: !isBodyProUnlocked,\n            onUnlock: { showBodyProPaywall = true },"))
+        XCTAssertTrue(card.contains("if isLocked {\n                lockedBody\n            } else if model.debt == nil {"))
+        XCTAssertTrue(card.contains("Button(action: onUnlock)"))
+
+        let sheetStart = try XCTUnwrap(settings.range(of: "private struct BodySummaryCardsSettingsSheet")?.lowerBound)
+        let sheet = String(settings[sheetStart...].prefix(4_000))
+        XCTAssertTrue(sheet.contains("isLocked: !(proStore?.isPro ?? false),\n                        onLockedTap: { showBodyProPaywall = true }"))
+        XCTAssertTrue(sheet.contains(".sheet(isPresented: $showBodyProPaywall)"))
+        XCTAssertTrue(settings.contains("if isLocked { onLockedTap() }"))
     }
 
     func testProGatedSourceResolutionReadsTheEntitlementGeneration() throws {
@@ -4840,7 +4863,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: BodyTestSupport.projectRoot.appendingPathComponent("Body/Assets.xcassets/BodyProIcon.imageset").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: BodyTestSupport.projectRoot.appendingPathComponent("Body/Assets.xcassets/BodyProIconBack.imageset").path))
         // The page sells by showing: a paged showcase of real Body surfaces over sample
-        // data (the Sleep detail's year chart behind the real range pills, a 3D route
+        // data (the Sleep Debt chart over a sample fortnight first, the HRV detail's year
+        // chart behind the real range pills, a 3D route
         // through the route hero's own projection and painter, two real widgets over the
         // placeholder snapshot, two sources on one chart, four background profiles), on
         // the app's own background. It moves on by itself unless Reduce Motion or
@@ -4852,6 +4876,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(bodyProSource.contains("private static let slides = BodyProShowcaseSlide.allCases"))
         XCTAssertTrue(bodyProSource.contains(".tabViewStyle(.page(indexDisplayMode: .never))"))
         XCTAssertTrue(bodyProSource.contains("guard !reduceMotion, !voiceOverEnabled else { return }"))
+        XCTAssertTrue(bodyProSource.contains("case sleepDebt\n    case yearChart"))
+        XCTAssertTrue(bodyProSource.contains("case .sleepDebt: BodyProSleepDebtSlide()"))
         XCTAssertTrue(bodyProSource.contains("BodyHealthTrendRangeSelector(selectedRange: .constant(.recentYear), appearance: .onGradient)"))
         XCTAssertTrue(bodyProSource.contains("selectedRange: .recentYear,"))
         XCTAssertTrue(bodyProSource.contains("WorkoutRoute3DProjection.projected(for: route)"))
@@ -4878,9 +4904,10 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(bodyProSource.contains("LazyVGrid(columns: columns, spacing: 10)"))
         XCTAssertFalse(bodyProSource.contains("BodyProFeatureCheckmark"))
         XCTAssertFalse(bodyProSource.contains("let detail: String\n    let iconName: String"))
-        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 12)
+        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 13)
         XCTAssertTrue(bodyProSource.contains("Longer-Range Charts"))
         XCTAssertTrue(bodyProSource.contains("More Home Heroes"))
+        XCTAssertTrue(bodyProSource.contains(#"id: "sleep-debt""#))
         XCTAssertTrue(bodyProSource.contains("Full Day History"))
         XCTAssertTrue(bodyProSource.contains("Custom Backgrounds"))
         XCTAssertTrue(bodyProSource.contains("Secondary Data Source"))
@@ -4935,8 +4962,9 @@ final class SourceGuardTests: XCTestCase {
         // Sheets presented from locked controls (and the paywall as a flow step) get a
         // close button; the Settings entry pushes the page and keeps its back button.
         XCTAssertTrue(bodyProSource.contains("if showsCloseButton || onContinue != nil {"))
-        // Sources, Workouts colors, and the Home Hero sheet (its Day Ring row).
-        XCTAssertEqual(settingsSource.occurrenceCount(of: "NavigationStack { BodyProView(showsCloseButton: true) }"), 3)
+        // Sources, Workouts colors, the Home Hero sheet (its Day Ring row), and the
+        // Summary Cards sheet (its Sleep Debt row).
+        XCTAssertEqual(settingsSource.occurrenceCount(of: "NavigationStack { BodyProView(showsCloseButton: true) }"), 4)
         for sheetPath in [
             "Body/Views/Health/BodyWorkoutShareSheet.swift",
             "Body/Views/Health/BodyHealthMetricDetailView.swift",
