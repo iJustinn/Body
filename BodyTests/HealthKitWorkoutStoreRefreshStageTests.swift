@@ -36,8 +36,8 @@ final class HealthKitWorkoutStoreRefreshStageTests: XCTestCase {
         XCTAssertNil(store.refreshStage)
     }
 
-    /// A pull during a regular refresh leaves it alone; only a repair or other work
-    /// holding the slot gets the badge's busy notice.
+    /// A pull during a regular refresh leaves it alone apart from showing its badge at
+    /// once; only a repair or other work holding the slot gets the badge's busy notice.
     @MainActor
     func testPullWhileBusyNotifiesOnlyForNonRefreshWork() async {
         let restoreDefaults = preserveInitialHealthLoadDefaults()
@@ -48,8 +48,10 @@ final class HealthKitWorkoutStoreRefreshStageTests: XCTestCase {
         XCTAssertNil(store.refreshBusyNoticeID)
 
         await store.withRefreshSlotHeld(regularRefresh: true) {
+            XCTAssertFalse(store.syncPresentation.isRevealed)
             store.noteRefreshRequestedWhileBusy()
             XCTAssertNil(store.refreshBusyNoticeID)
+            XCTAssertTrue(store.syncPresentation.isRevealed)
         }
         XCTAssertFalse(store.isRegularRefresh)
 
@@ -60,6 +62,21 @@ final class HealthKitWorkoutStoreRefreshStageTests: XCTestCase {
         // Dismissed the moment the blocking work ends, so the completion confirmation or
         // the next refresh is never hidden behind it.
         XCTAssertNil(store.refreshBusyNoticeID)
+    }
+
+    /// A refresh the user asks for shows the badge at once; only automatic work waits
+    /// out the reveal delay. With no permissions the month refresh sends no queries.
+    @MainActor
+    func testUserRefreshRevealsTheBadgeAtOnce() async {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let store = HealthKitWorkoutStore(initialMonthSnapshots: [], initialHealthDashboardSnapshot: .empty,
+            initialPermissionSelection: .init(enabledPermissions: []), engineHealthStore: FakeHealthStore(), workoutJournalFile: nil)
+        store.contextRefreshOverride = { _ in }
+        XCTAssertFalse(store.syncPresentation.isRevealed)
+        await store.refreshWorkoutMonth(month: 5, year: 2026)
+        XCTAssertTrue(store.syncPresentation.isRevealed)
     }
 
     /// Every case needs copy: a new stage without a badge string would render

@@ -311,8 +311,9 @@ final class HealthKitWorkoutStore {
         didSet {
             #if DEBUG
             if oldValue.phase != syncPresentation.phase || oldValue.displayedStage != syncPresentation.displayedStage
-                || oldValue.pending != syncPresentation.pending || oldValue.passID != syncPresentation.passID {
-                BodyObserverRefreshDiagnostics.log("badge session=\(syncPresentation.sessionID?.uuidString ?? "none") phase=\(syncPresentation.phase) stage=\(syncPresentation.displayedStage) pending=\(syncPresentation.pending.count) active=\(syncPresentation.passID != nil)")
+                || oldValue.pending != syncPresentation.pending || oldValue.passID != syncPresentation.passID
+                || oldValue.isRevealed != syncPresentation.isRevealed {
+                BodyObserverRefreshDiagnostics.log("badge session=\(syncPresentation.sessionID?.uuidString ?? "none") phase=\(syncPresentation.phase) stage=\(syncPresentation.displayedStage) pending=\(syncPresentation.pending.count) active=\(syncPresentation.passID != nil) revealed=\(syncPresentation.isRevealed)")
             }
             #endif
         }
@@ -340,12 +341,22 @@ final class HealthKitWorkoutStore {
     /// Set each time a pull to refresh lands while a repair or other non refresh work
     /// holds the slot, so the sync badge can say so instead of the pull doing nothing.
     /// Shown even when the running session's badge is hidden. A pull during a regular
-    /// refresh sets nothing: that refresh already covers it.
+    /// refresh sets nothing: that refresh already covers it, so its badge shows at once.
     private(set) var refreshBusyNoticeID: UUID?
 
     func noteRefreshRequestedWhileBusy() {
-        guard isRefreshing, !isRegularRefresh else { return }
+        guard isRefreshing else { return }
+        guard !isRegularRefresh else {
+            revealSyncBadge()
+            return
+        }
         refreshBusyNoticeID = UUID()
+    }
+
+    /// Shows the running session's badge now. Automatic refreshes wait out
+    /// `BodySyncPresentation.revealDelay`; a refresh the user asked for does not.
+    private func revealSyncBadge() {
+        syncPresentation.reveal()
     }
 
     func cancelSyncPresentation() {
@@ -926,6 +937,7 @@ final class HealthKitWorkoutStore {
                 } else if !requiresFetch {
                     self.isRefreshing = true
                     self.isRegularRefresh = true
+                    if intent == .userInitiated { self.revealSyncBadge() }
                     await self.runRefreshWithDeadline {
                         if await self.updateHealthDashboardSnapshot(
                             summary: self.healthSummary, trends: self.healthTrends,
@@ -1579,6 +1591,7 @@ final class HealthKitWorkoutStore {
         // passes the `isRefreshing` guard and starts a concurrent refresh.
         isRefreshing = true
         isRegularRefresh = true
+        if intent == .userInitiated { revealSyncBadge() }
         defer { finishRefresh() }
 
         // A never-requested read type (one added by an update) may prompt on any
@@ -1621,6 +1634,7 @@ final class HealthKitWorkoutStore {
 
         isRefreshing = true
         isRegularRefresh = true
+        if intent == .userInitiated { revealSyncBadge() }
         defer { finishRefresh() }
         await hydratePersistedDaySamplesIfNeeded()
         await engine.setHealthTrendAnchorDate(date)
@@ -2438,6 +2452,7 @@ final class HealthKitWorkoutStore {
     func autoApplyPredictedEffortNow() async {
         guard await awaitRefreshSlotFree() else { return }
         isRefreshing = true
+        revealSyncBadge()
         defer { finishRefresh() }
         await autoApplyPredictedEffortIfNeeded(monthKeys: [])
     }
@@ -3759,6 +3774,7 @@ final class HealthKitWorkoutStore {
 
         isRefreshing = true
         isRegularRefresh = true
+        if intent == .userInitiated { revealSyncBadge() }
         defer { finishRefresh() }
         // Same rule as `requestAuthorizationAndRefresh`: only when a prompt can
         // actually appear.
@@ -3826,6 +3842,7 @@ final class HealthKitWorkoutStore {
         }
         guard await awaitRefreshSlotFree() else { return }
         isRefreshing = true
+        revealSyncBadge()
         defer { finishRefresh() }
         // A later toggle may have changed the selection while this one waited.
         await engine.setPermissionSelection(permissionSelection)

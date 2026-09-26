@@ -76,7 +76,7 @@ struct BodyHealthSyncBadge: View {
     private var presentation: BodySyncPresentation { workoutStore.syncPresentation }
     private var busyNoticeID: UUID? { workoutStore.refreshBusyNoticeID }
     private var showsBusyNotice: Bool { !isSuppressed && busyNoticeID != nil && busyNoticeID != endedBusyNoticeID }
-    private var showsBadge: Bool { !isSuppressed && presentation.sessionID != suppressedSessionID && presentation.phase != .hidden }
+    private var showsBadge: Bool { !isSuppressed && presentation.isRevealed && presentation.sessionID != suppressedSessionID && presentation.phase != .hidden }
 
     var body: some View {
         ZStack(alignment: .top) {
