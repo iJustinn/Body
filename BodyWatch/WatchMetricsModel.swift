@@ -57,6 +57,17 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// In-process stand-in for the scheduled background refresh while the app
     /// stays in the foreground, where watchOS won't deliver one.
     private var pendingRetryTask: Task<Void, Never>?
+    /// How far ahead the standing background wake is requested, so a closed
+    /// watch keeps recomputing without the phone or the app being opened.
+    static let backgroundRefreshInterval: TimeInterval = 60 * 60
+    /// The date last handed to `scheduleBackgroundRefresh`. watchOS keeps one
+    /// request per app and a new call replaces it, so a no-op trigger must not
+    /// push an earlier wake later. In memory only: after a relaunch the first
+    /// trigger re-arms.
+    private var outstandingBackgroundRefreshDate: Date?
+    /// Console trail for the background chain (wake requested, delivered,
+    /// compute started and finished, save result).
+    private nonisolated static let logger = Logger(subsystem: "com.zihengthedeveloper.Body", category: "WatchCompute")
     /// Created by `startWorkoutObserver` (the app delegate), never by `init`,
     /// so a model built in a test registers nothing with HealthKit.
     private var workoutObserver: WatchWorkoutObserver?
@@ -87,19 +98,19 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// The manual refresh button (`force`) ignores this entirely, and so does a
     /// detected workout change, within its own budget (`pendingWork`).
     ///
-    /// PERSISTED (UserDefaults): watchOS routinely evicts and relaunches the
-    /// app well inside the 30-minute window, and an in-memory-only timestamp
-    /// would reset to nil on every relaunch — turning process eviction into a
-    /// bypass of the battery backstop it exists to be.
+    /// PERSISTED (`environment.defaults`): watchOS routinely evicts and
+    /// relaunches the app well inside the 30-minute window, and an
+    /// in-memory-only timestamp would reset to nil on every relaunch — turning
+    /// process eviction into a bypass of the battery backstop it exists to be.
     private var lastComputeAttemptDate: Date? {
         didSet {
             if let lastComputeAttemptDate {
-                UserDefaults.standard.set(
+                environment.defaults.set(
                     lastComputeAttemptDate.timeIntervalSinceReferenceDate,
                     forKey: Self.lastComputeAttemptDateKey
                 )
             } else {
-                UserDefaults.standard.removeObject(forKey: Self.lastComputeAttemptDateKey)
+                environment.defaults.removeObject(forKey: Self.lastComputeAttemptDateKey)
             }
         }
     }
@@ -129,6 +140,10 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// can never trail the consumer's decrement, which would let a background
     /// task complete with a push still queued.
     private nonisolated let contextsInFlight = OSAllocatedUnfairLock<Int>(initialState: 0)
+    /// Computes started by a push (see `applyReceivedContext`) that haven't
+    /// returned yet. A held WC background task is the push's execution
+    /// opportunity, so it stays open until these finish too.
+    private nonisolated let pushComputesInFlight = OSAllocatedUnfairLock<Int>(initialState: 0)
 
     init(
         persistSnapshot: @escaping (WatchMetricsSnapshot) -> Bool = { WatchMetricsSnapshotStore.save($0) },
@@ -158,16 +173,16 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         lastPersistedSnapshot = stored
         snapshot = (stored ?? .empty).sanitized()
         hiddenMetricKinds = Self.loadHiddenMetricKinds()
-        if UserDefaults.standard.object(forKey: Self.lastComputeAttemptDateKey) != nil {
+        if environment.defaults.object(forKey: Self.lastComputeAttemptDateKey) != nil {
             let persisted = Date(
-                timeIntervalSinceReferenceDate: UserDefaults.standard.double(forKey: Self.lastComputeAttemptDateKey)
+                timeIntervalSinceReferenceDate: environment.defaults.double(forKey: Self.lastComputeAttemptDateKey)
             )
             // Reject a future-dated stamp (clock rollback, or a bad persisted
             // value) rather than restoring it: `isFreshLocalDate` treats a
             // future date as stale anyway, but leaving it in place here would
             // still park a stale-but-not-yet-recomputed attempt across a
             // relaunch until the clock caught up to it.
-            if persisted <= Date() {
+            if persisted <= environment.now() {
                 lastComputeAttemptDate = persisted
             }
         }
@@ -270,12 +285,19 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             }
         }
         finishReceivedContext(resolution, seedChanged: seedChanged, settingsChanged: settingsChanged)
-        // A push is an execution opportunity: if a workout changed on this
-        // watch and no compute has published it yet, run one now, against the
-        // seed this push just delivered. Pending work only, and NOT awaited:
-        // the intake stream (and the background task it holds open) must not
-        // wait on a compute.
-        Task { await recomputeIfStale(trigger: .background) }
+        // A push is an execution opportunity: run a compute now, against the
+        // seed this push just delivered, for a detected workout change or a
+        // stale display (same gates as any background trigger). NOT awaited,
+        // so the intake stream never waits on a compute, but counted in
+        // `pushComputesInFlight`: the held background task stays open until
+        // the compute returns.
+        Self.logger.info("Push received, background compute queued")
+        pushComputesInFlight.withLock { $0 += 1 }
+        Task {
+            await recomputeIfStale(trigger: .background)
+            pushComputesInFlight.withLock { $0 -= 1 }
+            completePendingConnectivityTasksIfDrained()
+        }
     }
 
     /// Whether this intake switched the COMPUTE SETTINGS the stored seed was
@@ -744,23 +766,37 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// provably published readiness from it.
     ///
     /// A `.background` trigger (the workout observer, a pushed context, a
-    /// scheduled refresh) runs ONLY for pending work, never for ordinary
-    /// staleness, and never raises an authorization sheet.
+    /// scheduled refresh) runs for pending work AND for ordinary staleness,
+    /// under the same attempt throttle, but never raises an authorization
+    /// sheet: an unsettled read set skips the compute. It arms the next
+    /// background wake before its first suspension, so a wake that expires or
+    /// is killed mid compute still leaves its successor requested.
     func recomputeIfStale(force: Bool = false, trigger: ComputeTrigger = .foreground) async {
         guard environment.isEligible() else { return }
+        if trigger == .background {
+            scheduleNextBackgroundRefresh()
+        }
         let now = environment.now()
         let permission = environment.loadPermission()
         if trigger == .background {
-            guard await environment.isAuthorizationSettled(permission) else { return }
+            guard await environment.isAuthorizationSettled(permission) else {
+                Self.logger.info("Background compute skipped, authorization not settled")
+                return
+            }
         }
 
         await detectWorkoutChanges(permission: permission, now: now)
         let runsForPending = WatchPendingRecomputePolicy.decision(pendingWork, now: now) == .runNow
-        let runsOrdinarily = trigger == .foreground && (force || isComputeStale(now: now))
+        let runsOrdinarily = force || isComputeStale(now: now)
+        let isBackground = trigger == .background
         guard runsForPending || runsOrdinarily else {
-            schedulePendingRetryIfNeeded()
+            Self.logger.info("Compute skipped, background: \(isBackground, privacy: .public)")
+            scheduleNextBackgroundRefresh()
             return
         }
+        Self.logger.info(
+            "Compute started, background: \(isBackground, privacy: .public), pending: \(runsForPending, privacy: .public)"
+        )
         if !force {
             // Record the ATTEMPT before the first suspension, so the next
             // trigger inside the stale window is refused whether or not this one
@@ -786,7 +822,8 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             result = await environment.compute(permission, generation, now)
         }
         guard let result else {
-            schedulePendingRetryIfNeeded()
+            Self.logger.info("Compute finished without a result, background: \(isBackground, privacy: .public)")
+            scheduleNextBackgroundRefresh()
             return
         }
 
@@ -801,7 +838,8 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             if result.generation != computeGeneration {
                 lastComputeAttemptDate = nil
             }
-            schedulePendingRetryIfNeeded()
+            Self.logger.info("Compute result discarded, background: \(isBackground, privacy: .public)")
+            scheduleNextBackgroundRefresh()
             return
         }
 
@@ -813,7 +851,10 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             publishedReadiness: result.dataAsOf[WatchMetricKindKey.readiness] != nil,
             persisted: persisted
         )
-        schedulePendingRetryIfNeeded()
+        Self.logger.info(
+            "Compute merged, background: \(isBackground, privacy: .public), saved: \(persisted, privacy: .public)"
+        )
+        scheduleNextBackgroundRefresh()
     }
 
     enum ComputeTrigger {
@@ -823,6 +864,12 @@ final class WatchMetricsModel: NSObject, ObservableObject {
 
     /// Test seam: the pending work record is private state with no UI.
     var pendingWorkForTesting: WatchPendingReadinessWork { pendingWork }
+
+    /// Test seam: whether the in-process pending retry timer is armed.
+    var hasPendingRetryTimerForTesting: Bool { pendingRetryTask != nil }
+
+    /// Test seam: push-triggered computes that haven't returned yet.
+    var pushComputesInFlightForTesting: Int { pushComputesInFlight.withLock { $0 } }
 
     /// Runs the workout change cursor and records a detection as pending work
     /// BEFORE the cursor advances, so a process that dies in between re-detects
@@ -839,21 +886,63 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         await environment.changeTracker.commitDetectedChanges()
     }
 
-    /// Arranges the next attempt for pending work that has to wait out its
-    /// retry spacing: a background refresh request for a closed app (best
-    /// effort, watchOS decides), and an in-process timer for an open one, where
-    /// no background refresh is delivered. Bounded by the policy's attempt cap.
-    private func schedulePendingRetryIfNeeded() {
-        guard case .retryAt(let date) = WatchPendingRecomputePolicy.decision(pendingWork, now: environment.now()) else {
+    /// Keeps one background wake requested (best effort, watchOS decides): an
+    /// hour out, or pending workout work's earlier retry date. That retry also
+    /// gets an in-process timer for an open app, where no background refresh
+    /// is delivered; bounded by the policy's attempt cap, and cancelled once
+    /// the work is no longer waiting on a retry.
+    ///
+    /// An outstanding request that is still ahead and no later than this one
+    /// is kept, so a throttled or no-op trigger never postpones the next wake.
+    private func scheduleNextBackgroundRefresh() {
+        let now = environment.now()
+        var preferred = now.addingTimeInterval(Self.backgroundRefreshInterval)
+        if case .retryAt(let date) = WatchPendingRecomputePolicy.decision(pendingWork, now: now) {
+            preferred = min(preferred, date)
+            pendingRetryTask?.cancel()
+            let delay = max(0, date.timeIntervalSince(now))
+            pendingRetryTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, let self else { return }
+                // Disarm before running: the compute reschedules, and must not
+                // cancel the very task it is running on.
+                self.pendingRetryTask = nil
+                await self.recomputeIfStale(trigger: .background)
+            }
+        } else {
+            pendingRetryTask?.cancel()
+            pendingRetryTask = nil
+        }
+        if let outstanding = outstandingBackgroundRefreshDate, outstanding > now, outstanding <= preferred {
             return
         }
-        environment.scheduleBackgroundRefresh(date)
-        pendingRetryTask?.cancel()
-        let delay = max(0, date.timeIntervalSince(environment.now()))
-        pendingRetryTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled else { return }
-            await self?.recomputeIfStale(trigger: .background)
+        environment.scheduleBackgroundRefresh(preferred)
+        outstandingBackgroundRefreshDate = preferred
+        Self.logger.info("Background refresh requested for \(preferred, privacy: .public)")
+    }
+
+    /// Runs a delivered application refresh wake: the background compute
+    /// (which arms the next wake before its first suspension), then completes
+    /// the task. The expiration handler is the watchOS budget backstop, so
+    /// completion happens exactly once, whichever path gets there first.
+    func handleApplicationRefreshBackgroundTask(_ task: WKApplicationRefreshBackgroundTask) {
+        Self.logger.info("Background refresh wake delivered")
+        let completed = OSAllocatedUnfairLock(initialState: false)
+        let completeOnce: @Sendable () -> Void = {
+            let isFirst = completed.withLock { done in
+                defer { done = true }
+                return !done
+            }
+            guard isFirst else { return }
+            task.setTaskCompletedWithSnapshot(false)
+        }
+        task.expirationHandler = {
+            Self.logger.info("Background refresh wake expired")
+            completeOnce()
+        }
+        Task {
+            await recomputeIfStale(trigger: .background)
+            completeOnce()
         }
     }
 
@@ -1070,19 +1159,40 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// end as soon as delivery finishes.
     private func completePendingConnectivityTasksIfDrained() {
         guard !pendingConnectivityTasks.isEmpty else { return }
-        // A context sitting unconsumed in the intake stream is undelivered work:
-        // completing here would let watchOS suspend the app before it ran.
-        guard contextsInFlight.withLock({ $0 }) == 0 else { return }
+        let sessionDrained: Bool
         if WCSession.isSupported() {
             let session = WCSession.default
-            guard session.activationState == .activated, !session.hasContentPending else { return }
+            sessionDrained = session.activationState == .activated && !session.hasContentPending
+        } else {
+            sessionDrained = true
         }
+        guard Self.isDrained(
+            contextsInFlight: contextsInFlight.withLock { $0 },
+            pushComputesInFlight: pushComputesInFlight.withLock { $0 },
+            sessionDrained: sessionDrained
+        ) else { return }
         finishAllConnectivityTasks()
+    }
+
+    /// Whether held WC tasks may complete. A context sitting unconsumed in the
+    /// intake stream is undelivered work, and a push-triggered compute still
+    /// running is the work the push woke the app for: completing before either
+    /// finishes would let watchOS suspend the app mid way. Pure so the rule is
+    /// testable without a real background task.
+    nonisolated static func isDrained(
+        contextsInFlight: Int,
+        pushComputesInFlight: Int,
+        sessionDrained: Bool
+    ) -> Bool {
+        contextsInFlight == 0 && pushComputesInFlight == 0 && sessionDrained
     }
 
     private func finishAllConnectivityTasks() {
         let tasks = pendingConnectivityTasks
         pendingConnectivityTasks.removeAll()
+        if !tasks.isEmpty {
+            Self.logger.info("Connectivity background tasks completed")
+        }
         tasks.forEach { task in
             completeOnce(task)
             completedConnectivityTaskIDs.withLock { _ = $0.remove(ObjectIdentifier(task)) }

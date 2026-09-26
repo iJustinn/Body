@@ -11,6 +11,7 @@
 //
 
 import Foundation
+import os
 import WatchKit
 
 struct WatchComputeEnvironment {
@@ -25,7 +26,8 @@ struct WatchComputeEnvironment {
     var changeTracker: any WatchWorkoutChangeDetecting
     /// Asks watchOS for a background refresh near the given date. Best effort.
     var scheduleBackgroundRefresh: @MainActor (Date) -> Void
-    /// Where the pending work record is kept.
+    /// Where the pending work record and the last compute attempt stamp are
+    /// kept, so a test's isolated suite never touches the app's own defaults.
     var defaults: UserDefaults
     var now: () -> Date
 
@@ -47,7 +49,13 @@ struct WatchComputeEnvironment {
             scheduleBackgroundRefresh: { date in
                 WKApplication.shared().scheduleBackgroundRefresh(
                     withPreferredDate: date, userInfo: nil
-                ) { _ in }
+                ) { error in
+                    // Tells a registration failure apart from watchOS simply
+                    // deferring the wake.
+                    guard let error else { return }
+                    Logger(subsystem: "com.zihengthedeveloper.Body", category: "WatchBackgroundRefresh")
+                        .error("Background refresh scheduling failed: \(error.localizedDescription, privacy: .public)")
+                }
             },
             defaults: .standard,
             now: { Date() }
