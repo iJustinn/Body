@@ -1356,6 +1356,8 @@ struct BodyHomeView: View {
         if zooms {
             metricDetailPage(for: route, paneClose: paneClose)
                 .navigationTransition(.zoom(sourceID: route, in: metricZoom))
+                // A swipe-dismiss dragged back and cancelled can leave the bar hidden.
+                .bodyRestoresNavigationBar()
         } else {
             metricDetailPage(for: route, paneClose: paneClose)
         }
