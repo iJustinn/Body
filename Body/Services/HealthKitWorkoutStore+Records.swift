@@ -9,7 +9,7 @@
 //  Four feeds keep the ledger honest:
 //
 //  1. A one-time, resumable BASELINE scan walks the whole workout history in
-//     one-year chunks. It runs only after a refresh has finished, never inside
+//     three-month chunks. It runs only after a refresh has finished, never inside
 //     one — "Body refresh must never hang" — and every chunk is cancellable and
 //     persisted, so a kill mid-scan resumes from `scannedThrough`.
 //  2. Each month the progressive loader publishes is folded in, which repairs
@@ -24,10 +24,24 @@ import Foundation
 import HealthKit
 
 extension HealthKitWorkoutStore {
-    /// One year per baseline chunk: long enough that a decade of history is ten
-    /// round-trips, short enough that a chunk's per-workout distance fan-out stays
-    /// bounded and a cancellation loses at most a year of scanning.
-    private static let recordBaselineChunkYears = 1
+    /// One quarter per baseline chunk: short enough that a chunk fits inside a
+    /// short idle step (so a return to the app no longer discards a whole year of
+    /// scanning), and a decade of history is still only forty round-trips.
+    nonisolated private static let recordBaselineChunkMonths = 3
+
+    /// Where the baseline chunk that starts at `cursor` ends: `cursor` plus one
+    /// quarter, clamped to `end` so the final chunk is short rather than past now.
+    nonisolated static func recordBaselineChunkEnd(after cursor: Date, end: Date, calendar: Calendar) -> Date {
+        min(calendar.date(byAdding: .month, value: recordBaselineChunkMonths, to: cursor) ?? end, end)
+    }
+
+    #if DEBUG
+    /// Test-only floor for the baseline scan. `earliestWorkoutStartDate()` is a raw
+    /// `HKSampleQuery` that a fake health store cannot answer, so BodyTests sets
+    /// this to drive the scan. nil (the default, and the only value production
+    /// ever sees) means "ask Health".
+    static var testRecordBaselineEarliestWorkoutOverride: Date?
+    #endif
 
     // MARK: - Reads
 
@@ -204,7 +218,10 @@ extension HealthKitWorkoutStore {
     }
 
     private func logRecordBaseline(from: Date, to: Date, workouts: Int, committed: Bool, reason: String, calendar: Calendar) {
-        BodyObserverRefreshDiagnostics.log("records baseline from=\(calendar.component(.year, from: from)) to=\(calendar.component(.year, from: to)) workouts=\(workouts) committed=\(committed) complete=\(recordLedger.baselineComplete) reason=\(reason)")
+        let label: (Date) -> String = {
+            String(format: "%04d-%02d", calendar.component(.year, from: $0), calendar.component(.month, from: $0))
+        }
+        BodyObserverRefreshDiagnostics.log("records baseline from=\(label(from)) to=\(label(to)) workouts=\(workouts) committed=\(committed) complete=\(recordLedger.baselineComplete) reason=\(reason)")
     }
     #endif
 
@@ -217,12 +234,12 @@ extension HealthKitWorkoutStore {
         await task.value
     }
 
-    /// Walks `scannedThrough` (or the earliest workout) forward to now in yearly
+    /// Walks `scannedThrough` (or the earliest workout) forward to now in quarterly
     /// chunks. Every chunk publishes and persists before the next one starts, so
     /// the scan is resumable at chunk granularity.
     ///
     /// The fetch runs on the engine actor, so the only main-actor work here is the
-    /// ledger fold itself — bounded by one year of workouts, once per install.
+    /// ledger fold itself — bounded by one quarter of workouts, once per install.
     private func runRecordBaselineBackfill(capturedEpoch: Int) async {
         let calendar = Calendar.bodyGregorian
         let end = Date()
@@ -233,7 +250,12 @@ extension HealthKitWorkoutStore {
                 let queryRevision = await engine.queryContextRevision
                 guard mayPublishQuietMaintenance, mayApplyRefreshInputs(inputs),
                       Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: currentCacheEpoch) else { return false }
-                if earliestWorkout == nil { earliestWorkout = await engine.earliestWorkoutStartDate() }
+                if earliestWorkout == nil {
+                    #if DEBUG
+                    earliestWorkout = Self.testRecordBaselineEarliestWorkoutOverride
+                    #endif
+                    if earliestWorkout == nil { earliestWorkout = await engine.earliestWorkoutStartDate() }
+                }
                 guard let earliest = earliestWorkout, mayPublishQuietMaintenance,
                       mayApplyRefreshInputs(inputs), await engine.queryContextRevision == queryRevision else { return false }
                 let cursor = max(recordLedger.scannedThrough ?? earliest, earliest)
@@ -247,7 +269,7 @@ extension HealthKitWorkoutStore {
                     #endif
                     return committed
                 }
-                let chunkEnd = min(calendar.date(byAdding: .year, value: Self.recordBaselineChunkYears, to: cursor) ?? end, end)
+                let chunkEnd = Self.recordBaselineChunkEnd(after: cursor, end: end, calendar: calendar)
                 let revision = recordLedgerRevision
                 let result: HealthKitFetchEngine.WorkoutSummariesFetchResult
                 do {
