@@ -9826,18 +9826,32 @@ extension HealthKitWorkoutStore {
             guard await prepareObservedMetricSources([.heartRateVariability], date: Date()).contains(.heartRateVariability) else { return false }
         }
         guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults, !Task.isCancelled else { return false }
+        let scope = currentDashboardCacheScope()
         let interval = HealthKitFetchEngine.intradayDaySampleInterval(calendar: .bodyGregorian, anchor: nil)
         guard let samples = await engine.fetchHeartbeatRMSSDSamples(startDate: interval.start, endDate: interval.end),
-              mayApplyRefreshResults, mayApplyRefreshInputs(inputs), !Task.isCancelled else { return false }
+              scope == currentDashboardCacheScope(), mayApplyRefreshResults, mayApplyRefreshInputs(inputs),
+              !Task.isCancelled else { return false }
         var trends = healthTrends
         trends.heartbeatRMSSDDaySamples = samples
         guard await updateHealthDashboardSnapshot(summary: healthSummary, trends: trends,
             activityRingHistory: activityRingHistory, recomputesReadiness: false,
             recomputesStress: BodyBackgroundLease.current == nil, recomputesBodyRadar: false,
             persists: false, authoritativeDaySamples: [.heartbeatRMSSDDaySamples]) else { return false }
-        return await withCheckedContinuation { continuation in
+        // The stamp rides in the envelope metadata, so it is set before the durable
+        // save. It claims only that the raw RMSSD day samples were read and saved,
+        // never a derived score, and it acknowledges no receipt.
+        let stamps = scope == currentDashboardCacheScope() && mayApplyRefreshResults
+            && mayApplyRefreshInputs(inputs) && !Task.isCancelled
+        if stamps {
+            observedMetricValidation[HealthMetricKind.stress.rawValue] = .init(date: Date(), contextSignature: scope.signature)
+        }
+        let durable = await withCheckedContinuation { continuation in
             persistDashboardSnapshot { continuation.resume(returning: $0) }
         }
+        if stamps, !durable || !mayApplyRefreshResults || Task.isCancelled {
+            observedMetricValidation.removeValue(forKey: HealthMetricKind.stress.rawValue)
+        }
+        return durable
     }
 
     private func publishObservedCompanions() async {
