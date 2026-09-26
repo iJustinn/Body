@@ -496,13 +496,23 @@ struct BodyProView: View {
 /// What Pro looks like, one real surface at a time: a paged carousel of scenes built from
 /// Body's own views over sample data, with a caption for each. It moves on by itself every
 /// few seconds (a swipe restarts the clock), and holds still under Reduce Motion or VoiceOver.
+/// The pager loops: a swipe past the last scene lands on the first, and past the first on
+/// the last, with a copy of each at the far end of the other so the swipe has something to
+/// slide onto before the selection is snapped to the real page.
 private struct BodyProShowcase: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
-    @State private var selection = 0
+    /// A page index: 0 is the copy of the last scene, 1...count the scenes, count + 1
+    /// the copy of the first.
+    @State private var selection = 1
 
     private static let slides = BodyProShowcaseSlide.allCases
+    /// The last scene, every scene, then the first scene again.
+    private static let pages = [slides[slides.count - 1]] + slides + [slides[0]]
     private static let dwell: Duration = .seconds(4.5)
+    /// How long a swipe onto a copy is given to settle before the selection snaps to
+    /// the real page underneath it.
+    private static let snapDelay: Duration = .milliseconds(350)
     /// The page's horizontal padding, which the pager reaches back across.
     private static let margin: CGFloat = 18
     /// The fade sits inside the margin and stops short of it, so a scene in place is never
@@ -521,8 +531,13 @@ private struct BodyProShowcase: View {
         }
     }
 
+    /// Which scene the page shows, the copies resolving to the scene they copy.
+    private var slideIndex: Int {
+        (selection - 1 + Self.slides.count) % Self.slides.count
+    }
+
     private var slide: BodyProShowcaseSlide {
-        Self.slides[selection]
+        Self.slides[slideIndex]
     }
 
     var body: some View {
@@ -531,7 +546,7 @@ private struct BodyProShowcase: View {
             // there, like the detail page's day slider, so a scene slides in and out
             // through a soft edge instead of a hard cut at the column.
             TabView(selection: $selection) {
-                ForEach(Array(Self.slides.enumerated()), id: \.offset) { index, slide in
+                ForEach(Array(Self.pages.enumerated()), id: \.offset) { index, slide in
                     slide.scene
                         .padding(.horizontal, Self.margin)
                         .tag(index)
@@ -559,18 +574,32 @@ private struct BodyProShowcase: View {
             }
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity, minHeight: 70, alignment: .top)
-            .id(selection)
+            .id(slideIndex)
             .transition(.opacity)
 
-            BodyProShowcaseDots(count: Self.slides.count, selection: selection)
+            BodyProShowcaseDots(count: Self.slides.count, selection: slideIndex)
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: selection)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: slideIndex)
         .task(id: selection) {
+            // Landing on a copy, by swipe or by the dwell, snaps to the real page once
+            // the slide has settled; the copy and the page look the same, so the snap
+            // is invisible, and it re-runs this task from the real page.
+            if selection == 0 || selection == Self.pages.count - 1 {
+                try? await Task.sleep(for: Self.snapDelay)
+                guard !Task.isCancelled else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    selection = selection == 0 ? Self.slides.count : 1
+                }
+                return
+            }
+
             // A swipe lands on a new selection, which restarts the dwell from there.
             guard !reduceMotion, !voiceOverEnabled else { return }
             try? await Task.sleep(for: Self.dwell)
             guard !Task.isCancelled else { return }
-            selection = (selection + 1) % Self.slides.count
+            selection += 1
         }
     }
 }
@@ -592,6 +621,7 @@ private struct BodyProShowcaseDots: View {
 }
 
 private enum BodyProShowcaseSlide: CaseIterable {
+    case sleepDebt
     case yearChart
     case route
     case widgets
@@ -600,6 +630,7 @@ private enum BodyProShowcaseSlide: CaseIterable {
 
     var title: LocalizedStringKey {
         switch self {
+        case .sleepDebt: return "Know your sleep debt"
         case .yearChart: return "A whole year, at a glance"
         case .route: return "Your routes, in 3D"
         case .widgets: return "Body on your Home Screen"
@@ -610,6 +641,7 @@ private enum BodyProShowcaseSlide: CaseIterable {
 
     var subtitle: LocalizedStringKey {
         switch self {
+        case .sleepDebt: return "The sleep you missed over the last 14 nights, against what you need."
         case .yearChart: return "Month, 6 month, and year charts for every metric."
         case .route: return "Share workouts with the route as an elevation ribbon, over a photo or video."
         case .widgets: return "Widgets for your workouts and every metric."
@@ -621,6 +653,7 @@ private enum BodyProShowcaseSlide: CaseIterable {
     @ViewBuilder
     var scene: some View {
         switch self {
+        case .sleepDebt: BodyProSleepDebtSlide()
         case .yearChart: BodyProYearChartSlide()
         case .route: BodyProRouteSlide()
         case .widgets: BodyProWidgetsSlide()
@@ -675,6 +708,70 @@ private struct BodyProSampleNoise {
     mutating func next() -> Double {
         state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
         return Double(state >> 11) / Double(1 << 53)
+    }
+}
+
+/// The Sleep page's Sleep Debt chart over a sample fortnight, under the card's own
+/// header: the line climbs through a run of short nights into high debt, then longer
+/// nights bring it back under 2 hours. The chart alone, the night row would not fit.
+private struct BodyProSleepDebtSlide: View {
+    private static let tint = BodyHomeCardKind.sleep.tintColor
+    private static let sleepGoal: TimeInterval = 8 * 3_600
+    private static let need: TimeInterval = 7 * 3_600 + 45 * 60
+
+    /// Fourteen recorded nights whose debt rises through a stretch of short nights
+    /// and falls back into the low band as longer ones offset them.
+    private static let model: SleepDebtChartModel = {
+        let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: Date())
+        let sleptMinutes: [Double] = [440, 420, 400, 395, 410, 430, 500, 510, 520, 515, 505, 495, 490, 485]
+        var debt: TimeInterval = 20 * 60
+        let nights = sleptMinutes.enumerated().compactMap { offset, minutes -> SleepDebtNight? in
+            guard let day = calendar.date(byAdding: .day, value: offset - (sleptMinutes.count - 1), to: today) else {
+                return nil
+            }
+            let slept = minutes * 60
+            debt = min(max(debt + (need - slept), 0), SleepDebtChartModel.maximumDebt)
+            return SleepDebtNight(
+                day: day,
+                actualDuration: slept,
+                needDuration: need,
+                isNeedLearned: true,
+                trainingAdjustment: 0,
+                hrvAdjustment: 0,
+                recordedNightCount: SleepDebtChartModel.windowNightCount,
+                debtAfterNight: debt
+            )
+        }
+        return SleepDebtChartModel(nights: nights, sleepGoal: sleepGoal, learnedNeed: need)
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Sleep Debt")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                Spacer(minLength: 12)
+
+                if let debt = Self.model.debt {
+                    Text(BodyValueFormat.durationText(for: debt))
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            BodySleepDebtChart(
+                nights: Self.model.chartNights,
+                selectedDay: Self.model.nights.last?.day ?? Date(),
+                color: Self.tint,
+                onSelectDay: { _ in }
+            )
+            .frame(maxHeight: .infinity)
+        }
+        .padding(16)
+        .bodyProShowcaseScene(wash: Self.tint)
     }
 }
 
@@ -1535,6 +1632,11 @@ private struct BodyProFeature: Identifiable {
             id: "full-day-history",
             title: String(localized: "Full Day History"),
             iconName: "calendar"
+        ),
+        BodyProFeature(
+            id: "sleep-debt",
+            title: String(localized: "Sleep Debt"),
+            iconName: "moon.zzz.fill"
         ),
 
         // Where the numbers come from.

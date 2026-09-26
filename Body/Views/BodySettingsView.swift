@@ -1614,8 +1614,10 @@ private struct BodyUnitChoiceButton: View {
 
 private struct BodySummaryCardsSettingsSheet: View {
     @Binding var selection: BodySummaryCardSelection
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true
+    @State private var showBodyProPaywall = false
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Summary Cards") {
@@ -1635,12 +1637,16 @@ private struct BodySummaryCardsSettingsSheet: View {
                     Divider()
                         .padding(.leading, 76)
 
+                    // Sleep Debt is Body Pro: the row locks for free users and
+                    // opens the paywall; the stored toggle is left alone.
                     BodySleepToggleRow(
                         title: "Sleep Debt",
                         versionLabel: BodyHomeCardKind.sleepDebtVersionLabel,
                         subtitle: "Missed sleep over the last 14 nights",
                         iconName: "moon.zzz.fill",
-                        isEnabled: $showSleepDebt
+                        isEnabled: $showSleepDebt,
+                        isLocked: !(proStore?.isPro ?? false),
+                        onLockedTap: { showBodyProPaywall = true }
                     )
 
                     Divider()
@@ -1653,6 +1659,9 @@ private struct BodySummaryCardsSettingsSheet: View {
                     rows(for: BodyHomeCardKind.directReadingOrder)
                 }
             }
+        }
+        .sheet(isPresented: $showBodyProPaywall) {
+            NavigationStack { BodyProView(showsCloseButton: true) }
         }
     }
 
@@ -3081,6 +3090,10 @@ private struct BodySleepToggleRow: View {
     let subtitle: LocalizedStringKey
     let iconName: String
     @Binding var isEnabled: Bool
+    /// A Body Pro reading a free user is looking at: a lock stands in for the
+    /// toggle, and a tap on the row opens the paywall.
+    var isLocked = false
+    var onLockedTap: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 14) {
@@ -3116,15 +3129,25 @@ private struct BodySleepToggleRow: View {
 
             Spacer(minLength: 12)
 
-            Toggle(title, isOn: $isEnabled)
-                .labelsHidden()
-                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
-                .accessibilityValue(isEnabled ? "On" : "Off")
+            if isLocked {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.secondary)
+            } else {
+                Toggle(title, isOn: $isEnabled)
+                    .labelsHidden()
+                    .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                    .accessibilityValue(isEnabled ? "On" : "Off")
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
         .contentShape(Rectangle())
+        .onTapGesture {
+            if isLocked { onLockedTap() }
+        }
+        .accessibilityHint(isLocked ? "Requires Body Pro" : "")
     }
 }
 

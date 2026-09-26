@@ -18,13 +18,20 @@ struct BodySleepDebtCard: View {
     let tint: Color
     /// Where a hold on the chart publishes its callout; nil in previews.
     var floatingCallout: BodyChartFloatingCalloutState? = nil
+    /// Sleep Debt is a Body Pro feature: locked, the card keeps its title and
+    /// shows a lock and an unlock button in place of the debt, the chart, and
+    /// the night row, and `onUnlock` opens the paywall.
+    var isLocked = false
+    var onUnlock: () -> Void = {}
     let onSelectDay: (Date) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
 
-            if model.debt == nil {
+            if isLocked {
+                lockedBody
+            } else if model.debt == nil {
                 Text("Not enough sleep data yet")
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.semibold)
@@ -60,7 +67,11 @@ struct BodySleepDebtCard: View {
 
             Spacer(minLength: 12)
 
-            if let debt = model.debt {
+            if isLocked {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.secondary)
+            } else if let debt = model.debt {
                 BodyAnimatedMetricValueText(
                     value: BodyValueFormat.durationText(for: debt),
                     fontSize: 22,
@@ -70,6 +81,29 @@ struct BodySleepDebtCard: View {
                 .multilineTextAlignment(.trailing)
             }
         }
+    }
+
+    private var lockedBody: some View {
+        VStack(spacing: 12) {
+            Text("See the sleep you missed over the last 14 nights and how much you need.")
+                .font(.system(.body, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button(action: onUnlock) {
+                Text("Unlock Body Pro")
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(Color.blue, in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, minHeight: 160)
     }
 
     private func nightRow(_ night: SleepDebtNight) -> some View {
