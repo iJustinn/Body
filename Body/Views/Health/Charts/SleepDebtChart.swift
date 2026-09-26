@@ -148,7 +148,9 @@ struct BodySleepDebtChart: View {
     private func markers(plotWidth: CGFloat, plotHeight: CGFloat) -> some View {
         ForEach(Array(nights.enumerated()), id: \.element.id) { index, night in
             if let debt = night.debtAfterNight {
-                let selected = isSelected(night.day)
+                // The held night fills too, as the other detail charts fill the
+                // point under their callout.
+                let selected = isSelected(night.day) || index == scrubbedIndex
 
                 BodyLineChartPreviewPointSymbol(
                     tintColor: Self.bandColor(for: debt, lowColor: color),
