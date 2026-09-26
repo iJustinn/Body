@@ -58,6 +58,8 @@ enum BodyAppearancePreference {
     static let metricWarningThresholdsKey = "metricWarningThresholds"
     static let metricWarningNotificationsKey = "metricWarningNotificationsEnabled"
     static let metricWarningsOnReadinessHeroKey = "metricWarningsOnReadinessHero"
+    /// The warnings the user closed on a metric detail page. See `BodyDismissedMetricWarnings`.
+    static let dismissedMetricWarningsKey = "dismissedMetricWarnings"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthPermissionExpandedMigratedKey = "healthPermissionExpandedMigrated"
     static let healthCardioFitnessMigratedKey = "healthCardioFitnessMigrated"

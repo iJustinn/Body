@@ -3235,8 +3235,8 @@ final class SourceGuardTests: XCTestCase {
         let detailViewStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
         // Window covers the struct's stored properties + `init` + `body` opening, where the
         // custom pull-to-refresh trigger lives; widened as the property list grew (e.g. `zoomNamespace`,
-        // metric warning threshold state).
-        let detailViewBlock = String(homeSource[detailViewStart...].prefix(8_000))
+        // metric warning threshold and dismissal state).
+        let detailViewBlock = String(homeSource[detailViewStart...].prefix(9_000))
         let refreshStart = try XCTUnwrap(storeSource.range(of: "func refreshHealthMetric(_ kind: HealthMetricKind")?.lowerBound)
         let refreshEnd = try XCTUnwrap(storeSource.range(of: "private func refreshAfterWrite(", range: refreshStart..<storeSource.endIndex)?.lowerBound)
         let refreshBlock = String(storeSource[refreshStart..<refreshEnd])

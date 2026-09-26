@@ -576,6 +576,7 @@ struct BodyHomeView: View {
     @AppStorage(BodyAppearancePreference.homeTrendCardSelectionKey) private var homeTrendCardSelectionRawValue = BodyHomeTrendCardSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.showReadinessAICommentKey) private var showReadinessAIComment = true
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.dismissedMetricWarningsKey) private var dismissedMetricWarningsRawValue = ""
     @AppStorage(BodyAppearancePreference.metricWarningsOnReadinessHeroKey) private var showsWarningsOnReadinessHero = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -1470,6 +1471,7 @@ struct BodyHomeView: View {
             self.buildMetricCards(
                 today: inputs.dayStart,
                 metricWarningSelectionRawValue: inputs.metricWarningSelectionRawValue,
+                dismissedMetricWarningsRawValue: inputs.dismissedMetricWarningsRawValue,
                 previewDayCount: inputs.previewDayCount
             )
         }
@@ -1492,18 +1494,21 @@ struct BodyHomeView: View {
             previewDayCount: BodyHomeMetricCardPreview.dayCount(forScreenWidth: metricCardContainerWidth),
             localeIdentifier: Locale.current.identifier,
             timeZoneIdentifier: TimeZone.current.identifier,
-            metricWarningSelectionRawValue: metricWarningSelectionRawValue
+            metricWarningSelectionRawValue: metricWarningSelectionRawValue,
+            dismissedMetricWarningsRawValue: dismissedMetricWarningsRawValue
         )
     }
 
     private func buildMetricCards(
         today: Date,
         metricWarningSelectionRawValue: String,
+        dismissedMetricWarningsRawValue: String,
         previewDayCount: Int
     ) -> [BodyHealthMetricCard.Model] {
         let summary = workoutStore.healthSummary
         let trends = workoutStore.healthTrends
         let warningSelection = BodyMetricWarningSelection.storedValue(from: metricWarningSelectionRawValue)
+        let dismissedWarnings = BodyDismissedMetricWarnings.storedValue(from: dismissedMetricWarningsRawValue)
 
         return [
             readinessMetric(
@@ -1538,6 +1543,7 @@ struct BodyHomeView: View {
                 summary: summary,
                 chartPreview: trends.series(for: .wristTemperature),
                 warningSelection: warningSelection,
+                dismissedWarnings: dismissedWarnings,
                 previewDayCount: previewDayCount
             ),
             metric(
@@ -1570,7 +1576,7 @@ struct BodyHomeView: View {
                 title: "Heart Rate",
                 summary: summary.heartRate,
                 chartPreview: trends.series(for: .heartRate),
-                warningSymbolName: warningSymbolName(for: .heartRate, summary: summary, selection: warningSelection),
+                warningSymbolName: warningSymbolName(for: .heartRate, summary: summary, selection: warningSelection, dismissed: dismissedWarnings),
                 previewDayCount: previewDayCount
             ),
             metric(
@@ -1594,7 +1600,7 @@ struct BodyHomeView: View {
                 summary: summary.oxygenSaturation,
                 chartPreviewStyle: .range,
                 chartRangePreview: trends.rangeSeries(for: .oxygenSaturation),
-                warningSymbolName: warningSymbolName(for: .oxygenSaturation, summary: summary, selection: warningSelection),
+                warningSymbolName: warningSymbolName(for: .oxygenSaturation, summary: summary, selection: warningSelection, dismissed: dismissedWarnings),
                 previewDayCount: previewDayCount
             ),
             metric(
@@ -1603,7 +1609,7 @@ struct BodyHomeView: View {
                 summary: summary.respiratoryRate,
                 chartPreviewStyle: .range,
                 chartRangePreview: trends.rangeSeries(for: .respiratoryRate),
-                warningSymbolName: warningSymbolName(for: .respiratoryRate, summary: summary, selection: warningSelection),
+                warningSymbolName: warningSymbolName(for: .respiratoryRate, summary: summary, selection: warningSelection, dismissed: dismissedWarnings),
                 previewDayCount: previewDayCount
             ),
             energyMetric(
@@ -1679,12 +1685,14 @@ struct BodyHomeView: View {
     private func warningSymbolName(
         for metric: HealthMetricKind,
         summary: HealthSummarySnapshot,
-        selection: BodyMetricWarningSelection
+        selection: BodyMetricWarningSelection,
+        dismissed: BodyDismissedMetricWarnings
     ) -> String? {
         let hasActiveWarning = summary.metricWarnings.contains { event in
             event.kind.metric == metric
                 && selection.includes(event.kind)
                 && Calendar.bodyGregorian.isDateInToday(event.startDate)
+                && !dismissed.contains(event)
         }
 
         return hasActiveWarning ? "exclamationmark.triangle.fill" : nil
@@ -1935,6 +1943,7 @@ struct BodyHomeView: View {
         summary: HealthSummarySnapshot,
         chartPreview: HealthTrendSeries,
         warningSelection: BodyMetricWarningSelection,
+        dismissedWarnings: BodyDismissedMetricWarnings,
         previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
         let display = summary.wristTemperature.value.map {
@@ -1968,7 +1977,7 @@ struct BodyHomeView: View {
             prominentMetrics: [deviationDisplay, actualDisplay],
             chartPreviewStyle: .line,
             chartPreview: chartPreview,
-            warningSymbolName: warningSymbolName(for: .wristTemperature, summary: summary, selection: warningSelection),
+            warningSymbolName: warningSymbolName(for: .wristTemperature, summary: summary, selection: warningSelection, dismissed: dismissedWarnings),
             previewDayCount: previewDayCount
         )
     }
@@ -3585,6 +3594,7 @@ final class BodyHomeTrendComputationCache: ObservableObject {
         let localeIdentifier: String
         let timeZoneIdentifier: String
         let metricWarningSelectionRawValue: String
+        let dismissedMetricWarningsRawValue: String
     }
 
     /// Fingerprint of the sleep history the Vitals snapshot is derived from.

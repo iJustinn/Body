@@ -881,6 +881,56 @@ struct BodyMetricWarningSelection: Equatable {
     }
 }
 
+/// The warnings the user closed with a warning card's close button. Detection
+/// reports the earliest episode of a day, so a warning is one kind on one day:
+/// closing it hides that day's card and its Home badges, and the next day's
+/// episode shows again. Entries past the detail page's date picker are pruned.
+struct BodyDismissedMetricWarnings: Equatable {
+    static let retentionDayCount = 60
+
+    var entries: Set<String>
+
+    var rawValue: String {
+        entries.sorted().joined(separator: ",")
+    }
+
+    func contains(_ event: MetricWarningEvent, calendar: Calendar = .bodyGregorian) -> Bool {
+        entries.contains(Self.entry(for: event, calendar: calendar))
+    }
+
+    func dismissing(
+        _ event: MetricWarningEvent,
+        now: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> BodyDismissedMetricWarnings {
+        let today = calendar.startOfDay(for: now)
+        let cutoff = calendar.date(byAdding: .day, value: -Self.retentionDayCount, to: today) ?? today
+        let cutoffDay = Self.dayText(for: cutoff, calendar: calendar)
+        var next = entries.filter { entry in
+            guard let day = entry.split(separator: "@").last else {
+                return false
+            }
+            // yyyy-MM-dd sorts chronologically as text.
+            return String(day) >= cutoffDay
+        }
+        next.insert(Self.entry(for: event, calendar: calendar))
+        return BodyDismissedMetricWarnings(entries: next)
+    }
+
+    static func storedValue(from rawValue: String) -> BodyDismissedMetricWarnings {
+        BodyDismissedMetricWarnings(entries: Set(rawValue.split(separator: ",").map(String.init)))
+    }
+
+    private static func entry(for event: MetricWarningEvent, calendar: Calendar) -> String {
+        "\(event.kind.rawValue)@\(dayText(for: event.startDate, calendar: calendar))"
+    }
+
+    private static func dayText(for date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
+    }
+}
+
 /// The user's custom limits for the metric threshold warnings. Only overrides
 /// are stored, so a kind the user never touched keeps following its default —
 /// which for high heart rate tracks their max HR rather than a fixed number.

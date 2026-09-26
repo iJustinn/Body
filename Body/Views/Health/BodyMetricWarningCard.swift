@@ -6,6 +6,31 @@
 import Charts
 import SwiftUI
 
+/// The close button at a warning card's top right. Shared by the threshold
+/// warning cards and the Body Radar card.
+struct BodyWarningCardCloseButton: View {
+    /// Grows the tap area to the 44 pt minimum without moving the glyph or the
+    /// header's height: the slop is padded in and cancelled out again.
+    private static let tapSlop: CGFloat = 11
+
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 22, weight: .semibold))
+                // A plain gray, not the hierarchical style, which would take the
+                // card header's warning tint.
+                .foregroundStyle(Color.secondary)
+                .padding(Self.tapSlop)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(-Self.tapSlop)
+        .accessibilityLabel(Text("Close"))
+    }
+}
+
 /// Mirrors Apple's threshold notifications (Low/High Heart Rate, Low Blood
 /// Oxygen, plus Body's High Respiratory Rate and High Skin Temperature) on the
 /// metric detail page: the sentence names the episode's first
@@ -21,6 +46,8 @@ struct BodyMetricWarningCard: View {
     /// Optional report-out of the scrub callout, so the detail page can float it on the
     /// topmost layer (above the nav bar). Nil keeps the in-chart annotation.
     var floatingCallout: BodyChartFloatingCalloutState? = nil
+    /// Closes the card once the user has read it. Nil hides the close button.
+    var onDismiss: (() -> Void)? = nil
 
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
@@ -87,6 +114,12 @@ struct BodyMetricWarningCard: View {
                     .font(.system(size: 20, weight: .bold))
                 title
                     .font(.system(size: 22, weight: .bold, design: .rounded))
+
+                Spacer(minLength: 0)
+
+                if let onDismiss {
+                    BodyWarningCardCloseButton(action: onDismiss)
+                }
             }
             .foregroundStyle(.yellow)
 

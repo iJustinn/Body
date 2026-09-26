@@ -430,6 +430,7 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.hrvDetailDisplayKindKey) private var hrvDetailDisplayKindRawValue = BodyHRVDisplayKind.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.dismissedMetricWarningsKey) private var dismissedMetricWarningsRawValue = ""
     @AppStorage(BodyAppearancePreference.metricWarningThresholdsKey) private var metricWarningThresholdsRawValue = BodyMetricWarningThresholds.defaultRawValue
     @State private var selectedTrendRangeSelection: BodyHealthTrendRange
     @State private var showBodyProPaywall = false
@@ -2522,7 +2523,8 @@ struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var metricWarningCards: some View {
-        let warnings = selectedMetricWarnings
+        let dismissed = BodyDismissedMetricWarnings.storedValue(from: dismissedMetricWarningsRawValue)
+        let warnings = selectedMetricWarnings.filter { !dismissed.contains($0) }
 
         ForEach(warnings, id: \.kind) { event in
             let window = MetricThresholdWarning.chartWindow(for: event, clampedTo: selectedMetricDayInterval)
@@ -2534,7 +2536,13 @@ struct BodyHealthMetricDetailView: View {
                 samples: selectedMetricDaySeries.points.filter { window.contains($0.date) },
                 window: window,
                 tint: model.symbolColor,
-                floatingCallout: floatingCallout
+                floatingCallout: floatingCallout,
+                onDismiss: {
+                    dismissedMetricWarningsRawValue = BodyDismissedMetricWarnings
+                        .storedValue(from: dismissedMetricWarningsRawValue)
+                        .dismissing(event)
+                        .rawValue
+                }
             )
             // A warning is detected only once the day's samples have loaded, so the
             // card's first render lands on a page that is already on screen — with no
