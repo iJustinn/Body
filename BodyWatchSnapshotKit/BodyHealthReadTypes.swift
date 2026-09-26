@@ -44,11 +44,20 @@ enum BodyHealthReadTypes {
                 // than Workout Metrics; the watch's compute set doesn't need it.
                 .heartRateRecoveryOneMinute
             ]
-            // Beat-to-beat interval series, the RMSSD input behind the Stress
-            // metric. Folded into the standard request like `workoutRoute()`
-            // above, so existing users are re-prompted on the next refresh;
-            // without it Stress falls back to the SDNN path. The watch's
-            // compute set doesn't need it.
+            // Apple's Recovery HRV (RMSSD), written by Apple Watch Series 12 and
+            // Ultra 4 on watchOS 27. Stress prefers it over the beat-to-beat scan
+            // below and the HRV page shows it as its Recovery view. Folded into
+            // the standard request like `workoutRoute()`, so existing users are
+            // re-prompted on the next refresh. The watch's compute set doesn't
+            // need it.
+            if #available(iOS 27, watchOS 27, *) {
+                quantityIdentifiers.append(.heartRateVariabilityRMSSD)
+            }
+            // Beat-to-beat interval series, the RMSSD fallback behind the Stress
+            // metric on watches that don't write Recovery HRV. Folded into the
+            // standard request like `workoutRoute()` above, so existing users are
+            // re-prompted on the next refresh; without it Stress falls back to
+            // the SDNN path. The watch's compute set doesn't need it.
             types.insert(HKSeriesType.heartbeat())
             // Birth date (a read-only characteristic) anchors the workout heart-rate
             // zones at a percentage of the age-estimated max HR (220 − age). Gated on

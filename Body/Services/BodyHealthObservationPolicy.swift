@@ -63,6 +63,12 @@ enum BodyHealthObservationPolicy {
         add(HKObjectType.categoryType(forIdentifier: .sleepAnalysis), metrics: [.sleep], immediate: true)
         quantity(.heartRate, [.heartRate, .sleep])
         quantity(.heartRateVariabilitySDNN, [.heartRateVariability, .sleep])
+        // Recovery HRV (RMSSD) is both the HRV page's Recovery view and Stress's
+        // preferred HRV input, so it wakes the same consumers as the heartbeat
+        // series below plus the HRV trend.
+        if #available(iOS 27, *) {
+            quantity(.heartRateVariabilityRMSSD, [.heartRateVariability, .stress])
+        }
         quantity(.restingHeartRate, [.restingHeartRate])
         quantity(.respiratoryRate, [.respiratoryRate, .sleep])
         quantity(.oxygenSaturation, [.oxygenSaturation, .sleep])
