@@ -5419,11 +5419,13 @@ final class HealthKitWorkoutStore {
                             && (next.requiresFullRepair || !next.dirtyIntervals.isEmpty))
                         return result == .caughtUp || result == .morePending
                     }
-                    await self.repairWorkoutJournal(journal, owner: owner, admission: fence, maximumMonths: 1)
+                    // Continue only on a completed month: reopening and repairing
+                    // one month can leave the completed set unchanged, while
+                    // backoff-only passes and checkpoint churn must not loop.
+                    let repairedMonth = await self.repairWorkoutJournal(journal, owner: owner, admission: fence, maximumMonths: 1)
                     guard fence.isValid, self.mayPublishQuietMaintenance else { return false }
                     let next = await owner.snapshot()
-                    more = (next.requiresFullRepair || !next.dirtyIntervals.isEmpty)
-                        && next.repairProgress?.completedMonths != journal.repairProgress?.completedMonths
+                    more = (next.requiresFullRepair || !next.dirtyIntervals.isEmpty) && repairedMonth
                     return true
                 }
                 if !completed { break }
@@ -5432,15 +5434,17 @@ final class HealthKitWorkoutStore {
     }
 
     // Internal for deterministic fake-store repair tests; lifecycle owns the slot.
+    /// True only when this pass checkpointed a completed month.
+    @discardableResult
     func repairWorkoutJournal(_ captured: WorkoutChangeJournal, owner: WorkoutJournalReconciler,
-                                      admission: HealthDashboardPublicationToken, maximumMonths: Int = 3, repairsDashboard: Bool = true) async {
+                                      admission: HealthDashboardPublicationToken, maximumMonths: Int = 3, repairsDashboard: Bool = true) async -> Bool {
         // The foreground task's own test, here so every caller (the background
         // wake too) leaves a clean or unbootstrapped journal before any mutation.
         guard captured.bootstrapComplete, captured.requiresFullRepair || !captured.dirtyIntervals.isEmpty else {
             #if DEBUG
             BodyObserverRefreshDiagnostics.log("journal repair skipped reason=\(captured.bootstrapComplete ? "clean" : "bootstrap")")
             #endif
-            return
+            return false
         }
         let inputs = captureRefreshInputs()
         let token = dashboardPublicationToken
@@ -5454,11 +5458,29 @@ final class HealthKitWorkoutStore {
             #if DEBUG
             BodyObserverRefreshDiagnostics.log("journal repair skipped reason=noPlan")
             #endif
-            return
+            return false
         }
         var journal = captured
         var progress = journal.repairProgress?.context == context
             ? journal.repairProgress! : WorkoutJournalRepairProgress(context: context)
+        // Reopen what a known delta touched in memory, before the validation
+        // strip below and before any suspension, so a reopened month can never
+        // pass as fresh. `uncovered` stays durable until the details checkpoint,
+        // so an interrupted pass reopens again. A new progress has none.
+        var reopened: Set<String> = []
+        if let uncovered = progress.uncovered, !uncovered.isEmpty {
+            var keys: Set<BodyWorkoutMonthKey> = []
+            for interval in uncovered.values {
+                guard WorkoutJournalRepairPlan.insertMonths(covering: interval, into: &keys, calendar: calendar) else {
+                    #if DEBUG
+                    BodyObserverRefreshDiagnostics.log("journal repair skipped reason=noPlan")
+                    #endif
+                    return false
+                }
+            }
+            reopened = Set(keys.map(WorkoutJournalRepairPlan.identity))
+            progress.reopen(months: reopened)
+        }
         func mayCommit() -> Bool {
             admission.isValid && token.isValid && !Task.isCancelled && mayApplyRefreshResults
                 && mayApplyRefreshInputs(inputs)
@@ -5467,7 +5489,7 @@ final class HealthKitWorkoutStore {
             #if DEBUG
             BodyObserverRefreshDiagnostics.log("journal repair skipped reason=notAdmitted")
             #endif
-            return
+            return false
         }
         // A forced full refresh cannot finish this repair (the final step below
         // re-derives the dashboard), so the resume freshness is cleared once per
@@ -5478,9 +5500,10 @@ final class HealthKitWorkoutStore {
         var diagnosticFinalStep = "skipped"
         let progressResumed = captured.repairProgress?.context == context
         defer {
-            BodyObserverRefreshDiagnostics.log("journal repair months=\(plan.months.count) \(diagnosticCounts) fullRepair=\(captured.requiresFullRepair) progressResumed=\(progressResumed) clearsFreshness=\(clearsFreshness) finalStep=\(diagnosticFinalStep)")
+            BodyObserverRefreshDiagnostics.log("journal repair months=\(plan.months.count) \(diagnosticCounts) fullRepair=\(captured.requiresFullRepair) progressResumed=\(progressResumed) reopened=\(reopened.count) clearsFreshness=\(clearsFreshness) finalStep=\(diagnosticFinalStep)")
         }
         #endif
+        var repairedMonth = false
         // Known dirty data remains visible as cached data, but may not use its
         // old validation to skip a detail/month repair or publish a compute seed.
         if clearsFreshness {
@@ -5500,35 +5523,39 @@ final class HealthKitWorkoutStore {
             // Same rule as the observed history path: an unhydrated day-sample
             // sidecar reports `.preserved`, which is not durable, so hydrate first.
             await hydratePersistedDaySamplesIfNeeded()
-            guard mayCommit() else { return }
+            guard mayCommit() else { return repairedMonth }
             // A Boolean never claims an invalidation the save did not make.
-            guard await persistDashboardSnapshotDurably(), mayCommit() else { return }
+            guard await persistDashboardSnapshotDurably(), mayCommit() else { return repairedMonth }
             progress.freshnessInvalidated = true
             guard await owner.checkpointRepair(progress, generation: journal.generation,
-                revision: journal.revision, admission: token), mayCommit() else { return }
+                revision: journal.revision, admission: token), mayCommit() else { return repairedMonth }
             journal = await owner.snapshot()
         } else {
             persistDashboardSnapshot()
         }
-        if !progress.detailsInvalidated {
+        if !progress.detailsInvalidated || !(progress.uncovered ?? [:]).isEmpty {
             // Fence older detail loads before clearing memory and draining disk
             // invalidations behind already queued detail saves.
             // New detail opens during that drain must not rehydrate the old file.
             // Reuse the same session-long live-read gate as a background resume.
+            // A kept progress invalidates only the workouts a delta touched.
             bypassesPersistedDetailSeeding = true
             cacheEpoch &+= 1
             detailCaches.clearAll()
-            let ids: Set<UUID>? = journal.requiresFullRepair ? nil : Set(journal.dirtyIntervals.keys.compactMap(UUID.init(uuidString:)))
+            let ids: Set<UUID>? = !progress.detailsInvalidated
+                ? (journal.requiresFullRepair ? nil : Set(journal.dirtyIntervals.keys.compactMap(UUID.init(uuidString:))))
+                : Set((progress.uncovered ?? [:]).keys.compactMap(UUID.init(uuidString:)))
             let invalidated = await withCheckedContinuation { continuation in
                 Self.snapshotPersistQueue.async {
                     guard token.isValid else { continuation.resume(returning: false); return }
                     continuation.resume(returning: WorkoutDetailSnapshotStore.invalidateForJournal(ids: ids))
                 }
             }
-            guard invalidated, mayCommit() else { return }
+            guard invalidated, mayCommit() else { return repairedMonth }
             progress.detailsInvalidated = true
+            progress.uncovered = nil
             guard await owner.checkpointRepair(progress, generation: journal.generation,
-                revision: journal.revision, admission: token), mayCommit() else { return }
+                revision: journal.revision, admission: token), mayCommit() else { return repairedMonth }
             journal = await owner.snapshot()
         }
         if journal.requiresFullRepair && !progress.baselineInvalidated {
@@ -5536,10 +5563,10 @@ final class HealthKitWorkoutStore {
             // Only the rebuildable record artifact is reset; month/history files
             // remain intact, and the existing baseline scan rebuilds the ledger.
             publishRecordLedger(WorkoutRecordLedger())
-            guard await persistWorkoutJournalRecordLedger(), mayCommit() else { return }
+            guard await persistWorkoutJournalRecordLedger(), mayCommit() else { return repairedMonth }
             progress.baselineInvalidated = true
             guard await owner.checkpointRepair(progress, generation: journal.generation,
-                revision: journal.revision, admission: token), mayCommit() else { return }
+                revision: journal.revision, admission: token), mayCommit() else { return repairedMonth }
             journal = await owner.snapshot()
         }
         let pending = plan.months.filter { !progress.completedMonths.contains(WorkoutJournalRepairPlan.identity($0)) }
@@ -5548,62 +5575,65 @@ final class HealthKitWorkoutStore {
         diagnosticCounts = "pending=\(pending.count) eligible=\(eligible.count)"
         #endif
         for key in eligible.prefix(maximumMonths) {
-            guard mayCommit() else { return }
+            guard mayCommit() else { return repairedMonth }
             let identity = WorkoutJournalRepairPlan.identity(key)
             // Persist BEFORE fetching: a deadline/process exit still backs off,
             // but never marks the month complete or retires its dirty interval.
             progress.beginMonthAttempt(identity, at: Date())
             guard await owner.checkpointRepair(progress, generation: journal.generation,
-                revision: journal.revision, admission: token), mayCommit() else { return }
+                revision: journal.revision, admission: token), mayCommit() else { return repairedMonth }
             journal = await owner.snapshot()
             await engine.clearWorkoutEffortCache(scopedTo: [key], calendar: calendar, now: date)
-            guard mayCommit() else { return }
+            guard mayCommit() else { return repairedMonth }
             let started = Date()
             do { try await refresh(monthKeys: [key], calendar: calendar, reusesCachedWorkoutHeartRate: false) }
             catch {
-                guard mayCommit() else { return }
+                guard mayCommit() else { return repairedMonth }
                 continue
             }
-            guard mayCommit() else { return }
+            guard mayCommit() else { return repairedMonth }
             guard let month = monthSnapshots[key], let validatedAt = month.validatedAt,
                   validatedAt >= started, validatedAt <= Date(), month.validationContext == monthValidationContext else { continue }
             // Both the month and its record fold must be durable before the
             // checkpoint can skip it after a crash. Bool save results alone
             // cannot distinguish unchanged bytes from a failed write.
             guard await persistWorkoutJournalMonth(month), mayCommit(),
-                  await persistWorkoutJournalRecordLedger(), mayCommit() else { return }
+                  await persistWorkoutJournalRecordLedger(), mayCommit() else { return repairedMonth }
             progress.completeMonth(identity)
             guard await owner.checkpointRepair(progress, generation: journal.generation,
-                revision: journal.revision, admission: token), mayCommit() else { return }
+                revision: journal.revision, admission: token) else { return repairedMonth }
+            repairedMonth = true
+            guard mayCommit() else { return repairedMonth }
             journal = await owner.snapshot()
         }
         guard repairsDashboard, mayCommit(), plan.months.allSatisfy({ progress.completedMonths.contains(WorkoutJournalRepairPlan.identity($0)) }),
-              !journal.requiresFullRepair || recordLedger.baselineComplete else { return }
+              !journal.requiresFullRepair || recordLedger.baselineComplete else { return repairedMonth }
         // A final fetch that could not establish freshness, or whose durable
         // acknowledgement failed, backs off like a month before reading again.
         guard progress.mayAttemptFinalStep(at: date) else {
             #if DEBUG
             diagnosticFinalStep = "backoff"
             #endif
-            return
+            return repairedMonth
         }
         #if DEBUG
         diagnosticFinalStep = "attempt"
         #endif
         progress.beginFinalStepAttempt(at: Date())
         guard await owner.checkpointRepair(progress, generation: journal.generation,
-            revision: journal.revision, admission: token), mayCommit() else { return }
+            revision: journal.revision, admission: token), mayCommit() else { return repairedMonth }
         journal = await owner.snapshot()
         // Existing query-derived dashboard/Training Load/readiness and watch-seed
         // paths remain the only authority. A caught-up anchor is never freshness.
         let refreshedAt = Date()
         await refreshRecentMonths(date: refreshedAt, intent: .passiveResume, forcesFullTrendWindow: true)
-        guard mayCommit(), completedDashboardFreshness?.date == refreshedAt else { return }
+        guard mayCommit(), completedDashboardFreshness?.date == refreshedAt else { return repairedMonth }
         let durable = await withCheckedContinuation { continuation in
             persistDashboardSnapshot { continuation.resume(returning: $0) }
         }
-        guard durable, mayCommit(), await persistWorkoutJournalRecordLedger(), mayCommit() else { return }
+        guard durable, mayCommit(), await persistWorkoutJournalRecordLedger(), mayCommit() else { return repairedMonth }
         _ = await owner.acknowledgeDurableRepair(generation: journal.generation, revision: journal.revision, admission: token)
+        return repairedMonth
     }
 
     func persistWorkoutJournalMonth(_ month: WorkoutMonthSnapshot) async -> Bool {

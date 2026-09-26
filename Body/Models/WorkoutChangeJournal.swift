@@ -29,6 +29,10 @@ struct WorkoutJournalRepairProgress: Codable, Equatable, Sendable {
     // backs off like a month.
     var freshnessInvalidated: Bool?
     var finalAttempt: MonthAttempt?
+    // Optional for envelopes written before it existed. Workouts whose delta was
+    // applied but whose months are not yet reopened, keyed like `dirtyIntervals`,
+    // each with the bounding interval that delta touched. Nil means none.
+    var uncovered: [String: DateInterval]?
 
     struct MonthAttempt: Codable, Equatable, Sendable {
         var count: Int
@@ -69,6 +73,15 @@ struct WorkoutJournalRepairProgress: Codable, Equatable, Sendable {
         monthAttempts?.removeValue(forKey: identity)
         if monthAttempts?.isEmpty == true { monthAttempts = nil }
     }
+
+    /// A reopened month is eligible at once, and a delta restarts the final
+    /// step's retry ladder.
+    mutating func reopen(months identities: Set<String>) {
+        completedMonths.subtract(identities)
+        for identity in identities { monthAttempts?.removeValue(forKey: identity) }
+        if monthAttempts?.isEmpty == true { monthAttempts = nil }
+        finalAttempt = nil
+    }
 }
 
 struct WorkoutChangeJournal: Codable, Equatable, Sendable {
@@ -108,20 +121,44 @@ struct WorkoutChangeJournal: Codable, Equatable, Sendable {
             end: max(old?.end ?? entry.end, entry.end))
     }
 
+    /// Written in the same mutation as the delta, so a kept repair progress can
+    /// never skip a month that delta touched, even when `dirtyIntervals` reads
+    /// the same afterwards.
+    private mutating func uncover(_ entry: WorkoutJournalEntry) {
+        guard var progress = repairProgress else { return }
+        let key = entry.id.uuidString
+        var uncovered = progress.uncovered ?? [:]
+        let old = uncovered[key]
+        uncovered[key] = DateInterval(start: min(old?.start ?? entry.start, entry.start),
+            end: max(old?.end ?? entry.end, entry.end))
+        progress.uncovered = uncovered
+        repairProgress = progress
+    }
+
+    private mutating func touch(_ entry: WorkoutJournalEntry) {
+        dirty(entry)
+        uncover(entry)
+    }
+
     mutating func apply(additions: [WorkoutJournalEntry], deletedIDs: [UUID], nextAnchor: Data) {
-        if staging != nil || !additions.isEmpty || !deletedIDs.isEmpty { repairProgress = nil }
+        // A bootstrap page replaces membership, so no progress survives it. A
+        // known delta keeps progress and marks what it touched for reopening.
+        if staging != nil { repairProgress = nil }
         var target = staging ?? entries
+        var unknownDeletion = false
         for entry in additions {
-            if let old = target[entry.id.uuidString] { dirty(old) }
-            if let old = entries[entry.id.uuidString] { dirty(old) }
-            dirty(entry)
+            if let old = target[entry.id.uuidString] { touch(old) }
+            if let old = entries[entry.id.uuidString] { touch(old) }
+            touch(entry)
             target[entry.id.uuidString] = entry
         }
         for id in deletedIDs {
             let key = id.uuidString
             let old = target.removeValue(forKey: key) ?? entries[key]
-            if let old { dirty(old) } else { requiresFullRepair = true }
+            if let old { touch(old) } else { requiresFullRepair = true; unknownDeletion = true }
         }
+        // The old baseline cannot prove absence for an id the journal never saw.
+        if unknownDeletion { repairProgress = nil }
         if staging != nil {
             staging = target
             if additions.isEmpty && deletedIDs.isEmpty {

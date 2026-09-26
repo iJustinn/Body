@@ -101,7 +101,9 @@ actor WorkoutJournalReconciler {
     }
 
     /// Progress never retires dirty work; it only avoids replaying durable month
-    /// repairs. A delta, restart, or changed dependency context discards it.
+    /// repairs. A known delta marks its workouts uncovered so the next pass
+    /// reopens their months; an unknown deletion, bootstrap page, capacity
+    /// overflow, restart, or changed dependency context discards it.
     func checkpointRepair(_ progress: WorkoutJournalRepairProgress, generation: UUID, revision: UInt64,
                           admission: HealthDashboardPublicationToken? = nil) -> Bool {
         guard !needsSave, journal.bootstrapComplete, admission?.isValid != false,
@@ -188,6 +190,7 @@ actor WorkoutJournalReconciler {
                 if next.dirtyIntervals.count > Self.entryLimit {
                     next.dirtyIntervals = [:]
                     next.requiresFullRepair = true
+                    next.repairProgress = nil
                 }
                 if journal.bootstrapComplete, let candidateSink {
                     let added = entries.filter { journal.entries[$0.id.uuidString] == nil && !deleted.contains($0.id) }
