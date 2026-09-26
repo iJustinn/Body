@@ -2229,7 +2229,7 @@ struct BodyHomeView: View {
                 BodyHomeRouteLink(route: .metric(metric.kind), onSelect: sideRouteHandler) {
                     BodyHealthMetricCard(
                         metric: metric,
-                        isRefreshing: workoutStore.isRefreshing,
+                        isRefreshing: workoutStore.showsRefreshActivity,
                         containerWidth: metricCardContainerWidth
                     )
                         .matchedTransitionSource(id: HomeMetricRoute.metric(metric.kind), in: metricZoom) {

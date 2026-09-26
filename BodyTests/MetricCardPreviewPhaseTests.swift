@@ -61,6 +61,28 @@ final class MetricCardPreviewPhaseTests: XCTestCase {
         XCTAssertEqual(Phase.resolved(for: model, isRefreshing: false), .unavailable)
     }
 
+    /// Home feeds the card the store's refresh activity, not the raw slot: an empty
+    /// card shows no skeleton during a silent Health change update, but does during a
+    /// refresh that owns the badge, and drops it once the slot is released.
+    func testEmptyCardSkeletonFollowsTheBadgeNotTheSilentRepair() async throws {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+        let home = try BodyTestSupport.sourceText(at: "Body/Views/BodyHomeView.swift")
+        XCTAssertTrue(home.contains("isRefreshing: workoutStore.showsRefreshActivity,"))
+
+        let store = emptyHealthDataStore()
+        let model = vitalsModel(dotEntries: [])
+        await store.withRefreshSlotHeld(silent: true) {
+            XCTAssertTrue(store.isRefreshing)
+            XCTAssertEqual(Phase.resolved(for: model, isRefreshing: store.showsRefreshActivity), .unavailable)
+        }
+        await store.withRefreshSlotHeld(regularRefresh: true) {
+            store.noteRefreshRequestedWhileBusy()
+            XCTAssertEqual(Phase.resolved(for: model, isRefreshing: store.showsRefreshActivity), .pending)
+        }
+        XCTAssertEqual(Phase.resolved(for: model, isRefreshing: store.showsRefreshActivity), .unavailable)
+    }
+
     func testClassifiedCardioFitnessStaysInDataThroughARefresh() {
         let model = cardioFitnessModel(
             value: "42.5",

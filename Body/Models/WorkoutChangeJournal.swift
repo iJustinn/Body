@@ -24,6 +24,11 @@ struct WorkoutJournalRepairProgress: Codable, Equatable, Sendable {
     var detailsInvalidated = false
     // Optional for schema-1 envelopes written before retry scheduling existed.
     var monthAttempts: [String: MonthAttempt]?
+    // Optional for envelopes written before either existed. Set only after the
+    // cleared dashboard freshness was saved durably; the final dashboard step
+    // backs off like a month.
+    var freshnessInvalidated: Bool?
+    var finalAttempt: MonthAttempt?
 
     struct MonthAttempt: Codable, Equatable, Sendable {
         var count: Int
@@ -46,6 +51,17 @@ struct WorkoutJournalRepairProgress: Codable, Equatable, Sendable {
         let previous = min(max(attempts[identity]?.count ?? 0, 0), 4)
         attempts[identity] = MonthAttempt(count: min(previous + 1, 4), startedAt: date)
         monthAttempts = attempts
+    }
+
+    func mayAttemptFinalStep(at date: Date) -> Bool {
+        guard let attempt = finalAttempt else { return true }
+        // Clock rollback must not strand a repair behind a future wall-clock date.
+        return date < attempt.startedAt || date.timeIntervalSince(attempt.startedAt) >= attempt.delay
+    }
+
+    mutating func beginFinalStepAttempt(at date: Date) {
+        let previous = min(max(finalAttempt?.count ?? 0, 0), 4)
+        finalAttempt = MonthAttempt(count: min(previous + 1, 4), startedAt: date)
     }
 
     mutating func completeMonth(_ identity: String) {

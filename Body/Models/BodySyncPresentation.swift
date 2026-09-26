@@ -38,11 +38,13 @@ struct BodySyncPresentation: Hashable {
         if let dismissAt { return dismissAt }
         let dwellAt = phase == .syncing && stage != displayedStage ? stageChangedAt + Self.dwell : nil
         // Only while work runs: a session that is only settling ends hidden instead.
-        let revealDue = !isRevealed && hasActiveWork ? revealAt : nil
+        let revealDue = !isRevealed && hasRunningPass ? revealAt : nil
         return [dwellAt, settleAt, revealDue].compactMap { $0 }.min()
     }
 
-    private var hasActiveWork: Bool { phase == .syncing && (passID != nil || !pending.isEmpty) }
+    /// Only a running pass reveals. A queued follow-up alone keeps the session
+    /// open, but never brings a hidden one on screen.
+    private var hasRunningPass: Bool { phase == .syncing && passID != nil }
 
     mutating func begin(now: TimeInterval) {
         advance(now: now)
@@ -136,7 +138,7 @@ struct BodySyncPresentation: Hashable {
     }
 
     private mutating func revealIfDue(now: TimeInterval) {
-        guard !isRevealed, hasActiveWork, let revealAt, now >= revealAt else { return }
+        guard !isRevealed, hasRunningPass, let revealAt, now >= revealAt else { return }
         isRevealed = true
     }
 }

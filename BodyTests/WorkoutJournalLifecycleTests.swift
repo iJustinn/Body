@@ -15,6 +15,87 @@ final class WorkoutJournalLifecycleTests: XCTestCase {
     }
 
     @MainActor
+    private static func drainPersistQueue() async {
+        let queue = HealthKitWorkoutStore.snapshotPersistQueue
+        await withCheckedContinuation { continuation in queue.async { continuation.resume() } }
+    }
+
+    /// The store saves the dashboard envelope at its real location. Park the
+    /// host's copy so a populated day-sample sidecar cannot turn a save into a
+    /// non-durable `.preserved`, and restore it afterwards.
+    @discardableResult @MainActor
+    private func isolateDashboardEnvelope() async throws -> URL {
+        let directory = try XCTUnwrap(HealthDashboardSnapshotStore.snapshotFileURL).deletingLastPathComponent()
+        let parked = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        await Self.drainPersistQueue()
+        let existed = FileManager.default.fileExists(atPath: directory.path)
+        if existed { try FileManager.default.moveItem(at: directory, to: parked) }
+        addTeardownBlock {
+            await Self.drainPersistQueue()
+            try? FileManager.default.removeItem(at: directory)
+            if existed { try? FileManager.default.moveItem(at: parked, to: directory) }
+        }
+        return directory
+    }
+
+    @MainActor
+    private func persistedFreshnessDate() async -> Date? {
+        await Self.drainPersistQueue()
+        return HealthDashboardSnapshotStore.loadWithContext()?.metadata.freshness?.date
+    }
+
+    /// A settled dashboard tail: live success, the staged watermark, then a
+    /// durable envelope that carries it.
+    @discardableResult @MainActor
+    private func stampFreshness(_ store: HealthKitWorkoutStore, secondsAgo: TimeInterval) async -> Date {
+        let date = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - secondsAgo)
+        store.markRefreshSucceeded(date: date, refreshedVitals: true, publishesWatch: false)
+        store.stageCompletedDashboardFreshness(date: date)
+        let durable = await store.persistDashboardSnapshotDurably()
+        XCTAssertTrue(durable)
+        XCTAssertEqual(store.lastSuccessfulRefreshDate, date)
+        let persisted = await persistedFreshnessDate()
+        XCTAssertEqual(persisted, date)
+        return date
+    }
+
+    /// One dirty month whose workout read fails, so every pass backs off
+    /// before the final dashboard step. Returns the dashboard directory too.
+    @MainActor
+    private func makeDirtyRepairFixture() async throws
+        -> (store: HealthKitWorkoutStore, fake: FakeHealthStore, journal: WorkoutChangeJournal, file: URL, dashboard: URL) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let oldOverride = HealthKitWorkoutStore.testSnapshotDirectoryURLOverride
+        HealthKitWorkoutStore.testSnapshotDirectoryURLOverride = directory.appendingPathComponent("months")
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        addTeardownBlock {
+            await MainActor.run { HealthKitWorkoutStore.testSnapshotDirectoryURLOverride = oldOverride }
+            restoreDefaults()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let dashboard = try await isolateDashboardEnvelope()
+        let fake = FakeHealthStore()
+        fake.scriptSamples(for: HKObjectType.workoutType(), .failure(nil))
+        let store = HealthKitWorkoutStore(initialMonthSnapshots: [], initialHealthDashboardSnapshot: .empty,
+            initialPermissionSelection: .init(enabledPermissions: [.workouts]), engineHealthStore: fake)
+        let start = calendar.date(from: DateComponents(year: 2024, month: 1, day: 10))!
+        let end = calendar.date(from: DateComponents(year: 2024, month: 1, day: 20))!
+        var journal = WorkoutChangeJournal(scope: .init(installationID: UUID(), lowerBound: start, predicateVersion: 1))
+        journal.staging = nil
+        journal.requiresFullRepair = false
+        journal.dirtyIntervals[UUID().uuidString] = DateInterval(start: start, end: end)
+        let file = directory.appendingPathComponent("journal.json")
+        XCTAssertNotEqual(WorkoutChangeJournalStore.save(journal, file: file), .failed)
+        return (store, fake, journal, file, dashboard)
+    }
+
+    private func addedWorkout() -> WorkoutJournalEntry {
+        let start = calendar.date(from: DateComponents(year: 2024, month: 1, day: 12, hour: 8))!
+        return WorkoutJournalEntry(id: UUID(), start: start, end: start.addingTimeInterval(1_800),
+            activityType: 37, duration: 1_800, sourceBundleIdentifier: "com.example.test")
+    }
+
+    @MainActor
     func testEnabledDefaultDoesNotQueryBeforeAuthorization() async {
         XCTAssertTrue(WorkoutChangeJournalStore.lifecycleEnabled)
         let fake = FakeHealthStore()
@@ -167,6 +248,7 @@ final class WorkoutJournalLifecycleTests: XCTestCase {
             await MainActor.run { HealthKitWorkoutStore.testSnapshotDirectoryURLOverride = oldOverride }
             try? FileManager.default.removeItem(at: directory)
         }
+        try await isolateDashboardEnvelope()
         let fake = FakeHealthStore()
         fake.scriptSamples(for: HKObjectType.workoutType(), .samples([]))
         let store = HealthKitWorkoutStore(initialMonthSnapshots: [], initialHealthDashboardSnapshot: .empty,
@@ -222,17 +304,25 @@ final class WorkoutJournalLifecycleTests: XCTestCase {
         let legacy = Data(#"{"context":"same","completedMonths":[],"baselineInvalidated":false,"detailsInvalidated":true}"#.utf8)
         var progress = try JSONDecoder().decode(WorkoutJournalRepairProgress.self, from: legacy)
         let date = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertNil(progress.freshnessInvalidated, "Legacy progress never claims a durable freshness invalidation")
+        XCTAssertNil(progress.finalAttempt)
         XCTAssertTrue(progress.mayAttemptMonth("2026:1", at: date))
+        XCTAssertTrue(progress.mayAttemptFinalStep(at: date))
         for delay in [300.0, 1_800, 7_200, 21_600, 21_600] {
             progress.beginMonthAttempt("2026:1", at: date)
+            progress.beginFinalStepAttempt(at: date)
             XCTAssertFalse(progress.mayAttemptMonth("2026:1", at: date.addingTimeInterval(delay - 1)))
             XCTAssertTrue(progress.mayAttemptMonth("2026:1", at: date.addingTimeInterval(delay)))
             XCTAssertTrue(progress.mayAttemptMonth("2026:2", at: date))
             XCTAssertTrue(progress.mayAttemptMonth("2026:1", at: date.addingTimeInterval(-1)))
+            XCTAssertFalse(progress.mayAttemptFinalStep(at: date.addingTimeInterval(delay - 1)))
+            XCTAssertTrue(progress.mayAttemptFinalStep(at: date.addingTimeInterval(delay)))
+            XCTAssertTrue(progress.mayAttemptFinalStep(at: date.addingTimeInterval(-1)), "Clock rollback must not strand the final step")
             progress = try JSONDecoder().decode(WorkoutJournalRepairProgress.self,
                 from: JSONEncoder().encode(progress))
         }
         XCTAssertEqual(progress.monthAttempts?["2026:1"]?.count, 4)
+        XCTAssertEqual(progress.finalAttempt?.count, 4)
         XCTAssertTrue(progress.completedMonths.isEmpty)
         progress.completeMonth("2026:1")
         XCTAssertNil(progress.monthAttempts)
@@ -248,6 +338,7 @@ final class WorkoutJournalLifecycleTests: XCTestCase {
             HealthKitWorkoutStore.testSnapshotDirectoryURLOverride = oldOverride
             try? FileManager.default.removeItem(at: directory)
         }
+        try await isolateDashboardEnvelope()
         let fake = FakeHealthStore()
         fake.scriptSamples(for: HKObjectType.workoutType(), .failure(nil))
         let store = HealthKitWorkoutStore(initialMonthSnapshots: [], initialHealthDashboardSnapshot: .empty,
@@ -277,5 +368,227 @@ final class WorkoutJournalLifecycleTests: XCTestCase {
         let third = await reopened.snapshot()
         XCTAssertEqual(third, second, "A foreground refresh within the cooldown must not retry or acknowledge")
         XCTAssertEqual(fake.leafRequests.filter { $0 == .samples(HKObjectType.workoutType().identifier) }.count, 4)
+    }
+
+    // MARK: - Resume freshness and the final dashboard step
+
+    @MainActor
+    func testCleanOrUnbootstrappedJournalLeavesFreshnessMonthsAndFileUntouched() async throws {
+        let fixture = try await makeDirtyRepairFixture()
+        let store = fixture.store
+        let stamp = await stampFreshness(store, secondsAgo: 60)
+        var clean = fixture.journal
+        clean.dirtyIntervals = [:]
+        var unbootstrapped = fixture.journal
+        unbootstrapped.staging = [:]
+        unbootstrapped.requiresFullRepair = true
+        for journal in [clean, unbootstrapped] {
+            XCTAssertNotEqual(WorkoutChangeJournalStore.save(journal, file: fixture.file), .failed)
+            let owner = WorkoutJournalReconciler(engine: store.engine, file: fixture.file)
+            let captured = await owner.snapshot()
+            let bytes = try Data(contentsOf: fixture.file)
+            let generation = store.monthSnapshotsGeneration
+            let completed = await store.runRefreshWithDeadline(.seconds(5)) {
+                await store.repairWorkoutJournal(captured, owner: owner, admission: HealthDashboardPublicationToken())
+            }
+            XCTAssertTrue(completed)
+            XCTAssertEqual(store.lastSuccessfulRefreshDate, stamp)
+            XCTAssertEqual(store.currentDashboardPersistenceMetadata().freshness?.date, stamp)
+            let persisted = await persistedFreshnessDate()
+            XCTAssertEqual(persisted, stamp)
+            XCTAssertEqual(store.monthSnapshotsGeneration, generation, "No month may be unvalidated or republished")
+            XCTAssertEqual(try Data(contentsOf: fixture.file), bytes)
+            let after = await owner.snapshot()
+            XCTAssertEqual(after, captured)
+            XCTAssertTrue(fixture.fake.leafRequests.isEmpty)
+        }
+    }
+
+    @MainActor
+    func testDirtyRepairClearsFreshnessOnceAndKeepsARestampedEnvelopeAcrossOwners() async throws {
+        let fixture = try await makeDirtyRepairFixture()
+        let store = fixture.store
+        await stampFreshness(store, secondsAgo: 120)
+        let owner = WorkoutJournalReconciler(engine: store.engine, file: fixture.file)
+        await store.repairWorkoutJournal(fixture.journal, owner: owner, admission: HealthDashboardPublicationToken())
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+        XCTAssertNil(store.currentDashboardPersistenceMetadata().freshness)
+        let cleared = await persistedFreshnessDate()
+        XCTAssertNil(cleared, "The invalidation reaches the envelope before it is checkpointed")
+        let first = await owner.snapshot()
+        XCTAssertEqual(first.repairProgress?.freshnessInvalidated, true)
+        XCTAssertEqual(WorkoutChangeJournalStore.load(file: fixture.file)?.repairProgress?.freshnessInvalidated, true)
+        XCTAssertEqual(first.repairProgress?.monthAttempts?.count, 1)
+
+        let restamped = await stampFreshness(store, secondsAgo: 60)
+        await store.repairWorkoutJournal(first, owner: owner, admission: HealthDashboardPublicationToken())
+        XCTAssertEqual(store.lastSuccessfulRefreshDate, restamped)
+        let kept = await persistedFreshnessDate()
+        XCTAssertEqual(kept, restamped)
+        let second = await owner.snapshot()
+        XCTAssertEqual(second, first, "A pass inside the month cooldown checkpoints nothing new")
+
+        let reopened = WorkoutJournalReconciler(engine: store.engine, file: fixture.file)
+        let loaded = await reopened.snapshot()
+        XCTAssertEqual(loaded.repairProgress?.freshnessInvalidated, true)
+        await store.repairWorkoutJournal(loaded, owner: reopened, admission: HealthDashboardPublicationToken())
+        XCTAssertEqual(store.lastSuccessfulRefreshDate, restamped)
+        let relaunched = await persistedFreshnessDate()
+        XCTAssertEqual(relaunched, restamped)
+        XCTAssertEqual(fixture.fake.leafRequests.filter { $0 == .samples(HKObjectType.workoutType().identifier) }.count, 1)
+    }
+
+    @MainActor
+    func testFailedDashboardSaveOrCheckpointLeavesTheFreshnessFlagUnset() async throws {
+        let fixture = try await makeDirtyRepairFixture()
+        let store = fixture.store
+        let manager = FileManager.default
+        await stampFreshness(store, secondsAgo: 180)
+        // A regular file where the envelope's directory belongs fails the save.
+        await Self.drainPersistQueue()
+        try manager.removeItem(at: fixture.dashboard)
+        XCTAssertTrue(manager.createFile(atPath: fixture.dashboard.path, contents: Data()))
+        let owner = WorkoutJournalReconciler(engine: store.engine, file: fixture.file)
+        await store.repairWorkoutJournal(fixture.journal, owner: owner, admission: HealthDashboardPublicationToken())
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+        let unsaved = await owner.snapshot()
+        XCTAssertNil(unsaved.repairProgress, "A failed dashboard save must not claim the invalidation")
+        XCTAssertTrue(fixture.fake.leafRequests.isEmpty)
+        await Self.drainPersistQueue()
+        try manager.removeItem(at: fixture.dashboard)
+
+        await stampFreshness(store, secondsAgo: 120)
+        let failing = WorkoutJournalReconciler(engine: store.engine, file: fixture.file,
+            write: { _, _ in throw CocoaError(.fileWriteUnknown) })
+        let failingJournal = await failing.snapshot()
+        await store.repairWorkoutJournal(failingJournal, owner: failing, admission: HealthDashboardPublicationToken())
+        XCTAssertNil(store.lastSuccessfulRefreshDate)
+        let durablyCleared = await persistedFreshnessDate()
+        XCTAssertNil(durablyCleared)
+        XCTAssertNil(WorkoutChangeJournalStore.load(file: fixture.file)?.repairProgress,
+                     "A failed checkpoint leaves the flag unset")
+        XCTAssertTrue(fixture.fake.leafRequests.isEmpty)
+
+        await stampFreshness(store, secondsAgo: 60)
+        let working = WorkoutJournalReconciler(engine: store.engine, file: fixture.file)
+        let loaded = await working.snapshot()
+        await store.repairWorkoutJournal(loaded, owner: working, admission: HealthDashboardPublicationToken())
+        XCTAssertNil(store.lastSuccessfulRefreshDate, "An unset flag clears the restamped freshness again")
+        let saved = await working.snapshot()
+        XCTAssertEqual(saved.repairProgress?.freshnessInvalidated, true)
+    }
+
+    @MainActor
+    func testContextReplacementAndNewDeltaEachClearFreshnessOnceMore() async throws {
+        let fixture = try await makeDirtyRepairFixture()
+        let store = fixture.store
+        let owner = WorkoutJournalReconciler(engine: store.engine, file: fixture.file)
+        var stale = WorkoutJournalRepairProgress(context: "old source")
+        stale.freshnessInvalidated = true
+        let checkpointed = await owner.checkpointRepair(stale, generation: fixture.journal.generation,
+            revision: fixture.journal.revision)
+        XCTAssertTrue(checkpointed)
+        await stampFreshness(store, secondsAgo: 120)
+        let replaced = await owner.snapshot()
+        await store.repairWorkoutJournal(replaced, owner: owner, admission: HealthDashboardPublicationToken())
+        XCTAssertNil(store.lastSuccessfulRefreshDate, "Another context's flag is not this repair's invalidation")
+        let current = await owner.snapshot()
+        XCTAssertNotEqual(current.repairProgress?.context, "old source")
+        XCTAssertEqual(current.repairProgress?.freshnessInvalidated, true)
+
+        await stampFreshness(store, secondsAgo: 60)
+        var delta = current
+        delta.apply(additions: [addedWorkout()], deletedIDs: [], nextAnchor: Data([2]))
+        XCTAssertNil(delta.repairProgress)
+        XCTAssertNotEqual(WorkoutChangeJournalStore.save(delta, file: fixture.file), .failed)
+        let reopened = WorkoutJournalReconciler(engine: store.engine, file: fixture.file)
+        let loaded = await reopened.snapshot()
+        await store.repairWorkoutJournal(loaded, owner: reopened, admission: HealthDashboardPublicationToken())
+        XCTAssertNil(store.lastSuccessfulRefreshDate, "A new workout delta restarts the repair and clears once more")
+        let cleared = await persistedFreshnessDate()
+        XCTAssertNil(cleared)
+        let restarted = await reopened.snapshot()
+        XCTAssertEqual(restarted.repairProgress?.freshnessInvalidated, true)
+    }
+
+    /// Stands in for a process exit right after the final step's attempt is
+    /// durable: the pass loses admission before it can fetch.
+    private final class FinalStepInterruption: @unchecked Sendable {
+        private let lock = NSLock()
+        private var token = HealthDashboardPublicationToken()
+
+        func admission() -> HealthDashboardPublicationToken {
+            lock.lock(); defer { lock.unlock() }
+            token = HealthDashboardPublicationToken()
+            return token
+        }
+
+        func interruptIfFinalStep(_ data: Data) {
+            guard (try? JSONDecoder().decode(WorkoutChangeJournal.self, from: data))?.repairProgress?.finalAttempt != nil else { return }
+            lock.lock(); defer { lock.unlock() }
+            token.invalidate()
+        }
+    }
+
+    @MainActor
+    func testFinalDashboardStepBacksOffLikeAMonthUntilANewDelta() async throws {
+        let fixture = try await makeDirtyRepairFixture()
+        let store = fixture.store
+        let interruption = FinalStepInterruption()
+        let owner = WorkoutJournalReconciler(engine: store.engine, file: fixture.file, write: { data, url in
+            try data.write(to: url, options: .atomic)
+            interruption.interruptIfFinalStep(data)
+        })
+        func pass() async {
+            let journal = await owner.snapshot()
+            await store.repairWorkoutJournal(journal, owner: owner, admission: interruption.admission())
+        }
+        func rewindFinalAttempt(by seconds: TimeInterval) async throws {
+            let current = await owner.snapshot()
+            var progress = try XCTUnwrap(current.repairProgress)
+            progress.finalAttempt?.startedAt = Date().addingTimeInterval(-seconds)
+            let saved = await owner.checkpointRepair(progress, generation: current.generation, revision: current.revision)
+            XCTAssertTrue(saved)
+        }
+        // The first pass records this context's progress; completing its one
+        // month lets the next pass reach the final step.
+        await pass()
+        let first = await owner.snapshot()
+        var progress = try XCTUnwrap(first.repairProgress)
+        let months = try XCTUnwrap(progress.monthAttempts?.keys)
+        XCTAssertEqual(months.count, 1)
+        progress.completedMonths = Set(months)
+        progress.monthAttempts = nil
+        let completed = await owner.checkpointRepair(progress, generation: first.generation, revision: first.revision)
+        XCTAssertTrue(completed)
+        let reads = fixture.fake.leafRequests.count
+
+        await pass()
+        let attempted = await owner.snapshot()
+        XCTAssertEqual(attempted.repairProgress?.finalAttempt?.count, 1, "The attempt is durable before the fetch")
+        XCTAssertEqual(WorkoutChangeJournalStore.load(file: fixture.file)?.repairProgress?.finalAttempt?.count, 1)
+        XCTAssertEqual(attempted.dirtyIntervals, fixture.journal.dirtyIntervals, "An unfinished final step never acknowledges")
+        await pass()
+        let withinFiveMinutes = await owner.snapshot()
+        XCTAssertEqual(withinFiveMinutes, attempted, "Within five minutes the final step does not run again")
+
+        try await rewindFinalAttempt(by: 300)
+        await pass()
+        let secondAttempt = await owner.snapshot()
+        XCTAssertEqual(secondAttempt.repairProgress?.finalAttempt?.count, 2)
+        try await rewindFinalAttempt(by: 300)
+        let beforeThirtyMinutes = await owner.snapshot()
+        await pass()
+        let withinThirtyMinutes = await owner.snapshot()
+        XCTAssertEqual(withinThirtyMinutes, beforeThirtyMinutes, "The second retry waits thirty minutes")
+        try await rewindFinalAttempt(by: 1_800)
+        await pass()
+        let thirdAttempt = await owner.snapshot()
+        XCTAssertEqual(thirdAttempt.repairProgress?.finalAttempt?.count, 3)
+        XCTAssertEqual(fixture.fake.leafRequests.count, reads, "A pass that lost admission after its checkpoint never fetches")
+
+        var delta = thirdAttempt
+        delta.apply(additions: [addedWorkout()], deletedIDs: [], nextAnchor: Data([2]))
+        XCTAssertNil(delta.repairProgress, "A new delta restarts the final step's ladder")
     }
 }

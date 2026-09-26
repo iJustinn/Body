@@ -22,6 +22,10 @@ final class BodyHealthChangeCoordinator {
     private var quietWork: Task<Void, Never>?
     private var quietAttempts: [BodyHealthDirtyWorkStore.Receipt] = []
     private var followupNeeded = false
+    /// A full refresh left current work it cannot claim (Stress, Training Load,
+    /// rings, or a rejected acknowledgement). Its finish repairs it once.
+    private var leftoversAfterRefresh = false
+    private var followup: Task<Void, Never>?
     private var prefersQuietTrainingLoadRepair = false
     private lazy var observer = BodyHealthChangeObserver(observer: observing,
         suppressesInitialDelivery: suppressesInitialDelivery) { [weak self] identifier, failed in
@@ -70,20 +74,33 @@ final class BodyHealthChangeCoordinator {
         if let token = debouncePresentationID { store.settleForegroundContinuation(token) }
         debouncePresentationID = nil
         firstWake = nil
+        leftoversAfterRefresh = false
         _ = await ledger.reset(domains: Set(registrations.flatMap(\.metrics)), context: context)
     }
 
     private func capture(identifier: String, failed: Bool) async {
         guard let registration = registrations.first(where: { $0.type.identifier == identifier }) else { return }
+        // Decided before any suspension. A daytime vital defers its sleep read;
+        // a failed delivery never does.
+        let defersSleep = !failed && registration.metrics.contains(.sleep)
+            && BodyHealthObservationPolicy.sleepWindowVitals.contains(identifier) && !store.sleepVitalsWindowIsOpen()
+        let deferred: Set<HealthMetricKind> = defersSleep ? [.sleep] : []
         #if DEBUG
-        BodyObserverRefreshDiagnostics.log("delivery observerError=\(failed) kinds=[\(registration.metrics.map(\.rawValue).sorted().joined(separator: ","))]")
+        BodyObserverRefreshDiagnostics.log("delivery observerError=\(failed) kinds=[\(registration.metrics.map(\.rawValue).sorted().joined(separator: ","))] sleepDeferred=\(defersSleep)")
         #endif
+        // Only a deferral to record: no token, debounce or background request,
+        // or the gate would run a refresh for work that is deliberately waiting.
+        if defersSleep, registration.metrics.subtracting(deferred).isEmpty,
+           !registration.invalidatesActivityRings, !registration.scansWorkouts {
+            _ = await ledger.mark(registration.metrics, deferring: deferred, context: context)
+            return
+        }
         // Bypass TTL admission before the first suspension. Capture failure keeps the
         // in-memory obligation and never withholds HealthKit's completion.
         let token = BodyAppRuntime.isForegroundActive ? store.queueForegroundContinuation() : nil
         defer { if let token { store.settleForegroundContinuation(token) } }
         store.invalidateObservedHealthChanges()
-        _ = await ledger.mark(registration.metrics, context: context)
+        _ = await ledger.mark(registration.metrics, deferring: deferred, context: context)
         if registration.invalidatesActivityRings { await store.captureRingObservation() }
         if registration.scansWorkouts { _ = await store.captureWorkoutObservation() }
         followupNeeded = true
@@ -139,12 +156,28 @@ final class BodyHealthChangeCoordinator {
         firstWake = nil
         foregroundWork?.cancel()
         debouncePresentationID = nil
+        leftoversAfterRefresh = false
         store.cancelSyncPresentation()
     }
 
     func refreshDidFinish() {
-        if followupNeeded, !repairing { scheduleForeground() }
+        if !repairing, followupNeeded || leftoversAfterRefresh { startFollowupRepair() }
         offerQuietRepair()
+    }
+
+    /// One repair-only continuation for both a delivery during the refresh and the
+    /// refresh's leftovers. It never re-enters the resume gate, so a refresh that
+    /// cannot stamp freshness cannot schedule another full refresh by itself. The
+    /// token keeps the presentation session open until the repair is admitted.
+    private func startFollowupRepair() {
+        leftoversAfterRefresh = false
+        followupNeeded = true
+        let token = store.queueForegroundContinuation()
+        followup = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.store.settleForegroundContinuation(token) }
+            await self.repairOnActivation()
+        }
     }
 
     /// Metadata only: activation decides current freshness before reading history.
@@ -160,18 +193,23 @@ final class BodyHealthChangeCoordinator {
 
     func captureReceipts() async -> [BodyHealthDirtyWorkStore.Receipt] {
         guard await ledger.flush() else { return [] }
-        return await pending(history: true).map { $0.1 }
+        // A full refresh reads sleep anyway, so it may settle a deferred entry.
+        return await pending(history: true, includesDeferred: true).map { $0.1 }
     }
 
     func acknowledgeCoverage(_ receipts: [BodyHealthDirtyWorkStore.Receipt],
-                             kinds: Set<HealthMetricKind>, history: Bool) async {
+                             kinds: Set<HealthMetricKind>, history: Bool,
+                             repairsLeftovers: Bool = false) async {
         for receipt in receipts {
             guard let kind = HealthMetricKind(rawValue: receipt.domain), kinds.contains(kind),
                   !Task.isCancelled, receipt.context == store.currentObserverLedgerContext() else { continue }
             _ = await ledger.acknowledge(receipt, current: true, history: history)
         }
         let current = await pending(history: false)
-        store.observedRepairDidSettle(pending: !current.isEmpty || store.needsObservedRingRepair)
+        let remains = !current.isEmpty || store.needsObservedRingRepair
+        // Only a full refresh arms this; its `refreshDidFinish` starts the repair.
+        if repairsLeftovers, remains { leftoversAfterRefresh = true }
+        store.observedRepairDidSettle(pending: remains)
     }
 
     /// Failed generations get one attempt per external opportunity. New
@@ -209,9 +247,10 @@ final class BodyHealthChangeCoordinator {
             return
         }
         followupNeeded = false
+        leftoversAfterRefresh = false
         defer {
             repairing = false
-            if followupNeeded { scheduleForeground() }
+            if followupNeeded { startFollowupRepair() }
         }
         let durable = await ledger.flush()
         let work = await pending(history: false)
@@ -267,11 +306,16 @@ final class BodyHealthChangeCoordinator {
         }
     }
 
-    private func pending(history: Bool) async -> [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)] {
+    private func pending(history: Bool, includesDeferred: Bool = false) async -> [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)] {
         let snapshot = await ledger.snapshot()
         // Old pending generations precede newer bursts; sleep leads within a
         // generation. Completed current leaves drop out of later BG passes.
-        let entries = snapshot.entries.filter { $0.value.currentPending || (history && $0.value.historyPending) }
+        // A deferred entry is not work until its window opens or its limit lapses.
+        let entries = snapshot.entries.filter { _, entry in
+            guard entry.currentPending || (history && entry.historyPending) else { return false }
+            guard let deferredAt = entry.deferredAt else { return true }
+            return includesDeferred || store.sleepDeferralHasLapsed(deferredAt)
+        }
         var result: [(HealthMetricKind, BodyHealthDirtyWorkStore.Receipt)] = []
         for (key, entry) in entries.sorted(by: {
             if $0.value.generation != $1.value.generation { return $0.value.generation < $1.value.generation }

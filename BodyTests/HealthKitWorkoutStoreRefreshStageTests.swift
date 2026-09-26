@@ -79,6 +79,96 @@ final class HealthKitWorkoutStoreRefreshStageTests: XCTestCase {
         XCTAssertTrue(store.syncPresentation.isRevealed)
     }
 
+    /// The quick return's current month check is silent: it begins no badge session.
+    @MainActor
+    func testPassiveResumeWorkoutRefreshAloneNeverReveals() async {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let store = HealthKitWorkoutStore(initialMonthSnapshots: [], initialHealthDashboardSnapshot: .empty,
+            initialPermissionSelection: .init(enabledPermissions: []), engineHealthStore: FakeHealthStore(), workoutJournalFile: nil)
+        store.contextRefreshOverride = { _ in }
+        await store.refreshWorkoutMonth(month: 5, year: 2026, intent: .passiveResume)
+        XCTAssertFalse(store.syncPresentation.isRevealed)
+        XCTAssertEqual(store.syncPresentation.phase, .hidden)
+        XCTAssertNil(store.syncPresentation.sessionID)
+        XCTAssertFalse(store.isSilentRefresh)
+    }
+
+    /// A pull during a silent passive workout refresh gives it a session and shows it at
+    /// once. The seam holds the slot with the same flags `refreshWorkoutMonth` sets.
+    @MainActor
+    func testPullDuringSilentPassiveWorkoutRefreshReveals() async {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let store = emptyHealthDataStore()
+        await store.withRefreshSlotHeld(regularRefresh: true, silent: true) {
+            XCTAssertNil(store.syncPresentation.passID)
+            XCTAssertFalse(store.showsRefreshActivity)
+            store.noteRefreshRequestedWhileBusy()
+            XCTAssertNil(store.refreshBusyNoticeID)
+            XCTAssertNotNil(store.syncPresentation.passID)
+            XCTAssertEqual(store.syncPresentation.phase, .syncing)
+            XCTAssertTrue(store.syncPresentation.isRevealed)
+            XCTAssertTrue(store.showsRefreshActivity)
+        }
+        XCTAssertFalse(store.isSilentRefresh)
+    }
+
+    /// A pull during a silent repair still gets the busy notice, and begins no session.
+    @MainActor
+    func testPullDuringSilentRepairStillShowsBusyNotice() async {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let store = emptyHealthDataStore()
+        await store.withRefreshSlotHeld(silent: true) {
+            XCTAssertTrue(store.isSilentRefresh)
+            store.noteRefreshRequestedWhileBusy()
+            XCTAssertNotNil(store.refreshBusyNoticeID)
+            XCTAssertNil(store.syncPresentation.passID)
+            XCTAssertEqual(store.syncPresentation.phase, .hidden)
+            XCTAssertFalse(store.syncPresentation.isRevealed)
+        }
+        XCTAssertNil(store.refreshBusyNoticeID)
+        XCTAssertFalse(store.isSilentRefresh)
+    }
+
+    /// Refresh activity cues follow the badge: silent work shows them only once it
+    /// owns a pass, which it gets by joining a session already on screen.
+    @MainActor
+    func testShowsRefreshActivityFollowsTheBadge() async {
+        let restoreDefaults = preserveInitialHealthLoadDefaults()
+        defer { restoreDefaults() }
+
+        let store = emptyHealthDataStore()
+        XCTAssertFalse(store.showsRefreshActivity)
+        await store.withRefreshSlotHeld {
+            XCTAssertTrue(store.showsRefreshActivity)
+        }
+        await store.withRefreshSlotHeld(silent: true) {
+            XCTAssertTrue(store.isRefreshing)
+            XCTAssertFalse(store.showsRefreshActivity)
+        }
+
+        var token: UUID?
+        await store.withRefreshSlotHeld(regularRefresh: true) {
+            store.noteRefreshRequestedWhileBusy()
+            token = store.queueForegroundContinuation()
+        }
+        XCTAssertEqual(store.syncPresentation.phase, .syncing)
+        XCTAssertTrue(store.syncPresentation.isRevealed)
+        let session = store.syncPresentation.sessionID
+        await store.withRefreshSlotHeld(silent: true) {
+            XCTAssertEqual(store.syncPresentation.sessionID, session)
+            XCTAssertNotNil(store.syncPresentation.passID)
+            XCTAssertTrue(store.showsRefreshActivity)
+        }
+        XCTAssertFalse(store.showsRefreshActivity)
+        if let token { store.settleForegroundContinuation(token) }
+    }
+
     /// Every case needs copy: a new stage without a badge string would render
     /// an empty capsule mid-refresh.
     func testEveryStageHasBadgeText() {

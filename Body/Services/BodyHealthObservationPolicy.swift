@@ -17,6 +17,23 @@ enum BodyHealthObservationPolicy {
     static let appRefreshDeadline: Duration = .seconds(20)
     static let foregroundDebounce: Duration = .seconds(1)
     static let foregroundMaximumWait: Duration = .seconds(5)
+    /// How long after the latest night ended (or arrived) a vital delivery still
+    /// reads sleep immediately. Covers the wake+10 Readiness and Radar freezes,
+    /// the morning Watch sync and background scheduling delays.
+    static let sleepVitalsWindow: TimeInterval = 6 * 60 * 60
+    /// A deferred sleep read becomes ordinary work at the latest this long after
+    /// its first deferral.
+    static let sleepDeferralLimit: TimeInterval = 24 * 60 * 60
+    /// Vitals Body reads inside each night's main session. A delivery only says
+    /// when it arrived, not the sample's interval, so outside the window their
+    /// sleep read is deferred, never dropped. Wrist temperature is nightly and
+    /// stays immediate; RMSSD and the heartbeat series never map to sleep.
+    static let sleepWindowVitals: Set<String> = [
+        HKQuantityTypeIdentifier.heartRate.rawValue,
+        HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue,
+        HKQuantityTypeIdentifier.respiratoryRate.rawValue,
+        HKQuantityTypeIdentifier.oxygenSaturation.rawValue
+    ]
 
     /// Concrete iOS identifiers, filtered against Body's actual requested read
     /// set. Characteristics and activity summaries are not observer samples.
@@ -44,11 +61,17 @@ enum BodyHealthObservationPolicy {
             || BodyNotificationPreferences.enabled(BodyNotificationPreferences.readinessKey) {
             notificationKinds.insert(.sleep)
         }
+        // Sleep's leaf reads nothing without the sleep analysis type, so a vital
+        // must not enqueue a sleep obligation it can never complete. This is
+        // Body's requested read set, not proof of a grant.
+        let sleepReadable = HKObjectType.categoryType(forIdentifier: .sleepAnalysis).map { readable.contains($0) } ?? false
         var result: [BodyHealthObservation] = []
         func add(_ type: HKSampleType?, metrics: Set<HealthMetricKind>, immediate: Bool = false,
                  workouts: Bool = false) {
             guard let type, readable.contains(type) else { return }
-            let needed = Set(metrics.filter { selection.includes($0) || companionKinds.contains($0) })
+            let needed = Set(metrics.filter {
+                ($0 != .sleep || sleepReadable) && (selection.includes($0) || companionKinds.contains($0))
+            })
             let ringInputs: Set<String> = [HKQuantityTypeIdentifier.activeEnergyBurned.rawValue,
                 HKQuantityTypeIdentifier.appleExerciseTime.rawValue, HKQuantityTypeIdentifier.appleStandTime.rawValue]
             let rings = selection.includesActivityRings && ringInputs.contains(type.identifier)

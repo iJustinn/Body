@@ -146,8 +146,20 @@ final class HealthKitWorkoutStore {
     /// written back to HealthKit.
     private(set) var workoutCustomNames: [UUID: String]
     private(set) var healthSummary: HealthSummarySnapshot = .empty {
-        didSet { dashboardDataRevision &+= 1 }
+        didSet {
+            dashboardDataRevision &+= 1
+            // A different night replacing the published one (a new night, or one
+            // that arrived late) reopens the sleep vitals window. Recomputing the
+            // same night doesn't, and neither does the first night after launch
+            // or Clear Cache, so a relaunch anchors on the night's end.
+            if let previous = oldValue.sleep.stageSnapshot.mainSessionInterval,
+               let night = healthSummary.sleep.stageSnapshot.mainSessionInterval, night != previous {
+                latestNightChangedAt = Date()
+            }
+        }
     }
+    /// When the published main sleep session last changed, in memory only.
+    @ObservationIgnored private(set) var latestNightChangedAt: Date?
     @ObservationIgnored private(set) var dashboardDataRevision = 0
     @ObservationIgnored private(set) var trendInputRevisions: [HealthTrendReconciliationLeaf: Int] = [:]
     /// Primary-source + permission signature captured when `healthSummary` was
@@ -218,11 +230,17 @@ final class HealthKitWorkoutStore {
     private(set) var isRefreshing = false {
         willSet { if newValue { retireBackgroundRefresh() } }
         didSet {
-            if isRefreshing, !oldValue { syncPresentation.begin(now: ProcessInfo.processInfo.systemUptime) }
+            // Silent work joins a session that is on screen and still syncing, so it
+            // reports its stages and result there, but it never begins a new one.
+            if isRefreshing, !oldValue,
+               !isSilentRefresh || (syncPresentation.phase == .syncing && syncPresentation.isRevealed) {
+                syncPresentation.begin(now: ProcessInfo.processInfo.systemUptime)
+            }
             // Every release path lands here, so the busy notice ends with the work that
             // blocked the pull instead of covering its confirmation or the next refresh.
             if !isRefreshing {
                 isRegularRefresh = false
+                isSilentRefresh = false
                 refreshBusyNoticeID = nil
             }
         }
@@ -338,6 +356,14 @@ final class HealthKitWorkoutStore {
     /// month refresh, settings context refresh) rather than a repair or other work.
     private(set) var isRegularRefresh = false
 
+    /// True while an observed-change repair or a passive resume workout refresh holds
+    /// the slot. It begins no badge session, but joins one that is already on screen.
+    private(set) var isSilentRefresh = false
+
+    /// Whether refresh activity cues (the badge, empty card skeletons) should show:
+    /// silent work shows them only once it owns a pass in a visible session.
+    var showsRefreshActivity: Bool { isRefreshing && (!isSilentRefresh || syncPresentation.passID != nil) }
+
     /// Set each time a pull to refresh lands while a repair or other non refresh work
     /// holds the slot, so the sync badge can say so instead of the pull doing nothing.
     /// Shown even when the running session's badge is hidden. A pull during a regular
@@ -347,6 +373,10 @@ final class HealthKitWorkoutStore {
     func noteRefreshRequestedWhileBusy() {
         guard isRefreshing else { return }
         guard !isRegularRefresh else {
+            // A silent passive workout refresh has no session yet; the pull gives it one.
+            if isSilentRefresh, syncPresentation.passID == nil {
+                syncPresentation.begin(now: ProcessInfo.processInfo.systemUptime)
+            }
             revealSyncBadge()
             return
         }
@@ -792,7 +822,9 @@ final class HealthKitWorkoutStore {
     /// Test seam: holds the refresh slot for the duration of `body` exactly as the
     /// refresh entry points do, so waiter orchestration can be exercised without
     /// HealthKit.
-    func withRefreshSlotHeld(regularRefresh: Bool = false, _ body: @MainActor () async -> Void) async {
+    func withRefreshSlotHeld(regularRefresh: Bool = false, silent: Bool = false,
+                             _ body: @MainActor () async -> Void) async {
+        if silent { isSilentRefresh = true }
         isRefreshing = true
         isRegularRefresh = regularRefresh
         defer { finishRefresh() }
@@ -3772,6 +3804,8 @@ final class HealthKitWorkoutStore {
             return
         }
 
+        // The quick return's current month check runs without a new badge.
+        if intent == .passiveResume { isSilentRefresh = true }
         isRefreshing = true
         isRegularRefresh = true
         if intent == .userInitiated { revealSyncBadge() }
@@ -5376,6 +5410,9 @@ final class HealthKitWorkoutStore {
                     guard fence.isValid, self.mayPublishQuietMaintenance else { return false }
                     if !journal.bootstrapComplete || (!journal.requiresFullRepair && journal.dirtyIntervals.isEmpty) {
                         let result = await owner.scan(maxPages: 1)
+                        #if DEBUG
+                        BodyObserverRefreshDiagnostics.log("journal scan result=\(result)")
+                        #endif
                         guard fence.isValid, self.mayPublishQuietMaintenance else { return false }
                         let next = await owner.snapshot()
                         more = result == .morePending || (result == .caughtUp
@@ -5397,6 +5434,14 @@ final class HealthKitWorkoutStore {
     // Internal for deterministic fake-store repair tests; lifecycle owns the slot.
     func repairWorkoutJournal(_ captured: WorkoutChangeJournal, owner: WorkoutJournalReconciler,
                                       admission: HealthDashboardPublicationToken, maximumMonths: Int = 3, repairsDashboard: Bool = true) async {
+        // The foreground task's own test, here so every caller (the background
+        // wake too) leaves a clean or unbootstrapped journal before any mutation.
+        guard captured.bootstrapComplete, captured.requiresFullRepair || !captured.dirtyIntervals.isEmpty else {
+            #if DEBUG
+            BodyObserverRefreshDiagnostics.log("journal repair skipped reason=\(captured.bootstrapComplete ? "clean" : "bootstrap")")
+            #endif
+            return
+        }
         let inputs = captureRefreshInputs()
         let token = dashboardPublicationToken
         let calendar = Calendar.bodyGregorian
@@ -5405,7 +5450,12 @@ final class HealthKitWorkoutStore {
         scope.summaryDayStart = nil // Completed month repairs survive midnight.
         let context = HealthDashboardCacheScope.key(["journal-repair-v1", scope.signature, monthValidationContext])
         guard let plan = WorkoutJournalRepairPlan(journal: captured, retainedMonths: Set(monthSnapshots.keys),
-                                                  date: date, calendar: calendar) else { return }
+                                                  date: date, calendar: calendar) else {
+            #if DEBUG
+            BodyObserverRefreshDiagnostics.log("journal repair skipped reason=noPlan")
+            #endif
+            return
+        }
         var journal = captured
         var progress = journal.repairProgress?.context == context
             ? journal.repairProgress! : WorkoutJournalRepairProgress(context: context)
@@ -5413,11 +5463,30 @@ final class HealthKitWorkoutStore {
             admission.isValid && token.isValid && !Task.isCancelled && mayApplyRefreshResults
                 && mayApplyRefreshInputs(inputs)
         }
-        guard mayCommit() else { return }
+        guard mayCommit() else {
+            #if DEBUG
+            BodyObserverRefreshDiagnostics.log("journal repair skipped reason=notAdmitted")
+            #endif
+            return
+        }
+        // A forced full refresh cannot finish this repair (the final step below
+        // re-derives the dashboard), so the resume freshness is cleared once per
+        // progress, not on every pass while months back off.
+        let clearsFreshness = progress.freshnessInvalidated != true
+        #if DEBUG
+        var diagnosticCounts = "pending=none eligible=none"
+        var diagnosticFinalStep = "skipped"
+        let progressResumed = captured.repairProgress?.context == context
+        defer {
+            BodyObserverRefreshDiagnostics.log("journal repair months=\(plan.months.count) \(diagnosticCounts) fullRepair=\(captured.requiresFullRepair) progressResumed=\(progressResumed) clearsFreshness=\(clearsFreshness) finalStep=\(diagnosticFinalStep)")
+        }
+        #endif
         // Known dirty data remains visible as cached data, but may not use its
         // old validation to skip a detail/month repair or publish a compute seed.
-        lastSuccessfulRefreshDate = nil
-        completedDashboardFreshness = nil
+        if clearsFreshness {
+            lastSuccessfulRefreshDate = nil
+            completedDashboardFreshness = nil
+        }
         lastVitalsRefreshDate = nil
         cachedComputeTrainingLoadSeed = nil
         mutateMonthSnapshots { snapshots in
@@ -5427,7 +5496,20 @@ final class HealthKitWorkoutStore {
                     generatedAt: old.generatedAt, days: old.days, schemaVersion: old.schemaVersion)
             }
         }
-        persistDashboardSnapshot()
+        if clearsFreshness {
+            // Same rule as the observed history path: an unhydrated day-sample
+            // sidecar reports `.preserved`, which is not durable, so hydrate first.
+            await hydratePersistedDaySamplesIfNeeded()
+            guard mayCommit() else { return }
+            // A Boolean never claims an invalidation the save did not make.
+            guard await persistDashboardSnapshotDurably(), mayCommit() else { return }
+            progress.freshnessInvalidated = true
+            guard await owner.checkpointRepair(progress, generation: journal.generation,
+                revision: journal.revision, admission: token), mayCommit() else { return }
+            journal = await owner.snapshot()
+        } else {
+            persistDashboardSnapshot()
+        }
         if !progress.detailsInvalidated {
             // Fence older detail loads before clearing memory and draining disk
             // invalidations behind already queued detail saves.
@@ -5462,6 +5544,9 @@ final class HealthKitWorkoutStore {
         }
         let pending = plan.months.filter { !progress.completedMonths.contains(WorkoutJournalRepairPlan.identity($0)) }
         let eligible = pending.filter { progress.mayAttemptMonth(WorkoutJournalRepairPlan.identity($0), at: date) }
+        #if DEBUG
+        diagnosticCounts = "pending=\(pending.count) eligible=\(eligible.count)"
+        #endif
         for key in eligible.prefix(maximumMonths) {
             guard mayCommit() else { return }
             let identity = WorkoutJournalRepairPlan.identity(key)
@@ -5494,6 +5579,21 @@ final class HealthKitWorkoutStore {
         }
         guard repairsDashboard, mayCommit(), plan.months.allSatisfy({ progress.completedMonths.contains(WorkoutJournalRepairPlan.identity($0)) }),
               !journal.requiresFullRepair || recordLedger.baselineComplete else { return }
+        // A final fetch that could not establish freshness, or whose durable
+        // acknowledgement failed, backs off like a month before reading again.
+        guard progress.mayAttemptFinalStep(at: date) else {
+            #if DEBUG
+            diagnosticFinalStep = "backoff"
+            #endif
+            return
+        }
+        #if DEBUG
+        diagnosticFinalStep = "attempt"
+        #endif
+        progress.beginFinalStepAttempt(at: Date())
+        guard await owner.checkpointRepair(progress, generation: journal.generation,
+            revision: journal.revision, admission: token), mayCommit() else { return }
+        journal = await owner.snapshot()
         // Existing query-derived dashboard/Training Load/readiness and watch-seed
         // paths remain the only authority. A caught-up anchor is never freshness.
         let refreshedAt = Date()
@@ -5611,6 +5711,7 @@ final class HealthKitWorkoutStore {
         // also re-arms the baseline scan for the next refresh.
         recordLedger = WorkoutRecordLedger()
         healthSummary = .empty
+        latestNightChangedAt = nil
         // Drop the summary-reuse signature so a post-clear failed leaf resolves
         // to empty rather than reusing anything against the wiped summary.
         healthSummaryPrimarySignature = nil
@@ -5913,7 +6014,7 @@ final class HealthKitWorkoutStore {
             let durable = await persistDashboardSnapshotDurably()
             recordSyncResult(failed: !durable)
             if durable, mayApplyRefreshResults, UIApplication.shared.isProtectedDataAvailable {
-                await healthChangeCoordinator?.acknowledgeCoverage(observerReceipts, kinds: currentCoverage, history: false)
+                await healthChangeCoordinator?.acknowledgeCoverage(observerReceipts, kinds: currentCoverage, history: false, repairsLeftovers: isRefreshing)
                     if mayApplyRefreshResults {
                         await healthChangeCoordinator?.acknowledgeCoverage(observerReceipts, kinds: historyCoverage, history: true)
                     }
@@ -6055,7 +6156,7 @@ final class HealthKitWorkoutStore {
                 let durable = await persistDashboardSnapshotDurably()
                 recordSyncResult(failed: !durable)
                 if durable, mayApplyRefreshResults, UIApplication.shared.isProtectedDataAvailable {
-                    await healthChangeCoordinator?.acknowledgeCoverage(observerReceipts, kinds: currentCoverage, history: false)
+                    await healthChangeCoordinator?.acknowledgeCoverage(observerReceipts, kinds: currentCoverage, history: false, repairsLeftovers: isRefreshing)
                     if mayApplyRefreshResults {
                         await healthChangeCoordinator?.acknowledgeCoverage(observerReceipts, kinds: historyCoverage, history: true)
                     }
@@ -9090,6 +9191,8 @@ extension HealthKitWorkoutStore {
             backgroundPublicationLease = lease
             dashboardPublicationToken = HealthDashboardPublicationToken(isCurrent: { lease.isValid })
         } else {
+            // Health change updates begin no badge; they join one already on screen.
+            isSilentRefresh = true
             isRefreshing = true
             BodyRefreshProfile.shared.beginRefresh()
         }
@@ -9638,15 +9741,54 @@ extension HealthKitWorkoutStore {
                 }, now: now)
     }
 
+    /// End of the latest published night. The main session is exactly the sleep
+    /// vitals window; caches from before that field fall back to the wake cycle end.
+    var latestNightEnd: Date? {
+        let night = healthSummary.sleep.stageSnapshot
+        return night.mainSessionInterval?.end ?? night.wakeCycleEnd
+    }
+
+    /// Closed with no night. Otherwise open while the time since the night ended,
+    /// or since it last changed, is within `limit`; a negative elapsed is closed.
+    nonisolated static func sleepVitalsWindowIsOpen(nightEnd: Date?, changedAt: Date?, date: Date,
+                                                    limit: TimeInterval) -> Bool {
+        guard let nightEnd else { return false }
+        return isWithinFreshInterval(date.timeIntervalSince(max(nightEnd, changedAt ?? nightEnd)), limit: limit)
+    }
+
+    func sleepVitalsWindowIsOpen(date: Date = Date()) -> Bool {
+        Self.sleepVitalsWindowIsOpen(nightEnd: latestNightEnd, changedAt: latestNightChangedAt, date: date,
+                                     limit: BodyHealthObservationPolicy.sleepVitalsWindow)
+    }
+
+    /// A deferred sleep read is ordinary work once the window opens, after the
+    /// deferral limit, or when the clock moved back past the deferral.
+    func sleepDeferralHasLapsed(_ deferredAt: Date, date: Date = Date()) -> Bool {
+        let elapsed = date.timeIntervalSince(deferredAt)
+        return sleepVitalsWindowIsOpen(date: date) || elapsed < 0 || elapsed >= BodyHealthObservationPolicy.sleepDeferralLimit
+    }
+
     func observedMetricNeedsValidation(_ kind: HealthMetricKind, date: Date = Date()) -> Bool {
         guard let stamp = observedMetricValidation[kind.rawValue],
               stamp.contextSignature == currentDashboardCacheScope().signature else { return true }
-        return !Self.isWithinFreshInterval(date.timeIntervalSince(stamp.date), limit: BodyHealthObservationPolicy.fallbackInterval)
+        let elapsed = date.timeIntervalSince(stamp.date)
+        guard !Self.isWithinFreshInterval(elapsed, limit: BodyHealthObservationPolicy.fallbackInterval) else { return false }
+        // Sleep read after the latest night, with the window closed, stays valid:
+        // a later vital defers its own read and only a new night reopens it.
+        // A future stamp (clock moved back) still needs validation.
+        if kind == .sleep, elapsed >= 0, !sleepVitalsWindowIsOpen(date: date),
+           latestNightEnd.map({ stamp.date >= $0 }) ?? true {
+            return false
+        }
+        return true
     }
 
     func observedRepairDidSettle(pending: Bool) {
         observedHealthChanges = pending
     }
+
+    /// Whether the resume gate currently treats observed changes as pending.
+    var hasObservedHealthChanges: Bool { observedHealthChanges }
 
     private func refreshObservedHeartbeatSamples(sourcesPrepared: Bool = false) async -> Bool {
         let inputs = captureRefreshInputs()
