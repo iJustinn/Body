@@ -349,7 +349,8 @@ struct BodyWorkoutsView: View {
                 .ignoresSafeArea(.container, edges: .bottom)
                 }
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isSplit)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: columnWidth)
+                // The column only exists while split, so only a split page animates its width.
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isSplit ? columnWidth : 0)
             }
             // While split the detail lives in the side pane and nothing is pushed; a
             // fold with a workout selected pushes it, and unfolding pops it back into

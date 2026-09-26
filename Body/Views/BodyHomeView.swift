@@ -730,7 +730,9 @@ struct BodyHomeView: View {
                                     }
                                 }
                                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isFoldableSplit)
-                                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: columnWidth)
+                                // The column only exists while split, so only a split page
+                                // animates its width.
+                                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isFoldableSplit ? columnWidth : 0)
                             }
                         }
                         .padding(.horizontal)
@@ -743,6 +745,12 @@ struct BodyHomeView: View {
                         .onGeometryChange(for: CGFloat.self) { proxy in
                             proxy.size.width
                         } action: { width in
+                            // A cold launch's first pass lays the page out before the
+                            // GeometryReader has a width, so this frame is only the
+                            // horizontal padding. Taking it overwrote the seeded width and
+                            // the stored folded width, and the real width a frame later
+                            // animated the whole page in from that zero-width layout.
+                            guard width > 32 else { return }
                             // Rounded up to the next 8 pt: the preview sizing reads
                             // thresholds, so a sub-point difference must not churn
                             // the memoized card models.
