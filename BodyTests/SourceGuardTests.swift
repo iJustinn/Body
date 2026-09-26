@@ -1762,6 +1762,20 @@ final class SourceGuardTests: XCTestCase {
     /// night's evidence lands inside its own slot in all three of them. Without
     /// that the outer two collapse to their middle and the ring holds three
     /// fixed heights instead of gliding.
+    /// The Body Radar warning card's glyph and the Home card and hero badges it
+    /// clears have to be the same color, so both read it off the night's region
+    /// through the one chart style.
+    func testBodyRadarWarningCardTintMatchesItsHomeBadge() throws {
+        let card = try text(at: "Body/Views/Health/BodyRadarWarningCard.swift")
+        let home = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(card.contains("BodyRadarChartStyle.color(for: night.region)"))
+        XCTAssertTrue(home.contains("warningColor: BodyRadarChartStyle.color(for: warningRegion ?? BodyRadarRegion.none)"))
+        // Every tinted piece of the card (header glyph, signal icons, arrows) reads `tint`.
+        XCTAssertFalse(card.contains(".foregroundStyle(.yellow)"))
+        XCTAssertFalse(card.contains(".foregroundStyle(.orange)"))
+    }
+
     func testBodyRadarPreviewRingIsPlacedWithinEveryRegion() throws {
         let source = try bodyHomeViewText()
 

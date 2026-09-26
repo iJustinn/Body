@@ -1697,6 +1697,7 @@ struct BodyHealthMetricDetailView: View {
             helpTextCard
             dataSourceFooter
         } else if isBodyRadarDetail {
+            bodyRadarWarningCard
             helpTextCard
             dataSourceFooter
         } else {
@@ -2558,6 +2559,28 @@ struct BodyHealthMetricDetailView: View {
         // churn on every refresh tick, which restarted the animation while the
         // set of cards was unchanged.
         .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: warnings.map(\.kind))
+    }
+
+    /// The night the Home card's Body Radar badge flags: the latest frozen night
+    /// when it was scored Minor or Major signs, until the user closes its card.
+    @ViewBuilder
+    private var bodyRadarWarningCard: some View {
+        let dismissed = BodyDismissedMetricWarnings.storedValue(from: dismissedMetricWarningsRawValue)
+
+        if let night = model.bodyRadar?.latest,
+           night.state.isScored,
+           night.region != .none,
+           !dismissed.contains(night) {
+            BodyRadarWarningCard(night: night) {
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)) {
+                    dismissedMetricWarningsRawValue = BodyDismissedMetricWarnings
+                        .storedValue(from: dismissedMetricWarningsRawValue)
+                        .dismissing(night)
+                        .rawValue
+                }
+            }
+            .transition(dayChartTransition)
+        }
     }
 
     @ViewBuilder

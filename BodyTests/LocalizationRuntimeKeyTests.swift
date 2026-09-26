@@ -489,7 +489,15 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Use Default",
             "If you were working out, this warning will disappear once the workout is logged.",
             "Default: %@",
-            "%lld bpm"
+            "%lld bpm",
+            // Warning card close button and the Body Radar warning card.
+            "Close",
+            "bodyRadar.warning.sentence",
+            "bodyRadar.warning.sameNight",
+            "bodyRadar.warning.persistence",
+            "bodyRadar.warning.higher",
+            "bodyRadar.warning.lower",
+            "bodyRadar.warning.footnote"
         ]
 
         try assertKeysTranslated(keys, in: catalog)

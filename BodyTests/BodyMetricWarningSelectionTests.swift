@@ -99,6 +99,18 @@ final class BodyDismissedMetricWarningsTests: XCTestCase {
         XCTAssertEqual(BodyDismissedMetricWarnings.storedValue(from: dismissed.rawValue), dismissed)
     }
 
+    func testDismissingABodyRadarNightHidesOnlyThatNight() {
+        let night = BodyRadarNight(date: calendar.startOfDay(for: date(2026, 9, 26)), state: .minorSigns)
+        let nextNight = BodyRadarNight(date: calendar.startOfDay(for: date(2026, 9, 27)), state: .majorSigns)
+        let dismissed = BodyDismissedMetricWarnings.storedValue(from: "")
+            .dismissing(night, now: date(2026, 9, 26, 12))
+
+        XCTAssertTrue(dismissed.contains(night))
+        XCTAssertFalse(dismissed.contains(nextNight))
+        // A threshold warning on the same day is its own card.
+        XCTAssertFalse(dismissed.contains(event(.highHeartRate, date(2026, 9, 26))))
+    }
+
     func testDismissingPrunesEntriesPastTheRetentionWindow() {
         let old = BodyDismissedMetricWarnings.storedValue(from: "")
             .dismissing(event(.highHeartRate, date(2026, 6, 1)), now: date(2026, 6, 1))

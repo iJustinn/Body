@@ -882,11 +882,14 @@ struct BodyMetricWarningSelection: Equatable {
 }
 
 /// The warnings the user closed with a warning card's close button. Detection
-/// reports the earliest episode of a day, so a warning is one kind on one day:
-/// closing it hides that day's card and its Home badges, and the next day's
-/// episode shows again. Entries past the detail page's date picker are pruned.
+/// reports the earliest episode of a day, so a threshold warning is one kind on
+/// one day, and Body Radar's is its one frozen night: closing either hides that
+/// day's card and its Home badges, and the next day's warning shows again.
+/// Entries past the detail page's date picker are pruned.
 struct BodyDismissedMetricWarnings: Equatable {
     static let retentionDayCount = 60
+
+    private static let bodyRadarEntryName = "bodyRadar"
 
     var entries: Set<String>
 
@@ -895,7 +898,11 @@ struct BodyDismissedMetricWarnings: Equatable {
     }
 
     func contains(_ event: MetricWarningEvent, calendar: Calendar = .bodyGregorian) -> Bool {
-        entries.contains(Self.entry(for: event, calendar: calendar))
+        entries.contains(Self.entry(name: event.kind.rawValue, date: event.startDate, calendar: calendar))
+    }
+
+    func contains(_ night: BodyRadarNight, calendar: Calendar = .bodyGregorian) -> Bool {
+        entries.contains(Self.entry(name: Self.bodyRadarEntryName, date: night.date, calendar: calendar))
     }
 
     func dismissing(
@@ -903,6 +910,22 @@ struct BodyDismissedMetricWarnings: Equatable {
         now: Date = Date(),
         calendar: Calendar = .bodyGregorian
     ) -> BodyDismissedMetricWarnings {
+        inserting(Self.entry(name: event.kind.rawValue, date: event.startDate, calendar: calendar), now: now, calendar: calendar)
+    }
+
+    func dismissing(
+        _ night: BodyRadarNight,
+        now: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> BodyDismissedMetricWarnings {
+        inserting(Self.entry(name: Self.bodyRadarEntryName, date: night.date, calendar: calendar), now: now, calendar: calendar)
+    }
+
+    static func storedValue(from rawValue: String) -> BodyDismissedMetricWarnings {
+        BodyDismissedMetricWarnings(entries: Set(rawValue.split(separator: ",").map(String.init)))
+    }
+
+    private func inserting(_ entry: String, now: Date, calendar: Calendar) -> BodyDismissedMetricWarnings {
         let today = calendar.startOfDay(for: now)
         let cutoff = calendar.date(byAdding: .day, value: -Self.retentionDayCount, to: today) ?? today
         let cutoffDay = Self.dayText(for: cutoff, calendar: calendar)
@@ -913,16 +936,12 @@ struct BodyDismissedMetricWarnings: Equatable {
             // yyyy-MM-dd sorts chronologically as text.
             return String(day) >= cutoffDay
         }
-        next.insert(Self.entry(for: event, calendar: calendar))
+        next.insert(entry)
         return BodyDismissedMetricWarnings(entries: next)
     }
 
-    static func storedValue(from rawValue: String) -> BodyDismissedMetricWarnings {
-        BodyDismissedMetricWarnings(entries: Set(rawValue.split(separator: ",").map(String.init)))
-    }
-
-    private static func entry(for event: MetricWarningEvent, calendar: Calendar) -> String {
-        "\(event.kind.rawValue)@\(dayText(for: event.startDate, calendar: calendar))"
+    private static func entry(name: String, date: Date, calendar: Calendar) -> String {
+        "\(name)@\(dayText(for: date, calendar: calendar))"
     }
 
     private static func dayText(for date: Date, calendar: Calendar) -> String {

@@ -1522,7 +1522,7 @@ struct BodyHomeView: View {
                 chartPreview: trends.series(for: .stress),
                 previewDayCount: previewDayCount
             ),
-            bodyRadarMetric(summary: summary.bodyRadar),
+            bodyRadarMetric(summary: summary.bodyRadar, dismissedWarnings: dismissedWarnings),
             metric(
                 kind: .exerciseMinutes,
                 title: "Exercise Minutes",
@@ -1791,10 +1791,16 @@ struct BodyHomeView: View {
     /// Body Radar reads as a verdict rather than a number: one word for the band
     /// the night landed in, with the preview's ring showing where inside it, the
     /// way the Vitals card reads.
-    private func bodyRadarMetric(summary: BodyRadarSummary?) -> BodyHealthMetricCard.Model {
-        // Only a scored night in the Minor or Major band earns the badge.
+    private func bodyRadarMetric(
+        summary: BodyRadarSummary?,
+        dismissedWarnings: BodyDismissedMetricWarnings
+    ) -> BodyHealthMetricCard.Model {
+        // Only a scored night in the Minor or Major band earns the badge, until
+        // the user closes that night's card on the detail page.
         let warningRegion: BodyRadarRegion? = summary?.latest.flatMap { night in
-            night.state.isScored && night.region != BodyRadarRegion.none ? night.region : nil
+            night.state.isScored && night.region != BodyRadarRegion.none && !dismissedWarnings.contains(night)
+                ? night.region
+                : nil
         }
         return BodyHealthMetricCard.Model(
             kind: .bodyRadar,
