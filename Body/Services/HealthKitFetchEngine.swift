@@ -209,7 +209,7 @@ actor HealthKitFetchEngine {
     /// leaf query failed. When a leaf failed the store still publishes/persists
     /// the resolved (cache-preserving) snapshot but skips advancing the
     /// freshness TTL, so the next resume retries instead of trusting a partial
-    /// result as 5-minutes-fresh.
+    /// result as 30-minutes-fresh.
     struct HealthSummaryFetchResult {
         let summary: HealthSummarySnapshot
         let hadQueryFailure: Bool

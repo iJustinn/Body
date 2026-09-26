@@ -1342,7 +1342,7 @@ final class HealthKitWorkoutStore {
         // value: it was written only when a clean full refresh landed — the
         // exact condition under which `lastVitalsRefreshDate` itself advances
         // (`nextLastVitalsRefreshDate`), so the two are equal at every persist
-        // point. Without this, a relaunch inside the 5-minute TTL performs only
+        // point. Without this, a relaunch inside the 30-minute TTL performs only
         // a workout refresh, `dataThrough` stays nil, and a settings-only
         // republish ships NO seed and NO settings signature — leaving the
         // watch recomputing with an obsolete sleep goal / unit / score setting
@@ -4897,8 +4897,8 @@ final class HealthKitWorkoutStore {
         await requestAuthorizationAndRefresh(intent: .passiveResume)
     }
 
-    private static let shortResumeDebounceInterval: TimeInterval = 60
-    private static let dashboardFreshnessInterval: TimeInterval = 300
+    private static let shortResumeDebounceInterval: TimeInterval = 5 * 60
+    private static let dashboardFreshnessInterval: TimeInterval = 30 * 60
 
     /// A resume interval counts as "fresh" (skip a resume / take the warm
     /// workout-only path) only when `elapsed` is non-negative and under `limit`.
@@ -5826,7 +5826,7 @@ final class HealthKitWorkoutStore {
 
             // Join the workout fetch. Its success gates the freshness timestamp:
             // a workout failure must re-run the full refresh on the next
-            // activation instead of being skipped by the 5-minute warm-resume
+            // activation instead of being skipped by the 30-minute warm-resume
             // shortcut, so don't `markRefreshSucceeded` unless workouts landed.
             try await workoutRefresh
             // Everything past the join publishes, persists, or writes back to
@@ -5930,7 +5930,7 @@ final class HealthKitWorkoutStore {
         // replace a populated sidecar with an all-empty payload, but a
         // partially populated pre-hydration payload (some series still empty)
         // still overwrites those series on disk. So a relaunch inside the
-        // 5-minute TTL that picked up a new workout could otherwise still
+        // 30-minute TTL that picked up a new workout could otherwise still
         // narrow the intraday cache instead of leaving it untouched.
         setRefreshStage(.fetching)
         await hydratePersistedDaySamplesIfNeeded()
@@ -7822,7 +7822,7 @@ final class HealthKitWorkoutStore {
             recordSyncResult(published: true)
         }
         if advancesSyncBadge, hadQueryFailure { recordSyncResult(failed: true) }
-        // `lastSuccessfulRefreshDate` arms the 5-minute dashboard-freshness TTL
+        // `lastSuccessfulRefreshDate` arms the 30-minute dashboard-freshness TTL
         // (`syncWhenAppBecomesActive`, and the cold-start path that restores the
         // persisted value), so only refreshes that actually refetched the
         // dashboard vitals may set it. Lazy history loads (month paging, older
@@ -7835,7 +7835,7 @@ final class HealthKitWorkoutStore {
         // preserving) snapshot, but at least one dashboard leaf query (summary,
         // trends, or ring history) failed — don't arm the freshness TTL, so the
         // next resume retries the partial result instead of trusting it as
-        // 5-minutes-fresh.
+        // 30-minutes-fresh.
         // The compute seed's `dataThrough` watermark: pure so the "settings-only
         // republish carries it forward, a clean full refresh advances it" rule
         // is unit-testable without a store instance (see
