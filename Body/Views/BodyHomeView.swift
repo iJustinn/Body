@@ -2911,18 +2911,50 @@ struct BodyHomeView: View {
 /// The card a Home grid drag is carrying. A reference box rather than `@State` so that
 /// recording it from `onDrag`, mid drag-session setup, does not invalidate `BodyHomeView`.
 @MainActor
-private final class BodyHomeCardDragState {
+final class BodyHomeCardDragState {
     var card: BodyHomeCardKind?
+
+    /// When the last reorder's spring comes to rest. Until then the grid is still moving
+    /// under a stationary finger: dragging a left column card up onto the card above it
+    /// sends that row's right card diagonally down to the left, straight through the
+    /// finger, and entering it there moved the dragged card back, which swept the first
+    /// card through the finger again, flip flopping the two orders.
+    private var reorderSettlesAt: ContinuousClock.Instant?
+
+    func acceptsReorder(at now: ContinuousClock.Instant = .now) -> Bool {
+        reorderSettlesAt.map { now >= $0 } ?? true
+    }
+
+    func noteReorder(at now: ContinuousClock.Instant = .now) {
+        reorderSettlesAt = now + .seconds(BodyHomeCardDropDelegate.reorderSpring.settlingDuration)
+    }
 }
 
 private struct BodyHomeCardDropDelegate: DropDelegate {
+    static let reorderSpring = Spring(response: 0.25, dampingRatio: 0.85)
+
     let destination: BodyHomeCardKind
     let dragState: BodyHomeCardDragState
     let order: [BodyHomeCardKind]
     let saveOrder: ([BodyHomeCardKind]) -> Void
 
     func dropEntered(info: DropInfo) {
-        guard let draggedCard = dragState.card, draggedCard != destination else {
+        reorder()
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        // Retried here because an enter that lands while the grid is still settling is
+        // ignored; if the finger is really on this card, its next move applies it.
+        reorder()
+        return DropProposal(operation: .move)
+    }
+
+    /// Hovering waits for the grid to settle; a release does not, since it is the last
+    /// chance to act on the card under the finger. Its drop haptic stands in for the tick.
+    private func reorder(onRelease: Bool = false) {
+        guard let draggedCard = dragState.card,
+              draggedCard != destination,
+              onRelease || dragState.acceptsReorder() else {
             return
         }
 
@@ -2931,17 +2963,15 @@ private struct BodyHomeCardDropDelegate: DropDelegate {
             return
         }
 
-        BodySelectionHaptics.playTick()
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+        if !onRelease { BodySelectionHaptics.playTick() }
+        dragState.noteReorder()
+        withAnimation(.spring(Self.reorderSpring)) {
             saveOrder(reordered)
         }
     }
 
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
     func performDrop(info: DropInfo) -> Bool {
+        reorder(onRelease: true)
         if dragState.card != nil { BodySelectionHaptics.playDrop() }
         dragState.card = nil
         return true

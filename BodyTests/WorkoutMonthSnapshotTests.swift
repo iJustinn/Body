@@ -2747,6 +2747,19 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(movedUp.count, order.count)
     }
 
+    @MainActor
+    func testHomeCardDragIgnoresReordersUntilTheGridSettles() {
+        let dragState = BodyHomeCardDragState()
+        let start = ContinuousClock.now
+
+        XCTAssertTrue(dragState.acceptsReorder(at: start))
+
+        dragState.noteReorder(at: start)
+        XCTAssertFalse(dragState.acceptsReorder(at: start))
+        XCTAssertFalse(dragState.acceptsReorder(at: start + .milliseconds(200)))
+        XCTAssertTrue(dragState.acceptsReorder(at: start + .seconds(1)))
+    }
+
     func testHomeCardLayoutRowsTreatActivityRingsAsTwoSlots() {
         let defaultRows = BodyHomeCardKind.layoutRows(from: [.activityRings, .sleep, .basics])
 
