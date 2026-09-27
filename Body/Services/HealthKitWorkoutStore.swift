@@ -171,6 +171,8 @@ final class HealthKitWorkoutStore {
     private var healthSummaryPrimarySignature: String?
     @ObservationIgnored private var dashboardCacheScope: HealthDashboardCacheScope?
     @ObservationIgnored private var completedDashboardFreshness: HealthDashboardSnapshotStore.Freshness?
+    /// See `PersistenceMetadata.readinessValidation`.
+    @ObservationIgnored private var readinessValidation: HealthDashboardSnapshotStore.Freshness?
     private(set) var activityRingBackfillState: HealthDashboardSnapshotStore.ActivityRingBackfillState = .pending(resumeFrom: nil)
     @ObservationIgnored private var activityRingBackfillResumeDay: ActivityRingDaySummary.CalendarDay?
     @ObservationIgnored private var ringHistoricalRepair: HistoricalMonthRepairProgress?
@@ -1374,6 +1376,7 @@ final class HealthKitWorkoutStore {
         observedMetricValidation = loadedDashboard.metadata.observedMetricValidation ?? [:]
         observedRingChange = loadedDashboard.metadata.observedRingChange
         completedDashboardFreshness = loadedDashboard.metadata.freshness
+        readinessValidation = loadedDashboard.metadata.readinessValidation
         lastSuccessfulRefreshDate = loadedDashboard.metadata.freshness?.date
         activityRingBackfillState = initialPermissionSelection.includes(.activityRings)
             && loadedDashboard.metadata.ringDayIdentityVersion == 1
@@ -5709,6 +5712,7 @@ final class HealthKitWorkoutStore {
         dashboardPublicationToken.invalidate()
         dashboardPublicationToken = HealthDashboardPublicationToken()
         observedMetricValidation.removeAll()
+        readinessValidation = nil
         observedRingChange = nil
         await healthChangeCoordinator?.reset()
         // Invalidate every in-flight load: a resurrection-capable path that
@@ -7436,6 +7440,8 @@ final class HealthKitWorkoutStore {
             freshness: completedDashboardFreshness?.contextSignature == dashboardFreshnessContextSignature()
                 ? completedDashboardFreshness : nil,
             observedMetricValidation: observedMetricValidation,
+            readinessValidation: readinessValidation?.contextSignature == dashboardFreshnessContextSignature()
+                ? readinessValidation : nil,
             observedRingChange: observedRingChange,
             ringBackfillResumeDay: {
                 guard permissionSelection.includes(.activityRings),
@@ -9571,20 +9577,35 @@ extension HealthKitWorkoutStore {
         if readiness { dependencies.formUnion(Self.readinessInputMetricKinds) }
         if stress { dependencies.formUnion(Self.stressInputMetricKinds.union([.trainingLoad])) }
         if radar { dependencies.formUnion(Self.bodyRadarSignedSourceKinds) }
+        let checkedAt = Date()
         let before = await ledger.snapshot()
-        if requiresSettledDependencies,
-           before.entries.contains(where: { key, entry in
-               guard let kind = HealthMetricKind(rawValue: key), dependencies.contains(kind) else { return false }
-               // A clean ledger is not proof that a periodic dependency read
-               // succeeded. Keep derived completion pending when its current
-               // input coverage is stale or was never validated in this scope.
-               return entry.currentPending || observedMetricNeedsValidation(kind)
-           }) { return false }
+        let unsettled: (Set<HealthMetricKind>) -> Bool = { kinds in
+            before.entries.contains(where: { key, entry in
+                guard let kind = HealthMetricKind(rawValue: key), kinds.contains(kind) else { return false }
+                // A clean ledger is not proof that a periodic dependency read
+                // succeeded. Keep derived completion pending when its current
+                // input coverage is stale or was never validated in this scope.
+                return entry.currentPending || self.observedMetricNeedsValidation(kind)
+            })
+        }
+        if requiresSettledDependencies, unsettled(dependencies) { return false }
         guard mayPublishQuietMaintenance,
               await updateHealthDashboardSnapshot(summary: healthSummary, trends: healthTrends,
                 activityRingHistory: activityRingHistory, recomputesReadiness: readiness,
-                recomputesStress: stress, recomputesBodyRadar: radar, persists: false),
-              await persistDashboardSnapshotDurably(), mayPublishQuietMaintenance else { return false }
+                recomputesStress: stress, recomputesBodyRadar: radar, persists: false) else { return false }
+        // Readiness was just recomputed; stamp it only when every input the
+        // ledger tracks is settled and validated. The stamp rides the same
+        // durable save and is rolled back with it, like the Stress stamp.
+        let previousReadinessValidation = readinessValidation
+        let stampsReadiness = readiness && !unsettled(Self.readinessInputMetricKinds)
+        if stampsReadiness {
+            // As of when the ledger was read: a delivery after that is newer.
+            readinessValidation = .init(date: checkedAt, contextSignature: dashboardFreshnessContextSignature())
+        }
+        guard await persistDashboardSnapshotDurably(), mayPublishQuietMaintenance else {
+            if stampsReadiness { readinessValidation = previousReadinessValidation }
+            return false
+        }
         if requiresSettledDependencies {
             let after = await ledger.snapshot()
             guard after.resetID == before.resetID, after.revision == before.revision else { return false }

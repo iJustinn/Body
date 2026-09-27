@@ -3412,6 +3412,22 @@
         }
       }
     },
+    "Body Status" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body Status"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "身体状态"
+          }
+        }
+      }
+    },
     "Body Support" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3758,6 +3774,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "次/分钟"
+          }
+        }
+      }
+    },
+    "Breathing Rate" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Breathing Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "呼吸频率"
           }
         }
       }
@@ -6888,6 +6920,22 @@
         }
       }
     },
+    "Get Body Status" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get Body Status"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获取身体状态"
+          }
+        }
+      }
+    },
     "Get full access to every Pro feature." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7213,6 +7261,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "各活动心率"
+          }
+        }
+      }
+    },
+    "Heart Rate Variability" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heart Rate Variability"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率变异性"
           }
         }
       }
@@ -12165,6 +12229,22 @@
         }
       }
     },
+    "Open Body to make sure this is up to date." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Body to make sure this is up to date."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请打开 Body 确认数据是最新的。"
+          }
+        }
+      }
+    },
     "Optimal Range" : {
       "localizations" : {
         "en" : {
@@ -12345,6 +12425,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "隔夜生命体征与你的典型范围对比"
+          }
+        }
+      }
+    },
+    "Oxygen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oxygen"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "血氧"
           }
         }
       }
@@ -13063,6 +13159,22 @@
         }
       }
     },
+    "Pulse" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pulse"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "脉搏"
+          }
+        }
+      }
+    },
     "Purchase Completed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13331,6 +13443,22 @@
         }
       }
     },
+    "Readiness Score" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Readiness Score"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态分数"
+          }
+        }
+      }
+    },
     "Readiness score trend" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13398,18 +13526,34 @@
         }
       }
     },
-    "Reads today's readiness score from Body's cached health data." : {
+    "Reads today's readiness score from Body's cached health data, and the start of day score when workouts lowered it." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reads today's readiness score from Body's cached health data."
+            "value" : "Reads today's readiness score from Body's cached health data, and the start of day score when workouts lowered it."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "从 Body 缓存的健康数据中读取今天的恢复状态分数。"
+            "value" : "从 Body 缓存的健康数据中读取今天的恢复状态分数，运动拉低分数时也会读取当天起始分数。"
+          }
+        }
+      }
+    },
+    "Reads today's readiness, what is moving it and any health warnings from Body's cached data." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reads today's readiness, what is moving it and any health warnings from Body's cached data."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 Body 的缓存数据中读取今天的恢复状态、影响它的因素以及健康警告。"
           }
         }
       }
@@ -13427,6 +13571,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重建缓存"
+          }
+        }
+      }
+    },
+    "Recovery" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recovery"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复"
           }
         }
       }
@@ -13809,6 +13969,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "静息心率趋势"
+          }
+        }
+      }
+    },
+    "Resting HR" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resting HR"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "静息心率"
           }
         }
       }
@@ -15873,6 +16049,22 @@
         }
       }
     },
+    "SpO2" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpO2"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpO2"
+          }
+        }
+      }
+    },
     "Square" : {
       "localizations" : {
         "en" : {
@@ -16019,6 +16211,22 @@
         }
       }
     },
+    "Started the day at %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Started the day at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当天起始为 %@。"
+          }
+        }
+      }
+    },
     "Started today with %lld%%" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -16082,6 +16290,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "稳比快更重要。"
+          }
+        }
+      }
+    },
+    "Step Count" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Step Count"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步数"
           }
         }
       }
@@ -19158,6 +19382,22 @@
         }
       }
     },
+    "Wrist Temperature" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wrist Temperature"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手腕温度"
+          }
+        }
+      }
+    },
     "x %lld" : {
       "localizations" : {
         "en" : {
@@ -19270,6 +19510,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本周你在 Body 中记录了 %@ 次运动，共 %@。"
+          }
+        }
+      }
+    },
+    "You started the day at %@, before today's workouts." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You started the day at %@, before today's workouts."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天运动前，你的起始分数为 %@。"
           }
         }
       }

@@ -698,7 +698,7 @@ Daily Readiness notification acceptance: verify the Daily Readiness row in Notif
 
 ## Siri and App Intents acceptance (1.1.2 build 1)
 
-- Confirm the Shortcuts app lists Body's four actions: Get Readiness, Get Health Metric, Get Health Warnings, and Get Recent Workouts.
+- Confirm the Shortcuts app lists Body's five actions: Get Body Status, Get Readiness, Get Health Metric, Get Health Warnings, and Get Workouts This Week.
 - Run each action with and without cached data. With cached data, each answer reports one of four states, available, stale, partial, or unavailable, and the wording names the time the data is from. With no cached data at all, the answer says to open Body first.
 - Lock the device and invoke an action; the request is refused rather than returning cached values, matching each intent's `authenticationPolicy`.
 - Search Spotlight for a Body metric such as HRV; the Body metric entities appear with today's date named in their description. Use Clear Local Cache in Settings and confirm those entities no longer appear.
@@ -706,8 +706,13 @@ Daily Readiness notification acceptance: verify the Daily Readiness row in Notif
 - Verify the phrases work with both app names, "What's my readiness in ohmybody" and "What's my readiness in Body" (`INAlternativeAppNames` in `Body/Info.plist`).
 - Ask "Any health warnings in Body" when the last refresh is more than 6 hours old and verify the answer ends with "That is as of" and the refresh time, since a warning recorded after that refresh is not in the cache yet.
 - The first time a Body phrase is used, iOS asks to turn on ohmybody shortcuts with Siri. This is expected. Tap Turn On, then verify the phrase runs the action.
-- Verify the readiness answer is only the score and status, such as "Your readiness in Body is 82, High.", with no explanation sentence and no mention of past days.
-- Automated coverage: `BodySiriAnswerBuilderTests` covers the availability rules and wording per data source; `BodySiriIndexCoordinatorTests` covers indexing, coalescing, retry after a failure, and cache clearing.
+- Verify the readiness answer is only the score and status, such as "Your readiness in Body is 82, High.", with no explanation sentence and no mention of past days. After a workout drain it adds only the start of day score ("You started the day at 91, before today's workouts.").
+- 1.1.3 build 6: on a day when Body has only done silent updates (open Body in the morning, let it settle without pulling to refresh, then leave it), ask "How's my readiness today in ohmybody". It answers with today's score, never "Open Body once to load your health data". Before today's first readiness recompute (just after midnight, Body not opened), the same question still says to open Body.
+- 1.1.3 build 6: leave Body closed for over 6 hours after a morning refresh while only a Stress update or a history repair runs, then ask for readiness and warnings; each still ends with "That is as of" and its own validation time. After a quiet update of a readiness input with the others current, the readiness answer drops the note, while warnings keep it until every enabled warning metric has been read again.
+- 1.1.3 build 6: ask "How's my status in ohmybody", "How's my status look like in ohmybody" and "Check ohmybody". Each runs Get Body Status (the ohmybody chip and "Running your Shortcut" appear) and speaks readiness, the Home hero's line under the score, and today's warnings or "No warnings", with at most one "That is as of".
+- 1.1.3 build 6: after a workout drains readiness, ask "How is the start of day readiness score in ohmybody" and "What's my readiness in ohmybody". Both run Get Readiness and say the live score and "You started the day at" the frozen morning score, the same number the Readiness history shows for today (not the drain's recomputed pre-drain score). With no drain, or before today's morning record is frozen, neither mentions the start of the day.
+- 1.1.3 build 6: ask "Is there any warnings today in ohmybody" and "Do I have any warnings in Body" while a warning glyph shows on the Home hero; both run Get Health Warnings and name that warning. Ask "What's my heart rate variability in ohmybody" and "What's my SpO2 in ohmybody"; the synonyms resolve to HRV and Blood Oxygen.
+- Automated coverage: `BodySiriAnswerBuilderTests` covers the availability rules and wording per data source, the `scoredDay` gate, the start of day score and the status answer; `BodySiriIndexCoordinatorTests` covers indexing, coalescing, retry after a failure, and cache clearing.
 
 ## Continuous sync badge (1.1.1 build 4)
 

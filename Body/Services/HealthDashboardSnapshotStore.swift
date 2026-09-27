@@ -238,6 +238,10 @@ enum HealthDashboardSnapshotStore {
         var secondarySelectionSignature: String?
         var freshness: Freshness?
         var observedMetricValidation: [String: Freshness]?
+        /// When a quiet repair last recomputed readiness from settled, validated
+        /// inputs and saved it durably. A full refresh is covered by `freshness`.
+        /// Siri quotes the later of the two as the time a readiness answer is from.
+        var readinessValidation: Freshness?
         var observedRingChange: UUID?
         /// Missing in pre-day-identity envelopes. Progress is restarted once;
         /// subsequent partial repair checkpoints remain bound to their payload.

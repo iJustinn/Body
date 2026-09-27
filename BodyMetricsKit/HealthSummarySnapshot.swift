@@ -830,6 +830,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
 
         // Live tile = undrained − same-day activity drain (display only).
         next.summary.readiness = Self.draining(undrained, with: todaysWorkouts, wakeCycleStart: wakeCycleStart)
+        next.summary.readiness.scoredDay = scoreDay
 
         // History series: deterministic recompute overlaid with frozen records.
         let oldestTrendDate = next.trends.readinessSourceSeries.compactMap { series in
@@ -897,6 +898,7 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             calendar: calendar
         )
         next.summary.readiness = Self.draining(undrained, with: todaysWorkouts, wakeCycleStart: wakeCycleStart)
+        next.summary.readiness.scoredDay = scoreDay
         next.trends.readiness = next.trends.readiness.applyingRecordedOverrides(
             next.trends.recordedReadiness,
             calendar: calendar

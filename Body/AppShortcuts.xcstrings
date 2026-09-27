@@ -8,7 +8,14 @@
           "stringSet" : {
             "state" : "new",
             "values" : [
-              "Any health warnings in ${applicationName}"
+              "Any health warnings in ${applicationName}",
+              "Any warnings today in ${applicationName}",
+              "Are there any warnings in ${applicationName}",
+              "Is there any warnings today in ${applicationName}",
+              "Do I have any warnings in ${applicationName}",
+              "Do I have any health warnings in ${applicationName}",
+              "What are my warnings in ${applicationName}",
+              "Show my health warnings in ${applicationName}"
             ]
           }
         }
@@ -21,7 +28,33 @@
           "stringSet" : {
             "state" : "new",
             "values" : [
-              "How did I sleep in ${applicationName}"
+              "How did I sleep in ${applicationName}",
+              "How did I sleep last night in ${applicationName}",
+              "How was my sleep in ${applicationName}",
+              "What's my sleep score in ${applicationName}"
+            ]
+          }
+        }
+      }
+    },
+    "How's my status in ${applicationName}" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringSet" : {
+            "state" : "new",
+            "values" : [
+              "How's my status in ${applicationName}",
+              "How's my status look in ${applicationName}",
+              "How's my status look like in ${applicationName}",
+              "What's my status in ${applicationName}",
+              "Check my status in ${applicationName}",
+              "How am I doing in ${applicationName}",
+              "How am I doing today in ${applicationName}",
+              "How's my body today in ${applicationName}",
+              "Give me my summary in ${applicationName}",
+              "My daily summary in ${applicationName}",
+              "Check ${applicationName}"
             ]
           }
         }
@@ -34,7 +67,10 @@
           "stringSet" : {
             "state" : "new",
             "values" : [
-              "My workouts this week in ${applicationName}"
+              "My workouts this week in ${applicationName}",
+              "How many workouts this week in ${applicationName}",
+              "How many workouts did I do this week in ${applicationName}",
+              "Show my workouts this week in ${applicationName}"
             ]
           }
         }
@@ -47,7 +83,10 @@
           "stringSet" : {
             "state" : "new",
             "values" : [
-              "What's my ${metric} in ${applicationName}"
+              "What's my ${metric} in ${applicationName}",
+              "How's my ${metric} in ${applicationName}",
+              "What's my ${metric} today in ${applicationName}",
+              "Show my ${metric} in ${applicationName}"
             ]
           }
         }
@@ -65,7 +104,15 @@
               "What's my readiness score in ${applicationName}",
               "How is my readiness in ${applicationName}",
               "How is my readiness score in ${applicationName}",
-              "How's my readiness today in ${applicationName}"
+              "How's my readiness today in ${applicationName}",
+              "What's my readiness today in ${applicationName}",
+              "Give me my readiness score in ${applicationName}",
+              "Check my readiness in ${applicationName}",
+              "Show my readiness in ${applicationName}",
+              "What's my start of day readiness in ${applicationName}",
+              "How is the start of day readiness score in ${applicationName}",
+              "What was my morning readiness in ${applicationName}",
+              "Am I ready to train in ${applicationName}"
             ]
           }
         }
