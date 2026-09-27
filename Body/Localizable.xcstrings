@@ -6756,6 +6756,23 @@
         }
       }
     },
+    "Follow to see app progress" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Follow to see app progress"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关注以了解应用进展"
+          }
+        }
+      }
+    },
     "Font" : {
       "localizations" : {
         "en" : {
@@ -16820,6 +16837,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此配置方案将被移除。"
+          }
+        }
+      }
+    },
+    "Threads" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Threads"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Threads"
           }
         }
       }

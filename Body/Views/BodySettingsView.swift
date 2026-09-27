@@ -5635,6 +5635,7 @@ private struct BodyMoreSettingsSheet: View {
     @Environment(\.openURL) private var openURL
 
     private let supportEmailAddress = "zihengthedeveloper@gmail.com"
+    private let threadsProfileURL = URL(string: "https://www.threads.com/@zihengthedeveloper")!
 
     private let disclaimerSection = BodySettingsInfoSection(
         title: String(localized: "Disclaimer"),
@@ -5658,6 +5659,18 @@ private struct BodyMoreSettingsSheet: View {
                         tintColor: .gray
                     ) {
                         openSupportEmail()
+                    }
+                }
+                .bodyCardBackground(translucent: true)
+
+                VStack(spacing: 0) {
+                    BodySettingsPopupActionRow(
+                        title: "Threads",
+                        subtitle: String(localized: "Follow to see app progress"),
+                        iconName: "at",
+                        tintColor: .gray
+                    ) {
+                        openURL(threadsProfileURL)
                     }
                 }
                 .bodyCardBackground(translucent: true)
