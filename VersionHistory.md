@@ -1,3 +1,9 @@
+## 1.1.3 (build 6)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.3 build 6.
+- **Follow Body on Threads.** Settings › About › More now has a **Threads** card below the Feedback Email card, subtitled "Follow to see app progress". Tapping it opens threads.com/@zihengthedeveloper, in the Threads app when installed.
+- **Watch weekly bars no longer jump a day after midnight.** After an on-watch compute past midnight, the Weekly Workout Time complication and the Training Load detail chart showed the week shifted one day to the left (Sunday morning read as if it were Monday) until the next phone sync corrected it. The compute windows the week on the compute day, but the merge keeps the phone's `generatedAt` on purpose (the publication line never advances), and the charts rewound the week from that older day a second time. Each metric now carries the day its week was windowed on (`weeklyAsOf`, stamped by the shared builder and carried by the merge), and `weeklyRewound` shifts from that; a payload from an older phone without it falls back to `generatedAt` as before.
+
 ## 1.1.3 (build 5)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.3 build 5.
