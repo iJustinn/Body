@@ -52,6 +52,21 @@ final class WatchMetricWeeklyRewoundTests: XCTestCase {
         XCTAssertEqual(metric(weekly: nil).weeklyRewound(from: date(28), to: date(28), calendar: calendar), Array(repeating: nil, count: 7))
     }
 
+    /// An on-watch compute after midnight windows the week on the compute day
+    /// while the merge keeps the phone's older `generatedAt`; rewinding from
+    /// `generatedAt` shifted such a week one day too far (the Sunday morning
+    /// "M T T" bars). The week's own `weeklyAsOf` day wins.
+    func testWeekWindowedOnItsOwnDayIsNotRewoundFromAnOlderGeneratedAt() {
+        let weekly: [Double?] = [12, 30, nil, 45, 22, 0, 38]
+        var computed = metric(weekly: weekly)
+        computed.weeklyAsOf = date(28, hour: 1)
+        XCTAssertEqual(computed.weeklyRewound(from: date(27, hour: 23), to: date(28, hour: 10), calendar: calendar), weekly)
+        // …and a stamped week that IS a day old still shifts, even under a
+        // newer generatedAt.
+        computed.weeklyAsOf = date(27, hour: 23)
+        XCTAssertEqual(computed.weeklyRewound(from: date(28), to: date(28, hour: 10), calendar: calendar), [30, nil, 45, 22, 0, 38, nil])
+    }
+
     func testClockRolledBackwardDoesNotShift() {
         let weekly: [Double?] = [12, 30, nil, 45, 22, 0, 38]
         let rewound = metric(weekly: weekly).weeklyRewound(from: date(28), to: date(27), calendar: calendar)

@@ -177,6 +177,7 @@ enum WatchMetricsSnapshotBuilder {
             stampedMetric.computedAt = perKindDataAsOf?(metric.kind) ?? lastRefreshDate
             stampedMetric.measuredAt = measuredAt(forKind: metric.kind)
             stampedMetric.weekly = weeklyValues(forKind: metric.kind)
+            stampedMetric.weeklyAsOf = stampedMetric.weekly == nil ? nil : now
             return stampedMetric
         }
         return WatchMetricsSnapshot(

@@ -195,16 +195,27 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// older phone (omits it) or older watch (ignores it) still decodes.
     var weekly: [Double?]? = nil
 
+    /// The instant `weekly`'s last slot was windowed on (the builder's `now`),
+    /// so the series can be re-windowed from ITS OWN day rather than the
+    /// snapshot's. The two differ after an on-watch compute: the merge keeps
+    /// the phone's `generatedAt` (the publication line is never advanced) while
+    /// the adopted week ends on the compute day, and rewinding a same-day week
+    /// from yesterday's `generatedAt` shifted every bar one day too far.
+    /// Optional/defaulted per the schema-evolution note below; a payload
+    /// without it (an older phone) falls back to `generatedAt`.
+    var weeklyAsOf: Date? = nil
+
     /// `weekly` re-windowed so its last slot lands on `today`: normalized to
     /// exactly 7 slots (newest kept, missing older days padded with nil), then
-    /// days elapsed since the snapshot's build day are shifted out with nil
-    /// slots appended. A cached snapshot is only rewritten when the phone
-    /// pushes, so without this a complication drawn after midnight would keep
+    /// days elapsed since the week's own day (`weeklyAsOf`, else the
+    /// snapshot's build day) are shifted out with nil slots appended. A cached
+    /// snapshot is only rewritten when the phone pushes or the watch computes,
+    /// so without this a complication drawn after midnight would keep
     /// yesterday as its rightmost day.
     func weeklyRewound(from generatedAt: Date, to today: Date, calendar: Calendar = .current) -> [Double?] {
         let recent = Array((weekly ?? []).suffix(7))
         let padded = Array(repeating: Double?.none, count: 7 - recent.count) + recent
-        let snapshotDay = calendar.startOfDay(for: generatedAt)
+        let snapshotDay = calendar.startOfDay(for: weeklyAsOf ?? generatedAt)
         let entryDay = calendar.startOfDay(for: today)
         let elapsed = calendar.dateComponents([.day], from: snapshotDay, to: entryDay).day ?? 0
         let shift = min(max(elapsed, 0), 7)

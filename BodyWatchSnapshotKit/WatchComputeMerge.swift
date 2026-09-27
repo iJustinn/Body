@@ -89,6 +89,7 @@ extension WatchMetric {
         adopted.levelMax = other.levelMax
         adopted.tint = other.tint
         adopted.weekly = other.weekly
+        adopted.weeklyAsOf = other.weeklyAsOf
         adopted.statusBand = other.statusBand
         // Including nil: the candidate's "no drain" must clear a stale dot,
         // not let the replaced payload's drained value linger under the
@@ -173,6 +174,7 @@ enum WatchComputeMerge {
                     if result.coverage > displayedAsOf {
                         var adopted = metric
                         adopted.weekly = candidate.weekly
+                        adopted.weeklyAsOf = candidate.weeklyAsOf
                         adopted.rangeMin = candidate.rangeMin
                         adopted.rangeMax = candidate.rangeMax
                         return adopted

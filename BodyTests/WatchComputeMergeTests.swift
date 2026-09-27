@@ -168,15 +168,15 @@ final class WatchComputeMergeTests: XCTestCase {
         // re-read bars and must move the complication forward between pushes.
         let phoneWeek: [Double?] = [12, 30, 0, 45, 22, 0, 38]
         let watchWeek: [Double?] = [30, 0, 45, 22, 0, 38, 15]
+        var watchMetric = metric(
+            WatchMetricKindKey.workoutMinutes,
+            displayValue: "15", rawValue: 15,
+            weekly: watchWeek
+        )
+        watchMetric.weeklyAsOf = t1
         let merged = WatchComputeMerge.mergingComputed(
             result(
-                metrics: [
-                    metric(
-                        WatchMetricKindKey.workoutMinutes,
-                        displayValue: "15", rawValue: 15,
-                        weekly: watchWeek
-                    )
-                ],
+                metrics: [watchMetric],
                 dataAsOf: [WatchMetricKindKey.workoutMinutes: t1]
             ),
             into: phoneWorkoutWeek(phoneWeek, displayValue: "38")
@@ -184,6 +184,10 @@ final class WatchComputeMergeTests: XCTestCase {
 
         let workout = merged.metric(forKind: WatchMetricKindKey.workoutMinutes)
         XCTAssertEqual(workout?.weekly, watchWeek)
+        // The week's own day travels with it: `generatedAt` stays the phone's,
+        // so rewinding from that would shift the compute-day week a day too far.
+        XCTAssertEqual(workout?.weeklyAsOf, t1)
+        XCTAssertEqual(merged.generatedAt, t0)
         XCTAssertEqual(workout?.displayValue, "15")
         XCTAssertEqual(workout?.computedAt, t1)
     }
