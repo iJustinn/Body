@@ -66,6 +66,10 @@ actor WatchDeltaFetcher {
         )
 
         var delta = WatchComputeDelta()
+        delta.carriedKinds = Set(reads.compactMap { kind, read in
+            if case .unavailable = read { return kind }
+            return nil
+        })
 
         async let heartRateSeries = dailySeries(
             .heartRate, reads: reads,

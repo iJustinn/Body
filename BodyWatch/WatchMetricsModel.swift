@@ -843,6 +843,16 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             return
         }
 
+        if !result.readinessBlockers.isEmpty {
+            Self.logger.info(
+                "Readiness not recomputed, blocked inputs: \(result.readinessBlockers.joined(separator: ", "), privacy: .public)"
+            )
+        }
+        if !result.readinessCarriedInputs.isEmpty {
+            Self.logger.info(
+                "Inputs carried from the phone, no local source: \(result.readinessCarriedInputs.joined(separator: ", "), privacy: .public)"
+            )
+        }
         lastComputeDate = environment.now()
         let persisted = apply(WatchComputeMerge.mergingComputed(result, into: snapshot))
         pendingWork = WatchPendingRecomputePolicy.consuming(
