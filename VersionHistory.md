@@ -1,3 +1,9 @@
+## 1.1.3 (build 7)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.3 build 7.
+- **Watch Readiness recomputes on its own again when Blood Oxygen lives on the iPhone.** On a watch whose blood oxygen readings are computed on the iPhone, the watch holds no blood oxygen source at all, and the rule that every Readiness input must be read on the watch blocked every on-watch Readiness recompute, so the morning score waited for an iPhone sync. An input the watch has no source for is now carried from the iPhone's last sync and no longer blocks. Until the next sync the watch score can differ slightly from the iPhone's, since it lacks the newest reading of that input. An input the watch can see only in part, a failed query, or a watch that can read none of the inputs still blocks.
+- **A watch workout lowers watch Readiness even when the watch cannot recompute the score.** The watch recomputes Readiness only when every input it may read succeeds in the same pass, and one refused input (a Health source the iPhone counts that the watch cannot see, for example) kept the whole result back, including the drain of a workout just finished. Training Load and the weekly bars moved while Readiness waited for an iPhone sync. The workout drain depends on the workout list alone, so the watch now applies it to the score on screen whenever its workout query succeeded. The watch log (category WatchCompute) also names the inputs that blocked a Readiness recompute.
+
 ## 1.1.3 (build 6)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.3 build 6.
