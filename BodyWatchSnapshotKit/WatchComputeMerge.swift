@@ -50,14 +50,32 @@ struct WatchComputeResult {
     /// a Clear-Cache reset, a seed replacement, or a permission change that
     /// landed mid-compute invalidates it (anti-resurrection).
     let generation: UInt64
+    /// Whether the readiness metric's drain report came from a workout query
+    /// that SUCCEEDED this run. The report depends on the workout list alone,
+    /// so it stays trustworthy when another readiness input was refused and the
+    /// score itself went unstamped: the merge then records it and drains the
+    /// displayed (phone) score, instead of waiting for a phone sync.
+    let drainIsFresh: Bool
+    /// The permission-eligible readiness inputs that did NOT succeed this run
+    /// (empty when readiness was stamped). Diagnostics only.
+    let readinessBlockers: [String]
+    /// The readiness inputs carried from the phone's seed because this watch
+    /// holds no source for them. Diagnostics only.
+    let readinessCarriedInputs: [String]
 
     init(
         snapshot: WatchMetricsSnapshot,
         dataAsOf: [String: Date],
         chartDataAsOf: [String: Date] = [:],
         coverage: Date,
-        generation: UInt64
+        generation: UInt64,
+        drainIsFresh: Bool = false,
+        readinessCarriedInputs: [String] = [],
+        readinessBlockers: [String] = []
     ) {
+        self.readinessCarriedInputs = readinessCarriedInputs
+        self.drainIsFresh = drainIsFresh
+        self.readinessBlockers = readinessBlockers
         self.snapshot = snapshot
         self.dataAsOf = dataAsOf
         self.chartDataAsOf = chartDataAsOf
@@ -251,15 +269,18 @@ enum WatchComputeMerge {
             merged.sleepStages = computed.sleepStages
         }
 
-        // Readiness drain: record the watch's report, but only from a compute
-        // that STAMPED readiness. An unstamped one mixed fresh and seed-carried
-        // inputs (its workout query may have failed outright), so its report is
-        // no more trustworthy than its score. Then reconcile whichever metric
-        // won above, so a workout only the phone has seen survives a watch
-        // compute that adopted its own score.
+        // Readiness drain: record the watch's report from a compute that
+        // STAMPED readiness, or whose workout query succeeded
+        // (`drainIsFresh`): the report depends on the workout list alone, so a
+        // refused vitals or sleep input must not hold a finished workout's
+        // drain back until the phone syncs. A compute whose workout query
+        // failed reports nothing trustworthy and is skipped. Then reconcile
+        // whichever metric won above, so a workout only the phone has seen
+        // survives a watch compute that adopted its own score.
         var reports = current.metric(forKind: WatchMetricKindKey.readiness)?.drainReports
-        if result.dataAsOf[WatchMetricKindKey.readiness] != nil,
-           let candidate = computed.metric(forKind: WatchMetricKindKey.readiness) {
+        if let candidate = computed.metric(forKind: WatchMetricKindKey.readiness),
+           result.dataAsOf[WatchMetricKindKey.readiness] != nil
+            || (result.drainIsFresh && candidate.drain != nil) {
             reports = WatchReadinessDrainReconciler.receivingWatchReport(candidate.drain, into: reports)
         }
         merged.metrics = reconcilingReadiness(in: merged.metrics, reports: reports)

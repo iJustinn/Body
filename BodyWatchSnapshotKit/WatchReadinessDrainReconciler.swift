@@ -115,7 +115,15 @@ enum WatchReadinessDrainReconciler {
         // Nothing reported by either side yet is stored as nil, so a payload
         // from before these fields merges exactly as it used to.
         metric.drainReports = reports == WatchReadinessDrainReports() ? nil : reports
-        guard winner.hasValue, let own = winner.drain else { return metric }
+        guard winner.hasValue, var own = winner.drain else { return metric }
+        // A kept watch-computed winner can be older than the watch's latest
+        // report (a later compute whose score went unstamped still reports its
+        // workouts), so the workouts come from that report and only the
+        // undrained score from the winner.
+        if winnerIsWatchComputed, let latest = reports.watch {
+            own.cycleStart = latest.cycleStart
+            own.contributions = latest.contributions
+        }
 
         let contributions = effectiveContributions(
             own: own,

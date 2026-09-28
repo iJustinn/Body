@@ -64,12 +64,18 @@ final class WatchReadinessDrainMergeTests: XCTestCase {
         WatchMetricsSnapshot(generatedAt: date, lastRefreshDate: date, metrics: [metric], source: "phone")
     }
 
-    private func computeResult(_ metric: WatchMetric, at date: Date, stamped: Bool = true) -> WatchComputeResult {
+    private func computeResult(
+        _ metric: WatchMetric,
+        at date: Date,
+        stamped: Bool = true,
+        drainIsFresh: Bool = false
+    ) -> WatchComputeResult {
         WatchComputeResult(
             snapshot: snapshot(metric, at: date),
             dataAsOf: stamped ? [WatchMetricKindKey.readiness: date] : [:],
             coverage: date,
-            generation: 0
+            generation: 0,
+            drainIsFresh: drainIsFresh
         )
     }
 
@@ -173,6 +179,38 @@ final class WatchReadinessDrainMergeTests: XCTestCase {
         XCTAssertEqual(merged.score, 70)
         XCTAssertEqual(merged.drainReports?.watch?.contributions, [a])
         XCTAssertNil(merged.drainReports?.watchRemovedIDs)
+    }
+
+    /// The standalone case: a vitals or sleep input was refused, so the score
+    /// goes unstamped, but the workout query succeeded. The phone's score stays
+    /// the winner and the finished workout still drains it.
+    func testUnstampedComputeWithAFreshWorkoutReportDrainsThePhoneScore() throws {
+        let morning = snapshot(readiness(undrained: 80, workouts: [], computedAt: at(10)), at: at(10))
+        let blocked = computeResult(
+            readiness(undrained: 91, workouts: [a], computedAt: at(70), watchComputed: true),
+            at: at(70), stamped: false, drainIsFresh: true
+        )
+        let merged = try readiness(in: WatchComputeMerge.mergingComputed(blocked, into: morning))
+        XCTAssertEqual(merged.score, 70, "the phone's own base score, the watch's workout drained")
+        XCTAssertEqual(merged.weeklyCurrentValue, 70)
+        XCTAssertEqual(merged.computedAt, at(10), "the phone's metric still won")
+        XCTAssertNil(merged.liveUpdatedAt)
+        XCTAssertEqual(merged.drainReports?.watch?.contributions, [a])
+    }
+
+    func testKeptWatchComputedScoreDrainsALaterFreshWorkoutReport() throws {
+        let morning = snapshot(readiness(undrained: 80, workouts: [], computedAt: at(10)), at: at(10))
+        let onWatch = displayed(
+            afterWatchCompute: readiness(undrained: 80, workouts: [a], computedAt: at(70), watchComputed: true),
+            at: at(70), over: morning
+        )
+        let blocked = computeResult(
+            readiness(undrained: 91, workouts: [a, b], computedAt: at(130), watchComputed: true),
+            at: at(130), stamped: false, drainIsFresh: true
+        )
+        let merged = try readiness(in: WatchComputeMerge.mergingComputed(blocked, into: onWatch))
+        XCTAssertEqual(merged.score, 62)
+        XCTAssertEqual(merged.liveUpdatedAt, at(70), "the earlier stamped compute is still the winner")
     }
 
     // MARK: - Deletion
