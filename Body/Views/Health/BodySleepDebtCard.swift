@@ -128,7 +128,7 @@ struct BodySleepDebtCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if model.learnedNeed == nil {
+            if !night.isNeedLearned {
                 Text("Need uses your sleep goal until 28 nights are recorded")
                     .font(.system(.footnote, design: .rounded))
                     .fontWeight(.medium)
@@ -211,14 +211,15 @@ private func previewSleepDebtCard(
             day: day,
             duration: shortfallMinutes(daysAgo).map { goal - $0 * 60 },
             trainingLoadRatio: trainingDaysAgo.contains(daysAgo) ? 1.35 : nil,
-            hrvZScore: lowHRVDaysAgo.contains(daysAgo) ? -1.8 : nil
+            hrvZScore: lowHRVDaysAgo.contains(daysAgo) ? -1.8 : nil,
+            learnedNeed: learnedNeed
         )
     }
     let selectedDay = calendar.date(byAdding: .day, value: -selectedDaysAgo, to: calendar.startOfDay(for: now)) ?? now
 
     return ScrollView {
         BodySleepDebtCard(
-            model: SleepDebtChartModel.make(entries: entries, sleepGoal: goal, learnedNeed: learnedNeed),
+            model: SleepDebtChartModel.make(entries: entries, sleepGoal: goal),
             selectedDay: selectedDay,
             tint: Color(red: 0.20, green: 0.72, blue: 1.00),
             onSelectDay: { _ in }

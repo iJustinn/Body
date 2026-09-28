@@ -14,11 +14,11 @@ struct SleepDebtNight: Equatable, Identifiable {
     /// or nil when no sleep was recorded.
     var actualDuration: TimeInterval?
     /// The base need (the sleep goal moved a third of the way toward the need
-    /// learned from the last 8 weeks of sleep, or the goal alone until the
-    /// need is learned) plus `trainingAdjustment` and `hrvAdjustment`.
+    /// learned from the 8 weeks of sleep ending on this night, or the goal
+    /// alone until the need is learned) plus `trainingAdjustment` and `hrvAdjustment`.
     var needDuration: TimeInterval
-    /// False while the sleep goal stands in for the learned need; the card
-    /// then shows a placeholder for the need.
+    /// False while the sleep goal stands in for this night's learned need; the
+    /// card then shows a placeholder for the need.
     var isNeedLearned: Bool
     /// Body's addition for the previous day's Training Load, 0 to 30 minutes.
     var trainingAdjustment: TimeInterval
@@ -41,12 +41,13 @@ struct SleepDebtNight: Equatable, Identifiable {
 }
 
 /// The Sleep page's Sleep Debt: each night's need (a base need that moves the
-/// sleep goal a third of the way toward what the last 8 weeks of sleep show,
-/// or the goal alone until enough nights exist, plus Training Load and sleep
-/// HRV adjustments) against what was slept, summed over a rolling 14 night
-/// calendar window. Nights with no sleep recorded are skipped, longer nights
-/// offset shorter ones, and the total never drops below zero or climbs past
-/// 6 hours.
+/// sleep goal a third of the way toward what the 8 weeks of sleep ending on
+/// that night show, or the goal alone until enough nights exist, plus Training
+/// Load and sleep HRV adjustments) against what was slept, summed over a
+/// rolling 14 night calendar window. Nights with no sleep recorded are
+/// skipped, longer nights offset shorter ones, and the total never drops below
+/// zero or climbs past 6 hours. Each night keeps the need it learned on its
+/// own day, so a point on the chart never moves as later nights arrive.
 struct SleepDebtChartModel: Equatable {
     struct Entry: Equatable {
         /// Start of the wake day.
@@ -60,6 +61,10 @@ struct SleepDebtChartModel: Equatable {
         /// Readiness's robust z score, which sets the need of the next night.
         /// Nil without a reading or a baseline.
         var hrvZScore: Double? = nil
+        /// The need learned from the recorded nights of the 56 days ending on
+        /// this day, or nil with fewer than 28 of them. The night is judged
+        /// against it, so its need stays what it was on its own day.
+        var learnedNeed: TimeInterval? = nil
     }
 
     static let windowNightCount = 14
@@ -76,8 +81,8 @@ struct SleepDebtChartModel: Equatable {
     static let lowDebtUpperBound: TimeInterval = 2 * 3_600
     static let moderateDebtUpperBound: TimeInterval = 4 * 3_600
     static let maximumDebt: TimeInterval = 6 * 3_600
-    /// The learned need reads the recorded nights of the 56 days ending today,
-    /// needs 28 of them, and takes their 75th percentile: what you sleep on
+    /// A night's learned need reads the recorded nights of the 56 days ending
+    /// on it, needs 28 of them, and takes their 75th percentile: what you sleep on
     /// your longer nights, since the median of a short sleeper reflects the
     /// shortfall itself. It is kept between 6 and 10 hours, and the base need
     /// then moves the sleep goal a third of the way toward it, so the goal
@@ -107,9 +112,6 @@ struct SleepDebtChartModel: Equatable {
     var nights: [SleepDebtNight]
     /// The Settings sleep goal, which the night row shows beside the need.
     var sleepGoal: TimeInterval
-    /// The need learned from sleep history, which the base need blends with
-    /// the goal, or nil while the sleep goal stands in for it.
-    var learnedNeed: TimeInterval? = nil
 
     /// The chart's columns: the last 14 wake days, the same days as the Sleep
     /// Consistency chart.
@@ -164,8 +166,8 @@ struct SleepDebtChartModel: Equatable {
 
     /// One entry per wake day, `entryDayCount` days ending today: the history's
     /// night for the day (the live summary fills in today only, and only when
-    /// it is today's), the day's Training Load ratio, and how the night's
-    /// sleep HRV compared with the nights before it.
+    /// it is today's), the day's Training Load ratio, how the night's sleep HRV
+    /// compared with the nights before it, and the need learned by that day.
     static func entries(
         sleepHistory: SleepHistorySnapshot,
         currentDaySummary: SleepSummary?,
@@ -198,7 +200,8 @@ struct SleepDebtChartModel: Equatable {
         // Two days of slack keep a night stored under another zone's midnight
         // within reach of the start of day keying below. The first entry's
         // night is judged for HRV too, so the history reaches a whole HRV
-        // baseline further back than the entries.
+        // baseline further back than the entries, which also covers the 56
+        // days each entry learns its need from.
         let cutoff = calendar.date(byAdding: .day, value: -2, to: firstDay) ?? firstDay
         let historyCutoff = calendar.date(
             byAdding: .day,
@@ -242,8 +245,8 @@ struct SleepDebtChartModel: Equatable {
     }
 
     /// The entries for `inputs`, judging each night's sleep HRV against the
-    /// nights before it: the costly part, which the gathered inputs let a
-    /// caller skip.
+    /// nights before it and learning each day's need from the 56 days ending
+    /// on it: the costly part, which the gathered inputs let a caller skip.
     static func entries(from inputs: Inputs) -> [Entry] {
         let hrvValues = inputs.nights.compactMap { night in
             usableHRV(night.heartRateVariability).map {
@@ -257,22 +260,22 @@ struct SleepDebtChartModel: Equatable {
                 day: day,
                 duration: night?.duration,
                 trainingLoadRatio: ratio,
-                hrvZScore: hrvZScore(night?.heartRateVariability, on: day, values: hrvValues, calendar: inputs.calendar)
+                hrvZScore: hrvZScore(night?.heartRateVariability, on: day, values: hrvValues, calendar: inputs.calendar),
+                learnedNeed: learnedNeed(on: day, nights: inputs.nights, calendar: inputs.calendar)
             )
         }
     }
 
-    /// The base need learned from `inputs`: the 75th percentile of the asleep
-    /// time of the recorded nights in the 56 days ending today, or nil with
-    /// fewer than 28 of them.
-    static func learnedNeed(from inputs: Inputs) -> TimeInterval? {
-        guard let today = inputs.days.last,
-              let firstDay = inputs.calendar.date(byAdding: .day, value: 1 - learnedNeedDayCount, to: today) else {
+    /// The base need learned by `day`: the 75th percentile of the asleep time
+    /// of the recorded nights in the 56 days ending on it, or nil with fewer
+    /// than 28 of them.
+    private static func learnedNeed(on day: Date, nights: [Inputs.Night], calendar: Calendar) -> TimeInterval? {
+        guard let firstDay = calendar.date(byAdding: .day, value: 1 - learnedNeedDayCount, to: day) else {
             return nil
         }
 
-        let durations = inputs.nights.compactMap { night -> TimeInterval? in
-            guard night.day >= firstDay, night.day <= today,
+        let durations = nights.compactMap { night -> TimeInterval? in
+            guard night.day >= firstDay, night.day <= day,
                   let duration = night.duration, duration.isFinite, duration > 0 else {
                 return nil
             }
@@ -305,26 +308,29 @@ struct SleepDebtChartModel: Equatable {
     }
 
     /// Durations are summed as recorded; rounding happens only where values
-    /// are shown. Every night is judged against `baseNeed(learnedNeed:sleepGoal:)`
-    /// when there is a learned need, and against `sleepGoal` alone otherwise.
-    static func make(entries: [Entry], sleepGoal: TimeInterval, learnedNeed: TimeInterval? = nil) -> SleepDebtChartModel {
+    /// are shown. Each night is judged against `baseNeed(learnedNeed:sleepGoal:)`
+    /// with its own entry's learned need, and against `sleepGoal` alone while
+    /// that is nil, so no night is judged again by a need learned later.
+    static func make(entries: [Entry], sleepGoal: TimeInterval) -> SleepDebtChartModel {
         guard entries.count == entryDayCount else {
             return .empty
         }
 
-        let baseNeed = learnedNeed.map { baseNeed(learnedNeed: $0, sleepGoal: sleepGoal) } ?? sleepGoal
+        let baseNeeds = entries.map { entry in
+            entry.learnedNeed.map { baseNeed(learnedNeed: $0, sleepGoal: sleepGoal) } ?? sleepGoal
+        }
 
         // The first entry only lends its Training Load and sleep HRV to the
         // night after it.
         var trainingAdjustments = [TimeInterval](repeating: 0, count: entries.count)
         var hrvAdjustments = [TimeInterval](repeating: 0, count: entries.count)
-        var needs = [TimeInterval](repeating: baseNeed, count: entries.count)
+        var needs = baseNeeds
         var actuals = [TimeInterval?](repeating: nil, count: entries.count)
         var gaps = [TimeInterval?](repeating: nil, count: entries.count)
         for index in entries.indices.dropFirst() {
             trainingAdjustments[index] = trainingAdjustment(forTrainingLoadRatio: entries[index - 1].trainingLoadRatio)
             hrvAdjustments[index] = hrvAdjustment(forHRVZScore: entries[index - 1].hrvZScore)
-            needs[index] = baseNeed + trainingAdjustments[index] + hrvAdjustments[index]
+            needs[index] = baseNeeds[index] + trainingAdjustments[index] + hrvAdjustments[index]
             if let duration = entries[index].duration, duration.isFinite, duration > 0 {
                 actuals[index] = duration
                 gaps[index] = needs[index] - duration
@@ -343,7 +349,7 @@ struct SleepDebtChartModel: Equatable {
                 day: entries[index].day,
                 actualDuration: actuals[index],
                 needDuration: needs[index],
-                isNeedLearned: learnedNeed != nil,
+                isNeedLearned: entries[index].learnedNeed != nil,
                 trainingAdjustment: trainingAdjustments[index],
                 hrvAdjustment: hrvAdjustments[index],
                 recordedNightCount: recordedGaps.count,
@@ -351,7 +357,7 @@ struct SleepDebtChartModel: Equatable {
             )
         }
 
-        return SleepDebtChartModel(nights: nights, sleepGoal: sleepGoal, learnedNeed: learnedNeed)
+        return SleepDebtChartModel(nights: nights, sleepGoal: sleepGoal)
     }
 
     /// Body's own addition to a night's need after a day of heavier than usual

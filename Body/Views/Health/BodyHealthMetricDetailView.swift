@@ -3437,8 +3437,8 @@ struct BodyHealthMetricDetailView: View {
     }
 
     // Gathering the inputs is a single pass over the history each render; the
-    // cache rebuilds the model, with its HRV baselines and learned need, only
-    // when they or the goal change. The Training Load series comes straight from the store, like
+    // cache rebuilds the model, with its HRV baselines and each night's learned
+    // need, only when they or the goal change. The Training Load series comes straight from the store, like
     // `liveDaySeries`, since the detail model doesn't carry it; this page's
     // pull refreshes it along with sleep (`performHealthMetricRefresh`).
     private var sleepDebtChartModel: SleepDebtChartModel {
@@ -3974,7 +3974,8 @@ final class BodySleepConsistencyChartCache: ObservableObject {
 }
 
 /// Memoizes the Sleep Debt model. Gathering its inputs is cheap, but building it
-/// judges each of its 44 nights' sleep HRV against a baseline, and the detail
+/// judges each of its 44 nights' sleep HRV against a baseline and learns each
+/// night's need from the 56 days ending on it, and the detail
 /// view asks for it on every `body` evaluation (each day selection or
 /// progressive-refresh tick). Keyed on the gathered inputs, one value per night,
 /// and the sleep goal.
@@ -3989,8 +3990,7 @@ final class BodySleepDebtChartCache: ObservableObject {
 
         let model = SleepDebtChartModel.make(
             entries: SleepDebtChartModel.entries(from: inputs),
-            sleepGoal: sleepGoal,
-            learnedNeed: SleepDebtChartModel.learnedNeed(from: inputs)
+            sleepGoal: sleepGoal
         )
         cached = (inputs, sleepGoal, model)
         return model

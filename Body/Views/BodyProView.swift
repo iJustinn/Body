@@ -743,7 +743,7 @@ private struct BodyProSleepDebtSlide: View {
                 debtAfterNight: debt
             )
         }
-        return SleepDebtChartModel(nights: nights, sleepGoal: sleepGoal, learnedNeed: need)
+        return SleepDebtChartModel(nights: nights, sleepGoal: sleepGoal)
     }()
 
     var body: some View {

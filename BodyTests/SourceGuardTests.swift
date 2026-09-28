@@ -2001,11 +2001,16 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(model.contains("? min(max(0, recordedGaps.reduce(0, +)), maximumDebt)"))
         XCTAssertTrue(model.contains("static let moderateDebtUpperBound: TimeInterval = 4 * 3_600"))
         XCTAssertTrue(try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift").contains("SleepDebtChartModel.maximumDebt\n    }"))
-        XCTAssertTrue(model.contains("let baseNeed = learnedNeed.map { baseNeed(learnedNeed: $0, sleepGoal: sleepGoal) } ?? sleepGoal"))
-        // The page learns it from the same inputs the model is cached on, and the
-        // row says so while the goal still stands in.
-        XCTAssertTrue(detail.contains("learnedNeed: SleepDebtChartModel.learnedNeed(from: inputs)"))
-        XCTAssertTrue(card.contains("if model.learnedNeed == nil {"))
+        // Each night is judged against the need it learned by its own day, never
+        // against one need learned later for every night, so earlier points hold.
+        XCTAssertTrue(model.contains("entry.learnedNeed.map { baseNeed(learnedNeed: $0, sleepGoal: sleepGoal) } ?? sleepGoal"))
+        XCTAssertTrue(model.contains("learnedNeed: learnedNeed(on: day, nights: inputs.nights, calendar: inputs.calendar)"))
+        XCTAssertFalse(model.contains("learnedNeed(from inputs"))
+        // The page learns them from the same inputs the model is cached on, and
+        // the row says so for a night whose goal still stands in.
+        XCTAssertTrue(detail.contains("entries: SleepDebtChartModel.entries(from: inputs),"))
+        XCTAssertFalse(detail.contains("SleepDebtChartModel.learnedNeed("))
+        XCTAssertTrue(card.contains("if !night.isNeedLearned {"))
         XCTAssertTrue(card.contains(#"Text("Need uses your sleep goal until 28 nights are recorded")"#))
         // The need itself shows as a placeholder until learned, in the row and in
         // the chart's VoiceOver labels, while the goal still sets the debt.
@@ -2017,9 +2022,9 @@ final class SourceGuardTests: XCTestCase {
         let chart = try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift")
         XCTAssertTrue(chart.contains("night.isNeedLearned ? BodyValueFormat.durationText(for: night.needDuration) : BodySleepDebtCard.placeholder"))
         // One cache keyed on the gathered inputs and the goal holds the whole
-        // model, learned need included, so nothing recomputes while they hold.
+        // model, learned needs included, so nothing recomputes while they hold.
         XCTAssertTrue(detail.contains("if let cached, cached.inputs == inputs, cached.sleepGoal == sleepGoal {"))
-        XCTAssertEqual(detail.occurrenceCount(of: "SleepDebtChartModel.learnedNeed(from:"), 1)
+        XCTAssertEqual(detail.occurrenceCount(of: "SleepDebtChartModel.entries(from:"), 1)
     }
 
     func testSleepDebtChartColorsEachNightByBandAndBlendsTheLine() throws {
