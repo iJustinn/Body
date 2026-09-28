@@ -1,3 +1,8 @@
+## 1.1.3 (build 8)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.3 build 8.
+- **Sleep Debt keeps each night's need.** Every night on the Sleep Debt chart was judged against the need learned as of today, so whenever the 8 week figure crossed a 5 minute step, the need of all 14 nights in every window moved with it and each earlier point jumped by up to 70 minutes overnight (with a 7h30m goal, a learned need slipping from 8h25m to 8h20m took the base need from 7h50m to 7h45m and lowered every earlier point by up to 70 minutes without a single new short night). Each night now learns its own need from the 56 days ending on it, the rule today's night always used, so a point never moves once its night has passed: the total changes only by the night that comes in and the one that leaves the window, and an earlier night's Need in the night row stays what it was. A night with fewer than 28 recorded nights behind it keeps the sleep goal as its need, and the row shows "--h --m" and "Need uses your sleep goal until 28 nights are recorded" for that night alone. Changing the sleep goal in Settings, or sleep and workouts that sync late, still recompute the nights they touch.
+
 ## 1.1.3 (build 7)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.3 build 7.

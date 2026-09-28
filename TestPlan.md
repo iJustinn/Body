@@ -18,7 +18,7 @@ RP-03 Phase 5 transaction coverage: `WorkoutChangeJournalTests` checks staged bo
 
 RP-03 Phase 4 review regressions: `WorkoutEffortValidationTests` overlaps expired gathers in both score/absence orders and checks that both succeed while the earlier-admitted value survives. Existing failure, rollback, clear, and Training Load failure tests remain binding. `HistoricalMonthRepairTests` checks that unchanged publication and an empty month fold preserve the repair revision, while progress, cursor changes, and deletion advance it. The navigation source guard verifies a stale loaded month uses immediate selection plus background revalidation without creating pending selection. Manually revisit a previously fetched empty month after five minutes: it must appear immediately and update in place if HealthKit later adds a workout. Unknown, cleared, and empty disk-only months must still use the loading path.
 
-Generated 2026-09-27 against branch `body-v1.1.3` (app version 1.1.3 build 7).
+Generated 2026-09-28 against branch `body-v1.1.3` (app version 1.1.3 build 8).
 
 The `watch-screenshots/` and `phone-widgets-screenshots/` renders the cases below compare against are kept outside the repo; regenerate the phone widget set by running `BodyTests/PhoneWidgetScreenshotTests` with `BODY_WIDGET_SCREENSHOTS=1`, the Day Ring merged workout renders in `app-screenshots/` by running `BodyTests/DayRingScreenshotTests` with `BODY_DAYRING_SCREENSHOTS=1`, and capture the watch set from the simulator.
 
