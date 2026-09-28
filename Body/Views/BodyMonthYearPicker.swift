@@ -298,20 +298,30 @@ struct BodyMonthYearPicker: View {
     private func monthPreviewTapZone(direction: Int, width: CGFloat) -> some View {
         ZStack {
             if monthYearList.indices.contains(selectedIndex + direction) {
-                Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        moveToMonthIndex(selectedIndex + direction)
-                        dragOffset = 0
+                // A tap gesture, not a Button: a Button keeps its touch while the finger
+                // moves, so a swipe starting on a side month landed as a tap on it. A tap
+                // gesture fails once the finger moves and hands the swipe to the drag.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        moveToAdjacentMonth(direction)
                     }
-                } label: {
-                    Color.clear
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(direction < 0 ? "Previous month" : "Next month")
+                    .accessibilityElement()
+                    .accessibilityLabel(direction < 0 ? "Previous month" : "Next month")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction {
+                        moveToAdjacentMonth(direction)
+                    }
             }
         }
         .frame(width: width, height: pickerHeight)
+    }
+
+    private func moveToAdjacentMonth(_ direction: Int) {
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+            moveToMonthIndex(selectedIndex + direction)
+            dragOffset = 0
+        }
     }
 
     /// Fades the carousel's off-center months to transparent at both edges (background-agnostic),
