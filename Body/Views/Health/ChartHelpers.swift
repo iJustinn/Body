@@ -624,6 +624,18 @@ extension View {
     }
 }
 
+/// The point a scrub at `date` lands on, for charts whose marks plot with
+/// `unit: .day`. Those draw centered within their day, so each point is compared
+/// at its day's middle, like `BodyRadarChart.slotCenter`; compared at midnight,
+/// the right half of every bar selected the next day.
+func bodyNearestDayPoint<Point>(to date: Date, in points: [Point], day: (Point) -> Date) -> Point? {
+    let halfDay: TimeInterval = 12 * 60 * 60
+    return points.min { first, second in
+        abs(day(first).addingTimeInterval(halfDay).timeIntervalSince(date))
+            < abs(day(second).addingTimeInterval(halfDay).timeIntervalSince(date))
+    }
+}
+
 extension DateInterval {
     func clamped(to boundary: DateInterval) -> DateInterval? {
         let clampedStart = max(start, boundary.start)

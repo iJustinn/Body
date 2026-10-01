@@ -566,9 +566,7 @@ struct BodyHealthMetricTrendChart: View {
             return nil
         }
 
-        return visibleFinitePoints.min { first, second in
-            abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
-        }
+        return bodyNearestDayPoint(to: selectedDate, in: visibleFinitePoints) { $0.date }
     }
 
     private var highlightedRangeAnimationKey: String {

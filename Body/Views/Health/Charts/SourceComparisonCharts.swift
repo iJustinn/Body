@@ -338,9 +338,7 @@ struct BodyHealthSourceComparisonLineChart: View {
             return nil
         }
 
-        return finiteEntries.min { first, second in
-            abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
-        }
+        return bodyNearestDayPoint(to: selectedDate, in: finiteEntries) { $0.date }
     }
 
     private func selectedValuesEntries(for date: Date) -> [BodyHealthSourceComparisonLineEntry] {

@@ -2,6 +2,7 @@
 
 - Updated the app, widget, watch, and test bundle version to 1.1.5 build 1.
 - **Built with Xcode 27.1 for iOS 27.1.** This version starts from 1.1.3 build 8 and is built with Xcode 27.1 and the iOS 27.1 SDK, so a foldable iPhone's inner screen reads the hinge from UIHingeInteraction and splits its columns at the hinge when half open. 1.1.3 continues on its own branch, built with Xcode 27.0, where the hinge is not read.
+- **Charts select the bar you hold.** On single source trend charts (bars and lines on the Week, Month, 6M and Year ranges, Heart Rate's range bars, Vitals, and the Basics Weight, Body Fat and BMI charts), holding the right half of a bar showed the next bar's detail, because each day's mark is drawn in the middle of its day while the hold was matched to the nearest midnight. The hold is now matched to the middle of each day, the way the Body Radar chart already did, so the callout always belongs to the bar under the finger.
 
 ## 1.1.3 (build 8)
 

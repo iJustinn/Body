@@ -383,9 +383,7 @@ struct BodyHeartRateRangeTrendChart: View {
             return nil
         }
 
-        return finiteRangePoints.min { first, second in
-            abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
-        }
+        return bodyNearestDayPoint(to: selectedDate, in: finiteRangePoints) { $0.date }
     }
 
     private var rangeBarColor: Color {

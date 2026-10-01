@@ -398,9 +398,7 @@ struct BodyVitalsOutlierTrendChart: View {
             return nil
         }
 
-        return buckets.min { first, second in
-            abs(first.endDate.timeIntervalSince(selectedDate)) < abs(second.endDate.timeIntervalSince(selectedDate))
-        }
+        return bodyNearestDayPoint(to: selectedDate, in: buckets) { $0.endDate }
     }
 
     private func selectionAnnotation(for bucket: BodyVitalsOutlierBucket) -> BodyVitalsSelectionAnnotation {
