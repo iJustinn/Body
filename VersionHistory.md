@@ -1,3 +1,8 @@
+## 1.1.5 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.5 build 1.
+- **Built with Xcode 27.1 for iOS 27.1.** This version starts from 1.1.3 build 8 and is built with Xcode 27.1 and the iOS 27.1 SDK, so a foldable iPhone's inner screen reads the hinge from UIHingeInteraction and splits its columns at the hinge when half open. 1.1.3 continues on its own branch, built with Xcode 27.0, where the hinge is not read.
+
 ## 1.1.3 (build 8)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.3 build 8.
