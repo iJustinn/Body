@@ -111,6 +111,32 @@ final class BodyDismissedMetricWarningsTests: XCTestCase {
         XCTAssertFalse(dismissed.contains(event(.highHeartRate, date(2026, 9, 26))))
     }
 
+    func testUnfoldingRestoresOnlyThatWarning() {
+        let now = date(2026, 9, 26, 12)
+        let night = BodyRadarNight(date: calendar.startOfDay(for: date(2026, 9, 26)), state: .minorSigns)
+        let folded = BodyDismissedMetricWarnings.storedValue(from: "")
+            .dismissing(event(.highHeartRate, date(2026, 9, 26, 9)), now: now)
+            .dismissing(event(.lowBloodOxygen, date(2026, 9, 26, 9)), now: now)
+            .dismissing(night, now: now)
+
+        let unfolded = folded.unfolding(event(.highHeartRate, date(2026, 9, 26, 15)))
+        XCTAssertFalse(unfolded.contains(event(.highHeartRate, date(2026, 9, 26, 9))))
+        XCTAssertTrue(unfolded.contains(event(.lowBloodOxygen, date(2026, 9, 26, 9))))
+        XCTAssertTrue(unfolded.contains(night))
+
+        let radarUnfolded = unfolded.unfolding(night)
+        XCTAssertFalse(radarUnfolded.contains(night))
+        XCTAssertTrue(radarUnfolded.contains(event(.lowBloodOxygen, date(2026, 9, 26, 9))))
+        XCTAssertEqual(BodyDismissedMetricWarnings.storedValue(from: radarUnfolded.rawValue), radarUnfolded)
+    }
+
+    func testUnfoldingAWarningThatWasNeverFoldedChangesNothing() {
+        let folded = BodyDismissedMetricWarnings.storedValue(from: "")
+            .dismissing(event(.highHeartRate, date(2026, 9, 26)), now: date(2026, 9, 26))
+
+        XCTAssertEqual(folded.unfolding(event(.lowHeartRate, date(2026, 9, 26))), folded)
+    }
+
     func testDismissingPrunesEntriesPastTheRetentionWindow() {
         let old = BodyDismissedMetricWarnings.storedValue(from: "")
             .dismissing(event(.highHeartRate, date(2026, 6, 1)), now: date(2026, 6, 1))

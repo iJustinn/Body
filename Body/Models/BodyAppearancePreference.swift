@@ -881,11 +881,12 @@ struct BodyMetricWarningSelection: Equatable {
     }
 }
 
-/// The warnings the user closed with a warning card's close button. Detection
+/// The warnings the user folded with a warning card's chevron. Detection
 /// reports the earliest episode of a day, so a threshold warning is one kind on
-/// one day, and Body Radar's is its one frozen night: closing either hides that
-/// day's card and its Home badges, and the next day's warning shows again.
-/// Entries past the detail page's date picker are pruned.
+/// one day, and Body Radar's is its one frozen night: folding either collapses
+/// that day's card to its title and hides its Home badges, unfolding brings
+/// both back, and the next day's warning shows unfolded again. Entries past the
+/// detail page's date picker are pruned.
 struct BodyDismissedMetricWarnings: Equatable {
     static let retentionDayCount = 60
 
@@ -921,6 +922,14 @@ struct BodyDismissedMetricWarnings: Equatable {
         inserting(Self.entry(name: Self.bodyRadarEntryName, date: night.date, calendar: calendar), now: now, calendar: calendar)
     }
 
+    func unfolding(_ event: MetricWarningEvent, calendar: Calendar = .bodyGregorian) -> BodyDismissedMetricWarnings {
+        removing(Self.entry(name: event.kind.rawValue, date: event.startDate, calendar: calendar))
+    }
+
+    func unfolding(_ night: BodyRadarNight, calendar: Calendar = .bodyGregorian) -> BodyDismissedMetricWarnings {
+        removing(Self.entry(name: Self.bodyRadarEntryName, date: night.date, calendar: calendar))
+    }
+
     static func storedValue(from rawValue: String) -> BodyDismissedMetricWarnings {
         BodyDismissedMetricWarnings(entries: Set(rawValue.split(separator: ",").map(String.init)))
     }
@@ -937,6 +946,12 @@ struct BodyDismissedMetricWarnings: Equatable {
             return String(day) >= cutoffDay
         }
         next.insert(entry)
+        return BodyDismissedMetricWarnings(entries: next)
+    }
+
+    private func removing(_ entry: String) -> BodyDismissedMetricWarnings {
+        var next = entries
+        next.remove(entry)
         return BodyDismissedMetricWarnings(entries: next)
     }
 

@@ -4389,6 +4389,23 @@
         }
       }
     },
+    "Collapse Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collapse Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起警告"
+          }
+        }
+      }
+    },
     "Collision Vibration" : {
       "localizations" : {
         "en" : {
@@ -6521,6 +6538,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "运动时长"
+          }
+        }
+      }
+    },
+    "Expand Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展开警告"
           }
         }
       }

@@ -490,8 +490,9 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "If you were working out, this warning will disappear once the workout is logged.",
             "Default: %@",
             "%lld bpm",
-            // Warning card close button and the Body Radar warning card.
-            "Close",
+            // Warning card fold chevron and the Body Radar warning card.
+            "Expand Warning",
+            "Collapse Warning",
             "bodyRadar.warning.sentence",
             "bodyRadar.warning.sameNight",
             "bodyRadar.warning.persistence",

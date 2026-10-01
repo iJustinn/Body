@@ -2524,10 +2524,11 @@ struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var metricWarningCards: some View {
-        let dismissed = BodyDismissedMetricWarnings.storedValue(from: dismissedMetricWarningsRawValue)
-        let warnings = selectedMetricWarnings.filter { !dismissed.contains($0) }
+        let folded = BodyDismissedMetricWarnings.storedValue(from: dismissedMetricWarningsRawValue)
+        let warnings = selectedMetricWarnings
 
         ForEach(warnings, id: \.kind) { event in
+            let isFolded = folded.contains(event)
             let window = MetricThresholdWarning.chartWindow(for: event, clampedTo: selectedMetricDayInterval)
 
             BodyMetricWarningCard(
@@ -2538,11 +2539,12 @@ struct BodyHealthMetricDetailView: View {
                 window: window,
                 tint: model.symbolColor,
                 floatingCallout: floatingCallout,
-                onDismiss: {
-                    dismissedMetricWarningsRawValue = BodyDismissedMetricWarnings
-                        .storedValue(from: dismissedMetricWarningsRawValue)
-                        .dismissing(event)
-                        .rawValue
+                isFolded: isFolded,
+                onToggleFold: {
+                    let stored = BodyDismissedMetricWarnings.storedValue(from: dismissedMetricWarningsRawValue)
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)) {
+                        dismissedMetricWarningsRawValue = (isFolded ? stored.unfolding(event) : stored.dismissing(event)).rawValue
+                    }
                 }
             )
             // A warning is detected only once the day's samples have loaded, so the
@@ -2562,21 +2564,21 @@ struct BodyHealthMetricDetailView: View {
     }
 
     /// The night the Home card's Body Radar badge flags: the latest frozen night
-    /// when it was scored Minor or Major signs, until the user closes its card.
+    /// when it was scored Minor or Major signs. Folding the card also clears the
+    /// badge until the user unfolds it.
     @ViewBuilder
     private var bodyRadarWarningCard: some View {
-        let dismissed = BodyDismissedMetricWarnings.storedValue(from: dismissedMetricWarningsRawValue)
+        let folded = BodyDismissedMetricWarnings.storedValue(from: dismissedMetricWarningsRawValue)
 
         if let night = model.bodyRadar?.latest,
            night.state.isScored,
-           night.region != .none,
-           !dismissed.contains(night) {
-            BodyRadarWarningCard(night: night) {
+           night.region != .none {
+            let isFolded = folded.contains(night)
+
+            BodyRadarWarningCard(night: night, isFolded: isFolded) {
+                let stored = BodyDismissedMetricWarnings.storedValue(from: dismissedMetricWarningsRawValue)
                 withAnimation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)) {
-                    dismissedMetricWarningsRawValue = BodyDismissedMetricWarnings
-                        .storedValue(from: dismissedMetricWarningsRawValue)
-                        .dismissing(night)
-                        .rawValue
+                    dismissedMetricWarningsRawValue = (isFolded ? stored.unfolding(night) : stored.dismissing(night)).rawValue
                 }
             }
             .transition(dayChartTransition)
