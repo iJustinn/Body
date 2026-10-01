@@ -603,7 +603,8 @@ final class SleepDebtTests: XCTestCase {
             for (earlier, later) in zip(entries, entries.dropFirst()) {
                 XCTAssertEqual(newYork.dateComponents([.day], from: earlier.day, to: later.day).day, 1)
             }
-            XCTAssertTrue(entries.allSatisfy { $0.duration == self.hours(7) && $0.trainingLoadRatio == 1.5 }, "\(month)/\(day)")
+            XCTAssertTrue(entries.allSatisfy { $0.duration == self.hours(7) }, "\(month)/\(day)")
+            XCTAssertTrue(entries.dropLast().allSatisfy { $0.trainingLoadRatio == 1.5 }, "\(month)/\(day)")
 
             let model = SleepDebtChartModel.make(entries: entries, sleepGoal: goal)
             XCTAssertTrue(model.nights.allSatisfy { $0.trainingAdjustment == 30 * 60 }, "\(month)/\(day)")
@@ -668,6 +669,22 @@ final class SleepDebtTests: XCTestCase {
         ))
         XCTAssertEqual(inputs(otherVital), base)
         XCTAssertEqual(inputs(history + [night(on: daysAgo(120, from: now), hours(3), hrv: 20)]), base)
+
+        // Not read: today's Training Load ratio and today's sleep HRV, which
+        // only set tomorrow's need, so a workout logged today or a revised
+        // HRV for last night leaves the cache key as it was.
+        var todayLoad = load
+        todayLoad.points.append(HealthTrendDataPoint(date: now, value: 1.5))
+        XCTAssertEqual(inputs(history, trainingLoad: todayLoad), base)
+        let today = daysAgo(0, from: now)
+        XCTAssertEqual(
+            inputs(history + [night(on: today, hours(7), hrv: 30)]),
+            inputs(history + [night(on: today, hours(7), hrv: 60)])
+        )
+        XCTAssertEqual(
+            inputs(history, live: summary(on: today, hours(7), hrv: 30)),
+            inputs(history, live: summary(on: today, hours(7), hrv: 60))
+        )
 
         // Read: HRV deep in a baseline, a night's duration, a Training Load
         // ratio, and the live summary standing in for today.

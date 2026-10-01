@@ -159,7 +159,8 @@ struct SleepDebtChartModel: Equatable {
         /// One night per recorded day, from a whole HRV baseline before the
         /// first entry day through today.
         var nights: [Night]
-        /// Each entry day's Training Load ratio, aligned with `days`.
+        /// Each entry day's Training Load ratio, aligned with `days`; nil for
+        /// today, whose ratio only sets tomorrow's need.
         var trainingLoadRatios: [Double?]
         var calendar: Calendar
     }
@@ -210,9 +211,11 @@ struct SleepDebtChartModel: Equatable {
         ) ?? cutoff
 
         // The first entry for a day wins, as in `SleepHistorySnapshot.summary(on:)`.
-        // The live summary fills in today only, and only when it is today's; its
-        // HRV never reaches a baseline, which only reads nights before the one
-        // it judges.
+        // The live summary fills in today only, and only when it is today's.
+        // Today's sleep HRV and Training Load ratio are left out: they only set
+        // tomorrow's need, so an HRV revision or a workout logged today would
+        // rebuild the model for the same result.
+        let todayStart = calendar.startOfDay(for: today)
         var nights: [Inputs.Night] = []
         var recordedDays: Set<Date> = []
         for day in sleepHistory.days where day.date >= historyCutoff {
@@ -221,9 +224,11 @@ struct SleepDebtChartModel: Equatable {
                 nights.append(Inputs.Night(day: dayStart, summary: day.summary))
             }
         }
-        let todayStart = calendar.startOfDay(for: today)
         if !recordedDays.contains(todayStart), let liveSummary = currentDaySummary?.asOf(today, calendar: calendar) {
             nights.append(Inputs.Night(day: todayStart, summary: liveSummary))
+        }
+        if let todayIndex = nights.firstIndex(where: { $0.day == todayStart }) {
+            nights[todayIndex].heartRateVariability = nil
         }
 
         // The latest point of a day wins.
@@ -239,7 +244,7 @@ struct SleepDebtChartModel: Equatable {
         return Inputs(
             days: days,
             nights: nights,
-            trainingLoadRatios: days.map { ratiosByDay[$0]?.value },
+            trainingLoadRatios: days.map { $0 == todayStart ? nil : ratiosByDay[$0]?.value },
             calendar: calendar
         )
     }
