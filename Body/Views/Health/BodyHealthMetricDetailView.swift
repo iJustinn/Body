@@ -457,6 +457,7 @@ struct BodyHealthMetricDetailView: View {
     @State private var resolvedMaxHeartRate: Double?
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
+    @StateObject private var warningDayCache = BodyMetricWarningDayCache()
     @StateObject private var sleepConsistencyCache = BodySleepConsistencyChartCache()
     @StateObject private var sleepDebtCache = BodySleepDebtChartCache()
     @StateObject private var workoutIndex = BodyCachedWorkoutIndex()
@@ -1014,15 +1015,34 @@ struct BodyHealthMetricDetailView: View {
         return !liveSecondaryDaySeries.isEmpty
     }
 
-    private var selectedMetricWarnings: [MetricWarningEvent] {
+    /// This metric's warnings the user has on, shared by the warning cards and
+    /// the day picker's warning dots so the two never disagree.
+    private var enabledMetricWarningKinds: [MetricWarningKind] {
         let selection = BodyMetricWarningSelection.storedValue(from: metricWarningSelectionRawValue)
         // Kinds that exclude in-workout readings need workout coverage; with the
         // Workouts permission off the cached workouts are cleared, so an empty
         // exclusion list would misreport workout heart rate as an inactive high.
         let hasWorkoutCoverage = workoutStore.permissionSelection.includes(.workouts)
-        let kinds = MetricThresholdWarning.kinds(for: model.kind).filter {
+        return MetricThresholdWarning.kinds(for: model.kind).filter {
             selection.includes($0) && (!$0.excludesWorkouts || hasWorkoutCoverage)
         }
+    }
+
+    private func metricWarningThreshold(for kind: MetricWarningKind) -> Double {
+        BodyMetricWarningThresholds.storedValue(from: metricWarningThresholdsRawValue)
+            .threshold(for: kind, maxHeartRate: resolvedMaxHeartRate)
+    }
+
+    /// Apple's high heart rate notification only counts inactive readings, so
+    /// the day's workouts are dropped from the samples for those kinds.
+    private func metricWarningWorkoutExclusions(on dayInterval: DateInterval) -> [DateInterval] {
+        workouts(on: dayInterval).map { workout in
+            MetricThresholdWarning.workoutExclusionInterval(start: workout.startDate, end: workout.effectiveEndDate)
+        }
+    }
+
+    private var selectedMetricWarnings: [MetricWarningEvent] {
+        let kinds = enabledMetricWarningKinds
         guard !kinds.isEmpty else {
             return []
         }
@@ -1049,25 +1069,53 @@ struct BodyHealthMetricDetailView: View {
             }
         }
 
-        // Apple's high heart rate notification only counts inactive readings, so
-        // the day's workouts are dropped from the samples for those kinds.
         let workoutIntervals: [DateInterval] = kinds.contains(where: \.excludesWorkouts)
-            ? workouts(on: selectedMetricDayInterval).map { workout in
-                MetricThresholdWarning.workoutExclusionInterval(start: workout.startDate, end: workout.effectiveEndDate)
-            }
+            ? metricWarningWorkoutExclusions(on: selectedMetricDayInterval)
             : []
-
-        let thresholds = BodyMetricWarningThresholds.storedValue(from: metricWarningThresholdsRawValue)
 
         return kinds.compactMap { kind in
             MetricThresholdWarning.detect(
                 kind,
                 in: selectedMetricDaySeries,
                 on: selectedMetricDay,
-                threshold: thresholds.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate),
+                threshold: metricWarningThreshold(for: kind),
                 excluding: kind.excludesWorkouts ? workoutIntervals : []
             )
         }
+    }
+
+    /// The picker days that have a warning card, for the tiles' warning dots.
+    /// Each day is judged the way `selectedMetricWarnings` judges the selected
+    /// one, over the day's past-threshold readings that one memoized pass over
+    /// the series collected. Skin temperature has no intraday series to judge
+    /// past days by, and no picker, so it gets none.
+    private func metricWarningDays(among dates: [Date]) -> Set<Date> {
+        let kinds = enabledMetricWarningKinds
+        guard !kinds.isEmpty, model.kind != .wristTemperature else {
+            return []
+        }
+
+        let calendar = Calendar.bodyGregorian
+        let pickerDays = Set(dates.map { calendar.startOfDay(for: $0) })
+        let series = liveDaySeries
+        var warningDays = Set<Date>()
+
+        for kind in kinds {
+            let threshold = metricWarningThreshold(for: kind)
+            let pointsByDay = warningDayCache.pastThresholdPointsByDay(kind, in: series, threshold: threshold)
+
+            for (day, points) in pointsByDay where pickerDays.contains(day) && !warningDays.contains(day) {
+                let nextDay = calendar.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86_400)
+                let excluded = kind.excludesWorkouts
+                    ? metricWarningWorkoutExclusions(on: DateInterval(start: day, end: nextDay))
+                    : []
+                if MetricThresholdWarning.detect(kind, inSamples: points, threshold: threshold, excluding: excluded) != nil {
+                    warningDays.insert(day)
+                }
+            }
+        }
+
+        return warningDays
     }
 
     private var selectedMetricActivityAverages: [BodyMetricActivityAverage] {
@@ -2370,11 +2418,15 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private func datePicker(_ picker: BodyMetricDetailDatePicker) -> some View {
-        ScrollViewReader { proxy in
+        let dates = recentDatePickerDates
+        // Sleep has no warnings, so only the metric picker carries dots.
+        let warningDays = picker == .metric ? metricWarningDays(among: dates) : []
+
+        return ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(recentDatePickerDates, id: \.self) { date in
-                        dateTile(for: date, picker: picker)
+                    ForEach(dates, id: \.self) { date in
+                        dateTile(for: date, picker: picker, hasWarning: warningDays.contains(Calendar.bodyGregorian.startOfDay(for: date)))
                             .id(date)
                     }
                 }
@@ -2386,7 +2438,7 @@ struct BodyHealthMetricDetailView: View {
             // tinted page gradient — with no dark wedge.
             .mask(sleepDateSliderEdgeMask)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .task(id: recentDatePickerDates.last) {
+            .task(id: dates.last) {
                 let calendar = Calendar.bodyGregorian
                 let today = calendar.startOfDay(for: Date())
                 let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today
@@ -2947,7 +2999,7 @@ struct BodyHealthMetricDetailView: View {
         )
     }
 
-    private func dateTile(for date: Date, picker: BodyMetricDetailDatePicker) -> some View {
+    private func dateTile(for date: Date, picker: BodyMetricDetailDatePicker, hasWarning: Bool) -> some View {
         let calendar = Calendar.bodyGregorian
         let dayStart = calendar.startOfDay(for: date)
         let today = calendar.startOfDay(for: Date())
@@ -2980,6 +3032,19 @@ struct BodyHealthMetricDetailView: View {
                     .font(.system(size: 27, weight: .bold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
+                    // A day with a warning card gets a dot in the warning glyph's
+                    // yellow, laid over the gap between the weekday and the number
+                    // so tiles without one keep their exact layout.
+                    .overlay(alignment: .top) {
+                        if hasWarning && !isFuture {
+                            Circle()
+                                .fill(Color.yellow)
+                                .frame(width: Self.dateTileWarningDotDiameter, height: Self.dateTileWarningDotDiameter)
+                                .opacity(isLocked ? 0.45 : 1)
+                                .offset(y: -Self.dateTileWarningDotLift)
+                                .accessibilityHidden(true)
+                        }
+                    }
             }
             .foregroundColor(dateTileForegroundColor(isFuture: isFuture || isLocked))
             .frame(width: 58, height: 74)
@@ -3005,6 +3070,7 @@ struct BodyHealthMetricDetailView: View {
         .buttonStyle(.plain)
         .disabled(isFuture)
         .accessibilityLabel(dayStart.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+        .accessibilityValue(hasWarning && !isFuture ? Text("Warning") : Text(verbatim: ""))
         .accessibilityHint(isFuture ? "Future date is not selectable" : (isLocked ? "Requires Body Pro" : ""))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
@@ -3075,6 +3141,14 @@ struct BodyHealthMetricDetailView: View {
     private var dateSliderSelectionColor: Color {
         model.symbolColor
     }
+
+    private static let dateTileWarningDotDiameter: CGFloat = 4
+    /// How far the dot is raised from the top of the number's frame. That line
+    /// box carries several points of space above its digits, so this lands the
+    /// dot midway between the weekday and the digits, clear of a descender like
+    /// the "p" in "Sep" (checked by rendering the tile). It moves with the
+    /// diameter so the dot's center stays put.
+    private static let dateTileWarningDotLift: CGFloat = 4
 
     private func dateTileForegroundColor(isFuture: Bool) -> Color {
         if colorScheme == .dark {
@@ -3943,6 +4017,35 @@ final class BodyMetricDaySeriesCache: ObservableObject {
         let daySeries = series.points(on: day)
         entriesBySlot[slot] = (key, daySeries)
         return daySeries
+    }
+}
+
+/// Memoizes each warning kind's past-threshold readings grouped by day, which
+/// the day picker's warning dots read for every tile. Grouping is one pass over
+/// the full intraday series, so it reruns only when the series or the
+/// threshold changes.
+@MainActor
+final class BodyMetricWarningDayCache: ObservableObject {
+    private struct Key: Equatable {
+        let threshold: Double
+        let source: HealthTrendSeries
+    }
+
+    private var entriesByKind: [MetricWarningKind: (key: Key, pointsByDay: [Date: [HealthTrendDataPoint]])] = [:]
+
+    func pastThresholdPointsByDay(
+        _ kind: MetricWarningKind,
+        in series: HealthTrendSeries,
+        threshold: Double
+    ) -> [Date: [HealthTrendDataPoint]] {
+        let key = Key(threshold: threshold, source: series)
+        if let entry = entriesByKind[kind], entry.key == key {
+            return entry.pointsByDay
+        }
+
+        let pointsByDay = MetricThresholdWarning.pastThresholdPointsByDay(kind, in: series, threshold: threshold)
+        entriesByKind[kind] = (key, pointsByDay)
+        return pointsByDay
     }
 }
 

@@ -331,6 +331,48 @@ final class MetricThresholdWarningTests: XCTestCase {
         XCTAssertEqual(event.sampleCount, 1)
     }
 
+    func testPastThresholdPointsByDayAgreeWithDetectingEachDay() {
+        let threshold = MetricWarningKind.highHeartRate.defaultThreshold
+        // Day 0 warns, day 1 only inside its workout, day 2 never crosses, day 3
+        // warns twice.
+        let samples = series([
+            (time(9, 0), 130),
+            (time(9, 10), 100),
+            (time(8, 30, dayOffset: 1), 150),
+            (time(12, 0, dayOffset: 2), 110),
+            (time(7, 0, dayOffset: 3), 125),
+            (time(21, 0, dayOffset: 3), 140)
+        ])
+        let workoutsByDay = [1: [DateInterval(start: time(8, 0, dayOffset: 1), end: time(9, 0, dayOffset: 1))]]
+        let pointsByDay = MetricThresholdWarning.pastThresholdPointsByDay(
+            .highHeartRate,
+            in: samples,
+            threshold: threshold,
+            calendar: calendar
+        )
+
+        for offset in 0..<4 {
+            let dayStart = calendar.startOfDay(for: time(12, 0, dayOffset: offset))
+            let excluded = workoutsByDay[offset] ?? []
+            let fromGroups = MetricThresholdWarning.detect(
+                .highHeartRate,
+                inSamples: pointsByDay[dayStart] ?? [],
+                threshold: threshold,
+                excluding: excluded
+            )
+            let fromDay = MetricThresholdWarning.detect(
+                .highHeartRate,
+                in: samples,
+                on: dayStart,
+                calendar: calendar,
+                threshold: threshold,
+                excluding: excluded
+            )
+            XCTAssertEqual(fromGroups, fromDay, "day \(offset)")
+        }
+        XCTAssertEqual(Set(pointsByDay.keys).count, 3)
+    }
+
     func testSampleAtTheWorkoutEndBoundaryIsExcluded() {
         // `DateInterval.contains` is inclusive of the end, so a reading stamped
         // exactly at the workout's end still belongs to the workout.

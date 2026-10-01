@@ -265,6 +265,26 @@ enum MetricThresholdWarning {
         )
     }
 
+    /// Every past-threshold reading in the series, grouped by the day it fell on,
+    /// in one pass. The detail page's day picker marks a day as warned when
+    /// `detect(_:inSamples:threshold:excluding:)` finds an episode in that day's
+    /// group, which is the same answer as detecting over the whole day.
+    static func pastThresholdPointsByDay(
+        _ kind: MetricWarningKind,
+        in series: HealthTrendSeries,
+        threshold: Double,
+        calendar: Calendar = .bodyGregorian
+    ) -> [Date: [HealthTrendDataPoint]] {
+        var pointsByDay: [Date: [HealthTrendDataPoint]] = [:]
+        for point in series.points where point.value.isFinite {
+            guard kind.isAbove ? point.value > threshold : point.value < threshold else {
+                continue
+            }
+            pointsByDay[calendar.startOfDay(for: point.date), default: []].append(point)
+        }
+        return pointsByDay
+    }
+
     /// Padded window around the episode, clamped to the day it happened on. Always
     /// non-degenerate so the chart has an x-domain to scale against.
     static func chartWindow(

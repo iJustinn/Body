@@ -493,6 +493,8 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             // Warning card fold chevron and the Body Radar warning card.
             "Expand Warning",
             "Collapse Warning",
+            // The metric day picker's warning dot.
+            "Warning",
             "bodyRadar.warning.sentence",
             "bodyRadar.warning.sameNight",
             "bodyRadar.warning.persistence",
