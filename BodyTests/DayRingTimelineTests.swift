@@ -219,13 +219,13 @@ final class DayRingTimelineTests: XCTestCase {
         XCTAssertLessThan(range(sleepSpan, nil, run).upperBound, range(run, sleepSpan).lowerBound)
     }
 
-    func testWorkoutsCloserThanAGlyphShareOneBarAndCountOrShowEveryKind() {
+    func testWorkoutsCloserThanAGlyphShareOneBarNamedByTheLongest() {
         let trackLength = BodyDayRingGeometry.track(width: 361).dayLength
         func segments(_ workouts: [WorkoutSummary], sleep: [SleepStageSegment] = []) -> [BodyDayRingGeometry.Segment] {
             BodyDayRingGeometry.segments(for: make(now: date(2026, 9, 20, 20), sleep: sleep, workouts: workouts), trackLength: trackLength)
         }
 
-        // Two five minute runs two minutes apart: one bar, one kind, counted.
+        // Two five minute runs two minutes apart: one bar, one kind, a plus for the other.
         let runs = segments([
             workout(.running, date(2026, 9, 20, 12, 0), date(2026, 9, 20, 12, 5)),
             workout(.running, date(2026, 9, 20, 12, 7), date(2026, 9, 20, 12, 12))
@@ -235,7 +235,7 @@ final class DayRingTimelineTests: XCTestCase {
         XCTAssertEqual(runs[0].workoutCount, 2)
         XCTAssertTrue(runs[0].isMerged)
         XCTAssertFalse(runs[0].isMixed)
-        XCTAssertEqual(runs[0].glyphCount, 2)
+        XCTAssertEqual(runs[0].leadActivity, .workout(.running))
         XCTAssertEqual(runs[0].start, 12.0 / 24, accuracy: 1e-9)
         XCTAssertEqual(runs[0].end, 12.2 / 24, accuracy: 1e-9)
 
@@ -247,26 +247,42 @@ final class DayRingTimelineTests: XCTestCase {
         XCTAssertEqual(touching.count, 1)
         XCTAssertEqual(touching[0].workoutCount, 2)
 
-        // Three kinds in a row: one bar listing each kind once, in order, no count.
+        // Two kinds in a row: one bar listing each kind once, in order, its tint blended,
+        // named by the kind with the most time on it even though it came second.
         let mixed = segments([
             workout(.running, date(2026, 9, 20, 12, 0), date(2026, 9, 20, 12, 5)),
-            workout(.walking, date(2026, 9, 20, 12, 7), date(2026, 9, 20, 12, 12)),
-            workout(.running, date(2026, 9, 20, 12, 14), date(2026, 9, 20, 12, 19))
+            workout(.walking, date(2026, 9, 20, 12, 7), date(2026, 9, 20, 12, 15)),
+            workout(.running, date(2026, 9, 20, 12, 17), date(2026, 9, 20, 12, 21))
         ])
         XCTAssertEqual(mixed.count, 1)
         XCTAssertEqual(mixed[0].activities, [.workout(.running), .workout(.walking)])
         XCTAssertEqual(mixed[0].workoutCount, 3)
         XCTAssertTrue(mixed[0].isMixed)
-        XCTAssertEqual(mixed[0].glyphCount, 2)
+        // Walking has 8 minutes, the two runs 9 together: the kind's total counts.
+        XCTAssertEqual(mixed[0].leadActivity, .workout(.running))
+        let longerWalk = segments([
+            workout(.running, date(2026, 9, 20, 12, 0), date(2026, 9, 20, 12, 5)),
+            workout(.walking, date(2026, 9, 20, 12, 7), date(2026, 9, 20, 12, 15))
+        ])
+        XCTAssertEqual(longerWalk[0].leadActivity, .workout(.walking))
+        // A tie goes to the one that came first.
+        let tie = segments([
+            workout(.walking, date(2026, 9, 20, 12, 0), date(2026, 9, 20, 12, 5)),
+            workout(.running, date(2026, 9, 20, 12, 7), date(2026, 9, 20, 12, 12))
+        ])
+        XCTAssertEqual(tie[0].leadActivity, .workout(.walking))
 
-        // A merged bar asks for more room, one slot per extra glyph, and gets it.
+        // However many workouts or kinds share it, a merged bar asks for the same small
+        // extra room for its plus, and gets it.
         let single = BodyDayRingGeometry.Segment(start: 0.5, end: 0.5 + 5.0 / 1440, activities: [.workout(.running)], workoutCount: 1)
+        XCTAssertEqual(single.leadActivity, .workout(.running))
         XCTAssertEqual(BodyDayRingGeometry.minimumLength(for: single), BodyDayRingGeometry.minimumSegmentLength)
         XCTAssertEqual(
             BodyDayRingGeometry.minimumLength(for: runs[0]),
-            BodyDayRingGeometry.minimumSegmentLength + BodyDayRingGeometry.outerBarWidth * BodyDayRingGeometry.extraGlyphLengthRatio,
+            BodyDayRingGeometry.minimumSegmentLength + BodyDayRingGeometry.outerBarWidth * BodyDayRingGeometry.moreGlyphLengthRatio,
             accuracy: 1e-9
         )
+        XCTAssertEqual(BodyDayRingGeometry.minimumLength(for: mixed[0]), BodyDayRingGeometry.minimumLength(for: runs[0]))
         let drawn = BodyDayRingGeometry.drawnRange(for: runs[0], previous: nil, next: nil, trackLength: trackLength)
         XCTAssertEqual(
             (drawn.upperBound - drawn.lowerBound) * trackLength,

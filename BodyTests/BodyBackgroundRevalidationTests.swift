@@ -112,7 +112,16 @@ final class BodyBackgroundRevalidationTests: XCTestCase {
             let started = expectation(description: "quiet history read")
             let gate = AsyncGate()
             let mass = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .bodyMass))
-            fixture.health.scriptSamples(for: mass, .gated({ started.fulfill(); await gate.wait() }, then: .samples([])))
+            // Only the first read fulfills. A later one, such as a read left queued behind
+            // the process-wide HealthKit query pool that runs after this test has ended,
+            // must not fulfill again: over-fulfilling raises off the main thread and
+            // aborts the whole test process.
+            fixture.health.scriptSamples(for: mass, .gated({
+                if await gate.claimFirstEntry() {
+                    started.fulfill()
+                }
+                await gate.wait()
+            }, then: .samples([])))
             await fixture.store.syncWhenAppBecomesActive()
             XCTAssertFalse(fixture.store.isRefreshing)
             await fulfillment(of: [started], timeout: 2)
@@ -125,9 +134,19 @@ final class BodyBackgroundRevalidationTests: XCTestCase {
 
     private actor AsyncGate {
         private var open = false
-        private var continuation: CheckedContinuation<Void, Never>?
-        func wait() async { if !open { await withCheckedContinuation { continuation = $0 } } }
-        func release() { open = true; continuation?.resume(); continuation = nil }
+        private var entered = false
+        private var continuations: [CheckedContinuation<Void, Never>] = []
+        /// True for the first caller only.
+        func claimFirstEntry() -> Bool {
+            defer { entered = true }
+            return !entered
+        }
+        func wait() async { if !open { await withCheckedContinuation { continuations.append($0) } } }
+        func release() {
+            open = true
+            continuations.forEach { $0.resume() }
+            continuations.removeAll()
+        }
     }
 
     func testRepeatedDeferredFallbackDoesNotCreateForegroundHistory() async throws {

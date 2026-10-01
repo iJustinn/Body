@@ -881,6 +881,75 @@ struct BodyMetricWarningSelection: Equatable {
     }
 }
 
+/// The warnings the user closed with a warning card's close button. Detection
+/// reports the earliest episode of a day, so a threshold warning is one kind on
+/// one day, and Body Radar's is its one frozen night: closing either hides that
+/// day's card and its Home badges, and the next day's warning shows again.
+/// Entries past the detail page's date picker are pruned.
+struct BodyDismissedMetricWarnings: Equatable {
+    static let retentionDayCount = 60
+
+    private static let bodyRadarEntryName = "bodyRadar"
+
+    var entries: Set<String>
+
+    var rawValue: String {
+        entries.sorted().joined(separator: ",")
+    }
+
+    func contains(_ event: MetricWarningEvent, calendar: Calendar = .bodyGregorian) -> Bool {
+        entries.contains(Self.entry(name: event.kind.rawValue, date: event.startDate, calendar: calendar))
+    }
+
+    func contains(_ night: BodyRadarNight, calendar: Calendar = .bodyGregorian) -> Bool {
+        entries.contains(Self.entry(name: Self.bodyRadarEntryName, date: night.date, calendar: calendar))
+    }
+
+    func dismissing(
+        _ event: MetricWarningEvent,
+        now: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> BodyDismissedMetricWarnings {
+        inserting(Self.entry(name: event.kind.rawValue, date: event.startDate, calendar: calendar), now: now, calendar: calendar)
+    }
+
+    func dismissing(
+        _ night: BodyRadarNight,
+        now: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> BodyDismissedMetricWarnings {
+        inserting(Self.entry(name: Self.bodyRadarEntryName, date: night.date, calendar: calendar), now: now, calendar: calendar)
+    }
+
+    static func storedValue(from rawValue: String) -> BodyDismissedMetricWarnings {
+        BodyDismissedMetricWarnings(entries: Set(rawValue.split(separator: ",").map(String.init)))
+    }
+
+    private func inserting(_ entry: String, now: Date, calendar: Calendar) -> BodyDismissedMetricWarnings {
+        let today = calendar.startOfDay(for: now)
+        let cutoff = calendar.date(byAdding: .day, value: -Self.retentionDayCount, to: today) ?? today
+        let cutoffDay = Self.dayText(for: cutoff, calendar: calendar)
+        var next = entries.filter { entry in
+            guard let day = entry.split(separator: "@").last else {
+                return false
+            }
+            // yyyy-MM-dd sorts chronologically as text.
+            return String(day) >= cutoffDay
+        }
+        next.insert(entry)
+        return BodyDismissedMetricWarnings(entries: next)
+    }
+
+    private static func entry(name: String, date: Date, calendar: Calendar) -> String {
+        "\(name)@\(dayText(for: date, calendar: calendar))"
+    }
+
+    private static func dayText(for date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
+    }
+}
+
 /// The user's custom limits for the metric threshold warnings. Only overrides
 /// are stored, so a kind the user never touched keeps following its default —
 /// which for high heart rate tracks their max HR rather than a fixed number.
@@ -1079,6 +1148,16 @@ struct BodyDashboardFetchSelection: Equatable {
             metrics.formUnion(Self.vitalsMetricKinds)
         }
 
+        // The Sleep page's Sleep Debt adds a training adjustment read from the
+        // Training Load ratio, so any layout that renders sleep fetches it too:
+        // hiding the Readiness or Training Load card must not change the debt.
+        // Sleep fetched only as a Stress or Body Radar input stays without it.
+        // It follows rendered sleep rather than the Sleep Debt toggle, so
+        // turning the card back on shows it at once, without a refetch.
+        if metrics.contains(.sleep) {
+            metrics.insert(.trainingLoad)
+        }
+
         // The derived metrics expand LAST, and only into what is still missing:
         // a dependency some other card renders keeps its full payload, while the
         // rest are input-only. No other expansion can add a meta kind, so closing
@@ -1110,13 +1189,18 @@ struct BodyDashboardFetchSelection: Equatable {
         metricKinds.contains(kind) && !fullPayloadKinds.contains(kind)
     }
 
-    static func load(defaults: UserDefaults = .standard) -> BodyDashboardFetchSelection {
+    /// `isProUnlocked` clamps a stored Pro hero to the one a free user sees, so its
+    /// metric (readiness) is fetched for the hero that actually renders.
+    static func load(defaults: UserDefaults = .standard, isProUnlocked: Bool = true) -> BodyDashboardFetchSelection {
         BodyDashboardFetchSelection(
             summaryCards: BodySummaryCardSelection.load(defaults: defaults),
             trendCards: BodyHomeTrendCardSelection.load(defaults: defaults),
-            starredMetric: BodyStarMetric.from(
-                rawValue: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
-                    ?? BodyStarMetric.readiness.rawValue
+            starredMetric: BodyStarMetric.proGated(
+                BodyStarMetric.from(
+                    rawValue: defaults.string(forKey: BodyAppearancePreference.starredMetricKey)
+                        ?? BodyStarMetric.readiness.rawValue
+                ),
+                isProUnlocked: isProUnlocked
             )
         )
     }
@@ -1471,15 +1555,17 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Per-kind beta chip label — Readiness and Stress carry the "v1" chip, Body
-    /// Radar shows "Beta v2" instead, and every other card carries no chip at
-    /// all.
+    /// Per-kind beta chip label — Readiness carries the "v2" chip, Stress "v1",
+    /// Body Radar shows "Beta v3" instead, and every other card carries no chip
+    /// at all.
     var betaVersionLabel: LocalizedStringKey? {
         switch self {
-        case .readiness, .stress:
+        case .readiness:
+            return "v2"
+        case .stress:
             return "v1"
         case .bodyRadar:
-            return "Beta v2"
+            return "Beta v3"
         case .vitals,
              .cardioFitness,
              .activityRings,
@@ -1517,11 +1603,15 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
     /// About Sleep Score card.
     static let sleepScoreVersionLabel: LocalizedStringKey = "v3"
 
+    /// The Sleep Debt's own chip. It rides beside the Sleep Debt toggle in Settings
+    /// and on the About Sleep Debt card.
+    static let sleepDebtVersionLabel: LocalizedStringKey = "v1"
+
     /// True for cards whose headline number Body derives itself (a score, ratio, or
     /// baseline comparison) rather than reading it straight out of HealthKit.
     /// Splits the Summary Cards settings sheet into its two sections. Sleep is a
-    /// direct reading; only its score is Body's own, and that toggle sits in the
-    /// computed section on its own.
+    /// direct reading; only its score and debt are Body's own, and their toggles
+    /// lead the computed section.
     var isBodyComputed: Bool {
         switch self {
         case .readiness,
@@ -1857,6 +1947,19 @@ enum BodyStarMetric: String, CaseIterable, Identifiable {
     /// Parses the stored star-metric preference; empty / unknown -> nil (None).
     static func from(rawValue: String) -> BodyStarMetric? {
         BodyStarMetric(rawValue: rawValue)
+    }
+
+    /// The Day Ring is a Body Pro hero; the Readiness Ring and None are free.
+    var isProGated: Bool {
+        self == .dayRing
+    }
+
+    /// The hero a user actually gets: a stored Pro hero falls back to the Readiness
+    /// Ring until Pro unlocks. The stored pick is left alone, as backgrounds and
+    /// workout colors do, so buying Pro brings it back without re-picking.
+    static func proGated(_ metric: BodyStarMetric?, isProUnlocked: Bool) -> BodyStarMetric? {
+        guard let metric, metric.isProGated, !isProUnlocked else { return metric }
+        return .readiness
     }
 
     var id: String {

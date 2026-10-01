@@ -2,7 +2,7 @@ import Foundation
 
 /// Fetch/merge metadata only: not a new persisted cache or consumer result type.
 enum HealthTrendReconciliationLeaf: CaseIterable, Hashable {
-    case sleep, sleepSecondary, heartRate, heartRateVariability, respiratoryRate, oxygenSaturation, heartRateRangesSecondary, heartRateVariabilityRangesSecondary, oxygenSaturationRangesSecondary, restingHeartRate, restingHeartRateSecondary, bodyMass, bodyFatPercentage, bodyMassIndex, activeEnergy, activeEnergySecondary, restingEnergy, restingEnergySecondary, exerciseMinutes, exerciseMinutesSecondary, wristTemperature, timeInDaylight, steps, stepsSecondary, cardioFitness
+    case sleep, sleepSecondary, heartRate, heartRateVariability, respiratoryRate, oxygenSaturation, heartRateRangesSecondary, heartRateVariabilityRangesSecondary, oxygenSaturationRangesSecondary, recoveryHRV, recoveryHRVRangesSecondary, restingHeartRate, restingHeartRateSecondary, bodyMass, bodyFatPercentage, bodyMassIndex, activeEnergy, activeEnergySecondary, restingEnergy, restingEnergySecondary, exerciseMinutes, exerciseMinutesSecondary, wristTemperature, timeInDaylight, steps, stepsSecondary, cardioFitness
 
     private struct Fields {
         var series: WritableKeyPath<HealthTrendSnapshot, HealthTrendSeries>?
@@ -22,6 +22,8 @@ enum HealthTrendReconciliationLeaf: CaseIterable, Hashable {
         case .heartRateRangesSecondary: return .init(range: \.heartRateRangesSecondary)
         case .heartRateVariabilityRangesSecondary: return .init(range: \.heartRateVariabilityRangesSecondary)
         case .oxygenSaturationRangesSecondary: return .init(range: \.oxygenSaturationRangesSecondary)
+        case .recoveryHRV: return .init(series: \.recoveryHRV, range: \.recoveryHRVRanges)
+        case .recoveryHRVRangesSecondary: return .init(range: \.recoveryHRVRangesSecondary)
         case .restingHeartRate: return .init(series: \.restingHeartRate)
         case .restingHeartRateSecondary: return .init(series: \.restingHeartRateSecondary)
         case .bodyMass: return .init(series: \.bodyMass, samples: \.bodyMassSamples)

@@ -22,6 +22,9 @@ enum BodyAppearancePreference {
     static let showsSubMinuteAwakeSleepStagesKey = "showsSubMinuteAwakeSleepStages"
     static let showsLeadingTrailingAwakeSleepStagesKey = "showsLeadingTrailingAwakeSleepStages"
     static let showSleepScoreKey = "showSleepScore"
+    /// Whether the Sleep page shows the Sleep Debt card and About Sleep Debt.
+    /// Default true.
+    static let showSleepDebtKey = "showSleepDebt"
     /// Whether the Effort card shows on workout detail pages at all. Off, the
     /// card is hidden everywhere and the effort settings below it do nothing.
     /// Default true.
@@ -46,11 +49,17 @@ enum BodyAppearancePreference {
     static let knownWorkoutTypesKey = "knownWorkoutTypes"
     static let defaultTrendRangeKey = "defaultTrendRange"
     static let homeTrendCardSelectionKey = "homeTrendCardSelection"
+    static let foldedHomeContentWidthKey = "foldedHomeContentWidth"
     static let metricDayViewSelectionKey = "metricDayViewSelection"
+    /// Which HRV the HRV page shows: Overall (SDNN) or, once the watch has
+    /// written any, Recovery (Apple's RMSSD). Default overall.
+    static let hrvDetailDisplayKindKey = "hrvDetailDisplayKind"
     static let metricWarningsKey = "metricWarnings"
     static let metricWarningThresholdsKey = "metricWarningThresholds"
     static let metricWarningNotificationsKey = "metricWarningNotificationsEnabled"
     static let metricWarningsOnReadinessHeroKey = "metricWarningsOnReadinessHero"
+    /// The warnings the user closed on a metric detail page. See `BodyDismissedMetricWarnings`.
+    static let dismissedMetricWarningsKey = "dismissedMetricWarnings"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthPermissionExpandedMigratedKey = "healthPermissionExpandedMigrated"
     static let healthCardioFitnessMigratedKey = "healthCardioFitnessMigrated"
@@ -58,13 +67,16 @@ enum BodyAppearancePreference {
     static let secondaryHealthDataSourceSelectionKey = "secondaryHealthDataSourceSelection"
     static let combinesHealthDataSourcesByNameKey = "combinesHealthDataSourcesByName"
     static let customHealthSourceGroupsKey = "customHealthSourceGroups"
-    static let bodyProIconShowsBackKey = "bodyProIconShowsBack"
     /// Marketing version the user last completed (or skipped) onboarding on;
     /// empty until then. See `BodyOnboardingGate`.
     static let onboardingCompletedVersionKey = "onboardingCompletedVersion"
     /// Marketing version the user last completed the update page (the cache
     /// rebuild explainer) on; empty until then. See `BodyOnboardingGate`.
     static let updateOnboardingCompletedVersionKey = "updateOnboardingCompletedVersion"
+    /// Set once the Body Pro paywall has been shown as part of a flow: at the end
+    /// of first-run onboarding, or once to installs that were set up before the
+    /// subscriptions arrived. See `BodyOnboardingGate.shouldPresentProIntro`.
+    static let proIntroPaywallShownKey = "proIntroPaywallShown"
 
     /// Whether the app's UI is currently running in English. Short uppercase
     /// month names only read correctly in English, so the setting that turns
@@ -73,9 +85,6 @@ enum BodyAppearancePreference {
         Bundle.main.preferredLocalizations.first?.hasPrefix("en") == true
     }
 
-    static func bodyProIconAssetName(showsBack: Bool) -> String {
-        showsBack ? "BodyProIconBack" : "BodyProIcon"
-    }
 }
 
 enum BodySleepDurationGoal {
@@ -933,6 +942,17 @@ enum BodyOnboardingGate {
         return (updateCompletedVersion ?? "").compare(updateOnboardingVersion, options: .numeric) == .orderedAscending
     }
 
+    /// Whether the one-time Body Pro paywall is due on launch: an install that
+    /// finished onboarding before the subscriptions existed (first-run onboarding
+    /// now ends on the paywall and sets the flag itself), once the update page is
+    /// out of the way, and only until it has been shown. Whether the customer
+    /// already owns Pro is the caller's check, once the entitlement resolves.
+    static func shouldPresentProIntro(shown: Bool, completedVersion: String?, updateCompletedVersion: String?) -> Bool {
+        !shown
+            && !shouldPresent(completedVersion: completedVersion)
+            && !shouldPresentUpdate(completedVersion: completedVersion, updateCompletedVersion: updateCompletedVersion)
+    }
+
     /// What the update page records on completion: marketing version plus
     /// build, "1.1.0.9", so builds of the same version compare too.
     static func currentAppVersionAndBuild(bundle: Bundle = .main) -> String {
@@ -944,4 +964,14 @@ enum BodyOnboardingGate {
     static func currentAppVersion(bundle: Bundle = .main) -> String {
         (bundle.infoDictionary?["CFBundleShortVersionString"] as? String) ?? minimumCompletedVersion
     }
+}
+
+/// The HRV page's two views. Overall is the SDNN chart every watch writes;
+/// Recovery is Apple's RMSSD, written by Apple Watch Series 12 and Ultra 4 on
+/// watchOS 27, so the page offers it only once that series has data.
+enum BodyHRVDisplayKind: String, CaseIterable {
+    case overall
+    case recovery
+
+    static let defaultValue: BodyHRVDisplayKind = .overall
 }

@@ -9,7 +9,7 @@
 //  Four feeds keep the ledger honest:
 //
 //  1. A one-time, resumable BASELINE scan walks the whole workout history in
-//     one-year chunks. It runs only after a refresh has finished, never inside
+//     three-month chunks. It runs only after a refresh has finished, never inside
 //     one — "Body refresh must never hang" — and every chunk is cancellable and
 //     persisted, so a kill mid-scan resumes from `scannedThrough`.
 //  2. Each month the progressive loader publishes is folded in, which repairs
@@ -24,10 +24,24 @@ import Foundation
 import HealthKit
 
 extension HealthKitWorkoutStore {
-    /// One year per baseline chunk: long enough that a decade of history is ten
-    /// round-trips, short enough that a chunk's per-workout distance fan-out stays
-    /// bounded and a cancellation loses at most a year of scanning.
-    private static let recordBaselineChunkYears = 1
+    /// One quarter per baseline chunk: short enough that a chunk fits inside a
+    /// short idle step (so a return to the app no longer discards a whole year of
+    /// scanning), and a decade of history is still only forty round-trips.
+    nonisolated private static let recordBaselineChunkMonths = 3
+
+    /// Where the baseline chunk that starts at `cursor` ends: `cursor` plus one
+    /// quarter, clamped to `end` so the final chunk is short rather than past now.
+    nonisolated static func recordBaselineChunkEnd(after cursor: Date, end: Date, calendar: Calendar) -> Date {
+        min(calendar.date(byAdding: .month, value: recordBaselineChunkMonths, to: cursor) ?? end, end)
+    }
+
+    #if DEBUG
+    /// Test-only floor for the baseline scan. `earliestWorkoutStartDate()` is a raw
+    /// `HKSampleQuery` that a fake health store cannot answer, so BodyTests sets
+    /// this to drive the scan. nil (the default, and the only value production
+    /// ever sees) means "ask Health".
+    static var testRecordBaselineEarliestWorkoutOverride: Date?
+    #endif
 
     // MARK: - Reads
 
@@ -125,7 +139,12 @@ extension HealthKitWorkoutStore {
     }
 
     private func runRecordHistoricalRepair(capturedEpoch: Int) async {
-        guard !isRefreshing, !Task.isCancelled else { return }
+        guard !isRefreshing, !Task.isCancelled else {
+            #if DEBUG
+            logRecordHistorical(month: nil, workouts: 0, committed: false, reason: "cancelled", calendar: .bodyGregorian)
+            #endif
+            return
+        }
         let inputs = captureRefreshInputs()
         let revision = recordLedgerRevision
         let engine = self.engine
@@ -135,7 +154,8 @@ extension HealthKitWorkoutStore {
         let context = "record-v1|\(inputs.inputs.permissions)|\(calendar.identifier)|\(calendar.timeZone.identifier)"
         let progress = recordLedger.historicalRepair
         let cachedFloor = recordLedger.contributions.values.map(\.startDate).min()
-        let fetch = Task { () -> (Date, Date, HealthKitFetchEngine.WorkoutSummariesFetchResult)? in
+        // A nil result is a failed query for a known month; a nil chunk has no candidate.
+        let fetch = Task { () -> (Date, Date, HealthKitFetchEngine.WorkoutSummariesFetchResult?)? in
             let healthFloor = await engine.earliestWorkoutStartDate()
             guard !Task.isCancelled, let floor = [cachedFloor, healthFloor].compactMap({ $0 }).min(),
                   let month = HistoricalMonthRepairProgress.candidate(after: progress, now: now,
@@ -144,7 +164,7 @@ extension HealthKitWorkoutStore {
             guard let result = try? await withBackgroundQueryPool({
                 try await engine.fetchWorkoutSummariesWithValidation(startDate: month, endDate: end,
                     includesHeartRateSamples: false, includesDetailMetrics: true)
-            }) else { return nil }
+            }) else { return (month, floor, nil) }
             return (month, floor, result)
         }
         let outcome = await withTaskCancellationHandler {
@@ -152,19 +172,58 @@ extension HealthKitWorkoutStore {
         } onCancel: { fetch.cancel() }
         fetch.cancel()
         guard await engine.queryContextRevision == queryRevision,
-              case .finished(let chunk?) = outcome, !Task.isCancelled,
+              case .finished(let chunk?) = outcome, let result = chunk.2, !Task.isCancelled,
               !isRefreshing, mayPublishQuietMaintenance, recordLedgerRevision == revision,
               Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: currentCacheEpoch),
               mayApplyRefreshInputs(inputs),
-              chunk.2.unvalidatedRecordIDs.isEmpty,
-              let end = calendar.date(byAdding: .month, value: 1, to: chunk.0) else { return }
+              result.unvalidatedRecordIDs.isEmpty,
+              let end = calendar.date(byAdding: .month, value: 1, to: chunk.0) else {
+            #if DEBUG
+            let attempted: (Date, Date, HealthKitFetchEngine.WorkoutSummariesFetchResult?)?
+            if case .finished(let value) = outcome { attempted = value } else { attempted = nil }
+            let reason: String
+            if Task.isCancelled { reason = "cancelled" }
+            else if case .timedOut = outcome { reason = "timedOut" }
+            else if attempted == nil { reason = "noCandidate" }
+            else if attempted?.2 == nil { reason = "queryFailure" }
+            else if isRefreshing || !mayPublishQuietMaintenance { reason = "cancelled" }
+            else if attempted?.2?.unvalidatedRecordIDs.isEmpty == false { reason = "validation" }
+            else { reason = "superseded" }
+            logRecordHistorical(month: attempted?.0, workouts: attempted?.2?.workouts.count ?? 0,
+                committed: false, reason: reason, calendar: calendar)
+            #endif
+            return
+        }
         var ledger = recordLedger
-        ledger.reconcile(workouts: chunk.2.workouts, start: chunk.0, end: end, unvalidatedRecordIDs: [])
+        ledger.reconcile(workouts: result.workouts, start: chunk.0, end: end, unvalidatedRecordIDs: [])
         ledger.historicalRepair = .completed(month: chunk.0, now: now, earliest: chunk.1,
             context: context, calendar: calendar)
         publishRecordLedger(ledger)
+        #if DEBUG
+        let committed = await persistWorkoutJournalRecordLedger()
+        logRecordHistorical(month: chunk.0, workouts: result.workouts.count, committed: committed,
+            reason: committed ? "ok" : "persistFailure", calendar: calendar)
+        #else
         _ = await persistWorkoutJournalRecordLedger()
+        #endif
     }
+
+    #if DEBUG
+    /// Counts and outcome only: no workout identifiers or values.
+    private func logRecordHistorical(month: Date?, workouts: Int, committed: Bool, reason: String, calendar: Calendar) {
+        let label = month.map {
+            String(format: "%04d-%02d", calendar.component(.year, from: $0), calendar.component(.month, from: $0))
+        } ?? "none"
+        BodyObserverRefreshDiagnostics.log("records historical month=\(label) workouts=\(workouts) committed=\(committed) reason=\(reason)")
+    }
+
+    private func logRecordBaseline(from: Date, to: Date, workouts: Int, committed: Bool, reason: String, calendar: Calendar) {
+        let label: (Date) -> String = {
+            String(format: "%04d-%02d", calendar.component(.year, from: $0), calendar.component(.month, from: $0))
+        }
+        BodyObserverRefreshDiagnostics.log("records baseline from=\(label(from)) to=\(label(to)) workouts=\(workouts) committed=\(committed) complete=\(recordLedger.baselineComplete) reason=\(reason)")
+    }
+    #endif
 
     /// Cancels the scan and waits for it to actually exit, so a caller about to
     /// delete the ledger file can be sure no chunk write is still queued behind
@@ -175,12 +234,12 @@ extension HealthKitWorkoutStore {
         await task.value
     }
 
-    /// Walks `scannedThrough` (or the earliest workout) forward to now in yearly
+    /// Walks `scannedThrough` (or the earliest workout) forward to now in quarterly
     /// chunks. Every chunk publishes and persists before the next one starts, so
     /// the scan is resumable at chunk granularity.
     ///
     /// The fetch runs on the engine actor, so the only main-actor work here is the
-    /// ledger fold itself — bounded by one year of workouts, once per install.
+    /// ledger fold itself — bounded by one quarter of workouts, once per install.
     private func runRecordBaselineBackfill(capturedEpoch: Int) async {
         let calendar = Calendar.bodyGregorian
         let end = Date()
@@ -191,29 +250,62 @@ extension HealthKitWorkoutStore {
                 let queryRevision = await engine.queryContextRevision
                 guard mayPublishQuietMaintenance, mayApplyRefreshInputs(inputs),
                       Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: currentCacheEpoch) else { return false }
-                if earliestWorkout == nil { earliestWorkout = await engine.earliestWorkoutStartDate() }
+                if earliestWorkout == nil {
+                    #if DEBUG
+                    earliestWorkout = Self.testRecordBaselineEarliestWorkoutOverride
+                    #endif
+                    if earliestWorkout == nil { earliestWorkout = await engine.earliestWorkoutStartDate() }
+                }
                 guard let earliest = earliestWorkout, mayPublishQuietMaintenance,
                       mayApplyRefreshInputs(inputs), await engine.queryContextRevision == queryRevision else { return false }
                 let cursor = max(recordLedger.scannedThrough ?? earliest, earliest)
                 guard cursor < end else {
                     guard mayPublishQuietMaintenance else { return false }
                     finalizeRecordBaseline(capturedEpoch: capturedEpoch)
-                    return await persistWorkoutJournalRecordLedger()
+                    let committed = await persistWorkoutJournalRecordLedger()
+                    #if DEBUG
+                    logRecordBaseline(from: cursor, to: end, workouts: 0, committed: committed,
+                        reason: committed ? "ok" : "persistFailure", calendar: calendar)
+                    #endif
+                    return committed
                 }
-                let chunkEnd = min(calendar.date(byAdding: .year, value: Self.recordBaselineChunkYears, to: cursor) ?? end, end)
+                let chunkEnd = Self.recordBaselineChunkEnd(after: cursor, end: end, calendar: calendar)
                 let revision = recordLedgerRevision
                 let result: HealthKitFetchEngine.WorkoutSummariesFetchResult
                 do {
                     result = try await engine.fetchWorkoutSummariesWithValidation(
                         startDate: cursor, endDate: chunkEnd, includesHeartRateSamples: false,
                         includesDetailMetrics: true)
-                } catch { return false }
+                } catch {
+                    #if DEBUG
+                    logRecordBaseline(from: cursor, to: chunkEnd, workouts: 0, committed: false,
+                        reason: Task.isCancelled ? "cancelled" : "queryFailure", calendar: calendar)
+                    #endif
+                    return false
+                }
                 guard await engine.queryContextRevision == queryRevision,
                       mayPublishQuietMaintenance, recordLedgerRevision == revision, mayApplyRefreshInputs(inputs),
-                      Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: currentCacheEpoch),
-                      applyRecordBackfillChunk(result: result, scannedThrough: chunkEnd) else { return false }
+                      Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: currentCacheEpoch) else {
+                    #if DEBUG
+                    logRecordBaseline(from: cursor, to: chunkEnd, workouts: result.workouts.count, committed: false,
+                        reason: mayPublishQuietMaintenance ? "superseded" : "cancelled", calendar: calendar)
+                    #endif
+                    return false
+                }
+                guard applyRecordBackfillChunk(result: result, scannedThrough: chunkEnd) else {
+                    #if DEBUG
+                    logRecordBaseline(from: cursor, to: chunkEnd, workouts: result.workouts.count, committed: false,
+                        reason: "validation", calendar: calendar)
+                    #endif
+                    return false
+                }
                 if chunkEnd >= end { finalizeRecordBaseline(capturedEpoch: capturedEpoch) }
-                return await persistWorkoutJournalRecordLedger()
+                let committed = await persistWorkoutJournalRecordLedger()
+                #if DEBUG
+                logRecordBaseline(from: cursor, to: chunkEnd, workouts: result.workouts.count, committed: committed,
+                    reason: committed ? "ok" : "persistFailure", calendar: calendar)
+                #endif
+                return committed
             }
             if !completed { return }
         }

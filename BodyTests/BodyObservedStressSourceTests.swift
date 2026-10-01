@@ -15,6 +15,11 @@ final class BodyObservedStressSourceTests: XCTestCase {
         let hrv = try XCTUnwrap(HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN))
         health.scriptSources(for: hrv, .sources([]))
         health.scriptSamples(for: HKSeriesType.heartbeat(), .samples([]))
+        // A watch that writes no Recovery HRV, so Stress falls through to the
+        // heartbeat scan. Unscripted, the read would wait out the refresh deadline.
+        if let recoveryHRV = HealthKitFetchEngine.recoveryHRVIdentifier.flatMap(HKQuantityType.quantityType(forIdentifier:)) {
+            health.scriptSamples(for: recoveryHRV, .samples([]))
+        }
         let store = HealthKitWorkoutStore(initialMonthSnapshots: [], initialHealthDashboardSnapshot: .empty,
             initialPermissionSelection: .init(enabledPermissions: [.heart]),
             initialHealthDataSourceSelection: .defaultValue, initialSecondaryHealthDataSourceSelection: .defaultValue,

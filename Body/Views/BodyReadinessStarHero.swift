@@ -188,6 +188,7 @@ struct BodyReadinessArcHero: View {
     @State private var trailingStretch: CGFloat = 0
     @State private var isStretchReleasing = false
     @Environment(BodyReadinessHeroState.self) private var heroState: BodyReadinessHeroState?
+    @Environment(\.bodyLaunchRevealPending) private var launchRevealPending
     @State private var glowTask: Task<Void, Never>?
     @State private var returnTask: Task<Void, Never>?
 
@@ -302,6 +303,12 @@ struct BodyReadinessArcHero: View {
     private static let glowDelay: Duration = .milliseconds(300)
     private static var hasPlayedLaunchSlide = false
 
+    /// Home's launch slide waits while the launch reveal still covers the app, so the
+    /// pill sets off, and the score haptic lands, as the page comes into view.
+    private var waitsForLaunchReveal: Bool {
+        heroState != nil && launchRevealPending && !Self.hasPlayedLaunchSlide
+    }
+
     var body: some View {
         let layout = Geometry.layout(progress: clampedProgress, width: width)
         let barWidth = layout.barWidth
@@ -369,14 +376,22 @@ struct BodyReadinessArcHero: View {
             // shared state and does not use it up.
             displayedScore = readiness.score ?? 0
             if heroState == nil || !Self.hasPlayedLaunchSlide {
+                // Home holds the slide under the launch reveal (the onChange below).
+                guard !waitsForLaunchReveal else { return }
                 if heroState != nil { Self.hasPlayedLaunchSlide = true }
                 movePill(to: readiness.score, isLaunchSlide: true)
             } else {
                 placePill(at: readiness.score)
             }
         }
+        .onChange(of: launchRevealPending) { _, isPending in
+            guard !isPending, heroState != nil, !Self.hasPlayedLaunchSlide else { return }
+            Self.hasPlayedLaunchSlide = true
+            movePill(to: readiness.score, isLaunchSlide: true)
+        }
         .onChange(of: readiness.score) { oldScore, newScore in
             displayedScore = newScore ?? 0
+            guard !waitsForLaunchReveal else { return }
             // A first score arriving after launch reveals like the launch slide.
             movePill(to: newScore, from: oldScore, isLaunchSlide: oldScore == nil)
         }
@@ -538,6 +553,8 @@ struct BodyReadinessGlowBackground: View {
     let tint: Color?
     let circleCenterY: CGFloat
     let glowRadius: CGFloat
+    /// The glow's horizontal center in points; nil centers it on the page.
+    var circleCenterX: CGFloat? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -551,7 +568,10 @@ struct BodyReadinessGlowBackground: View {
                             .init(color: tint.opacity(0.10), location: 0.55),
                             .init(color: .clear, location: 1)
                         ],
-                        center: UnitPoint(x: 0.5, y: geo.size.height > 0 ? circleCenterY / geo.size.height : 0),
+                        center: UnitPoint(
+                            x: circleCenterX.map { geo.size.width > 0 ? $0 / geo.size.width : 0.5 } ?? 0.5,
+                            y: geo.size.height > 0 ? circleCenterY / geo.size.height : 0
+                        ),
                         startRadius: 0,
                         endRadius: glowRadius
                     )

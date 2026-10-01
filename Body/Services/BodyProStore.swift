@@ -5,7 +5,7 @@
 
 import Foundation
 
-/// Owns the Body Pro purchase and the app's reactive entitlement, backed by a
+/// Owns the Body Pro purchases and the app's reactive entitlement, backed by a
 /// `BodyPurchasesClient` (RevenueCat in production).
 ///
 /// SwiftUI gates read `isPro` from this `@Observable` store via the environment. Deep
@@ -15,9 +15,20 @@ import Foundation
 @MainActor
 @Observable
 final class BodyProStore {
-    /// The single non-consumable that unlocks Body Pro for life. RevenueCat maps this App
-    /// Store product to the Pro entitlement; we also fetch it by id for the display price.
+    // The App Store products that unlock Body Pro, one per `BodyProPlan`. RevenueCat maps
+    // each to the Pro entitlement; we also fetch them by id for the display prices.
+
+    /// Non-consumable that unlocks Body Pro for life.
     nonisolated static let lifetimeProductID = "com.zihengthedeveloper.body.pro.lifetime"
+    /// The same lifetime unlock with Family Sharing on.
+    nonisolated static let lifetimeFamilyProductID = "com.zihengthedeveloper.body.pro.lifetime.family"
+    /// Auto-renewable subscriptions in the "Body Pro" group. Yearly carries the free trial.
+    nonisolated static let yearlyProductID = "com.zihengthedeveloper.body.pro.yearly"
+    nonisolated static let monthlyProductID = "com.zihengthedeveloper.body.pro.monthly"
+
+    /// The purchases that never expire, so owning one with an inactive entitlement is a
+    /// recovery state rather than "nothing to restore".
+    nonisolated static let lifetimeProductIDs: Set<String> = [lifetimeProductID, lifetimeFamilyProductID]
 
     /// RevenueCat entitlement identifier that unlocks Body Pro.
     static let entitlementID = RevenueCatConfiguration.proEntitlementID
@@ -41,8 +52,10 @@ final class BodyProStore {
     /// `false` until the first async entitlement refresh completes — lets the paywall
     /// show "checking…" rather than "buy" during a reinstall's resolve window.
     private(set) var hasResolved = false
-    private(set) var product: BodyProProduct?
-    /// `true` once a `loadProduct()` attempt has completed without resolving a product —
+    /// The plans the App Store resolved, keyed by plan. A plan the store could not load is
+    /// simply absent, so the paywall only ever offers what can actually be bought.
+    private(set) var products: [BodyProPlan: BodyProProduct] = [:]
+    /// `true` once a `loadProducts()` attempt has completed without resolving any product —
     /// distinguishes "still loading" from "failed", so the paywall never shows a guessed
     /// price. Cleared at the start of every retry.
     private(set) var productLoadFailed = false
@@ -73,35 +86,36 @@ final class BodyProStore {
             }
         }
 
-        // Independent: `loadProduct` writes `product`/`productLoadFailed`, `refreshEntitlement`
+        // Independent: `loadProducts` writes `products`/`productLoadFailed`, `refreshEntitlement`
         // writes `isPro`/`purchaseState`/`hasResolved`, so neither reads the other's state.
         Task { [weak self] in
             guard let self else { return }
-            async let product: Void = loadProduct()
+            async let products: Void = loadProducts()
             async let entitlement: Void = refreshEntitlement()
-            _ = await (product, entitlement)
+            _ = await (products, entitlement)
         }
     }
 
-    /// `nil` until the product resolves — the paywall shows a loading placeholder rather
-    /// than a guessed price.
-    var displayPrice: String? {
-        product?.displayPrice
-    }
-
-    /// Fetch the product by id; the paywall shows its localized price. Non-fatal on failure:
-    /// `productLoadFailed` lets the paywall offer a retry, and a purchase attempt reports
-    /// `.unavailable` on its own.
-    func loadProduct() async {
+    /// Fetch every plan's product by id; the paywall shows their localized prices. Non-fatal
+    /// on failure: `productLoadFailed` lets the paywall offer a retry, and a purchase attempt
+    /// reports `.unavailable` on its own.
+    func loadProducts() async {
         productLoadFailed = false
-        product = await client.product(id: Self.lifetimeProductID)
-        productLoadFailed = product == nil
+        let loaded = await client.products(ids: BodyProPlan.allCases.map(\.productID))
+        var products: [BodyProPlan: BodyProProduct] = [:]
+        for product in loaded {
+            if let plan = BodyProPlan(productID: product.id) {
+                products[plan] = product
+            }
+        }
+        self.products = products
+        productLoadFailed = products.isEmpty
     }
 
-    func purchase() async {
+    func purchase(_ plan: BodyProPlan) async {
         purchaseState = .purchasing
         do {
-            switch try await client.purchase(productID: Self.lifetimeProductID) {
+            switch try await client.purchase(productID: plan.productID) {
             case .cancelled:
                 purchaseState = .idle
             case .pending:
@@ -159,6 +173,18 @@ final class BodyProStore {
             await refreshEntitlement()
         }
     }
+
+    #if DEBUG
+    /// Previews snapshot before the launch tasks resolve, so they settle the store up front.
+    /// Leaves the shared entitlement cache alone.
+    func settleForPreview(isPro: Bool, products: [BodyProProduct]) {
+        self.isPro = isPro
+        self.products = Dictionary(uniqueKeysWithValues: products.compactMap { product in
+            BodyProPlan(productID: product.id).map { ($0, product) }
+        })
+        hasResolved = true
+    }
+    #endif
 
     private func applyEntitlement(_ unlocked: Bool) {
         let didChange = isPro != unlocked

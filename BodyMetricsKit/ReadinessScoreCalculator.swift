@@ -55,6 +55,8 @@ enum ReadinessScoreCalculator {
     private struct VitalsAssessment {
         var componentScore: Int
         var maxAnomalyProgress: Double
+        /// Vitals at or past `severeVitalsAnomalyThreshold` on the scoring day.
+        var severeAnomalyCount: Int
         var drivers: [ReadinessDriver]
         var bestBaselineDayCount: Int
     }
@@ -323,6 +325,12 @@ enum ReadinessScoreCalculator {
         }
     }
 
+    /// Scoring-rules revision, bumped whenever a change should drop and rescore
+    /// the frozen morning records (see
+    /// `HealthKitWorkoutStore.readinessRecordContextSignature`). Independent of
+    /// the user-facing "v2" chip: 2 was the softer vitals penalty, 3 added the
+    /// top-end stretch.
+    static let algorithmVersion = 3
     static let baselineDayCount = 56
     static let recentExclusionDayCount = 3
     static let minimumBaselineDayCount = 14
@@ -377,13 +385,17 @@ enum ReadinessScoreCalculator {
         // The autonomic recovery core anchors the score; the other signals
         // act as bounded multiplicative penalties so good sleep or light
         // training can never dilute a crashed core back into the High band.
+        // Overnight vitals are the smallest lever (v2): one out-of-range vital
+        // only trims the score, and only a multi-vital severe pattern (fever
+        // plus fast breathing, say) caps it into the Low band.
         let core = autonomic.map { recoveryCore(fromZScore: $0.combinedZScore) } ?? neutralCore
         let sleepFactor = sleep.map { sleepModifierFloor + (1 - sleepModifierFloor) * $0.quality } ?? 1
         let strainModifier = training.map { strainFactor(forTrainingLoadRatio: $0.ratio) } ?? 1
         let vitalsFactor = vitals.map { 1 - vitalsModifierWeight * $0.maxAnomalyProgress } ?? 1
 
-        var score = min(max(Int((core * sleepFactor * strainModifier * vitalsFactor).rounded()), 0), 100)
-        if let vitals, vitals.maxAnomalyProgress >= severeVitalsAnomalyThreshold {
+        let rawScore = core * sleepFactor * strainModifier * vitalsFactor
+        var score = min(max(Int(stretchedTopEnd(rawScore).rounded()), 0), 100)
+        if let vitals, vitals.severeAnomalyCount >= severeVitalsAnomalyCountForCap {
             score = min(score, severeVitalsScoreCap)
         }
 
@@ -396,7 +408,7 @@ enum ReadinessScoreCalculator {
             components.append(ReadinessComponent(
                 kind: .autonomic,
                 score: Int(recoveryCore(fromZScore: autonomic.combinedZScore).rounded()),
-                weight: 30,
+                weight: 35,
                 message: String(localized: "Heart signals compared with your baseline.", table: "BodyMetricsKit")
             ))
             bestBaselineDayCounts.append(autonomic.bestBaselineDayCount)
@@ -422,7 +434,7 @@ enum ReadinessScoreCalculator {
             components.append(ReadinessComponent(
                 kind: .vitals,
                 score: vitals.componentScore,
-                weight: 15,
+                weight: 10,
                 message: String(localized: "Breathing, oxygen, and temperature anomalies.", table: "BodyMetricsKit")
             ))
             bestBaselineDayCounts.append(vitals.bestBaselineDayCount)
@@ -821,6 +833,7 @@ enum ReadinessScoreCalculator {
         return VitalsAssessment(
             componentScore: scoreFromPenaltyProgress(maxProgress),
             maxAnomalyProgress: maxProgress,
+            severeAnomalyCount: anomalyProgressValues.filter { $0 >= severeVitalsAnomalyThreshold }.count,
             drivers: drivers,
             bestBaselineDayCount: baselineCounts.max() ?? 0
         )
@@ -921,9 +934,25 @@ enum ReadinessScoreCalculator {
     private static let adverseZScoreCap = -2.5
     private static let favorableZScoreCap = 2.0
     private static let sleepModifierFloor = 0.75
-    private static let vitalsModifierWeight = 0.45
+    private static let vitalsModifierWeight = 0.20
     private static let severeVitalsAnomalyThreshold = 0.95
-    private static let severeVitalsScoreCap = 25
+    private static let severeVitalsAnomalyCountForCap = 2
+    private static let severeVitalsScoreCap = 64
+
+    /// The raw score can never exceed the core's ceiling (about 96 at the
+    /// favorable z cap) because every other factor only trims, so Prime (95+)
+    /// was out of reach. Scores above `topStretchFloor` are mapped linearly
+    /// onto the floor…100 range; everything at or below the floor is untouched.
+    static let topStretchFloor = 80.0
+
+    static func stretchedTopEnd(_ score: Double) -> Double {
+        guard score > topStretchFloor else {
+            return score
+        }
+
+        let rawCeiling = recoveryCore(fromZScore: favorableZScoreCap)
+        return topStretchFloor + (score - topStretchFloor) * (100 - topStretchFloor) / (rawCeiling - topStretchFloor)
+    }
 
     /// Single-metric artifact guard: one wild sample cannot move the combined
     /// z beyond what the curve treats as a full crash or full recovery.

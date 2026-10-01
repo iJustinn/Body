@@ -36,11 +36,42 @@ final class RevenueCatPurchasesClient: BodyPurchasesClient {
         Purchases.isConfigured ? RevenueCatPurchasesClient() : NoopPurchasesClient()
     }
 
-    /// Fetch the product directly by id (no Offering dependency); the paywall shows its
-    /// localized price.
-    func product(id: String) async -> BodyProProduct? {
-        guard let product = await Purchases.shared.products([id]).first else { return nil }
-        return BodyProProduct(id: product.productIdentifier, displayPrice: product.localizedPriceString)
+    /// Fetch the products directly by id (no Offering dependency); the paywall shows their
+    /// localized prices.
+    func products(ids: [String]) async -> [BodyProProduct] {
+        var products: [BodyProProduct] = []
+        for product in await Purchases.shared.products(ids) {
+            products.append(BodyProProduct(
+                id: product.productIdentifier,
+                displayPrice: product.localizedPriceString,
+                price: product.price,
+                displayPricePerMonth: product.subscriptionPeriod?.unit == .year ? product.localizedPricePerMonth : nil,
+                freeTrial: await Self.eligibleFreeTrial(for: product)
+            ))
+        }
+        return products
+    }
+
+    /// The product's free trial, but only while this customer can still start it: Apple gives
+    /// one introductory offer per subscription group, so a lapsed subscriber sees the price.
+    private static func eligibleFreeTrial(for product: StoreProduct) async -> BodyProFreeTrial? {
+        guard let offer = product.introductoryDiscount, offer.paymentMode == .freeTrial else { return nil }
+        guard await Purchases.shared.checkTrialOrIntroDiscountEligibility(product: product) == .eligible else {
+            return nil
+        }
+
+        let unit: BodyProFreeTrial.Unit
+        switch offer.subscriptionPeriod.unit {
+        case .day:
+            unit = .day
+        case .week:
+            unit = .week
+        case .month:
+            unit = .month
+        case .year:
+            unit = .year
+        }
+        return BodyProFreeTrial(value: offer.subscriptionPeriod.value * max(offer.numberOfPeriods, 1), unit: unit)
     }
 
     func purchase(productID: String) async throws -> BodyPurchaseOutcome {
@@ -74,10 +105,11 @@ final class RevenueCatPurchasesClient: BodyPurchasesClient {
     func restorePurchases() async throws -> BodyRestoreOutcome {
         let info = try await Purchases.shared.restorePurchases()
         if Self.isProActive(in: info) { return .unlocked }
-        // The lifetime purchase exists but its entitlement didn't resolve — that's the same
+        // A lifetime purchase exists but its entitlement didn't resolve — that's the same
         // recovery state as a just-completed purchase, not "nothing to restore" (which would
-        // falsely tell a paying customer their purchase doesn't exist).
-        if info.allPurchasedProductIdentifiers.contains(BodyProStore.lifetimeProductID) {
+        // falsely tell a paying customer their purchase doesn't exist). Subscriptions are left
+        // out: an expired one is also in this list, and it really is nothing to restore.
+        if !info.allPurchasedProductIdentifiers.isDisjoint(with: BodyProStore.lifetimeProductIDs) {
             return .ownedButInactive
         }
         return .nothingToRestore
@@ -108,7 +140,7 @@ final class RevenueCatPurchasesClient: BodyPurchasesClient {
 private struct NoopPurchasesClient: BodyPurchasesClient {
     let entitlementUpdates: AsyncStream<Bool> = AsyncStream { $0.finish() }
 
-    func product(id: String) async -> BodyProProduct? { nil }
+    func products(ids: [String]) async -> [BodyProProduct] { [] }
     func purchase(productID: String) async throws -> BodyPurchaseOutcome { .unavailable }
     func restorePurchases() async throws -> BodyRestoreOutcome { .nothingToRestore }
     func currentEntitlement() async throws -> Bool { false }

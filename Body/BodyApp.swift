@@ -5,7 +5,33 @@
 
 import SwiftUI
 
+/// XCTest launches Body as the host of the unit tests. The live app would sync,
+/// repair and save from its own store in the test process, overwriting the
+/// dashboard file and holding the query permits the tests rely on, so a test
+/// host shows an empty scene and only registers the background tasks.
 @main
+enum BodyMain {
+    static func main() {
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            BodyTestHostApp.main()
+        } else {
+            BodyApp.main()
+        }
+    }
+}
+
+private struct BodyTestHostApp: App {
+    init() {
+        // Stores under test submit these requests, which needs a registration.
+        BodyBackgroundRefreshScheduler.registerTask()
+        BodyDataRefreshScheduler.registerTask()
+    }
+
+    var body: some Scene {
+        WindowGroup { Color.clear }
+    }
+}
+
 struct BodyApp: App {
     @UIApplicationDelegateAdaptor(BodyNotificationAppDelegate.self) private var notificationDelegate
     @Environment(\.scenePhase) private var scenePhase
@@ -43,6 +69,7 @@ struct BodyApp: App {
     var body: some Scene {
         WindowGroup {
             MainTabView()
+                .bodyLaunchReveal()
                 .bodyBaseInterfaceLevel()
                 .environment(workoutStore)
                 .environment(proStore)

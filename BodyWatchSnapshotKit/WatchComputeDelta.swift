@@ -30,6 +30,11 @@ struct WatchComputeDelta {
     var sleepNights: WatchFetchOutcome<[SleepDaySummary]> = .failure
     var workouts: WatchFetchOutcome<[WorkoutSummary]> = .failure
 
+    /// Source kinds this watch holds no HealthKit source for at all
+    /// (`WatchSourceRead.unavailable`). Their series stay `.failure`, so the
+    /// seed is preserved, but they do not block Readiness.
+    var carriedKinds: Set<HealthMetricKind> = []
+
     var heartRateSample: WatchDeltaSample?
     var restingHeartRateSample: WatchDeltaSample?
     var heartRateVariabilitySample: WatchDeltaSample?

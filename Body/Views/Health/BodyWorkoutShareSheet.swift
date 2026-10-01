@@ -1136,7 +1136,7 @@ struct BodyWorkoutShareSheet: View {
             .photosPicker(isPresented: $isPickerPresented, selection: $photoItem, matching: .images)
             .photosPicker(isPresented: $isVideoPickerPresented, selection: $videoItem, matching: .videos)
             .sheet(isPresented: $showBodyProPaywall) {
-                NavigationStack { BodyProView() }
+                NavigationStack { BodyProView(showsCloseButton: true) }
             }
             // The title stays set for accessibility/back-button inheritance; the
             // principal item is what actually draws, so the version badge can sit beside it.
@@ -3698,22 +3698,6 @@ private struct WorkoutShareVideoPayload: Identifiable {
     let id = UUID()
     let url: URL
     let clipID: UUID
-}
-
-/// Wraps `UIActivityViewController` so the system share sheet can be presented via
-/// `.sheet(item:)` — embedding it in a sheet also avoids the iPad popover-anchor crash.
-/// Takes the activity items as-is: a `UIImage` for a card, a file URL for a video.
-private struct BodyShareActivityView: UIViewControllerRepresentable {
-    let items: [Any]
-    let onComplete: () -> Void
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        controller.completionWithItemsHandler = { _, _, _, _ in onComplete() }
-        return controller
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 /// The tray tile scroller: a soft fade over each edge, and a content margin of exactly

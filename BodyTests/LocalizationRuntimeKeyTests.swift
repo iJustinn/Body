@@ -322,7 +322,6 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Couldn't Save Video",
             "Drag to move the video. Pinch to zoom. Double-tap to reset.",
             "Video Activity Share",
-            "Use your own videos as the background of workout share cards.",
             // Font row label and the option names, built via String(localized:) in
             // WorkoutShareFontChoice.localizedName.
             "Font",
@@ -350,7 +349,6 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Landscape 4:3",
             "Square",
             "Share Card Sizes",
-            "Export workout share cards as 16:9, 3:4, 4:3, or square — or as a long image of the whole workout.",
             // Long Image tray tile, its metrics caption, its min-1 hint, and the
             // disabled-background hint.
             "Long Image",
@@ -369,7 +367,6 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Requires Body Pro",
             "Pick up to 5 metrics.",
             "Share Card Metrics",
-            "Choose which metrics your workout share card shows.",
             // Profile attribution rail icon, its tray tile names and disabled-tile
             // hint, and the missing-data caption shown while the tray is open.
             "Profile",
@@ -492,7 +489,15 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "Use Default",
             "If you were working out, this warning will disappear once the workout is logged.",
             "Default: %@",
-            "%lld bpm"
+            "%lld bpm",
+            // Warning card close button and the Body Radar warning card.
+            "Close",
+            "bodyRadar.warning.sentence",
+            "bodyRadar.warning.sameNight",
+            "bodyRadar.warning.persistence",
+            "bodyRadar.warning.higher",
+            "bodyRadar.warning.lower",
+            "bodyRadar.warning.footnote"
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -624,6 +629,150 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         ]
 
         try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testBodyRadarReplayExportStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // Settings › Data › Cache › Export Body Radar Replay: the row, its
+        // footnote, and the failure alert.
+        let keys = [
+            "Export Body Radar Replay",
+            "Saves a local file with the nightly inputs and results Body Radar used, for checking the algorithm. Nothing is uploaded.",
+            "Couldn't Export Body Radar Replay"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    func testSleepDebtStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // The About text is read back out of the source, so an edit to the copy
+        // can never leave this list behind.
+        let aboutText = try detailSourceText(matching: #"Text\("(Sleep Debt estimates[^"]*)"\)"#)
+
+        // Sleep page › Sleep Debt card: header, night row, chart VoiceOver
+        // labels, the About card, and its Summary Cards toggle.
+        let keys = [
+            "Sleep Debt",
+            "Slept",
+            "Need",
+            "Goal",
+            "Need includes %@ for training",
+            "Need includes %@ for low HRV",
+            "Need includes %@ for training and %@ for low HRV",
+            "Based on %lld of 14 nights",
+            "Need uses your sleep goal until 28 nights are recorded",
+            "--h --m",
+            "LOW DEBT",
+            "MODERATE DEBT",
+            "HIGH DEBT",
+            "%@: slept %@, need %@, debt %@",
+            "%@: no sleep recorded, debt %@",
+            "%@: slept %@, need %@",
+            "%@: no sleep data",
+            "Not enough sleep data yet",
+            "About Sleep Debt",
+            aboutText,
+            "Missed sleep over the last 14 nights"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+        try assertNoDashes(keys, in: catalog)
+    }
+
+    /// The subscription paywall: the showcase captions, plan cards, the purchase button and
+    /// its price disclosure, the free trial timeline, and the legal footer. Several are built at runtime from
+    /// store prices (BodyProView), so string extraction alone would not prove they resolve.
+    func testBodyProPaywallStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            // The showcase captions, one per scene.
+            "A whole year, at a glance",
+            "Month, 6 month, and year charts for every metric.",
+            "Your routes, in 3D",
+            "Share workouts with the route as an elevation ribbon, over a photo or video.",
+            "Body on your Home Screen",
+            "Widgets for your workouts and every metric.",
+            "Two sources, one chart",
+            "Other Wearables",
+            "Compare a second source, or merge several into a custom one.",
+            "Make it yours",
+            "Custom backgrounds, saved as profiles you can switch anytime.",
+            "Everything in Pro",
+            // The Settings card's subtitle once Pro is owned.
+            "You are a Pro",
+            "Choose Your Plan",
+            "Yearly",
+            "Monthly",
+            "Lifetime",
+            "per year",
+            "per month",
+            "one time",
+            "Save %@",
+            "Best Value",
+            "%@ free",
+            "%@ per month, billed yearly",
+            "Cancel anytime",
+            "Share with up to 5 family members",
+            "Pay once, keep Pro forever",
+            "Just Me",
+            "Family",
+            "Start Free Trial",
+            "Subscribe",
+            "Unlock Lifetime",
+            // The way on when the paywall ends onboarding or shows once after an update.
+            "Continue for Free",
+            "%@ free, then %@. Cancel anytime.",
+            "%@. Renews automatically, cancel anytime.",
+            "One payment of %@. No subscription.",
+            "One payment of %@, shared with your family.",
+            "%@ per month",
+            "%@ per year",
+            "How Your Free Trial Works",
+            "Today",
+            "Get full access to every Pro feature.",
+            "Billing starts at %@. Cancel at least 24 hours before and you won't be charged.",
+            "Terms of Use",
+            "Privacy Policy",
+            "Payment is charged to your Apple Account when you confirm the purchase, or when a free trial ends. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel anytime in your Apple Account settings.",
+            "Close"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+        try assertNoDashes(keys.filter { $0 != "Close" && $0 != "Today" && $0 != "Lifetime" }, in: catalog)
+    }
+
+    func testAboutSleepScoreCopyIsTranslatedWithoutDashes() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+        let aboutText = try detailSourceText(matching: #"Text\("(Body scores each night[^"]*)"\)"#)
+
+        try assertKeysTranslated([aboutText], in: catalog)
+        try assertNoDashes([aboutText], in: catalog)
+    }
+
+    /// The project's copy rule: no dashes as punctuation, in either language.
+    private func assertNoDashes(_ keys: [String], in catalog: [String: Any]) throws {
+        for key in keys {
+            for language in ["en", "zh-Hans"] {
+                let text = try value(of: key, language: language, in: catalog)
+                XCTAssertFalse(text.contains("—") || text.contains("–") || text.contains(" - "), "\(key) \(language)")
+            }
+        }
+    }
+
+    /// The first capture group of `pattern` in the metric detail view's source.
+    private func detailSourceText(matching pattern: String) throws -> String {
+        let source = try String(
+            contentsOf: projectRoot.appendingPathComponent("Body/Views/Health/BodyHealthMetricDetailView.swift"),
+            encoding: .utf8
+        )
+        let match = try XCTUnwrap(
+            NSRegularExpression(pattern: pattern).firstMatch(in: source, range: NSRange(source.startIndex..., in: source))
+        )
+        return String(source[try XCTUnwrap(Range(match.range(at: 1), in: source))])
     }
 
     func testWorkoutDetailsExplanationKeysResolveInLocalizableCatalog() throws {
@@ -902,6 +1051,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "bodyRadar.state.insufficientData",
             "bodyRadar.combinedChanges",
             "bodyRadar.allTypical",
+            "bodyRadar.heldNight",
             "bodyRadar.state.noSigns",
             "bodyRadar.state.minorSigns",
             "bodyRadar.state.majorSigns",
@@ -932,7 +1082,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "bodyRadar.card.allTypical",
             "bodyRadar.detail.recentNights",
             "bodyRadar.chart.bandsDescription",
-            "Beta v2",
+            "Beta v3",
             "bodyRadar.state.noData"
         ]
 

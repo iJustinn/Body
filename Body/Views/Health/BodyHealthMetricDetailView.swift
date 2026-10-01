@@ -53,6 +53,11 @@ struct BodyHealthMetricDetailModel {
     let headerMetrics: [BodyMetricDisplayValue]
     let helpText: HealthMetricDetailHelpText?
     let dataSourceText: HealthMetricDetailDataSourceText?
+    /// Names which data a page that can show more than one series is built
+    /// from (the HRV page's Recovery view); empty for the default series. It
+    /// travels with the model so the range chart's morph key changes in the
+    /// same update as the data, not one render earlier off the stored pick.
+    let trendVariant: String
 
     init(
         kind: HealthMetricKind,
@@ -88,7 +93,8 @@ struct BodyHealthMetricDetailModel {
         sourceLineComparisonTrend: BodyHealthSourceComparisonTrend? = nil,
         headerMetrics: [BodyMetricDisplayValue] = [],
         helpText: HealthMetricDetailHelpText? = nil,
-        dataSourceText: HealthMetricDetailDataSourceText? = nil
+        dataSourceText: HealthMetricDetailDataSourceText? = nil,
+        trendVariant: String = ""
     ) {
         self.kind = kind
         self.title = title
@@ -124,6 +130,7 @@ struct BodyHealthMetricDetailModel {
         self.headerMetrics = headerMetrics
         self.helpText = helpText ?? kind.detailHelpText
         self.dataSourceText = dataSourceText
+        self.trendVariant = trendVariant
     }
 }
 
@@ -418,9 +425,12 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.selectedWeightUnitKey) private var selectedWeightUnitRawValue = BodyValueFormat.WeightUnitPreference.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.sleepDurationGoalMinutesKey) private var sleepDurationGoalMinutes = BodySleepDurationGoal.defaultMinutes
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    @AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true
     @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = true
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.hrvDetailDisplayKindKey) private var hrvDetailDisplayKindRawValue = BodyHRVDisplayKind.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
+    @AppStorage(BodyAppearancePreference.dismissedMetricWarningsKey) private var dismissedMetricWarningsRawValue = ""
     @AppStorage(BodyAppearancePreference.metricWarningThresholdsKey) private var metricWarningThresholdsRawValue = BodyMetricWarningThresholds.defaultRawValue
     @State private var selectedTrendRangeSelection: BodyHealthTrendRange
     @State private var showBodyProPaywall = false
@@ -448,18 +458,26 @@ struct BodyHealthMetricDetailView: View {
     @StateObject private var trendComputationCache = BodyHomeTrendComputationCache()
     @StateObject private var daySeriesCache = BodyMetricDaySeriesCache()
     @StateObject private var sleepConsistencyCache = BodySleepConsistencyChartCache()
+    @StateObject private var sleepDebtCache = BodySleepDebtChartCache()
     @StateObject private var workoutIndex = BodyCachedWorkoutIndex()
     @StateObject private var rangePointsCache = BodyTrendRangePointsCache()
+
+    /// Set when the page is shown in a foldable's left pane: the navigation bar is
+    /// hidden and a header with a Back chevron (calling this), the title, and the
+    /// page's actions stands in for it.
+    private let paneClose: (() -> Void)?
 
     init(
         model: BodyHealthMetricDetailModel,
         initialTrendRange: BodyHealthTrendRange = BodyHealthTrendRange.defaultValue,
         zoomNamespace: Namespace.ID? = nil,
-        floatingCallout: BodyChartFloatingCalloutState? = nil
+        floatingCallout: BodyChartFloatingCalloutState? = nil,
+        paneClose: (() -> Void)? = nil
     ) {
         self.model = model
         self.zoomNamespace = zoomNamespace
         self.floatingCallout = floatingCallout
+        self.paneClose = paneClose
         _selectedTrendRangeSelection = State(initialValue: initialTrendRange)
     }
 
@@ -474,9 +492,9 @@ struct BodyHealthMetricDetailView: View {
         isBodyProUnlocked ? selectedTrendRangeSelection : .recentWeek
     }
 
-    /// Free users can browse the 3 most recent days in every metric day-picker; older
+    /// Free users can browse the 2 most recent days in every metric day-picker; older
     /// days are a Body Pro feature.
-    private static let freeDatePickerDayCount = 3
+    private static let freeDatePickerDayCount = 2
 
     /// The oldest day a non-Pro user may select, or `nil` for Pro (no day limit).
     private var oldestUnlockedDatePickerDay: Date? {
@@ -574,9 +592,24 @@ struct BodyHealthMetricDetailView: View {
                 endPoint: UnitPoint(x: 0.5, y: 0.5)
             )
             .ignoresSafeArea()
+            // In a foldable's pane the backdrop fades out along its trailing edge into
+            // the tab background beside it rather than ending in a hard vertical edge.
+            .mask {
+                BodyPaneBackdropMask(fadesTrailingEdge: paneClose != nil)
+            }
         }
         .navigationTitle(String(localized: String.LocalizationValue(model.title)))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(paneClose == nil ? .automatic : .hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let paneClose {
+                BodyPaneDetailHeader(title: String(localized: String.LocalizationValue(model.title)), onClose: paneClose) {
+                    if isBasicsDetail {
+                        addMeasurementButton
+                    }
+                }
+            }
+        }
         .onChange(of: selectedTrendRange) { _, _ in
             // The hero charts are keyed by range, so switching mid-scrub destroys the chart
             // instance before it can report the selection ending. The reporter's
@@ -594,12 +627,12 @@ struct BodyHealthMetricDetailView: View {
         .toolbar {
             if isBasicsDetail {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showsAddMeasurementSheet = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("Add Measurement")
+                    addMeasurementButton
+                }
+            }
+            if recoveryHRVAvailable {
+                ToolbarItem(placement: .topBarTrailing) {
+                    hrvDisplayKindMenu
                 }
             }
         }
@@ -622,6 +655,15 @@ struct BodyHealthMetricDetailView: View {
             )
             .environment(workoutStore)
         }
+    }
+
+    private var addMeasurementButton: some View {
+        Button {
+            showsAddMeasurementSheet = true
+        } label: {
+            Image(systemName: "plus")
+        }
+        .accessibilityLabel("Add Measurement")
     }
 
     private var selectedEnergyUnitPreference: BodyValueFormat.EnergyUnitPreference {
@@ -1044,7 +1086,9 @@ struct BodyHealthMetricDetailView: View {
                 day: selectedMetricDay,
                 series: selectedMetricDaySeries,
                 sleepSummary: sleepSummary,
-                fallbackValue: sleepSummary?.vitals.heartRateVariability,
+                // The stored sleep HRV is SDNN, so it can't stand in for a
+                // Recovery night with no samples.
+                fallbackValue: showsRecoveryHRV ? nil : sleepSummary?.vitals.heartRateVariability,
                 source: workoutStore.selectedHealthDataSourceOption(for: model.kind).name
             )
         case .activeEnergy:
@@ -1064,13 +1108,56 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var liveDaySeries: HealthTrendSeries {
-        let storeSeries = workoutStore.healthTrends.daySeries(for: model.kind)
+        let storeSeries = showsRecoveryHRV
+            ? workoutStore.healthTrends.heartbeatRMSSDDaySamples
+            : workoutStore.healthTrends.daySeries(for: model.kind)
         return storeSeries.points.isEmpty ? model.daySeries : storeSeries
     }
 
     private var liveSecondaryDaySeries: HealthTrendSeries {
-        let storeSeries = workoutStore.healthTrends.secondaryDaySeries(for: model.kind)
+        let storeSeries = showsRecoveryHRV
+            ? workoutStore.healthTrends.recoveryHRVDaySamplesSecondary
+            : workoutStore.healthTrends.secondaryDaySeries(for: model.kind)
         return storeSeries.points.isEmpty ? model.secondaryDaySeries : storeSeries
+    }
+
+    /// The HRV page offers its Recovery view only once the watch has written
+    /// Apple's RMSSD (Series 12 and Ultra 4 on watchOS 27); every other watch
+    /// sees the Overall page unchanged, with no toggle.
+    private var recoveryHRVAvailable: Bool {
+        model.kind == .heartRateVariability && !workoutStore.healthTrends.recoveryHRV.isEmpty
+    }
+
+    /// Read off the model `BodyHomeView` built from the stored pick, not off
+    /// the stored pick itself: the two views observe the same default, and the
+    /// page must not flip its live series or morph key a render before the
+    /// model arrives.
+    private var showsRecoveryHRV: Bool {
+        model.kind == .heartRateVariability && model.trendVariant == BodyHRVDisplayKind.recovery.rawValue
+    }
+
+    /// Swapping Overall for Recovery keeps the same range chart on screen and
+    /// morphs its bars and line into the other series instead of popping.
+    private var rangeChartVariant: String {
+        model.trendVariant
+    }
+
+    /// Top-right menu picking Overall (SDNN) or Recovery (RMSSD), the system
+    /// popup with a checkmark on the current pick. Persisted, so the page
+    /// reopens on the last choice.
+    private var hrvDisplayKindMenu: some View {
+        Menu {
+            Picker(String(localized: "HRV View"), selection: $hrvDetailDisplayKindRawValue) {
+                Label("Overall HRV", systemImage: "waveform.path.ecg")
+                    .tag(BodyHRVDisplayKind.overall.rawValue)
+                Label("Recovery HRV", systemImage: "arrow.clockwise.heart")
+                    .tag(BodyHRVDisplayKind.recovery.rawValue)
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: "arrow.left.arrow.right")
+        }
+        .accessibilityLabel(String(localized: "HRV View"))
     }
 
     private var selectedSleepSummary: SleepSummary? {
@@ -1162,6 +1249,9 @@ struct BodyHealthMetricDetailView: View {
         }
 
         sleepConsistencyCard
+        if showSleepDebt {
+            sleepDebtCard
+        }
     }
 
     @ViewBuilder
@@ -1535,7 +1625,7 @@ struct BodyHealthMetricDetailView: View {
                     onLockedRangeTap: { showBodyProPaywall = true }
                 )
                 .sheet(isPresented: $showBodyProPaywall) {
-                    NavigationStack { BodyProView() }
+                    NavigationStack { BodyProView(showsCloseButton: true) }
                 }
             }
 
@@ -1595,6 +1685,9 @@ struct BodyHealthMetricDetailView: View {
             if showSleepScore {
                 aboutSleepScoreCard
             }
+            if showSleepDebt {
+                aboutSleepDebtCard
+            }
             dataSourceFooter
         } else if isVitalsDetail {
             if !vitalsSnapshot.nights.isEmpty {
@@ -1604,6 +1697,7 @@ struct BodyHealthMetricDetailView: View {
             helpTextCard
             dataSourceFooter
         } else if isBodyRadarDetail {
+            bodyRadarWarningCard
             helpTextCard
             dataSourceFooter
         } else {
@@ -1644,8 +1738,29 @@ struct BodyHealthMetricDetailView: View {
                 }
             }
             helpTextCard
+            if recoveryHRVAvailable {
+                aboutRecoveryHRVCard
+            }
             dataSourceFooter
         }
+    }
+
+    /// Follows About HRV, and only once the watch has written Recovery HRV.
+    private var aboutRecoveryHRVCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("About Recovery HRV")
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+
+            Text("Recovery HRV looks at the difference between each heartbeat and the next, taken through the day while you are still. That beat to beat view responds quickly to how recovered you are, so it rises after restful nights and drops after hard training, poor sleep, alcohol, illness, or stress. Overall HRV measures the spread of all your heartbeats over a longer window and speaks more to your general cardiovascular health. Both are in milliseconds, but the two are computed differently and are not directly comparable, so watch each against its own baseline.")
+                .font(.system(.body, design: .rounded))
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(translucent: true)
     }
 
     private var metricHeroValueRow: some View {
@@ -1790,6 +1905,7 @@ struct BodyHealthMetricDetailView: View {
             BodyHeartRateRangeTrendChart(
                 title: model.title,
                 selectedRange: selectedTrendRange,
+                variant: rangeChartVariant,
                 rangeSeries: sourceRangeComparisonTrend.primary.series,
                 secondaryRangeSeries: sourceRangeComparisonTrend.secondary.series,
                 primarySourceName: sourceRangeComparisonTrend.primary.sourceName,
@@ -1848,6 +1964,7 @@ struct BodyHealthMetricDetailView: View {
             BodyHeartRateRangeTrendChart(
                 title: model.title,
                 selectedRange: selectedTrendRange,
+                variant: rangeChartVariant,
                 // Untrimmed, for the same reason as the Basics chart above.
                 rangeSeries: metricRangeSeries,
                 symbolColor: model.symbolColor,
@@ -2407,7 +2524,8 @@ struct BodyHealthMetricDetailView: View {
 
     @ViewBuilder
     private var metricWarningCards: some View {
-        let warnings = selectedMetricWarnings
+        let dismissed = BodyDismissedMetricWarnings.storedValue(from: dismissedMetricWarningsRawValue)
+        let warnings = selectedMetricWarnings.filter { !dismissed.contains($0) }
 
         ForEach(warnings, id: \.kind) { event in
             let window = MetricThresholdWarning.chartWindow(for: event, clampedTo: selectedMetricDayInterval)
@@ -2419,7 +2537,13 @@ struct BodyHealthMetricDetailView: View {
                 samples: selectedMetricDaySeries.points.filter { window.contains($0.date) },
                 window: window,
                 tint: model.symbolColor,
-                floatingCallout: floatingCallout
+                floatingCallout: floatingCallout,
+                onDismiss: {
+                    dismissedMetricWarningsRawValue = BodyDismissedMetricWarnings
+                        .storedValue(from: dismissedMetricWarningsRawValue)
+                        .dismissing(event)
+                        .rawValue
+                }
             )
             // A warning is detected only once the day's samples have loaded, so the
             // card's first render lands on a page that is already on screen — with no
@@ -2435,6 +2559,28 @@ struct BodyHealthMetricDetailView: View {
         // churn on every refresh tick, which restarted the animation while the
         // set of cards was unchanged.
         .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: warnings.map(\.kind))
+    }
+
+    /// The night the Home card's Body Radar badge flags: the latest frozen night
+    /// when it was scored Minor or Major signs, until the user closes its card.
+    @ViewBuilder
+    private var bodyRadarWarningCard: some View {
+        let dismissed = BodyDismissedMetricWarnings.storedValue(from: dismissedMetricWarningsRawValue)
+
+        if let night = model.bodyRadar?.latest,
+           night.state.isScored,
+           night.region != .none,
+           !dismissed.contains(night) {
+            BodyRadarWarningCard(night: night) {
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)) {
+                    dismissedMetricWarningsRawValue = BodyDismissedMetricWarnings
+                        .storedValue(from: dismissedMetricWarningsRawValue)
+                        .dismissing(night)
+                        .rawValue
+                }
+            }
+            .transition(dayChartTransition)
+        }
     }
 
     @ViewBuilder
@@ -2880,7 +3026,7 @@ struct BodyHealthMetricDetailView: View {
     }
 
     /// Shared selection entry point for every day-picker surface (the date tiles and the
-    /// Sleep Consistency chart): a locked day opens the paywall instead of silently
+    /// Sleep Consistency and Sleep Debt charts): a locked day opens the paywall instead of silently
     /// clamping. Callers still gate out future days themselves where applicable.
     private func selectDatePickerDay(_ date: Date, for picker: BodyMetricDetailDatePicker) {
         if isDatePickerDateLocked(date) {
@@ -3276,6 +3422,40 @@ struct BodyHealthMetricDetailView: View {
         return sleepConsistencyCache.model(entries: entries, calendar: calendar)
     }
 
+    private var sleepDebtCard: some View {
+        BodySleepDebtCard(
+            model: sleepDebtChartModel,
+            selectedDay: selectedSleepDay,
+            tint: model.symbolColor,
+            floatingCallout: floatingCallout,
+            isLocked: !isBodyProUnlocked,
+            onUnlock: { showBodyProPaywall = true },
+            onSelectDay: { day in
+                selectDatePickerDay(day, for: .sleep)
+            }
+        )
+    }
+
+    // Gathering the inputs is a single pass over the history each render; the
+    // cache rebuilds the model, with its HRV baselines and each night's learned
+    // need, only when they or the goal change. The Training Load series comes straight from the store, like
+    // `liveDaySeries`, since the detail model doesn't carry it; this page's
+    // pull refreshes it along with sleep (`performHealthMetricRefresh`).
+    private var sleepDebtChartModel: SleepDebtChartModel {
+        let calendar = Calendar.bodyGregorian
+        let now = Date()
+        return sleepDebtCache.model(
+            inputs: SleepDebtChartModel.inputs(
+                sleepHistory: model.sleepHistory,
+                currentDaySummary: currentSleepSummary(for: calendar.startOfDay(for: now)),
+                trainingLoad: workoutStore.healthTrends.trainingLoad,
+                today: now,
+                calendar: calendar
+            ),
+            sleepGoal: BodySleepDurationGoal.duration(from: sleepDurationGoalMinutes)
+        )
+    }
+
     private var aboutRestorativeSleepCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("About Restorative Sleep")
@@ -3309,7 +3489,34 @@ struct BodyHealthMetricDetailView: View {
                     .background(.blue.opacity(0.14), in: Capsule())
             }
 
-            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines — sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band — and the total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero.")
+            Text("Body scores each night from the data available for that sleep window: amount, continuity, start time consistency, deep and REM share, pressure from sleep HRV, sleep vitals, and skin temperature. Pressure, vitals, and temperature are graded against your own recent overnight baselines. Sleep vitals use the same typical bands as the Vitals chart, so an outlier there costs points in proportion to how far it sits outside your band. The total is calibrated so only truly strong nights score high. Missing sensors are skipped instead of counted as zero.")
+                .font(.system(.body, design: .rounded))
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bodyCardBackground(translucent: true)
+    }
+
+    private var aboutSleepDebtCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("About Sleep Debt")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+
+                // Same chip the Sleep Debt toggle carries in Settings.
+                Text(BodyHomeCardKind.sleepDebtVersionLabel)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.blue.opacity(0.14), in: Capsule())
+            }
+
+            Text("Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay some of the debt back. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement.")
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
@@ -3762,6 +3969,30 @@ final class BodySleepConsistencyChartCache: ObservableObject {
 
         let model = SleepConsistencyChartModel.make(entries: entries, calendar: calendar)
         cached = (key, model)
+        return model
+    }
+}
+
+/// Memoizes the Sleep Debt model. Gathering its inputs is cheap, but building it
+/// judges each of its 44 nights' sleep HRV against a baseline and learns each
+/// night's need from the 56 days ending on it, and the detail
+/// view asks for it on every `body` evaluation (each day selection or
+/// progressive-refresh tick). Keyed on the gathered inputs, one value per night,
+/// and the sleep goal.
+@MainActor
+final class BodySleepDebtChartCache: ObservableObject {
+    private var cached: (inputs: SleepDebtChartModel.Inputs, sleepGoal: TimeInterval, model: SleepDebtChartModel)?
+
+    func model(inputs: SleepDebtChartModel.Inputs, sleepGoal: TimeInterval) -> SleepDebtChartModel {
+        if let cached, cached.inputs == inputs, cached.sleepGoal == sleepGoal {
+            return cached.model
+        }
+
+        let model = SleepDebtChartModel.make(
+            entries: SleepDebtChartModel.entries(from: inputs),
+            sleepGoal: sleepGoal
+        )
+        cached = (inputs, sleepGoal, model)
         return model
     }
 }

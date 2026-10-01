@@ -61,6 +61,12 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var heartRateVariability: HealthTrendSeries
     var heartRateVariabilityRanges: HealthTrendRangeSeries
     var heartRateVariabilityRangesSecondary: HealthTrendRangeSeries
+    /// Daily average of Apple's Recovery HRV (RMSSD, iOS 27), the HRV page's
+    /// Recovery view; empty on watches that don't write it. Rides the HRV
+    /// metric's source selection and Heart permission.
+    var recoveryHRV: HealthTrendSeries
+    var recoveryHRVRanges: HealthTrendRangeSeries
+    var recoveryHRVRangesSecondary: HealthTrendRangeSeries
     var respiratoryRate: HealthTrendSeries
     var respiratoryRateRanges: HealthTrendRangeSeries
     var oxygenSaturation: HealthTrendSeries
@@ -97,11 +103,16 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var restingHeartRateDaySamplesSecondary: HealthTrendSeries
     var heartRateVariabilityDaySamples: HealthTrendSeries
     var heartRateVariabilityDaySamplesSecondary: HealthTrendSeries
-    /// RMSSD computed from `HKHeartbeatSeriesSample` beat-to-beat intervals, one
-    /// point per series. Fetched under the HRV metric's source selection, so it
-    /// rides the same day-sample scope stamps as the SDNN series. No comparison
-    /// counterpart: the metric is never a secondary-source chart.
+    /// The primary source's RMSSD samples: Apple's Recovery HRV where the watch
+    /// writes it (iOS 27), otherwise one point per `HKHeartbeatSeriesSample`
+    /// computed from its beat-to-beat intervals. Stress's HRV input and the HRV
+    /// page's Recovery day view. Fetched under the HRV metric's source
+    /// selection, so it rides the same day-sample scope stamps as the SDNN
+    /// series.
     var heartbeatRMSSDDaySamples: HealthTrendSeries
+    /// The comparison source's Recovery HRV samples, the Recovery day view's
+    /// second line. Apple's quantity only, never a beat-to-beat scan.
+    var recoveryHRVDaySamplesSecondary: HealthTrendSeries
     var respiratoryRateDaySamples: HealthTrendSeries
     var oxygenSaturationDaySamples: HealthTrendSeries
     var oxygenSaturationDaySamplesSecondary: HealthTrendSeries
@@ -167,6 +178,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         heartRateVariability: .empty,
         heartRateVariabilityRanges: .empty,
         heartRateVariabilityRangesSecondary: .empty,
+        recoveryHRV: .empty,
+        recoveryHRVRanges: .empty,
+        recoveryHRVRangesSecondary: .empty,
         respiratoryRate: .empty,
         respiratoryRateRanges: .empty,
         oxygenSaturation: .empty,
@@ -196,6 +210,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         heartRateVariabilityDaySamples: .empty,
         heartRateVariabilityDaySamplesSecondary: .empty,
         heartbeatRMSSDDaySamples: .empty,
+        recoveryHRVDaySamplesSecondary: .empty,
         respiratoryRateDaySamples: .empty,
         oxygenSaturationDaySamples: .empty,
         oxygenSaturationDaySamplesSecondary: .empty,
@@ -227,6 +242,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             heartRateVariability.isEmpty &&
             heartRateVariabilityRanges.isEmpty &&
             heartRateVariabilityRangesSecondary.isEmpty &&
+            recoveryHRV.isEmpty &&
+            recoveryHRVRanges.isEmpty &&
+            recoveryHRVRangesSecondary.isEmpty &&
             respiratoryRate.isEmpty &&
             respiratoryRateRanges.isEmpty &&
             oxygenSaturation.isEmpty &&
@@ -259,6 +277,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             heartRateVariabilityDaySamples.isEmpty &&
             heartRateVariabilityDaySamplesSecondary.isEmpty &&
             heartbeatRMSSDDaySamples.isEmpty &&
+            recoveryHRVDaySamplesSecondary.isEmpty &&
             respiratoryRateDaySamples.isEmpty &&
             oxygenSaturationDaySamples.isEmpty &&
             oxygenSaturationDaySamplesSecondary.isEmpty &&
@@ -285,6 +304,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         heartRateVariability: HealthTrendSeries,
         heartRateVariabilityRanges: HealthTrendRangeSeries = .empty,
         heartRateVariabilityRangesSecondary: HealthTrendRangeSeries = .empty,
+        recoveryHRV: HealthTrendSeries = .empty,
+        recoveryHRVRanges: HealthTrendRangeSeries = .empty,
+        recoveryHRVRangesSecondary: HealthTrendRangeSeries = .empty,
         respiratoryRate: HealthTrendSeries,
         respiratoryRateRanges: HealthTrendRangeSeries = .empty,
         oxygenSaturation: HealthTrendSeries,
@@ -317,6 +339,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         heartRateVariabilityDaySamples: HealthTrendSeries = .empty,
         heartRateVariabilityDaySamplesSecondary: HealthTrendSeries = .empty,
         heartbeatRMSSDDaySamples: HealthTrendSeries = .empty,
+        recoveryHRVDaySamplesSecondary: HealthTrendSeries = .empty,
         respiratoryRateDaySamples: HealthTrendSeries = .empty,
         oxygenSaturationDaySamples: HealthTrendSeries = .empty,
         oxygenSaturationDaySamplesSecondary: HealthTrendSeries = .empty,
@@ -346,6 +369,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.heartRateVariability = heartRateVariability
         self.heartRateVariabilityRanges = heartRateVariabilityRanges
         self.heartRateVariabilityRangesSecondary = heartRateVariabilityRangesSecondary
+        self.recoveryHRV = recoveryHRV
+        self.recoveryHRVRanges = recoveryHRVRanges
+        self.recoveryHRVRangesSecondary = recoveryHRVRangesSecondary
         self.respiratoryRate = respiratoryRate
         self.respiratoryRateRanges = respiratoryRateRanges
         self.oxygenSaturation = oxygenSaturation
@@ -378,6 +404,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.heartRateVariabilityDaySamples = heartRateVariabilityDaySamples
         self.heartRateVariabilityDaySamplesSecondary = heartRateVariabilityDaySamplesSecondary
         self.heartbeatRMSSDDaySamples = heartbeatRMSSDDaySamples
+        self.recoveryHRVDaySamplesSecondary = recoveryHRVDaySamplesSecondary
         self.respiratoryRateDaySamples = respiratoryRateDaySamples
         self.oxygenSaturationDaySamples = oxygenSaturationDaySamples
         self.oxygenSaturationDaySamplesSecondary = oxygenSaturationDaySamplesSecondary
@@ -409,6 +436,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case heartRateVariability
         case heartRateVariabilityRanges
         case heartRateVariabilityRangesSecondary
+        case recoveryHRV
+        case recoveryHRVRanges
+        case recoveryHRVRangesSecondary
         case respiratoryRate
         case respiratoryRateRanges
         case oxygenSaturation
@@ -441,6 +471,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case heartRateVariabilityDaySamples
         case heartRateVariabilityDaySamplesSecondary
         case heartbeatRMSSDDaySamples
+        case recoveryHRVDaySamplesSecondary
         case respiratoryRateDaySamples
         case oxygenSaturationDaySamples
         case oxygenSaturationDaySamplesSecondary
@@ -477,6 +508,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             HealthTrendSeries.self,
             forKey: .restingHeartRateSecondary
         ) ?? .empty
+        recoveryHRV = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .recoveryHRV) ?? .empty
+        recoveryHRVRanges = try container.decodeIfPresent(HealthTrendRangeSeries.self, forKey: .recoveryHRVRanges) ?? .empty
+        recoveryHRVRangesSecondary = try container.decodeIfPresent(HealthTrendRangeSeries.self, forKey: .recoveryHRVRangesSecondary) ?? .empty
         bodyMass = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyMass) ?? .empty
         bodyFatPercentage = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .bodyFatPercentage) ?? .empty
         heartRateVariability = try container.decodeIfPresent(HealthTrendSeries.self, forKey: .heartRateVariability) ?? .empty
@@ -561,6 +595,10 @@ struct HealthTrendSnapshot: Codable, Equatable {
         heartbeatRMSSDDaySamples = try container.decodeIfPresent(
             HealthTrendSeries.self,
             forKey: .heartbeatRMSSDDaySamples
+        ) ?? .empty
+        recoveryHRVDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .recoveryHRVDaySamplesSecondary
         ) ?? .empty
         respiratoryRateDaySamples = try container.decodeIfPresent(
             HealthTrendSeries.self,
@@ -885,8 +923,18 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.heartRateVariability = refreshed.heartRateVariability
             next.heartRateVariabilityRanges = refreshed.heartRateVariabilityRanges
             next.heartRateVariabilityRangesSecondary = refreshed.heartRateVariabilityRangesSecondary
+            next.recoveryHRV = refreshed.recoveryHRV
+            next.recoveryHRVRanges = refreshed.recoveryHRVRanges
+            next.recoveryHRVRangesSecondary = refreshed.recoveryHRVRangesSecondary
             next.heartRateVariabilityDaySamples = refreshed.heartRateVariabilityDaySamples
             next.heartRateVariabilityDaySamplesSecondary = refreshed.heartRateVariabilityDaySamplesSecondary
+            // The per-metric HRV refresh merges the primary Recovery samples onto
+            // the cached Stress input series (never an empty read over it), so
+            // the refreshed value is always the cache or the cache plus new
+            // samples; a source switch replaces with `.empty`, which the
+            // sidecar scoping does for this series too.
+            next.heartbeatRMSSDDaySamples = refreshed.heartbeatRMSSDDaySamples
+            next.recoveryHRVDaySamplesSecondary = refreshed.recoveryHRVDaySamplesSecondary
         case .respiratoryRate:
             next.respiratoryRate = refreshed.respiratoryRate
             next.respiratoryRateRanges = refreshed.respiratoryRateRanges
@@ -983,6 +1031,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.heartRateVariability = .empty
             filtered.heartRateVariabilityRanges = .empty
             filtered.heartRateVariabilityRangesSecondary = .empty
+            filtered.recoveryHRV = .empty
+            filtered.recoveryHRVRanges = .empty
+            filtered.recoveryHRVRangesSecondary = .empty
             filtered.heartRateDaySamples = .empty
             filtered.heartRateDaySamplesSecondary = .empty
             filtered.restingHeartRateDaySamples = .empty
@@ -993,6 +1044,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             // recorded days go too — otherwise the baselines they carry would
             // survive the permission being turned off.
             filtered.heartbeatRMSSDDaySamples = .empty
+            filtered.recoveryHRVDaySamplesSecondary = .empty
             filtered.stress = .empty
             filtered.stressRanges = .empty
             filtered.recordedStressDays = []
@@ -1094,6 +1146,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         cleared.restingHeartRateDaySamplesSecondary = .empty
         cleared.heartRateVariabilityRangesSecondary = .empty
         cleared.heartRateVariabilityDaySamplesSecondary = .empty
+        cleared.recoveryHRVRangesSecondary = .empty
+        cleared.recoveryHRVDaySamplesSecondary = .empty
         cleared.oxygenSaturationRangesSecondary = .empty
         cleared.oxygenSaturationDaySamplesSecondary = .empty
         cleared.activeEnergySecondary = .empty
@@ -1119,6 +1173,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
         stripped.heartRateVariabilityDaySamples = .empty
         stripped.heartRateVariabilityDaySamplesSecondary = .empty
         stripped.heartbeatRMSSDDaySamples = .empty
+        stripped.recoveryHRVDaySamplesSecondary = .empty
         stripped.respiratoryRateDaySamples = .empty
         stripped.oxygenSaturationDaySamples = .empty
         stripped.oxygenSaturationDaySamplesSecondary = .empty
@@ -1200,6 +1255,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         if merged.heartbeatRMSSDDaySamples.isEmpty {
             merged.heartbeatRMSSDDaySamples = daySamples.heartbeatRMSSDDaySamples
         }
+        if merged.recoveryHRVDaySamplesSecondary.isEmpty {
+            merged.recoveryHRVDaySamplesSecondary = daySamples.recoveryHRVDaySamplesSecondary
+        }
         if merged.respiratoryRateDaySamples.isEmpty {
             merged.respiratoryRateDaySamples = daySamples.respiratoryRateDaySamples
         }
@@ -1259,6 +1317,7 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
     var heartRateVariabilityDaySamples: HealthTrendSeries
     var heartRateVariabilityDaySamplesSecondary: HealthTrendSeries
     var heartbeatRMSSDDaySamples: HealthTrendSeries
+    var recoveryHRVDaySamplesSecondary: HealthTrendSeries
     var respiratoryRateDaySamples: HealthTrendSeries
     var oxygenSaturationDaySamples: HealthTrendSeries
     var oxygenSaturationDaySamplesSecondary: HealthTrendSeries
@@ -1291,6 +1350,7 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         heartRateVariabilityDaySamples = trends.heartRateVariabilityDaySamples
         heartRateVariabilityDaySamplesSecondary = trends.heartRateVariabilityDaySamplesSecondary
         heartbeatRMSSDDaySamples = trends.heartbeatRMSSDDaySamples
+        recoveryHRVDaySamplesSecondary = trends.recoveryHRVDaySamplesSecondary
         respiratoryRateDaySamples = trends.respiratoryRateDaySamples
         oxygenSaturationDaySamples = trends.oxygenSaturationDaySamples
         oxygenSaturationDaySamplesSecondary = trends.oxygenSaturationDaySamplesSecondary
@@ -1315,6 +1375,7 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         case heartRateVariabilityDaySamples
         case heartRateVariabilityDaySamplesSecondary
         case heartbeatRMSSDDaySamples
+        case recoveryHRVDaySamplesSecondary
         case respiratoryRateDaySamples
         case oxygenSaturationDaySamples
         case oxygenSaturationDaySamplesSecondary
@@ -1356,6 +1417,9 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         ) ?? .empty
         heartbeatRMSSDDaySamples = try container.decodeIfPresent(
             HealthTrendSeries.self, forKey: .heartbeatRMSSDDaySamples
+        ) ?? .empty
+        recoveryHRVDaySamplesSecondary = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .recoveryHRVDaySamplesSecondary
         ) ?? .empty
         respiratoryRateDaySamples = try container.decodeIfPresent(
             HealthTrendSeries.self, forKey: .respiratoryRateDaySamples
@@ -1401,6 +1465,7 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             heartRateVariabilityDaySamples.isEmpty &&
             heartRateVariabilityDaySamplesSecondary.isEmpty &&
             heartbeatRMSSDDaySamples.isEmpty &&
+            recoveryHRVDaySamplesSecondary.isEmpty &&
             respiratoryRateDaySamples.isEmpty &&
             oxygenSaturationDaySamples.isEmpty &&
             oxygenSaturationDaySamplesSecondary.isEmpty &&
@@ -1419,6 +1484,7 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         stripped.heartRateDaySamplesSecondary = .empty
         stripped.restingHeartRateDaySamplesSecondary = .empty
         stripped.heartRateVariabilityDaySamplesSecondary = .empty
+        stripped.recoveryHRVDaySamplesSecondary = .empty
         stripped.oxygenSaturationDaySamplesSecondary = .empty
         stripped.activeEnergyDaySamplesSecondary = .empty
         stripped.stepsDaySamplesSecondary = .empty
@@ -1445,7 +1511,10 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             next.heartRateVariabilityDaySamples = .empty
             next.heartbeatRMSSDDaySamples = .empty
         }
-        if !matches(.heartRateVariability, secondary: true) { next.heartRateVariabilityDaySamplesSecondary = .empty }
+        if !matches(.heartRateVariability, secondary: true) {
+            next.heartRateVariabilityDaySamplesSecondary = .empty
+            next.recoveryHRVDaySamplesSecondary = .empty
+        }
         if !matches(.respiratoryRate) { next.respiratoryRateDaySamples = .empty }
         if !matches(.oxygenSaturation) { next.oxygenSaturationDaySamples = .empty }
         if !matches(.oxygenSaturation, secondary: true) { next.oxygenSaturationDaySamplesSecondary = .empty }
@@ -1510,6 +1579,7 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             scoped.heartRateDaySamplesSecondary = .empty
             scoped.restingHeartRateDaySamplesSecondary = .empty
             scoped.heartRateVariabilityDaySamplesSecondary = .empty
+            scoped.recoveryHRVDaySamplesSecondary = .empty
             scoped.oxygenSaturationDaySamplesSecondary = .empty
             scoped.activeEnergyDaySamplesSecondary = .empty
             scoped.stepsDaySamplesSecondary = .empty
@@ -1532,6 +1602,7 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             scoped.heartRateVariabilityDaySamples = .empty
             scoped.heartRateVariabilityDaySamplesSecondary = .empty
             scoped.heartbeatRMSSDDaySamples = .empty
+            scoped.recoveryHRVDaySamplesSecondary = .empty
         }
         if !permission.includes(.respiratory) {
             scoped.respiratoryRateDaySamples = .empty

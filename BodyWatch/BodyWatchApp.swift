@@ -21,10 +21,10 @@ struct BodyWatchApp: App {
             // `onAppear` doesn't reliably re-fire when watchOS returns the app
             // to the foreground, so re-check staleness here too. Compute first,
             // then the live HR/HRV fallback — see `WatchMetricsModel.onAppear`.
-            // This, app open and the manual refresh are the only triggers for
-            // an ORDINARY compute. The workout observer, a pushed context and a
-            // scheduled refresh can run one too, but only for a detected
-            // workout change (see `WatchMetricsModel.recomputeIfStale`).
+            // Background triggers (the workout observer, a pushed context, the
+            // hourly scheduled refresh) run the same staleness gated compute,
+            // but never raise an authorization sheet (see
+            // `WatchMetricsModel.recomputeIfStale`).
             if phase == .active {
                 Task {
                     await model.recomputeIfStale()
@@ -49,8 +49,9 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
 
     /// Holds WatchConnectivity background-refresh tasks open until the session
     /// delivers the pushed content (see `handleConnectivityBackgroundTask`);
-    /// an application refresh runs the pending workout compute; other task
-    /// kinds are completed immediately — the app doesn't use them.
+    /// an application refresh runs the background compute (see
+    /// `handleApplicationRefreshBackgroundTask`); other task kinds are
+    /// completed immediately — the app doesn't use them.
     func handle(_ backgroundTasks: Set<WKRefreshBackgroundTask>) {
         for task in backgroundTasks {
             if let wcTask = task as? WKWatchConnectivityRefreshBackgroundTask {
@@ -60,13 +61,13 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
                 Task { @MainActor in
                     WatchMetricsModel.shared.handleConnectivityBackgroundTask(wcTask)
                 }
-            } else if task is WKApplicationRefreshBackgroundTask {
-                // Requested by the model for pending workout work that had to
-                // wait out its retry spacing. `apply` reloads the complication
-                // timelines itself, so no snapshot is requested.
+            } else if let refreshTask = task as? WKApplicationRefreshBackgroundTask {
+                // The model's standing hourly wake, or an earlier retry for
+                // pending workout work. The model completes the task, once,
+                // after the compute or on expiration. `apply` reloads the
+                // complication timelines itself, so no snapshot is requested.
                 Task { @MainActor in
-                    await WatchMetricsModel.shared.recomputeIfStale(trigger: .background)
-                    task.setTaskCompletedWithSnapshot(false)
+                    WatchMetricsModel.shared.handleApplicationRefreshBackgroundTask(refreshTask)
                 }
             } else {
                 task.setTaskCompletedWithSnapshot(false)

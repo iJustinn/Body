@@ -206,4 +206,131 @@ final class BodyHealthDirtyWorkTests: XCTestCase {
         }
     }
 
+    // MARK: Deferred sleep
+
+    private func settle(_ store: BodyHealthDirtyWorkStore, _ kinds: [HealthMetricKind]) async throws {
+        for kind in kinds {
+            let value = await store.receipt(for: kind)
+            let acknowledged = await store.acknowledge(try XCTUnwrap(value), current: true, history: true)
+            XCTAssertTrue(acknowledged)
+        }
+    }
+
+    func testDeferredSleepIsDurableFencedAndKeepsItsFirstDeferralAcrossReload() async throws {
+        let file = file()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let context = observerContext("A")
+        let first = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let store = BodyHealthDirtyWorkStore(file: file, domains: [.heartRate, .sleep], context: context)
+        try await settle(store, [.heartRate, .sleep])
+        let durable = await store.mark([.heartRate, .sleep], deferring: [.sleep], context: context, now: first)
+        XCTAssertTrue(durable)
+        let marked = await store.snapshot()
+        let sleep = try XCTUnwrap(marked.entries["sleep"])
+        XCTAssertEqual(sleep.deferredAt, first)
+        XCTAssertTrue(sleep.currentPending)
+        XCTAssertTrue(sleep.historyPending)
+        XCTAssertEqual(sleep.generation, marked.revision)
+        XCTAssertEqual(marked.entries["heartRate"]?.currentPending, true)
+        XCTAssertNil(marked.entries["heartRate"]?.deferredAt)
+        _ = await store.mark([.heartRate, .sleep], deferring: [.sleep], context: context, now: first.addingTimeInterval(3_600))
+        let again = await store.snapshot()
+        XCTAssertEqual(again.entries["sleep"]?.deferredAt, first, "the limit counts from the first deferral")
+        XCTAssertGreaterThan(try XCTUnwrap(again.entries["sleep"]?.generation), sleep.generation)
+        let reloaded = BodyHealthDirtyWorkStore(file: file, domains: [.heartRate, .sleep], context: context)
+        let restored = await reloaded.snapshot()
+        XCTAssertEqual(restored, again)
+    }
+
+    func testDeferralOnPendingEntryOnlyBumpsGenerationAndRejectsTheInFlightAcknowledgment() async throws {
+        let file = file()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let context = observerContext("A")
+        let store = BodyHealthDirtyWorkStore(file: file, domains: [.sleep], context: context)
+        let value = await store.receipt(for: .sleep)
+        let inFlight = try XCTUnwrap(value)
+        // History settled, current still pending: the deferral keeps both flags.
+        let history = await store.acknowledge(inFlight, current: false, history: true)
+        XCTAssertTrue(history)
+        _ = await store.mark([.sleep], deferring: [.sleep], context: context)
+        let snapshot = await store.snapshot()
+        let entry = try XCTUnwrap(snapshot.entries["sleep"])
+        XCTAssertNil(entry.deferredAt, "sleep already pending is read anyway")
+        XCTAssertTrue(entry.currentPending)
+        XCTAssertFalse(entry.historyPending)
+        XCTAssertGreaterThan(entry.generation, inFlight.generation)
+        let stale = await store.acknowledge(inFlight, current: true, history: true)
+        XCTAssertFalse(stale)
+        let after = await store.snapshot()
+        XCTAssertEqual(after.entries["sleep"], entry)
+    }
+
+    func testCleanReadCannotAcknowledgeADeferralThatLandsDuringIt() async throws {
+        let file = file()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let context = observerContext("A")
+        let store = BodyHealthDirtyWorkStore(file: file, domains: [.sleep], context: context)
+        try await settle(store, [.sleep])
+        // A read that started on the clean entry holds at most its settled generation.
+        let value = await store.receipt(for: .sleep)
+        let inFlight = try XCTUnwrap(value)
+        _ = await store.mark([.sleep], deferring: [.sleep], context: context)
+        let rejected = await store.acknowledge(inFlight, current: true, history: true)
+        XCTAssertFalse(rejected)
+        let snapshot = await store.snapshot()
+        XCTAssertEqual(snapshot.entries["sleep"]?.currentPending, true)
+        XCTAssertNotNil(snapshot.entries["sleep"]?.deferredAt)
+    }
+
+    func testNormalMarkClearsDeferralAndSettledEntryStartsANewLimit() async throws {
+        let file = file()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let context = observerContext("A")
+        let first = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let later = first.addingTimeInterval(2 * 86_400)
+        let store = BodyHealthDirtyWorkStore(file: file, domains: [.sleep], context: context)
+        try await settle(store, [.sleep])
+        _ = await store.mark([.sleep], deferring: [.sleep], context: context, now: first)
+        _ = await store.mark([.sleep], context: context)
+        let cleared = await store.snapshot()
+        XCTAssertNil(cleared.entries["sleep"]?.deferredAt)
+        XCTAssertEqual(cleared.entries["sleep"]?.currentPending, true)
+        try await settle(store, [.sleep])
+        _ = await store.mark([.sleep], deferring: [.sleep], context: context, now: first)
+        // Current coverage alone leaves the history obligation deferred.
+        let value = await store.receipt(for: .sleep)
+        let currentOnly = await store.acknowledge(try XCTUnwrap(value), current: true, history: false)
+        XCTAssertTrue(currentOnly)
+        let historyOnly = await store.snapshot()
+        XCTAssertEqual(historyOnly.entries["sleep"]?.deferredAt, first)
+        try await settle(store, [.sleep])
+        let settled = await store.snapshot()
+        XCTAssertNil(settled.entries["sleep"]?.deferredAt)
+        _ = await store.mark([.sleep], deferring: [.sleep], context: context, now: later)
+        let restarted = await store.snapshot()
+        XCTAssertEqual(restarted.entries["sleep"]?.deferredAt, later)
+    }
+
+    func testEnvelopeWithoutDeferredAtDecodesAndUndeferredEntriesOmitTheKey() async throws {
+        let file = file()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let context = observerContext("A")
+        let legacy: [String: Any] = [
+            "schema": 2, "resetID": UUID().uuidString, "revision": 3,
+            "entries": ["sleep": ["generation": 3, "context": context.signature,
+                                  "currentPending": true, "historyPending": false]]
+        ]
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: legacy).write(to: file)
+        let store = BodyHealthDirtyWorkStore(file: file, domains: [.sleep], context: context)
+        let snapshot = await store.snapshot()
+        let entry = try XCTUnwrap(snapshot.entries["sleep"])
+        XCTAssertEqual(entry.generation, 3)
+        XCTAssertTrue(entry.currentPending)
+        XCTAssertFalse(entry.historyPending)
+        XCTAssertNil(entry.deferredAt)
+        let encoded = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
+        XCTAssertFalse(encoded.contains("deferredAt"))
+    }
+
 }

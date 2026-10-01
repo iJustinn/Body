@@ -1199,6 +1199,15 @@ final class SourceGuardTests: XCTestCase {
             detailBodyBlock.range(of: "detailTrendComparisonCard", range: sleepSelectedCardsStart..<detailBodyBlock.endIndex)?.lowerBound
         )
         let sleepAboutStart = try XCTUnwrap(detailBodyBlock.range(of: "aboutSleepScoreCard")?.lowerBound)
+        let sleepDebtAboutStart = try XCTUnwrap(detailBodyBlock.range(of: "aboutSleepDebtCard")?.lowerBound)
+        // Sleep Debt sits right under Sleep Consistency, the other 14 night card.
+        let selectedSleepCardsStart = try XCTUnwrap(source.range(of: "private var selectedSleepCards: some View")?.lowerBound)
+        let selectedSleepCardsEnd = try XCTUnwrap(
+            source.range(of: "private var helpTextCard", range: selectedSleepCardsStart..<source.endIndex)?.lowerBound
+        )
+        let selectedSleepCardsBlock = String(source[selectedSleepCardsStart..<selectedSleepCardsEnd])
+        let sleepConsistencyCardStart = try XCTUnwrap(selectedSleepCardsBlock.range(of: "sleepConsistencyCard")?.lowerBound)
+        let sleepDebtCardStart = try XCTUnwrap(selectedSleepCardsBlock.range(of: "sleepDebtCard")?.lowerBound)
         let dayViewStart = try XCTUnwrap(detailBodyBlock.range(of: "if supportsMetricDayView")?.lowerBound)
         let metricDayChartStart = try XCTUnwrap(
             detailBodyBlock.range(of: "metricDayChartCard", range: dayViewStart..<detailBodyBlock.endIndex)?.lowerBound
@@ -1224,6 +1233,8 @@ final class SourceGuardTests: XCTestCase {
 
         XCTAssertLessThan(sleepSelectedCardsStart, sleepTrendCardStart)
         XCTAssertLessThan(sleepTrendCardStart, sleepAboutStart)
+        XCTAssertLessThan(sleepConsistencyCardStart, sleepDebtCardStart)
+        XCTAssertLessThan(sleepAboutStart, sleepDebtAboutStart)
         XCTAssertLessThan(metricDayChartStart, dayViewTrendCardStart)
         XCTAssertLessThan(metricDayChartStart, metricActivityAveragesStart)
         XCTAssertLessThan(metricActivityAveragesStart, dayViewTrendCardStart)
@@ -1380,8 +1391,10 @@ final class SourceGuardTests: XCTestCase {
 
     func testHeartRateVariabilityDayChartUsesSleepAndWorkoutContextOverlay() throws {
         let source = try bodyHomeViewText()
+        // Anchored on the Overall model's call, past the Recovery view branch
+        // that precedes it in the `.heartRateVariability` case.
         let detailStart = try XCTUnwrap(
-            source.range(of: "case .heartRateVariability:\n            return metricDetail(")?.lowerBound
+            source.range(of: "                summary: summary.heartRateVariability,\n                unit: \"ms\",")?.lowerBound
         )
         let detailBlock = String(source[detailStart...].prefix(900))
         let contextStart = try XCTUnwrap(source.range(of: "private var selectedMetricDayContextIntervals")?.lowerBound)
@@ -1463,7 +1476,8 @@ final class SourceGuardTests: XCTestCase {
     func testHeartRateRangeChartUsesStandardBarSelectionRule() throws {
         let source = try bodyHomeViewText()
         let chartStart = try XCTUnwrap(source.range(of: "struct BodyHeartRateRangeTrendChart")?.lowerBound)
-        let chartBlock = String(source[chartStart...].prefix(18_000))
+        // Wide enough to reach the average-line overlay past the variant morph key.
+        let chartBlock = String(source[chartStart...].prefix(19_000))
 
         XCTAssertTrue(source.contains("private var usesRangeTrendChart: Bool"))
         XCTAssertTrue(source.contains("model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .oxygenSaturation || model.kind == .respiratoryRate"))
@@ -1748,6 +1762,20 @@ final class SourceGuardTests: XCTestCase {
     /// night's evidence lands inside its own slot in all three of them. Without
     /// that the outer two collapse to their middle and the ring holds three
     /// fixed heights instead of gliding.
+    /// The Body Radar warning card's glyph and the Home card and hero badges it
+    /// clears have to be the same color, so both read it off the night's region
+    /// through the one chart style.
+    func testBodyRadarWarningCardTintMatchesItsHomeBadge() throws {
+        let card = try text(at: "Body/Views/Health/BodyRadarWarningCard.swift")
+        let home = try text(at: "Body/Views/BodyHomeView.swift")
+
+        XCTAssertTrue(card.contains("BodyRadarChartStyle.color(for: night.region)"))
+        XCTAssertTrue(home.contains("warningColor: BodyRadarChartStyle.color(for: warningRegion ?? BodyRadarRegion.none)"))
+        // Every tinted piece of the card (header glyph, signal icons, arrows) reads `tint`.
+        XCTAssertFalse(card.contains(".foregroundStyle(.yellow)"))
+        XCTAssertFalse(card.contains(".foregroundStyle(.orange)"))
+    }
+
     func testBodyRadarPreviewRingIsPlacedWithinEveryRegion() throws {
         let source = try bodyHomeViewText()
 
@@ -1907,9 +1935,9 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(source.contains("isProUnlocked: isBodyProUnlocked"))
         XCTAssertTrue(source.contains("onLockedRangeTap: { showBodyProPaywall = true }"))
 
-        // Day-picker gate: a 3-day free window, and the effective selected day is clamped
+        // Day-picker gate: a 2-day free window, and the effective selected day is clamped
         // so a locked day never renders.
-        XCTAssertTrue(source.contains("static let freeDatePickerDayCount = 3"))
+        XCTAssertTrue(source.contains("static let freeDatePickerDayCount = 2"))
         XCTAssertTrue(source.contains("func isDatePickerDateLocked"))
         XCTAssertTrue(source.contains("func clampedDatePickerDay"))
         XCTAssertTrue(source.contains("clampedDatePickerDay(selectedMetricDate)"))
@@ -1923,9 +1951,119 @@ final class SourceGuardTests: XCTestCase {
         let selectInGuard = try XCTUnwrap(guardBlock.range(of: "selectDate(date, for: picker)"))
         XCTAssertTrue(guardBlock.contains("isDatePickerDateLocked(date)"))
         XCTAssertLessThan(paywallInGuard.lowerBound, selectInGuard.lowerBound)
-        // Both the date tiles and the Sleep Consistency chart call the guard, not selectDate.
+        // The date tiles and the Sleep Consistency and Sleep Debt charts call the guard, not selectDate.
         XCTAssertTrue(source.contains("selectDatePickerDay(dayStart, for: picker)"))
-        XCTAssertTrue(source.contains("selectDatePickerDay(day, for: .sleep)"))
+        XCTAssertEqual(source.occurrenceCount(of: "selectDatePickerDay(day, for: .sleep)"), 2)
+    }
+
+    func testSleepDebtCardFollowsTheSelectedNightAndSelectsByTapOnly() throws {
+        let detail = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let card = try text(at: "Body/Views/Health/BodySleepDebtCard.swift")
+        let chart = try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift")
+
+        // The night row always describes the page's selected day, never a stand-in night.
+        XCTAssertTrue(detail.contains("selectedDay: selectedSleepDay"))
+        XCTAssertTrue(card.contains("model.night(on: selectedDay)"))
+        XCTAssertFalse(card.contains("?? model.latestNight"))
+        // The training adjustment reads the same stored series Readiness does.
+        XCTAssertTrue(detail.contains("trainingLoad: workoutStore.healthTrends.trainingLoad"))
+        // Taps select a night. A hold only shows a callout on the page's floating layer,
+        // so no hold can select a night or open the paywall; nothing drags, so a swipe
+        // that starts on the chart scrolls the page.
+        XCTAssertTrue(chart.contains(".onTapGesture"))
+        XCTAssertTrue(chart.contains("BodyChartScrubGesture("))
+        XCTAssertTrue(chart.contains("floatingCallout?.publish("))
+        let scrubStart = try XCTUnwrap(chart.range(of: "private func scrub(to location:")?.lowerBound)
+        let scrubEnd = try XCTUnwrap(chart.range(of: "private func clearScrub()")?.lowerBound)
+        XCTAssertFalse(chart[scrubStart..<scrubEnd].contains("onSelectDay"))
+        XCTAssertTrue(card.contains("floatingCallout: floatingCallout"))
+        let debtCardStart = try XCTUnwrap(detail.range(of: "private var sleepDebtCard: some View")?.lowerBound)
+        XCTAssertTrue(detail[debtCardStart...].prefix(400).contains("floatingCallout: floatingCallout"))
+        XCTAssertFalse(chart.contains("DragGesture"))
+        XCTAssertFalse(chart.contains("chartXSelection"))
+        // The model's HRV baselines rebuild only when what it reads, or the goal, changes.
+        XCTAssertTrue(detail.contains("sleepDebtCache.model("))
+    }
+
+    func testSleepDebtNeedIsLearnedFromSleepHistory() throws {
+        let model = try text(at: "BodyMetricsKit/SleepDebt.swift")
+        let detail = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let card = try text(at: "Body/Views/Health/BodySleepDebtCard.swift")
+
+        // The 75th percentile of the last 8 weeks, 28 nights needed, 6 to 10 hours.
+        XCTAssertTrue(model.contains("static let learnedNeedDayCount = ReadinessScoreCalculator.baselineDayCount"))
+        XCTAssertTrue(model.contains("static let minimumLearnedNeedNightCount = 28"))
+        XCTAssertTrue(model.contains("static let learnedNeedPercentile = 0.75"))
+        XCTAssertTrue(model.contains("static let learnedNeedRange: ClosedRange<TimeInterval> = 6 * 3_600 ... 10 * 3_600"))
+        XCTAssertTrue(model.contains("((sleepGoal + (learnedNeed - sleepGoal) / 3) / adjustmentStep).rounded() * adjustmentStep"))
+        // The total is capped at 6 hours, and the chart's axis always ends there.
+        XCTAssertTrue(model.contains("static let maximumDebt: TimeInterval = 6 * 3_600"))
+        XCTAssertTrue(model.contains("? min(max(0, recordedGaps.reduce(0, +)), maximumDebt)"))
+        XCTAssertTrue(model.contains("static let moderateDebtUpperBound: TimeInterval = 4 * 3_600"))
+        XCTAssertTrue(try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift").contains("SleepDebtChartModel.maximumDebt\n    }"))
+        // Each night is judged against the need it learned by its own day, never
+        // against one need learned later for every night, so earlier points hold.
+        XCTAssertTrue(model.contains("entry.learnedNeed.map { baseNeed(learnedNeed: $0, sleepGoal: sleepGoal) } ?? sleepGoal"))
+        XCTAssertTrue(model.contains("learnedNeed: learnedNeed(on: day, nights: inputs.nights, calendar: inputs.calendar)"))
+        XCTAssertFalse(model.contains("learnedNeed(from inputs"))
+        // The page learns them from the same inputs the model is cached on, and
+        // the row says so for a night whose goal still stands in.
+        XCTAssertTrue(detail.contains("entries: SleepDebtChartModel.entries(from: inputs),"))
+        XCTAssertFalse(detail.contains("SleepDebtChartModel.learnedNeed("))
+        XCTAssertTrue(card.contains("if !night.isNeedLearned {"))
+        XCTAssertTrue(card.contains(#"Text("Need uses your sleep goal until 28 nights are recorded")"#))
+        // The need itself shows as a placeholder until learned, in the row and in
+        // the chart's VoiceOver labels, while the goal still sets the debt.
+        XCTAssertTrue(card.contains(#"static let placeholder = String(localized: "--h --m")"#))
+        XCTAssertTrue(card.contains("night.isNeedLearned ? BodyValueFormat.durationText(for: night.needDuration) : Self.placeholder"))
+        // The row's third value is the Settings goal; the 14 night debt stays in the header.
+        XCTAssertTrue(card.contains(#"nightValue(title: "Goal", value: goalText)"#))
+        XCTAssertFalse(card.contains(#""14 Night Debt""#))
+        let chart = try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift")
+        XCTAssertTrue(chart.contains("night.isNeedLearned ? BodyValueFormat.durationText(for: night.needDuration) : BodySleepDebtCard.placeholder"))
+        // One cache keyed on the gathered inputs and the goal holds the whole
+        // model, learned needs included, so nothing recomputes while they hold.
+        XCTAssertTrue(detail.contains("if let cached, cached.inputs == inputs, cached.sleepGoal == sleepGoal {"))
+        XCTAssertEqual(detail.occurrenceCount(of: "SleepDebtChartModel.entries(from:"), 1)
+    }
+
+    func testSleepDebtChartColorsEachNightByBandAndBlendsTheLine() throws {
+        let chart = try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift")
+
+        // The line, the dots, and the callout all take the night's band color,
+        // and each segment fades from one night's color to the next's.
+        XCTAssertEqual(chart.occurrenceCount(of: "Self.bandColor(for: debt, lowColor: color)"), 3)
+        XCTAssertTrue(chart.contains("Gradient(colors: [previous.color, pointColor])"))
+        // The callout also names the band above the debt.
+        XCTAssertTrue(chart.contains("eyebrow: Self.bandTitle(for: debt),"))
+    }
+
+    func testSleepDebtFollowsItsSummaryCardsToggleLikeSleepScore() throws {
+        let selections = try text(at: "BodyMetricsKit/BodyHealthSelections.swift")
+        let settings = try text(at: "Body/Views/BodySettingsView.swift")
+        let detail = try text(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let card = try text(at: "Body/Views/Health/BodySleepDebtCard.swift")
+
+        XCTAssertTrue(selections.contains(#"static let showSleepDebtKey = "showSleepDebt""#))
+
+        // Summary Cards › Body Computed: Sleep Score, then Sleep Debt, then the computed cards.
+        let sheetStart = try XCTUnwrap(settings.range(of: "private struct BodySummaryCardsSettingsSheet")?.lowerBound)
+        let sheet = String(settings[sheetStart...].prefix(4_000))
+        XCTAssertTrue(sheet.contains("@AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true"))
+        let scoreRow = try XCTUnwrap(sheet.range(of: "isEnabled: $showSleepScore")?.lowerBound)
+        let debtRow = try XCTUnwrap(sheet.range(of: "isEnabled: $showSleepDebt")?.lowerBound)
+        let computedRows = try XCTUnwrap(sheet.range(of: "rows(for: BodyHomeCardKind.bodyComputedOrder)")?.lowerBound)
+        XCTAssertLessThan(scoreRow, debtRow)
+        XCTAssertLessThan(debtRow, computedRows)
+
+        // Off, the Sleep page drops the card and its About card, as Sleep Score's toggle does.
+        XCTAssertTrue(detail.contains("@AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true"))
+        XCTAssertNotNil(detail.range(of: #"if showSleepDebt \{\s*sleepDebtCard\s*\}"#, options: .regularExpression))
+        XCTAssertNotNil(detail.range(of: #"if showSleepDebt \{\s*aboutSleepDebtCard\s*\}"#, options: .regularExpression))
+
+        // The header is the title and the number; About Sleep Debt explains the window.
+        XCTAssertFalse(card.contains("Last 14 nights through"))
+        XCTAssertFalse(card.contains("of the last 14 nights recorded"))
     }
 
     func testHealthDataSourcePickerRowsShowSourceNamesOnly() throws {
@@ -2327,8 +2465,9 @@ final class SourceGuardTests: XCTestCase {
         let engineSource = try healthKitFetchEngineText()
 
         XCTAssertTrue(engineSource.contains("private func fetchIncrementalSecondaryDaySamples("))
-        // One definition plus one call site per sample-based kind (hr, hrv, spo2).
-        XCTAssertEqual(engineSource.occurrenceCount(of: "fetchIncrementalSecondaryDaySamples("), 4)
+        // One definition plus one call site per sample-based kind (hr, hrv, spo2),
+        // plus the HRV kind's second call for its Recovery HRV comparison samples.
+        XCTAssertEqual(engineSource.occurrenceCount(of: "fetchIncrementalSecondaryDaySamples("), 5)
         XCTAssertTrue(engineSource.contains("async let activeEnergyDaySamplesSecondary = fetchSecondaryDaySamples("))
         XCTAssertTrue(engineSource.contains("async let stepsDaySamplesSecondary = fetchSecondaryDaySamples("))
     }
@@ -2426,6 +2565,49 @@ final class SourceGuardTests: XCTestCase {
     /// and the three `source*ComparisonTrend` accessors all resolve through them. A
     /// chokepoint that goes back to the raw static silently freezes the comparison charts,
     /// the source picker sheet and the Settings default-source rows on a Pro flip.
+
+    /// Every reader of the stored Home Hero clamps it through `BodyStarMetric.proGated`,
+    /// so a free user's stored Day Ring never renders anywhere: Home, the page
+    /// background, the watch mirror, the dashboard fetch, or the Settings row.
+    func testStoredHomeHeroIsProGatedAtEveryReader() throws {
+        for (path, count) in [
+            ("Body/Views/BodyHomeView.swift", 1),
+            ("Body/Views/BodyTabBackground.swift", 2),
+            ("Body/Services/HealthKitWorkoutStore.swift", 1),
+            ("Body/Models/BodyAppearancePreference.swift", 1),
+            ("Body/Views/BodySettingsView.swift", 2)
+        ] {
+            let source = try BodyTestSupport.sourceText(at: path)
+            XCTAssertEqual(source.occurrenceCount(of: "BodyStarMetric.proGated("), count, path)
+        }
+
+        // The store passes its entitlement to every fetch selection load whose hero
+        // clamp can change what is fetched.
+        let store = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        XCTAssertEqual(store.occurrenceCount(of: "BodyDashboardFetchSelection.load(isProUnlocked: isProUnlocked)"), 4)
+
+        let pro = try BodyTestSupport.sourceText(at: "Body/Views/BodyProView.swift")
+        XCTAssertTrue(pro.contains("id: \"home-heroes\""))
+    }
+
+    /// Sleep Debt is Body Pro: the Sleep page's card locks (title kept, chart and night
+    /// row replaced by an unlock button to the paywall) and the Summary Cards row locks,
+    /// both reading the store's entitlement; the stored toggle is left alone.
+    func testSleepDebtIsProGatedOnTheCardAndInSettings() throws {
+        let detail = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let card = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodySleepDebtCard.swift")
+        let settings = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
+
+        XCTAssertTrue(detail.contains("isLocked: !isBodyProUnlocked,\n            onUnlock: { showBodyProPaywall = true },"))
+        XCTAssertTrue(card.contains("if isLocked {\n                lockedBody\n            } else if model.debt == nil {"))
+        XCTAssertTrue(card.contains("Button(action: onUnlock)"))
+
+        let sheetStart = try XCTUnwrap(settings.range(of: "private struct BodySummaryCardsSettingsSheet")?.lowerBound)
+        let sheet = String(settings[sheetStart...].prefix(4_000))
+        XCTAssertTrue(sheet.contains("isLocked: !(proStore?.isPro ?? false),\n                        onLockedTap: { showBodyProPaywall = true }"))
+        XCTAssertTrue(sheet.contains(".sheet(isPresented: $showBodyProPaywall)"))
+        XCTAssertTrue(settings.contains("if isLocked { onLockedTap() }"))
+    }
 
     func testProGatedSourceResolutionReadsTheEntitlementGeneration() throws {
         let storeSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
@@ -2917,7 +3099,7 @@ final class SourceGuardTests: XCTestCase {
         }
 
         let base = signature(BodyHealthDataSourceSelection(selectedOptions: [:]))
-        XCTAssertTrue(base.hasSuffix(";radar[2]"))
+        XCTAssertTrue(base.hasSuffix(";radar[3]"))
         for kind in [HealthMetricKind.heartRate, .heartRateVariability, .respiratoryRate, .wristTemperature] {
             let pinned = BodyHealthDataSourceSelection(
                 selectedOptions: [kind: BodyHealthDataSourceOption(id: "com.example.tracker", name: "Tracker")]
@@ -3072,8 +3254,8 @@ final class SourceGuardTests: XCTestCase {
         let detailViewStart = try XCTUnwrap(homeSource.range(of: "struct BodyHealthMetricDetailView")?.lowerBound)
         // Window covers the struct's stored properties + `init` + `body` opening, where the
         // custom pull-to-refresh trigger lives; widened as the property list grew (e.g. `zoomNamespace`,
-        // metric warning threshold state).
-        let detailViewBlock = String(homeSource[detailViewStart...].prefix(8_000))
+        // metric warning threshold and dismissal state).
+        let detailViewBlock = String(homeSource[detailViewStart...].prefix(9_000))
         let refreshStart = try XCTUnwrap(storeSource.range(of: "func refreshHealthMetric(_ kind: HealthMetricKind")?.lowerBound)
         let refreshEnd = try XCTUnwrap(storeSource.range(of: "private func refreshAfterWrite(", range: refreshStart..<storeSource.endIndex)?.lowerBound)
         let refreshBlock = String(storeSource[refreshStart..<refreshEnd])
@@ -3192,8 +3374,9 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertLessThan(summaryCall.lowerBound, listStack.lowerBound)
 
         // On BOTH branches — one alone would fade the incoming card in over a
-        // card that never faded out, which is a replace, not a cross-fade.
-        XCTAssertEqual(source.occurrenceCount(of: ".transition(chartSwitchTransition)"), 2)
+        // card that never faded out, which is a replace, not a cross-fade. The
+        // third is a foldable's side pane, which shows the chart the page is not.
+        XCTAssertEqual(source.occurrenceCount(of: ".transition(chartSwitchTransition)"), 3)
         // `withAnimation`, not `.animation(value:)` on the slot: the workout
         // list that has to move is the slot's sibling, outside that scope.
         XCTAssertTrue(source.contains("withAnimation(chartSwitchAnimation)"))
@@ -3366,7 +3549,16 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.2 (build 8)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.3 (build 9)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.3 (build 8)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.3 (build 7)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.3 (build 6)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.3 (build 5)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.3 (build 4)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.3 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.3 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.3 (build 1)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 6)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.2 (build 5)**"))
@@ -3518,6 +3710,24 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 9)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 9."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 8)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 8."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 7)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 7."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 6)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 6."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 5)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 5."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 4)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 4."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 3."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 2."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 1)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 1."))
         XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 8)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.2 build 8."))
         XCTAssertTrue(versionHistory.contains("## 1.1.2 (build 7)"))
@@ -3954,7 +4164,9 @@ final class SourceGuardTests: XCTestCase {
         // is no close (✕) button — a top-left glass chevron Back button stands in for the
         // hidden nav bar's back button instead, alongside the zoom transition's
         // drag-to-dismiss.
-        XCTAssertTrue(workoutsSource.contains(".navigationDestination(item: $selectedWorkoutForDetails) { workout in"))
+        // The push binds to its own state: on a foldable's inner screen the selection
+        // shows in the side pane instead, and folds move it between pane and push.
+        XCTAssertTrue(workoutsSource.contains(".navigationDestination(item: $pushedWorkoutForDetails) { workout in"))
         XCTAssertTrue(workoutsSource.contains(".navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))"))
         XCTAssertTrue(workoutsSource.contains("async let loadedRoute = workoutStore.loadWorkoutRoute(for: workout)"))
         XCTAssertTrue(workoutsSource.contains("async let loadedSplitData = workoutStore.loadWorkoutSplitData(for: workout)"))
@@ -4241,6 +4453,21 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(persistence.contains("authoritativeDaySampleSeries: daySampleWriteIntent"))
     }
 
+    func testLaunchScreenShowsTheImageTheLaunchRevealStartsFrom() throws {
+        // The launch screen covers the wait before the first frame, and the reveal
+        // draws the same image in the same place, so the handoff is invisible.
+        let infoPlist = try BodyTestSupport.sourceText(at: "Body/Info.plist")
+        XCTAssertTrue(infoPlist.contains("<key>UILaunchScreen</key>\n\t<dict>\n\t\t<key>UIImageName</key>\n\t\t<string>LaunchIcon</string>"))
+        let reveal = try BodyTestSupport.sourceText(at: "Body/Views/BodyLaunchReveal.swift")
+        XCTAssertTrue(reveal.contains(#"Image("LaunchIcon")"#))
+        // Black in light and dark mode, on the launch screen and in the splash alike.
+        XCTAssertTrue(infoPlist.contains("<key>UIColorName</key>\n\t\t<string>LaunchBackground</string>"))
+        XCTAssertTrue(reveal.contains(#"Color("LaunchBackground")"#))
+        XCTAssertTrue(reveal.contains("static let iconSize: CGFloat = 68"))
+        let app = try BodyTestSupport.sourceText(at: "Body/BodyApp.swift")
+        XCTAssertTrue(app.contains("MainTabView()\n                .bodyLaunchReveal()"))
+    }
+
     func testBackgroundWarningRefreshIsRegisteredAndScoped() throws {
         // Info.plist must declare the background mode and the exact task
         // identifier the scheduler registers/submits, or BGTaskScheduler
@@ -4520,11 +4747,13 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("if let betaVersionLabel = card.betaVersionLabel"))
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v1")"#), 1)
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v2")"#), 0)
-        // The Sleep Score chip has one definition, read by both the Settings toggle
-        // row and the About Sleep Score card on the Sleep detail page.
+        // The Sleep Score and Sleep Debt chips each have one definition, read by both
+        // their Settings toggle row and their About card on the Sleep detail page.
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v3")"#), 0)
         XCTAssertTrue(appearanceSource.contains(#"static let sleepScoreVersionLabel: LocalizedStringKey = "v3""#))
-        XCTAssertEqual(settingsSource.occurrenceCount(of: "Text(BodyHomeCardKind.sleepScoreVersionLabel)"), 1)
+        XCTAssertTrue(appearanceSource.contains(#"static let sleepDebtVersionLabel: LocalizedStringKey = "v1""#))
+        XCTAssertEqual(settingsSource.occurrenceCount(of: "versionLabel: BodyHomeCardKind.sleepScoreVersionLabel"), 1)
+        XCTAssertEqual(settingsSource.occurrenceCount(of: "versionLabel: BodyHomeCardKind.sleepDebtVersionLabel"), 1)
         // The Readiness AI sheet's toggle row carries the only Beta v2 badge; the
         // Body Radar summary-card row carries its own "Beta v1" chip via betaVersionLabel.
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("Beta v2")"#), 1)
@@ -4535,6 +4764,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(detailSource.contains(#"Text("Beta v2")"#))
         XCTAssertFalse(detailSource.contains(#"Text("v1")"#))
         XCTAssertEqual(detailSource.occurrenceCount(of: "Text(BodyHomeCardKind.sleepScoreVersionLabel)"), 1)
+        XCTAssertEqual(detailSource.occurrenceCount(of: "Text(BodyHomeCardKind.sleepDebtVersionLabel)"), 1)
         XCTAssertTrue(appearanceSource.contains("static func betaVersionLabel(for kind: HealthMetricKind) -> LocalizedStringKey?"))
         // Body Radar draws its glyph white on both surfaces, from one definition.
         XCTAssertTrue(appearanceSource.contains("var iconTintColor: Color"))
@@ -4671,17 +4901,65 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("NavigationLink {"))
         XCTAssertTrue(settingsSource.contains("BodyProView()"))
         XCTAssertTrue(settingsSource.contains("BodySettingsTypography.sectionTitleFontSize"))
-        XCTAssertTrue(bodyProSource.contains("BodyProFlippableIcon"))
+        // The Pro artwork is the app icon itself (whichever is chosen in Settings), on the
+        // Settings card and in the owned card's glow; the flippable heart and its assets
+        // are gone.
+        XCTAssertTrue(settingsSource.contains("Image(BodyAppIconOption.option(named: UIApplication.shared.alternateIconName).previewAssetName)"))
+        XCTAssertTrue(bodyProSource.contains("Image(BodyAppIconOption.option(named: UIApplication.shared.alternateIconName).previewAssetName)"))
+        XCTAssertFalse(bodyProSource.contains("BodyProFlippableIcon"))
+        XCTAssertFalse(settingsSource.contains("bodyProIconShowsBack"))
+        XCTAssertTrue(settingsSource.contains(#"Text(proStore?.isPro ?? false ? "You are a Pro" : "Unlock premium features")"#))
         XCTAssertTrue(bodyProSource.contains("BodyProIconGlow()"))
         XCTAssertTrue(bodyProSource.contains("private struct BodyProIconGlow"))
         XCTAssertTrue(bodyProSource.contains("RadialGradient("))
-        XCTAssertTrue(bodyProSource.contains("BodyAppearancePreference.bodyProIconAssetName(showsBack:"))
-        XCTAssertTrue(bodyProSource.contains(#"Text("Unlock All Pro Features")"#))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: BodyTestSupport.projectRoot.appendingPathComponent("Body/Assets.xcassets/BodyProIcon.imageset").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: BodyTestSupport.projectRoot.appendingPathComponent("Body/Assets.xcassets/BodyProIconBack.imageset").path))
+        // The page sells by showing: a paged showcase of real Body surfaces over sample
+        // data (the Sleep Debt chart over a sample fortnight first, the HRV detail's year
+        // chart behind the real range pills, a 3D route
+        // through the route hero's own projection and painter, two real widgets over the
+        // placeholder snapshot, two sources on one chart, four background profiles), on
+        // the app's own background. It moves on by itself unless Reduce Motion or
+        // VoiceOver is on. The old icon hero, its confetti, and the highlights row are gone;
+        // the app icon now thanks members above the showcase they keep.
+        XCTAssertTrue(bodyProSource.contains("BodyAppBackground()"))
+        XCTAssertFalse(bodyProSource.contains("BodyProBackdrop"))
+        XCTAssertTrue(bodyProSource.contains("private struct BodyProShowcase: View"))
+        XCTAssertTrue(bodyProSource.contains("private static let slides = BodyProShowcaseSlide.allCases"))
+        XCTAssertTrue(bodyProSource.contains(".tabViewStyle(.page(indexDisplayMode: .never))"))
+        XCTAssertTrue(bodyProSource.contains("guard !reduceMotion, !voiceOverEnabled else { return }"))
+        XCTAssertTrue(bodyProSource.contains("case sleepDebt\n    case yearChart"))
+        XCTAssertTrue(bodyProSource.contains("case .sleepDebt: BodyProSleepDebtSlide()"))
+        XCTAssertTrue(bodyProSource.contains("BodyHealthTrendRangeSelector(selectedRange: .constant(.recentYear), appearance: .onGradient)"))
+        XCTAssertTrue(bodyProSource.contains("selectedRange: .recentYear,"))
+        XCTAssertTrue(bodyProSource.contains("WorkoutRoute3DProjection.projected(for: route)"))
+        XCTAssertTrue(bodyProSource.contains("BodyWorkoutRoute3DHero.drawRibbon("))
+        XCTAssertTrue(bodyProSource.contains("HealthWidgetMetricCardView(metric: metric, trend: Self.snapshot.trend(for: metric))"))
+        XCTAssertTrue(bodyProSource.contains("private static let snapshot = HealthWidgetSnapshot.placeholder"))
+        XCTAssertTrue(bodyProSource.contains("BodyActivityRingsCard.heroBackground("))
+        XCTAssertTrue(bodyProSource.contains("[.appDefault, .rose, .violet, .iJustin]"))
+        XCTAssertTrue(bodyProSource.contains("if isPro {\n                    BodyProOwnedCard()\n                }\n\n                BodyProShowcase()"))
+        XCTAssertTrue(bodyProSource.contains("BodyAppBackground()\n                .ignoresSafeArea()"))
+        // The page's accent is the app blue; gold stays on the Settings entry.
+        XCTAssertTrue(bodyProSource.contains("static let accent = Color.blue"))
+        XCTAssertFalse(bodyProSource.contains("BodyProPalette.gold)"))
+        XCTAssertTrue(bodyProSource.contains("BodyLineChartPreviewPointSymbol("))
+        XCTAssertTrue(bodyProSource.contains(#"Text("Other Wearables")"#))
+        XCTAssertFalse(bodyProSource.contains("BodyProConfetti"))
+        XCTAssertFalse(bodyProSource.contains("BodyProHighlights"))
+        XCTAssertFalse(bodyProSource.contains("See the Full Picture"))
+        // Everything Pro unlocks is a grid of short titles, not eleven descriptions.
+        XCTAssertTrue(bodyProSource.contains(#"Text("Everything in Pro")"#))
+        XCTAssertFalse(bodyProSource.contains(#"Text("Unlock All Pro Features")"#))
         XCTAssertFalse(bodyProSource.contains(#"Text("Unlock Body Pro")"#))
-        XCTAssertTrue(bodyProSource.contains("private struct BodyProFeatureCheckmark"))
-        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeatureCheckmark()"), 2)
-        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 11)
+        XCTAssertTrue(bodyProSource.contains("private struct BodyProFeatureGrid"))
+        XCTAssertTrue(bodyProSource.contains("LazyVGrid(columns: columns, spacing: 10)"))
+        XCTAssertFalse(bodyProSource.contains("BodyProFeatureCheckmark"))
+        XCTAssertFalse(bodyProSource.contains("let detail: String\n    let iconName: String"))
+        XCTAssertEqual(bodyProSource.occurrenceCount(of: "BodyProFeature("), 13)
         XCTAssertTrue(bodyProSource.contains("Longer-Range Charts"))
+        XCTAssertTrue(bodyProSource.contains("More Home Heroes"))
+        XCTAssertTrue(bodyProSource.contains(#"id: "sleep-debt""#))
         XCTAssertTrue(bodyProSource.contains("Full Day History"))
         XCTAssertTrue(bodyProSource.contains("Custom Backgrounds"))
         XCTAssertTrue(bodyProSource.contains("Secondary Data Source"))
@@ -4692,9 +4970,10 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(bodyProSource.contains("Share Card Metrics"))
         XCTAssertFalse(bodyProSource.contains("Six-Month and Year Charts"))
         XCTAssertTrue(bodyProSource.contains("Body Widgets"))
-        // StoreKit purchase wiring replaced the placeholder stubs.
+        // StoreKit purchase wiring replaced the placeholder stubs. The purchase button buys
+        // whichever plan card is selected.
         XCTAssertTrue(bodyProSource.contains("BodyProStore"))
-        XCTAssertTrue(bodyProSource.contains("proStore?.purchase()"))
+        XCTAssertTrue(bodyProSource.contains("proStore?.purchase(plan)"))
         XCTAssertTrue(bodyProSource.contains("proStore?.restore()"))
         XCTAssertTrue(bodyProSource.contains("offerCodeRedemption"))
         // Resolve-gating: a checking state shows until entitlement resolves, the
@@ -4715,15 +4994,36 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(bodyProSource.contains("$2.59"))
         XCTAssertFalse(bodyProSource.contains("$8.99"))
         XCTAssertFalse(bodyProSource.contains("$15.99"))
-
-        let proIconPaths = [
-            "Body/Assets.xcassets/BodyProIcon.imageset/BodyProIcon.png",
-            "Body/Assets.xcassets/BodyProIconBack.imageset/BodyProIconBack.png"
-        ]
-
-        for path in proIconPaths {
-            let data = try Data(contentsOf: BodyTestSupport.projectRoot.appendingPathComponent(path))
-            XCTAssertGreaterThan(data.count, 0, path)
+        XCTAssertFalse(bodyProSource.contains("$0.99"))
+        XCTAssertFalse(bodyProSource.contains("$19.99"))
+        XCTAssertFalse(bodyProSource.contains("$29.99"))
+        // Plans: Yearly (the default, with the free trial), Monthly, and Lifetime with a
+        // Just Me / Family switch. A trial is only promised when the store says this
+        // customer can still start it, and the renewal price sits beside the button.
+        XCTAssertTrue(bodyProSource.contains("@State private var selectedPlan: BodyProPlan = .yearly"))
+        XCTAssertTrue(bodyProSource.contains("BodyProLifetimeSwitch(selection: $selectedPlan)"))
+        XCTAssertTrue(bodyProSource.contains("if product.freeTrial != nil"))
+        XCTAssertTrue(bodyProSource.contains(#""\(trial.localizedDuration) free, then \(renewal). Cancel anytime.""#))
+        XCTAssertTrue(bodyProSource.contains(#""\(renewal). Renews automatically, cancel anytime.""#))
+        XCTAssertTrue(bodyProSource.contains("BodyProTrialTimeline(trial: trial"))
+        // Subscription paywall requirements: Terms of Use (Apple's standard EULA, as set in
+        // App Store Connect), the privacy policy, and the auto-renewal terms.
+        XCTAssertTrue(bodyProSource.contains(#"URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")"#))
+        XCTAssertTrue(bodyProSource.contains(#"URL(string: "https://docs.ijustinz.com/body/privacy")"#))
+        XCTAssertTrue(bodyProSource.contains("Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period."))
+        // Sheets presented from locked controls (and the paywall as a flow step) get a
+        // close button; the Settings entry pushes the page and keeps its back button.
+        XCTAssertTrue(bodyProSource.contains("if showsCloseButton || onContinue != nil {"))
+        // Sources, Workouts colors, the Home Hero sheet (its Day Ring row), and the
+        // Summary Cards sheet (its Sleep Debt row).
+        XCTAssertEqual(settingsSource.occurrenceCount(of: "NavigationStack { BodyProView(showsCloseButton: true) }"), 4)
+        for sheetPath in [
+            "Body/Views/Health/BodyWorkoutShareSheet.swift",
+            "Body/Views/Health/BodyHealthMetricDetailView.swift",
+            "Body/Views/Health/BodyHealthDataSourcePickerSheet.swift"
+        ] {
+            let sheetSource = try BodyTestSupport.sourceText(at: sheetPath)
+            XCTAssertTrue(sheetSource.contains("NavigationStack { BodyProView(showsCloseButton: true) }"), sheetPath)
         }
     }
 
@@ -4747,7 +5047,39 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(storeSource.contains("Purchases.shared"))
         XCTAssertTrue(clientSource.contains("import RevenueCat"))
         XCTAssertTrue(storeSource.contains(#"static let lifetimeProductID = "com.zihengthedeveloper.body.pro.lifetime""#))
+        XCTAssertTrue(storeSource.contains(#"static let lifetimeFamilyProductID = "com.zihengthedeveloper.body.pro.lifetime.family""#))
+        XCTAssertTrue(storeSource.contains(#"static let yearlyProductID = "com.zihengthedeveloper.body.pro.yearly""#))
+        XCTAssertTrue(storeSource.contains(#"static let monthlyProductID = "com.zihengthedeveloper.body.pro.monthly""#))
         XCTAssertTrue(storeSource.contains("static let entitlementID"))
+
+        // Products are fetched by id (no Offering dependency), and a free trial reaches the
+        // paywall only when RevenueCat says this customer is still eligible for it.
+        XCTAssertTrue(clientSource.contains("Purchases.shared.products(ids)"))
+        XCTAssertTrue(clientSource.contains("checkTrialOrIntroDiscountEligibility(product: product) == .eligible"))
+        XCTAssertTrue(clientSource.contains("offer.paymentMode == .freeTrial"))
+
+        // The local StoreKit configuration mirrors App Store Connect: the two lifetime
+        // purchases (only Family shareable) and the Body Pro subscription group, where
+        // Yearly carries the one week free trial and Monthly has none.
+        let storeKitData = try Data(contentsOf: BodyTestSupport.projectRoot.appendingPathComponent("Body.storekit"))
+        let storeKit = try XCTUnwrap(JSONSerialization.jsonObject(with: storeKitData) as? [String: Any])
+        let oneTimeProducts = try XCTUnwrap(storeKit["products"] as? [[String: Any]])
+        XCTAssertEqual(
+            Dictionary(uniqueKeysWithValues: oneTimeProducts.compactMap { product in
+                (product["productID"] as? String).map { ($0, product["familyShareable"] as? Bool ?? false) }
+            }),
+            ["com.zihengthedeveloper.body.pro.lifetime": false, "com.zihengthedeveloper.body.pro.lifetime.family": true]
+        )
+        let groups = try XCTUnwrap(storeKit["subscriptionGroups"] as? [[String: Any]])
+        let subscriptions = groups.flatMap { $0["subscriptions"] as? [[String: Any]] ?? [] }
+        let yearly = try XCTUnwrap(subscriptions.first { $0["productID"] as? String == "com.zihengthedeveloper.body.pro.yearly" })
+        let monthly = try XCTUnwrap(subscriptions.first { $0["productID"] as? String == "com.zihengthedeveloper.body.pro.monthly" })
+        XCTAssertEqual(yearly["recurringSubscriptionPeriod"] as? String, "P1Y")
+        XCTAssertEqual(monthly["recurringSubscriptionPeriod"] as? String, "P1M")
+        let trial = try XCTUnwrap(yearly["introductoryOffer"] as? [String: Any])
+        XCTAssertEqual(trial["paymentMode"] as? String, "free")
+        XCTAssertEqual(trial["subscriptionPeriod"] as? String, "P1W")
+        XCTAssertTrue(monthly["introductoryOffer"] is NSNull)
 
         // Entitlement source of truth: RevenueCat CustomerInfo. The stream catches
         // this-device / post-call updates; purchase / restore / customerInfo cover the rest.
@@ -4776,7 +5108,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(clientSource.occurrenceCount(of: "customerInfo(fetchPolicy: .fetchCurrent)"), 2)
         XCTAssertTrue(storeSource.contains("purchaseState = isPro ? .idle : .completedNotUnlocked"))
         XCTAssertTrue(storeSource.contains("if unlocked && purchaseState == .completedNotUnlocked"))
-        XCTAssertTrue(clientSource.contains("allPurchasedProductIdentifiers.contains("))
+        XCTAssertTrue(clientSource.contains("allPurchasedProductIdentifiers.isDisjoint(with: BodyProStore.lifetimeProductIDs)"))
         XCTAssertTrue(storeSource.contains(#".failed(String(localized: "No purchases to restore."))"#))
 
         // The paywall must not re-offer an enabled buy card while a completed purchase
@@ -4819,6 +5151,51 @@ final class SourceGuardTests: XCTestCase {
         // Widget gating: the gallery/preview shows the unlocked widget so users see what
         // Pro unlocks; the live timeline respects the cached flag.
         XCTAssertTrue(widgetSource.contains("usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked"))
+    }
+
+    /// The Body Pro paywall as a step in the app's own flows: first-run onboarding ends on
+    /// it, and installs set up before the subscriptions see it once on launch. Both offer
+    /// Continue for Free, and members who already own Pro never see either.
+    func testProPaywallEndsOnboardingAndShowsOnceToExistingInstalls() throws {
+        let selections = try BodyTestSupport.sourceText(at: "BodyMetricsKit/BodyHealthSelections.swift")
+        XCTAssertTrue(selections.contains(#"static let proIntroPaywallShownKey = "proIntroPaywallShown""#))
+
+        // Due only for an install that finished onboarding (a fresh install gets the
+        // paywall at the end of onboarding instead), after the update page, and once.
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: nil, updateCompletedVersion: nil))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "", updateCompletedVersion: nil))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: true, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.0.3", updateCompletedVersion: nil))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.0.3", updateCompletedVersion: "1.1.3.3"))
+
+        // Onboarding: Get Started and Skip both lead to the paywall on the first run,
+        // and only its Continue for Free (or a purchase) finishes the flow, which also
+        // settles the one-time introduction.
+        let onboardingView = try BodyTestSupport.sourceText(at: "Body/Views/BodyOnboardingView.swift")
+        XCTAssertEqual(onboardingView.occurrenceCount(of: "finishPages()"), 2 + 1)
+        XCTAssertTrue(onboardingView.contains("guard mode == .firstRun, !(proStore?.isPro ?? false) else {"))
+        XCTAssertTrue(onboardingView.contains("BodyProView(onContinue: finish)"))
+        XCTAssertTrue(onboardingView.contains("if mode == .firstRun {\n            proIntroPaywallShown = true\n        }"))
+
+        // Launch: shown once, recorded the moment it is due, never to Pro members, and
+        // the notification prompt waits for it.
+        let mainTabView = try BodyTestSupport.sourceText(at: "Body/Views/MainTabView.swift")
+        XCTAssertTrue(mainTabView.contains("&& (proStore?.hasResolved ?? false)"))
+        XCTAssertTrue(mainTabView.contains("BodyOnboardingGate.shouldPresentProIntro("))
+        XCTAssertTrue(mainTabView.contains("proIntroPaywallShown = true\n                if !(proStore?.isPro ?? false) {\n                    isProIntroPresented = true"))
+        XCTAssertTrue(mainTabView.contains(".fullScreenCover(isPresented: $isProIntroPresented)"))
+        XCTAssertTrue(mainTabView.contains("BodyProView(onContinue: { isProIntroPresented = false })"))
+        XCTAssertTrue(mainTabView.contains("&& !isProIntroPresented && !workoutStore.needsInitialHealthDataLoad"))
+
+        // The paywall keeps Continue for Free on screen in a flow even without plans,
+        // its close button continues the flow, and a purchase carries on by itself.
+        let bodyProSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyProView.swift")
+        XCTAssertTrue(bodyProSource.contains("var onContinue: (() -> Void)?"))
+        XCTAssertTrue(bodyProSource.contains("if offersPlans || onContinue != nil {"))
+        XCTAssertTrue(bodyProSource.contains(#"Text("Continue for Free")"#))
+        XCTAssertTrue(bodyProSource.contains("if showsCloseButton || onContinue != nil {"))
+        XCTAssertTrue(bodyProSource.contains("try? await Task.sleep(for: .seconds(1.2))\n                    onContinue()"))
     }
 
     func testShareTrayScrollerPinsItsAnchorAndAlwaysFadesBothEdges() throws {
@@ -5032,8 +5409,9 @@ final class SourceGuardTests: XCTestCase {
         let hero = try BodyTestSupport.sourceText(at: "Body/Views/BodyDayRingHero.swift")
             + BodyTestSupport.sourceText(at: "BodyWatchSnapshotKit/BodyDayRingTrack.swift")
 
-        // The caption toggle shows only while the Day Ring is the pinned hero.
-        XCTAssertTrue(settings.contains("if card == .dayRing, selection == .dayRing {"))
+        // The caption toggle shows only while the Day Ring is the pinned hero, and it reads
+        // the Pro-clamped selection so a free user's stored Day Ring shows no toggle.
+        XCTAssertTrue(settings.contains("if card == .dayRing, effectiveSelection == .dayRing {"))
         XCTAssertTrue(settings.contains("title: \"Day Caption\""))
         // Picking it must start a fetch: the Day Ring adds sleep to the fetch selection.
         XCTAssertTrue(settings.contains(".onChange(of: starredMetricRawValue) {"))
@@ -5049,12 +5427,13 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(home.contains("flatBarBottom: BodyDayRingGeometry.flatBarBottom"))
         XCTAssertTrue(home.contains("gridContentY - heroContentY - (flatBarBottom + BodyReadinessArcGeometry.heldGridGap)"))
         XCTAssertTrue(hero.contains("let overrun = Geometry.dialOverrun / (1 - 2 * track.axisInset)"))
-        XCTAssertTrue(hero.contains("Image(systemName: symbolName(for: activity))"))
         // Workouts closer than one bar's shortest glyph share a bar, grouped on the
         // resting track so the grouping holds still while the ring stretches or flattens.
         XCTAssertTrue(hero.contains("Geometry.segments(for: timeline, trackLength: Geometry.track(width: width).dayLength)"))
         XCTAssertTrue(hero.contains("span.start - last.end < minimum"))
-        XCTAssertTrue(hero.contains(#"Text("×\(segment.workoutCount)")"#))
+        // A merged bar shows only its longest activity's icon, with a small plus after it.
+        XCTAssertTrue(hero.contains("Image(systemName: symbolName(for: segment.leadActivity))"))
+        XCTAssertTrue(hero.contains("guard segment.isMerged else { return }"))
         // The Readiness Ring's warning signs: the shared row, its tap targets, and the
         // same lift for the caption and drop without badges.
         XCTAssertTrue(hero.contains("BodyHeroWarningBadgeRow(badges: warningBadges, opacity: textOpacity)"))

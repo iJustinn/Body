@@ -271,7 +271,14 @@ enum WatchComputeAssembly {
             // cutoff the merge compares against PHONE-derived stamps (which
             // are themselves refresh/query times, the same domain).
             coverage: now,
-            generation: generation
+            generation: generation,
+            drainIsFresh: permission.includes(.workouts) && delta.workouts.isSuccess,
+            readinessCarriedInputs: Self.readinessCarriedInputs(delta: delta),
+            readinessBlockers: Self.readinessBlockers(
+                delta: delta,
+                replayedTrainingLoad: trainingLoad != nil,
+                permission: permission
+            )
         )
     }
 
@@ -456,28 +463,11 @@ enum WatchComputeAssembly {
         // the score, and stamping readiness off it let a seed-derived score
         // masquerade as fresh whenever the worn watch produced a recent HR
         // sample.
-        var readinessInputsFresh = true
-        if permission.includes(.heart) {
-            readinessInputsFresh = readinessInputsFresh
-                && delta.heartRateSeries.isSuccess
-                && delta.restingHeartRateSeries.isSuccess
-                && delta.heartRateVariabilitySeries.isSuccess
-        }
-        if permission.includes(.respiratory) {
-            readinessInputsFresh = readinessInputsFresh && delta.respiratoryRateSeries.isSuccess
-        }
-        if permission.includes(.bloodOxygen) {
-            readinessInputsFresh = readinessInputsFresh && delta.oxygenSaturationSeries.isSuccess
-        }
-        if permission.includes(.wristTemperature) {
-            readinessInputsFresh = readinessInputsFresh && delta.wristTemperatureSeries.isSuccess
-        }
-        if permission.includes(.sleep) {
-            readinessInputsFresh = readinessInputsFresh && delta.sleepNights.isSuccess
-        }
-        if permission.includes(.workouts) {
-            readinessInputsFresh = readinessInputsFresh && delta.workouts.isSuccess && replayedTrainingLoad
-        }
+        let readinessInputsFresh = Self.readinessBlockers(
+            delta: delta,
+            replayedTrainingLoad: replayedTrainingLoad,
+            permission: permission
+        ).isEmpty
         if readinessInputsFresh {
             map[WatchMetricKindKey.readiness] = now
         }
@@ -489,6 +479,60 @@ enum WatchComputeAssembly {
         // stays phone-sourced, trend recomputes on-watch" deviation would
         // silently become "nothing updates on-watch".
         return map
+    }
+
+    /// The permission-eligible readiness inputs that did not succeed this run,
+    /// by name. Empty means readiness may be stamped (see `dataAsOf`).
+    ///
+    /// A kind in `delta.carriedKinds` (no local source on this watch at all)
+    /// is not a blocker: nothing the watch could read is missing, and the
+    /// phone's seeded series stands in for it until the next push. That only
+    /// holds while the watch re-read SOMETHING itself. With every vitals and
+    /// sleep input carried, the score would be the phone's own numbers
+    /// presented as freshly computed, so that case still blocks.
+    static func readinessBlockers(
+        delta: WatchComputeDelta,
+        replayedTrainingLoad: Bool,
+        permission: BodyHealthPermissionSelection
+    ) -> [String] {
+        var inputs: [(kind: HealthMetricKind, succeeded: Bool)] = []
+        if permission.includes(.heart) {
+            inputs.append((.heartRate, delta.heartRateSeries.isSuccess))
+            inputs.append((.restingHeartRate, delta.restingHeartRateSeries.isSuccess))
+            inputs.append((.heartRateVariability, delta.heartRateVariabilitySeries.isSuccess))
+        }
+        if permission.includes(.respiratory) {
+            inputs.append((.respiratoryRate, delta.respiratoryRateSeries.isSuccess))
+        }
+        if permission.includes(.bloodOxygen) {
+            inputs.append((.oxygenSaturation, delta.oxygenSaturationSeries.isSuccess))
+        }
+        if permission.includes(.wristTemperature) {
+            inputs.append((.wristTemperature, delta.wristTemperatureSeries.isSuccess))
+        }
+        if permission.includes(.sleep) {
+            inputs.append((.sleep, delta.sleepNights.isSuccess))
+        }
+        var blockers = inputs
+            .filter { !$0.succeeded && !delta.carriedKinds.contains($0.kind) }
+            .map(\.kind.rawValue)
+        if !inputs.isEmpty, !inputs.contains(where: \.succeeded) {
+            blockers = inputs.map(\.kind.rawValue)
+        }
+        if permission.includes(.workouts) {
+            if !delta.workouts.isSuccess {
+                blockers.append("workouts")
+            } else if !replayedTrainingLoad {
+                blockers.append("trainingLoad")
+            }
+        }
+        return blockers
+    }
+
+    /// The readiness inputs carried from the phone's seed because this watch
+    /// holds no source for them. Diagnostics only.
+    static func readinessCarriedInputs(delta: WatchComputeDelta) -> [String] {
+        delta.carriedKinds.map(\.rawValue).sorted()
     }
 
     /// Chart-only adoption channel (see `WatchComputeResult.chartDataAsOf`):

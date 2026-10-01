@@ -49,8 +49,8 @@ final class DayRingScreenshotTests: XCTestCase {
             ]),
             ("day-ring-merged-walk-run-strength", [
                 workout(.walking, date(12, 0), minutes: 5),
-                workout(.running, date(12, 8), minutes: 5),
-                workout(.strengthTraining, date(12, 16), minutes: 5)
+                workout(.running, date(12, 8), minutes: 12),
+                workout(.strengthTraining, date(12, 23), minutes: 5)
             ])
         ]
 

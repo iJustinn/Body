@@ -289,6 +289,13 @@ struct ReadinessSummary: Codable, Equatable {
     /// exactly when `activityDrainCycleStart` is nil.
     var activityDrainContributions: [ActivityDrainContribution]?
 
+    /// Start of the day this score was computed for, stamped by every readiness
+    /// recompute. Siri reads it to tell today's score from a stale one without
+    /// relying on the last full refresh, which silent repairs never restamp.
+    /// A day, not a time, so recomputes within one day keep the summary equal.
+    /// Optional so snapshots persisted before this field decode as nil.
+    var scoredDay: Date?
+
     static let unavailable = ReadinessSummary(
         score: nil,
         status: .unavailable,

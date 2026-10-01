@@ -11,6 +11,7 @@ enum HealthDaySampleSeries: CaseIterable, Hashable, Sendable {
     case heartRateVariabilityDaySamples
     case heartRateVariabilityDaySamplesSecondary
     case heartbeatRMSSDDaySamples
+    case recoveryHRVDaySamplesSecondary
     case respiratoryRateDaySamples
     case oxygenSaturationDaySamples
     case oxygenSaturationDaySamplesSecondary
@@ -28,6 +29,7 @@ enum HealthDaySampleSeries: CaseIterable, Hashable, Sendable {
         case .heartRateVariabilityDaySamples: return \.heartRateVariabilityDaySamples
         case .heartRateVariabilityDaySamplesSecondary: return \.heartRateVariabilityDaySamplesSecondary
         case .heartbeatRMSSDDaySamples: return \.heartbeatRMSSDDaySamples
+        case .recoveryHRVDaySamplesSecondary: return \.recoveryHRVDaySamplesSecondary
         case .respiratoryRateDaySamples: return \.respiratoryRateDaySamples
         case .oxygenSaturationDaySamples: return \.oxygenSaturationDaySamples
         case .oxygenSaturationDaySamplesSecondary: return \.oxygenSaturationDaySamplesSecondary
@@ -47,6 +49,7 @@ enum HealthDaySampleSeries: CaseIterable, Hashable, Sendable {
         case .heartRateVariabilityDaySamples: return \.heartRateVariabilityDaySamples
         case .heartRateVariabilityDaySamplesSecondary: return \.heartRateVariabilityDaySamplesSecondary
         case .heartbeatRMSSDDaySamples: return \.heartbeatRMSSDDaySamples
+        case .recoveryHRVDaySamplesSecondary: return \.recoveryHRVDaySamplesSecondary
         case .respiratoryRateDaySamples: return \.respiratoryRateDaySamples
         case .oxygenSaturationDaySamples: return \.oxygenSaturationDaySamples
         case .oxygenSaturationDaySamplesSecondary: return \.oxygenSaturationDaySamplesSecondary
@@ -66,6 +69,7 @@ enum HealthDaySampleSeries: CaseIterable, Hashable, Sendable {
         case .heartRateVariabilityDaySamples: return .heartRateVariability
         case .heartRateVariabilityDaySamplesSecondary: return .heartRateVariability
         case .heartbeatRMSSDDaySamples: return .heartRateVariability
+        case .recoveryHRVDaySamplesSecondary: return .heartRateVariability
         case .respiratoryRateDaySamples: return .respiratoryRate
         case .oxygenSaturationDaySamples: return .oxygenSaturation
         case .oxygenSaturationDaySamplesSecondary: return .oxygenSaturation
@@ -78,7 +82,7 @@ enum HealthDaySampleSeries: CaseIterable, Hashable, Sendable {
 
     var isSecondary: Bool {
         switch self {
-        case .heartRateDaySamplesSecondary, .restingHeartRateDaySamplesSecondary, .heartRateVariabilityDaySamplesSecondary, .oxygenSaturationDaySamplesSecondary, .activeEnergyDaySamplesSecondary, .stepsDaySamplesSecondary: return true
+        case .heartRateDaySamplesSecondary, .restingHeartRateDaySamplesSecondary, .heartRateVariabilityDaySamplesSecondary, .recoveryHRVDaySamplesSecondary, .oxygenSaturationDaySamplesSecondary, .activeEnergyDaySamplesSecondary, .stepsDaySamplesSecondary: return true
         default: return false
         }
     }

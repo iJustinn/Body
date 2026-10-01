@@ -1,6 +1,6 @@
 # Body Radar — Beta 3 handoff
 
-Updated September 7, 2026. Status: pending Oura export and investigation; no Beta 3 algorithm has been selected or implemented.
+Updated September 23, 2026. Status: Beta 3 selected: B + G (respiratory decrease plus corroboration gate), algorithm version 3, Body Radar replay exporter added (Settings › Data › Cache › Export Body Radar Replay). Analysis in [docs/BodyRadarBeta3Analysis.md](docs/BodyRadarBeta3Analysis.md).
 
 ## Start here
 
@@ -47,14 +47,27 @@ Only the five selected Oura dates are firm screenshot verdict labels. Do not inf
 
 ## Ordered work checklist
 
-- [ ] **Inventory and normalize the Oura export.** Inspect schema, units, missingness, duplicate dates, device/source identity, timezone and wake-day assignment. Distinguish main sleep from naps and daily from overnight aggregation. Check average versus lowest/resting HR, the HRV statistic, and absolute temperature versus deviations from Oura's own reference. Do not presume the export contains Symptom Radar labels.
-- [ ] **Assemble two separate timelines.** Oura measurements against Oura history; Apple Watch measurements against Apple Watch history. Never pool raw values, substitute one device's value for a gap in the other, convert SDNN to RMSSD, or apply SDNN-specific floors to a differently defined HRV statistic without an explicitly labeled experiment. An already normalized temperature field needs its own interpretation.
-- [ ] **Build exact local Body replay/export.** Export actual sleep-window inputs and frozen records, not only Home daily aggregates. Obtain 56 days before the first scored comparison date where possible; mark shorter warm-up explicitly. Match Beta 2 production evidence within a declared floating-point tolerance and states/exclusion reasons exactly before evaluating new candidates. Retain the Beta 1 proxy as historical context only.
-- [ ] **Explain the selected dates.** Produce a day-by-day comparison of within-device deviations, contributions, missing channels and verdicts. Confirm the inferred Body dates and separate measurement differences from algorithm differences and incomplete inputs.
-- [ ] **Measure Beta 2 coverage and finalization.** Count eligible/unavailable nights, per-channel exclusions, late arrivals and first-freeze timing. Check whether the two-channel/per-channel-recency rules create excessive unavailability or whether early two-channel freezing hides important later readings.
-- [ ] **Run isolated candidate experiments.** Use the definitions below, record every constant and compare against Beta 2. Keep a decision log including rejected candidates and why they were rejected.
-- [ ] **Validate prospectively and choose scope.** Freeze constants before the next observation period. Select the smallest justified improvement; keeping Beta 2 scoring is an acceptable outcome if evidence remains inconclusive.
-- [ ] **Implement, version and verify only selected changes.** Preserve missing-data behavior, source isolation and unrelated caches. Update help text, localization, chart explanations and regression coverage for the final behavior.
+- [x] **Inventory and normalize the Oura export.** Done: [docs/BodyRadarBeta3Analysis.md](docs/BodyRadarBeta3Analysis.md) section 2, `Scripts/body_radar_replay.py inventory`. Inspect schema, units, missingness, duplicate dates, device/source identity, timezone and wake-day assignment. Distinguish main sleep from naps and daily from overnight aggregation. Check average versus lowest/resting HR, the HRV statistic, and absolute temperature versus deviations from Oura's own reference. Do not presume the export contains Symptom Radar labels.
+- [x] **Assemble two separate timelines.** Done: separate Oura and Apple proxy timelines with labeled cross-statistic experiments, [docs/BodyRadarBeta3Analysis.md](docs/BodyRadarBeta3Analysis.md) sections 2 and 4.4. Oura measurements against Oura history; Apple Watch measurements against Apple Watch history. Never pool raw values, substitute one device's value for a gap in the other, convert SDNN to RMSSD, or apply SDNN-specific floors to a differently defined HRV statistic without an explicitly labeled experiment. An already normalized temperature field needs its own interpretation.
+- [ ] **Build exact local Body replay/export.** Open: the exporter (Settings › Data › Cache › Export Body Radar Replay) plus `replay --body` is the path; exact parity needs on-device exports. Export actual sleep-window inputs and frozen records, not only Home daily aggregates. Obtain 56 days before the first scored comparison date where possible; mark shorter warm-up explicitly. Match Beta 2 production evidence within a declared floating-point tolerance and states/exclusion reasons exactly before evaluating new candidates. Retain the Beta 1 proxy as historical context only.
+- [x] **Explain the selected dates.** Done on both proxies: [docs/BodyRadarBeta3Analysis.md](docs/BodyRadarBeta3Analysis.md) sections 4.1 to 4.3 and 4.7; Body dates stay chart inferred until exports confirm them. Produce a day-by-day comparison of within-device deviations, contributions, missing channels and verdicts. Confirm the inferred Body dates and separate measurement differences from algorithm differences and incomplete inputs.
+- [ ] **Measure Beta 2 coverage and finalization.** Open: needs on-device exports from the new exporter (`recomputed` versus `recorded`, capture metadata). Count eligible/unavailable nights, per-channel exclusions, late arrivals and first-freeze timing. Check whether the two-channel/per-channel-recency rules create excessive unavailability or whether early two-channel freezing hides important later readings.
+- [x] **Run isolated candidate experiments.** Done: Beta 2, B, G, B+G and a 10,032 candidate grid with a decision log, [docs/BodyRadarBeta3Analysis.md](docs/BodyRadarBeta3Analysis.md) sections 4.2, 4.5 and 5. Use the definitions below, record every constant and compare against Beta 2. Keep a decision log including rejected candidates and why they were rejected.
+- [ ] **Validate prospectively and choose scope.** Scope chosen (B + G, see Selected versus deferred scope); prospective validation is pending, protocol in [docs/BodyRadarBeta3Analysis.md](docs/BodyRadarBeta3Analysis.md) section 9. Freeze constants before the next observation period. Select the smallest justified improvement; keeping Beta 2 scoring is an acceptable outcome if evidence remains inconclusive.
+- [x] **Implement, version and verify only selected changes.** Implemented in 1.1.3 build 1, see [docs/BodyRadarBeta3Analysis.md](docs/BodyRadarBeta3Analysis.md) section 6. Preserve missing-data behavior, source isolation and unrelated caches. Update help text, localization, chart explanations and regression coverage for the final behavior.
+
+### Selected versus deferred scope
+
+Selected for Beta 3 (algorithm version 3): Candidate B (respiration scored on absolute deviation, signed arrow kept) and Candidate G (corroboration gate: two families at 0.25 or more on the same night, or the previous calendar day's raw evidence at 0.75 or more; otherwise No signs with raw evidence kept), the held-night explanation, capture metadata and the Body Radar replay exporter. Constants and evidence are in [docs/BodyRadarBeta3Analysis.md](docs/BodyRadarBeta3Analysis.md).
+
+Deferred:
+
+- Spread floors (unchanged; binding is reported, not acted on).
+- Time zone shift suppression (Aug 31 and Sep 1 stay alerts after the Aug 30 zone change).
+- Temperature trend as an input.
+- HRV balance as an input.
+- Oura-only inputs of any kind; Body scores its own four nightly signals.
+- Reproducing Oura's episode timing (Aug 20 to 22, Sep 3); no evaluated candidate did so without extra alerts.
 
 ### Required replay record
 

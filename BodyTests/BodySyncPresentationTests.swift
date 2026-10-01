@@ -173,4 +173,99 @@ final class BodySyncPresentationTests: XCTestCase {
         XCTAssertNotEqual(state.sessionID, old)
         XCTAssertEqual(state.phase, .syncing)
     }
+
+    func testQuickAutomaticSessionEndsWithoutShowingOrConfirming() throws {
+        var state = BodySyncPresentation()
+        state.begin(now: 0)
+        XCTAssertFalse(state.isRevealed)
+        XCTAssertEqual(state.nextDeadline, 0.5)
+        state.record(published: true, owner: try XCTUnwrap(state.passID))
+        state.finish(now: 0.3)
+        // Only settling now, so the reveal deadline no longer applies.
+        XCTAssertEqual(try XCTUnwrap(state.nextDeadline), 0.9, accuracy: 0.000_001)
+        state.advance(now: 0.5)
+        XCTAssertFalse(state.isRevealed)
+        state.advance(now: 1)
+        XCTAssertEqual(state.phase, .hidden)
+        XCTAssertFalse(state.isRevealed)
+        XCTAssertNil(state.completedAt)
+        XCTAssertNil(state.nextDeadline)
+    }
+
+    func testSessionStillRunningAtRevealDelayShowsAndConfirms() throws {
+        var state = BodySyncPresentation()
+        state.begin(now: 0)
+        let owner = try XCTUnwrap(state.passID)
+        state.advance(now: 0.49)
+        XCTAssertFalse(state.isRevealed)
+        state.advance(now: 0.5)
+        XCTAssertTrue(state.isRevealed)
+        state.record(published: true, owner: owner)
+        state.finish(now: 1)
+        state.advance(now: 2)
+        XCTAssertEqual(state.phase, .updated)
+        state.advance(now: 5)
+        XCTAssertEqual(state.phase, .hidden)
+
+        // A queued follow-up alone keeps the next session open but never reveals it;
+        // the follow-up's own pass does, once it begins after the delay.
+        state.begin(now: 10)
+        XCTAssertFalse(state.isRevealed)
+        let followup = UUID()
+        state.enqueue(followup, now: 10.1)
+        state.finish(now: 10.2)
+        state.advance(now: 10.5)
+        XCTAssertFalse(state.isRevealed)
+        XCTAssertNil(state.nextDeadline)
+        state.advance(now: 11)
+        XCTAssertFalse(state.isRevealed)
+        XCTAssertEqual(state.phase, .syncing)
+        state.begin(now: 11.2)
+        XCTAssertTrue(state.isRevealed)
+        state.release(followup, now: 11.3)
+    }
+
+    func testSessionHeldOpenOnlyByATokenEndsHidden() throws {
+        var state = BodySyncPresentation()
+        state.begin(now: 0)
+        state.record(published: true, owner: try XCTUnwrap(state.passID))
+        let token = UUID()
+        state.enqueue(token, now: 0.1)
+        state.finish(now: 0.2)
+        state.advance(now: 5)
+        XCTAssertEqual(state.phase, .syncing)
+        XCTAssertFalse(state.isRevealed)
+        state.release(token, now: 5)
+        state.advance(now: 6)
+        XCTAssertEqual(state.phase, .hidden)
+        XCTAssertFalse(state.isRevealed)
+        XCTAssertNil(state.completedAt)
+        XCTAssertNil(state.nextDeadline)
+    }
+
+    func testFollowupAfterRevealDelayShowsTheJoinedSessionAtOnce() {
+        var state = BodySyncPresentation()
+        state.begin(now: 0)
+        state.finish(now: 0.3)
+        state.advance(now: 0.5)
+        XCTAssertFalse(state.isRevealed)
+        let session = state.sessionID
+        state.begin(now: 0.6)
+        XCTAssertEqual(state.sessionID, session)
+        XCTAssertTrue(state.isRevealed)
+    }
+
+    func testRevealShowsAtOnceAndIgnoresHiddenPresentation() throws {
+        var state = BodySyncPresentation()
+        state.reveal()
+        XCTAssertFalse(state.isRevealed)
+        state.begin(now: 0)
+        state.reveal()
+        XCTAssertTrue(state.isRevealed)
+        XCTAssertNil(state.nextDeadline)
+        state.record(published: true, owner: try XCTUnwrap(state.passID))
+        state.finish(now: 0.1)
+        state.advance(now: 1)
+        XCTAssertEqual(state.phase, .updated)
+    }
 }

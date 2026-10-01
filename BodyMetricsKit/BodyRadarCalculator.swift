@@ -2,8 +2,9 @@
 //  BodyRadarCalculator.swift
 //  Body
 //
-//  Body Radar (Beta v2) engine: grades four overnight signals against the same
-//  56-day robust baseline the Vitals page uses, sums directional evidence, and
+//  Body Radar (Beta v3) engine: grades four overnight signals against the same
+//  56-day robust baseline the Vitals page uses, sums directional evidence, lets
+//  it alert only when two signal families or two adjacent nights agree, and
 //  freezes one verdict per day the way the readiness morning record is frozen.
 //
 //  Not a medical device: this reports deviations from a personal baseline, it
@@ -13,7 +14,7 @@
 import Foundation
 
 enum BodyRadarCalculator {
-    static let algorithmVersion = 2
+    static let algorithmVersion = 3
 
     enum Tuning {
         /// Fixed signal weights; inactivity is retained only for legacy decoding.
@@ -37,6 +38,13 @@ enum BodyRadarCalculator {
         static let majorEvidence = 2.0
         /// Major needs corroboration: one saturated signal caps at Minor.
         static let majorFlaggedSignalCount = 2
+        /// Same-night corroboration: a family (heart signals, breathing,
+        /// temperature) counts once its summed contribution reaches this, and
+        /// two families must count.
+        static let familyContributionMinimum = 0.25
+        /// Persistence: the previous calendar night's raw evidence, from any
+        /// signal in any direction, that lets a single family alert tonight.
+        static let persistenceEvidence = minorEvidence
 
         /// Robust-spread floor for overnight SDNN, matching
         /// `StressScoreCalculator.Tuning.hrvSpreadFloor`.
@@ -122,11 +130,13 @@ enum BodyRadarCalculator {
             } else if day < scoringDay || !tonight.state.isScored {
                 // Unscored days stay in, so the chart keeps a slot for every
                 // night and can show where data or a verdict was missing.
-                let night = context.night(on: day)
-                recent.append(night)
+                var night = context.night(on: day)
                 if night.state.isScored {
+                    night.capturedAt = now
+                    night.capture = .backfill
                     backfilled.append(night)
                 }
+                recent.append(night)
             }
         }
 
@@ -198,6 +208,8 @@ enum BodyRadarCalculator {
 
         var frozen = night
         frozen.date = scoringDay
+        frozen.capturedAt = now
+        frozen.capture = .freeze
         return capped(records + [frozen], calendar: calendar)
     }
 
@@ -217,7 +229,11 @@ enum BodyRadarCalculator {
         Tuning.weight(for: signal.kind) * max(0, signal.directionalDeviation - Tuning.deadZone)
     }
 
-    static func state(evidence: Double, flaggedCount: Int) -> BodyRadarState {
+    /// An uncorroborated night is held at No Signs whatever its evidence.
+    static func state(evidence: Double, flaggedCount: Int, corroborated: Bool) -> BodyRadarState {
+        guard corroborated else {
+            return .noSigns
+        }
         if evidence >= Tuning.majorEvidence, flaggedCount >= Tuning.majorFlaggedSignalCount {
             return .majorSigns
         }
@@ -227,15 +243,80 @@ enum BodyRadarCalculator {
         return .noSigns
     }
 
+    /// Each family's summed contribution; inactivity belongs to none.
+    static func familyContributions(of signals: [BodyRadarSignal]) -> [BodyRadarSignalFamily: Double] {
+        signals.reduce(into: [:]) { sums, signal in
+            guard let family = signal.kind.family else {
+                return
+            }
+            sums[family, default: 0] += contribution(of: signal)
+        }
+    }
+
+    /// The support a scored night has: two families moving on the same night,
+    /// otherwise a previous calendar night that was scored with raw evidence
+    /// of at least `persistenceEvidence`. `previousRawNight` must be the
+    /// ungated night, so support never chains further back than one day.
+    static func corroboration(
+        signals: [BodyRadarSignal],
+        previousRawNight: BodyRadarNight?
+    ) -> BodyRadarCorroboration {
+        let corroboratingFamilies = familyContributions(of: signals).values
+            .filter { $0 >= Tuning.familyContributionMinimum }
+            .count
+        if corroboratingFamilies >= 2 {
+            return .sameNight
+        }
+        if let previousRawNight,
+           previousRawNight.state.isScored,
+           previousRawNight.evidence >= Tuning.persistenceEvidence {
+            return .persistence
+        }
+        return .none
+    }
+
     // MARK: - Context
 
     /// The per-signal day series a run of nights is scored against, built once
     /// so scoring the recent nights does not rebuild the history once per night.
-    private struct Context {
+    /// Internal rather than private so the replay exporter reads the same inputs.
+    struct Context {
+        /// Ungated nights by day, shared by every copy of one context so a
+        /// night and the next night's persistence lookup score it once.
+        private final class RawNightCache {
+            var nightsByDay: [Date: BodyRadarNight] = [:]
+        }
+
+        /// Why a signal was left out of a night's score.
+        enum SignalExclusion: String {
+            case noBaseline
+            case sparseRecent
+            case noCurrentValue
+        }
+
+        /// One signal's inputs on one night: the baseline it is read against,
+        /// its recent observations, and the scored signal when it has a value.
+        struct SignalEvaluation {
+            let kind: BodyRadarSignalKind
+            let baseline: ReadinessScoreCalculator.Baseline?
+            let recentNightCount: Int
+            let signal: BodyRadarSignal?
+            let exclusion: SignalExclusion?
+
+            /// Has a baseline and recent nights, whether or not tonight has a value.
+            var isCalibrated: Bool {
+                exclusion == nil || exclusion == .noCurrentValue
+            }
+        }
+
         let series: [BodyRadarSignalKind: VitalsCalculator.VitalSeries]
         /// Days that hold a night worth scoring, keyed by start of the wake day.
         let nightDays: Set<Date>
+        /// Every day's summary before the night and finite-value filters, so the
+        /// replay can report why a value was left out.
+        let summariesByDay: [Date: SleepSummary]
         let calendar: Calendar
+        private let rawNights = RawNightCache()
 
         init(
             sleepHistory: SleepHistorySnapshot,
@@ -275,6 +356,7 @@ enum BodyRadarCalculator {
             }
 
             self.nightDays = nights
+            self.summariesByDay = summariesByDay
             self.series = valuesByDayByKind.reduce(into: [:]) { result, entry in
                 let sorted = entry.value.sorted { $0.key < $1.key }
                 result[entry.key] = VitalsCalculator.VitalSeries(
@@ -286,46 +368,47 @@ enum BodyRadarCalculator {
             }
         }
 
+        /// The gated verdict: the raw night, held at No Signs when neither a
+        /// second family nor the previous night's raw evidence supports it.
         func night(on day: Date) -> BodyRadarNight {
+            var night = rawNight(on: day)
+            guard night.state.isScored else {
+                return night
+            }
+
+            let previousDay = calendar.date(byAdding: .day, value: -1, to: day)
+                .map { calendar.startOfDay(for: $0) }
+            let corroboration = BodyRadarCalculator.corroboration(
+                signals: night.signals,
+                previousRawNight: previousDay.map(rawNight(on:))
+            )
+            night.corroboration = corroboration
+            night.state = BodyRadarCalculator.state(
+                evidence: night.evidence,
+                flaggedCount: night.flaggedSignals.count,
+                corroborated: corroboration != .none
+            )
+            return night
+        }
+
+        /// The night scored on its own evidence and flags, with no gate.
+        func rawNight(on day: Date) -> BodyRadarNight {
+            if let cached = rawNights.nightsByDay[day] {
+                return cached
+            }
+            let night = scoreRawNight(on: day)
+            rawNights.nightsByDay[day] = night
+            return night
+        }
+
+        private func scoreRawNight(on day: Date) -> BodyRadarNight {
             guard nightDays.contains(day) else {
                 return BodyRadarNight(date: day, state: .missingSleep)
             }
 
-            let oldestDay = calendar.date(
-                byAdding: .day,
-                value: -ReadinessScoreCalculator.baselineDayCount,
-                to: day
-            ) ?? day.addingTimeInterval(-Double(ReadinessScoreCalculator.baselineDayCount) * 86_400)
-            let recentCutoff = calendar.date(
-                byAdding: .day,
-                value: -ReadinessScoreCalculator.recentExclusionDayCount,
-                to: day
-            ) ?? day
-
-            var calibratedSignalCount = 0
-            let signals = BodyRadarSignalKind.scoringKinds.compactMap { kind -> BodyRadarSignal? in
-                guard let series = series[kind],
-                      let baseline = VitalsCalculator.windowedBaseline(
-                          series: series,
-                          scoringDay: day,
-                          oldestDay: oldestDay,
-                          recentCutoff: recentCutoff
-                      ) else {
-                    return nil
-                }
-
-                guard hasRecentNights(in: series, endingOn: day) else {
-                    return nil
-                }
-                calibratedSignalCount += 1
-                guard let value = series.valuesByDay[day] else {
-                    return nil
-                }
-                let deviation = VitalsCalculator.normalizedDeviation(value: value, baseline: baseline)
-                var signal = BodyRadarSignal(kind: kind, deviation: deviation, flagged: false)
-                signal.flagged = signal.directionalDeviation > Tuning.flagThreshold
-                return signal
-            }
+            let evaluations = signalEvaluations(on: day)
+            let calibratedSignalCount = evaluations.filter(\.isCalibrated).count
+            let signals = evaluations.compactMap(\.signal)
 
             guard calibratedSignalCount >= Tuning.minimumSignalCount else {
                 return BodyRadarNight(date: day, state: .calibrating)
@@ -339,23 +422,101 @@ enum BodyRadarCalculator {
 
             return BodyRadarNight(
                 date: day,
-                state: BodyRadarCalculator.state(evidence: evidence, flaggedCount: flaggedCount),
+                state: BodyRadarCalculator.state(
+                    evidence: evidence,
+                    flaggedCount: flaggedCount,
+                    corroborated: true
+                ),
                 evidence: evidence,
                 signals: signals
             )
         }
 
+        /// The baseline window edges for one night: the oldest day it reads and
+        /// the start of the recent days it leaves out once enough history remains.
+        func baselineWindow(endingOn day: Date) -> (oldestDay: Date, recentCutoff: Date) {
+            let oldestDay = calendar.date(
+                byAdding: .day,
+                value: -ReadinessScoreCalculator.baselineDayCount,
+                to: day
+            ) ?? day.addingTimeInterval(-Double(ReadinessScoreCalculator.baselineDayCount) * 86_400)
+            let recentCutoff = calendar.date(
+                byAdding: .day,
+                value: -ReadinessScoreCalculator.recentExclusionDayCount,
+                to: day
+            ) ?? day
+            return (oldestDay, recentCutoff)
+        }
+
+        /// Every scoring kind on one night, in display order, scored or not.
+        func signalEvaluations(on day: Date) -> [SignalEvaluation] {
+            let window = baselineWindow(endingOn: day)
+            return BodyRadarSignalKind.scoringKinds.map { kind in
+                guard let series = series[kind] else {
+                    return SignalEvaluation(
+                        kind: kind,
+                        baseline: nil,
+                        recentNightCount: 0,
+                        signal: nil,
+                        exclusion: .noBaseline
+                    )
+                }
+                let recentNightCount = recentNightCount(in: series, endingOn: day)
+                guard let baseline = VitalsCalculator.windowedBaseline(
+                    series: series,
+                    scoringDay: day,
+                    oldestDay: window.oldestDay,
+                    recentCutoff: window.recentCutoff
+                ) else {
+                    return SignalEvaluation(
+                        kind: kind,
+                        baseline: nil,
+                        recentNightCount: recentNightCount,
+                        signal: nil,
+                        exclusion: .noBaseline
+                    )
+                }
+                guard recentNightCount >= Tuning.recencyMinimumNightCount else {
+                    return SignalEvaluation(
+                        kind: kind,
+                        baseline: baseline,
+                        recentNightCount: recentNightCount,
+                        signal: nil,
+                        exclusion: .sparseRecent
+                    )
+                }
+                guard let value = series.valuesByDay[day] else {
+                    return SignalEvaluation(
+                        kind: kind,
+                        baseline: baseline,
+                        recentNightCount: recentNightCount,
+                        signal: nil,
+                        exclusion: .noCurrentValue
+                    )
+                }
+                let deviation = VitalsCalculator.normalizedDeviation(value: value, baseline: baseline)
+                var signal = BodyRadarSignal(kind: kind, deviation: deviation, flagged: false)
+                signal.flagged = signal.directionalDeviation > Tuning.flagThreshold
+                return SignalEvaluation(
+                    kind: kind,
+                    baseline: baseline,
+                    recentNightCount: recentNightCount,
+                    signal: signal,
+                    exclusion: nil
+                )
+            }
+        }
+
         /// Count this channel's observations, not the union of unrelated sensors.
-        private func hasRecentNights(in series: VitalsCalculator.VitalSeries, endingOn day: Date) -> Bool {
+        private func recentNightCount(in series: VitalsCalculator.VitalSeries, endingOn day: Date) -> Int {
             guard let windowStart = calendar.date(
                 byAdding: .day,
                 value: -(Tuning.recencyWindowDayCount - 1),
                 to: day
             ) else {
-                return false
+                return 0
             }
             return series.days.filter { $0 >= windowStart && $0 <= day }.count
-                >= Tuning.recencyMinimumNightCount
         }
 
         /// A nap or a partial night must not be read as a night. Summaries that
@@ -370,7 +531,7 @@ enum BodyRadarCalculator {
             return (summary.duration ?? 0) >= Tuning.minimumNightSleepDuration
         }
 
-        private static func value(of kind: BodyRadarSignalKind, in summary: SleepSummary) -> Double? {
+        static func value(of kind: BodyRadarSignalKind, in summary: SleepSummary) -> Double? {
             switch kind {
             case .sleepingHeartRate:
                 return summary.vitals.heartRate
@@ -385,7 +546,7 @@ enum BodyRadarCalculator {
             }
         }
 
-        private static func floor(for kind: BodyRadarSignalKind) -> Double {
+        static func floor(for kind: BodyRadarSignalKind) -> Double {
             switch kind {
             case .sleepingHeartRate:
                 return VitalsCalculator.Floor.heartRate

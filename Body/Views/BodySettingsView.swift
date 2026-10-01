@@ -57,7 +57,6 @@ struct BodySettingsView: View {
     @AppStorage(BodyAppearancePreference.navigationBarShowsLabelsKey) private var navigationBarShowsLabels = false
     @AppStorage(BodyNotificationPreferences.masterKey) private var notificationsEnabled = true
     @AppStorage(BodyAppearancePreference.workoutEquivalentCardEnabledKey) private var workoutEquivalentCardEnabled = true
-    @AppStorage(BodyAppearancePreference.bodyProIconShowsBackKey) private var bodyProIconShowsBack = false
     @AppStorage(BodyAppearancePreference.profileNameKey) private var profileName = ""
     // Empty `Data` is "no photo" — `@AppStorage` has no optional-Data overload.
     @AppStorage(BodyAppearancePreference.profileAvatarDataKey) private var profileAvatarData = Data()
@@ -112,7 +111,7 @@ struct BodySettingsView: View {
                     .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showBodyProPaywall) {
-                NavigationStack { BodyProView() }
+                NavigationStack { BodyProView(showsCloseButton: true) }
             }
             .sheet(isPresented: $showingPrivacyBrowser) {
                 if let url = URL(string: privacyPolicyURLString) {
@@ -246,17 +245,19 @@ struct BodySettingsView: View {
             BodyProView()
         } label: {
             HStack(spacing: 15) {
-                Image(BodyAppearancePreference.bodyProIconAssetName(showsBack: bodyProIconShowsBack))
+                Image(BodyAppIconOption.option(named: UIApplication.shared.alternateIconName).previewAssetName)
                     .resizable()
                     .scaledToFit()
                     .frame(width: 58, height: 58)
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Body Pro")
                         .font(.system(size: 23, weight: .bold, design: .rounded))
                         .foregroundColor(.primary)
 
-                    Text("Unlock premium features")
+                    // A member is told so, not sold to.
+                    Text(proStore?.isPro ?? false ? "You are a Pro" : "Unlock premium features")
                         .font(.system(.subheadline, design: .rounded))
                         .fontWeight(.semibold)
                         .foregroundColor(.secondary)
@@ -649,8 +650,12 @@ struct BodySettingsView: View {
         }
     }
 
+    // The hero a free user actually sees, not a stored Day Ring waiting on Pro.
     private var starredMetricSummaryText: String {
-        BodyStarMetric.from(rawValue: starredMetricRawValue)?.title ?? String(localized: "None")
+        BodyStarMetric.proGated(
+            BodyStarMetric.from(rawValue: starredMetricRawValue),
+            isProUnlocked: proStore?.isPro ?? false
+        )?.title ?? String(localized: "None")
     }
 
     // When the background is on, the row names the matching saved profile so the
@@ -1609,15 +1614,40 @@ private struct BodyUnitChoiceButton: View {
 
 private struct BodySummaryCardsSettingsSheet: View {
     @Binding var selection: BodySummaryCardSelection
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    @AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true
+    @State private var showBodyProPaywall = false
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Summary Cards") {
             VStack(alignment: .leading, spacing: 20) {
                 BodySettingsCardSection("Body Computed") {
-                    // The score is Body's own grading of a night; the Sleep card it
-                    // grades is a direct reading and sits in the other section.
-                    BodySleepScoreToggleRow(isEnabled: $showSleepScore)
+                    // The score and the debt are Body's own readings of your nights;
+                    // the Sleep card they read is a direct reading and sits in the
+                    // other section.
+                    BodySleepToggleRow(
+                        title: "Sleep Score",
+                        versionLabel: BodyHomeCardKind.sleepScoreVersionLabel,
+                        subtitle: "Nightly score from sleep stages, vitals, and timing",
+                        iconName: "moon.stars.fill",
+                        isEnabled: $showSleepScore
+                    )
+
+                    Divider()
+                        .padding(.leading, 76)
+
+                    // Sleep Debt is Body Pro: the row locks for free users and
+                    // opens the paywall; the stored toggle is left alone.
+                    BodySleepToggleRow(
+                        title: "Sleep Debt",
+                        versionLabel: BodyHomeCardKind.sleepDebtVersionLabel,
+                        subtitle: "Missed sleep over the last 14 nights",
+                        iconName: "moon.zzz.fill",
+                        isEnabled: $showSleepDebt,
+                        isLocked: !(proStore?.isPro ?? false),
+                        onLockedTap: { showBodyProPaywall = true }
+                    )
 
                     Divider()
                         .padding(.leading, 76)
@@ -1629,6 +1659,9 @@ private struct BodySummaryCardsSettingsSheet: View {
                     rows(for: BodyHomeCardKind.directReadingOrder)
                 }
             }
+        }
+        .sheet(isPresented: $showBodyProPaywall) {
+            NavigationStack { BodyProView(showsCloseButton: true) }
         }
     }
 
@@ -1654,8 +1687,20 @@ private struct BodySummaryCardsSettingsSheet: View {
 
 private struct BodyStarMetricPickerSheet: View {
     @Binding var selection: BodyStarMetric?
+    @Environment(BodyProStore.self) private var proStore: BodyProStore?
     @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
     @AppStorage(BodyAppearancePreference.dayRingShowsCaptionKey) private var dayRingShowsCaption = true
+    @State private var showBodyProPaywall = false
+
+    private var isProUnlocked: Bool {
+        proStore?.isPro ?? false
+    }
+
+    /// The checkmark follows the hero a free user sees, not a stored Day Ring
+    /// waiting on Pro, so a locked row can never read as selected.
+    private var effectiveSelection: BodyStarMetric? {
+        BodyStarMetric.proGated(selection, isProUnlocked: isProUnlocked)
+    }
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Home Hero") {
@@ -1665,12 +1710,14 @@ private struct BodyStarMetricPickerSheet: View {
                     subtitle: String(localized: "No metric pinned to the top of Home"),
                     iconName: "circle.slash",
                     tintColor: .secondary,
-                    isSelected: selection == nil
+                    isSelected: effectiveSelection == nil
                 ) {
                     selection = nil
                 }
 
                 ForEach(BodyStarMetric.allCases) { card in
+                    let isLocked = card.isProGated && !isProUnlocked
+
                     Divider()
                         .padding(.leading, 76)
 
@@ -1679,20 +1726,25 @@ private struct BodyStarMetricPickerSheet: View {
                         subtitle: card.subtitle,
                         iconName: card.iconName,
                         tintColor: card.tintColor,
-                        isSelected: selection == card
+                        isSelected: effectiveSelection == card,
+                        isLocked: isLocked
                     ) {
-                        selection = card
+                        if isLocked {
+                            showBodyProPaywall = true
+                        } else {
+                            selection = card
+                        }
                     }
 
                     // Its options show only while the ring is the one pinned.
-                    if card == .readiness, selection == .readiness {
+                    if card == .readiness, effectiveSelection == .readiness {
                         BodyStarMetricSubOptionToggleRow(
                             title: "Readiness Level",
                             subtitle: "Show today's level under the score",
                             isEnabled: $readinessHeroShowsLevel
                         )
                     }
-                    if card == .dayRing, selection == .dayRing {
+                    if card == .dayRing, effectiveSelection == .dayRing {
                         BodyStarMetricSubOptionToggleRow(
                             title: "Day Caption",
                             subtitle: "Show a caption under the number",
@@ -1702,6 +1754,9 @@ private struct BodyStarMetricPickerSheet: View {
                 }
             }
             .bodyCardBackground(translucent: true)
+        }
+        .sheet(isPresented: $showBodyProPaywall) {
+            NavigationStack { BodyProView(showsCloseButton: true) }
         }
     }
 }
@@ -2978,6 +3033,9 @@ private struct BodyStarMetricOptionRow: View {
     let iconName: String
     let tintColor: Color
     let isSelected: Bool
+    /// A Body Pro option a free user is looking at: a lock stands in for the
+    /// checkmark, and the action opens the paywall.
+    var isLocked = false
     let action: () -> Void
 
     var body: some View {
@@ -3003,7 +3061,11 @@ private struct BodyStarMetricOptionRow: View {
 
                 Spacer(minLength: 12)
 
-                if isSelected {
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.secondary)
+                } else if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 21, weight: .semibold))
                         .foregroundColor(tintColor)
@@ -3015,30 +3077,41 @@ private struct BodyStarMetricOptionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityHint(isLocked ? "Requires Body Pro" : "")
         .bodySelectionHaptics(isSelected: isSelected)
     }
 }
 
-private struct BodySleepScoreToggleRow: View {
+/// A Body Computed toggle for one of Body's own readings of your nights (Sleep
+/// Score, Sleep Debt), with its version chip.
+private struct BodySleepToggleRow: View {
+    let title: LocalizedStringKey
+    let versionLabel: LocalizedStringKey
+    let subtitle: LocalizedStringKey
+    let iconName: String
     @Binding var isEnabled: Bool
+    /// A Body Pro reading a free user is looking at: a lock stands in for the
+    /// toggle, and a tap on the row opens the paywall.
+    var isLocked = false
+    var onLockedTap: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 14) {
             BodySettingsIconTile(
-                iconName: "moon.stars.fill",
+                iconName: iconName,
                 color: Color(red: 0.20, green: 0.72, blue: 1.00)
             )
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Text("Sleep Score")
+                    Text(title)
                         .font(.system(.headline, design: .rounded))
                         .fontWeight(.semibold)
                         .foregroundColor(.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
 
-                    Text(BodyHomeCardKind.sleepScoreVersionLabel)
+                    Text(versionLabel)
                         .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(.blue)
                         .padding(.horizontal, 7)
@@ -3046,7 +3119,7 @@ private struct BodySleepScoreToggleRow: View {
                         .background(.blue.opacity(0.14), in: Capsule())
                 }
 
-                Text("Nightly score from sleep stages, vitals, and timing")
+                Text(subtitle)
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -3056,15 +3129,25 @@ private struct BodySleepScoreToggleRow: View {
 
             Spacer(minLength: 12)
 
-            Toggle("Sleep Score", isOn: $isEnabled)
-                .labelsHidden()
-                .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
-                .accessibilityValue(isEnabled ? "On" : "Off")
+            if isLocked {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.secondary)
+            } else {
+                Toggle(title, isOn: $isEnabled)
+                    .labelsHidden()
+                    .toggleStyle(BodyPermissionSwitchToggleStyle(onColor: .green, offColor: .red))
+                    .accessibilityValue(isEnabled ? "On" : "Off")
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
         .contentShape(Rectangle())
+        .onTapGesture {
+            if isLocked { onLockedTap() }
+        }
+        .accessibilityHint(isLocked ? "Requires Body Pro" : "")
     }
 }
 
@@ -4575,7 +4658,7 @@ private struct BodySourceSettingsSheet: View {
             }
         }
         .sheet(isPresented: $showBodyProPaywall) {
-            NavigationStack { BodyProView() }
+            NavigationStack { BodyProView(showsCloseButton: true) }
         }
         .sheet(item: $customSourceEditorTarget) { target in
             BodyCustomSourceEditorSheet(workoutStore: workoutStore, group: target.group)
@@ -5038,6 +5121,10 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
 private struct BodyCacheSettingsSheet: View {
     let workoutStore: HealthKitWorkoutStore
     @State private var showingRebuild = false
+    @State private var isExportingReplay = false
+    /// Held until the share sheet dismisses, so the file outlives the hand off.
+    @State private var replayFile: BodyRadarReplayFile?
+    @State private var showingReplayExportError = false
 
     var body: some View {
         BodySettingsAboutSheetScaffold(title: "Cache") {
@@ -5063,6 +5150,24 @@ private struct BodyCacheSettingsSheet: View {
                     Divider()
                         .padding(.leading, 76)
 
+                    Button {
+                        exportBodyRadarReplay()
+                    } label: {
+                        BodySettingsRowLabel(
+                            title: "Export Body Radar Replay",
+                            value: nil,
+                            iconName: "square.and.arrow.up.fill",
+                            tintColor: .indigo,
+                            accessory: .chevron
+                        )
+                    }
+                    .disabled(workoutStore.isRefreshing || isExportingReplay)
+                    .buttonStyle(.plain)
+                    .opacity(workoutStore.isRefreshing || isExportingReplay ? 0.65 : 1)
+
+                    Divider()
+                        .padding(.leading, 76)
+
                     Button(role: .destructive) {
                         Task {
                             await workoutStore.clearLocalCache()
@@ -5081,6 +5186,13 @@ private struct BodyCacheSettingsSheet: View {
                     .opacity(workoutStore.isRefreshing ? 0.65 : 1)
                 }
                 .bodyCardBackground(translucent: true)
+
+                Text("Saves a local file with the nightly inputs and results Body Radar used, for checking the algorithm. Nothing is uploaded.")
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
             }
         }
         .fullScreenCover(isPresented: $showingRebuild) {
@@ -5088,6 +5200,69 @@ private struct BodyCacheSettingsSheet: View {
             // environment, so hand it to the cover explicitly.
             BodyCacheRebuildView(entry: .settings)
                 .environment(workoutStore)
+        }
+        .sheet(item: $replayFile) { file in
+            BodyShareActivityView(items: [file.url]) {
+                replayFile = nil
+                try? FileManager.default.removeItem(at: file.url)
+            }
+        }
+        .alert(Text("Couldn't Export Body Radar Replay"), isPresented: $showingReplayExportError) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    /// Scores one snapshot of the cached inputs under the production rules and
+    /// writes the replay JSON to a temporary file, off the main actor.
+    private func exportBodyRadarReplay() {
+        isExportingReplay = true
+        let sleepHistory = workoutStore.healthTrends.sleepHistory
+        let currentDaySleep = workoutStore.healthSummary.sleep
+        let recorded = workoutStore.healthTrends.recordedBodyRadar
+        // Empty until the first record is captured.
+        let recordContext = workoutStore.healthTrends.recordedBodyRadarContext
+        let recordContextSignature = recordContext.isEmpty ? nil : recordContext
+        let configuredSourceSelection = workoutStore.bodyRadarRecordContextSignature()
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
+                Result {
+                    let now = Date()
+                    var export = BodyRadarCalculator.replay(
+                        sleepHistory: sleepHistory,
+                        currentDaySleep: currentDaySleep,
+                        recorded: recorded,
+                        today: now,
+                        rules: .beta3
+                    )
+                    export.meta.exportedAt = now
+                    export.meta.appVersion = appVersion
+                    export.meta.build = build
+                    export.meta.recordContextSignature = recordContextSignature
+                    export.meta.configuredSourceSelection = configuredSourceSelection
+                    let data = try BodyRadarReplayExport.makeEncoder().encode(export)
+
+                    let formatter = DateFormatter()
+                    formatter.locale = Locale(identifier: "en_US_POSIX")
+                    formatter.dateFormat = "yyyyMMdd-HHmmss"
+                    let suffix = UUID().uuidString.prefix(8).lowercased()
+                    let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+                        "BodyRadarReplay-\(formatter.string(from: now))-\(suffix).json"
+                    )
+                    try data.write(to: url, options: .atomic)
+                    return url
+                }
+            }.value
+
+            isExportingReplay = false
+            switch result {
+            case .success(let url):
+                replayFile = BodyRadarReplayFile(url: url)
+            case .failure:
+                showingReplayExportError = true
+            }
         }
     }
 
@@ -5099,6 +5274,12 @@ private struct BodyCacheSettingsSheet: View {
             details: workoutStore.cacheStatus.detailLines
         )
     }
+}
+
+/// The exported replay waiting for the share sheet.
+private struct BodyRadarReplayFile: Identifiable {
+    let id = UUID()
+    let url: URL
 }
 
 private struct BodyPermissionSwitchToggleStyle: ToggleStyle {
@@ -5454,6 +5635,7 @@ private struct BodyMoreSettingsSheet: View {
     @Environment(\.openURL) private var openURL
 
     private let supportEmailAddress = "zihengthedeveloper@gmail.com"
+    private let threadsProfileURL = URL(string: "https://www.threads.com/@zihengthedeveloper")!
 
     private let disclaimerSection = BodySettingsInfoSection(
         title: String(localized: "Disclaimer"),
@@ -5477,6 +5659,18 @@ private struct BodyMoreSettingsSheet: View {
                         tintColor: .gray
                     ) {
                         openSupportEmail()
+                    }
+                }
+                .bodyCardBackground(translucent: true)
+
+                VStack(spacing: 0) {
+                    BodySettingsPopupActionRow(
+                        title: "Threads",
+                        subtitle: String(localized: "Follow to see app progress"),
+                        iconName: "at",
+                        tintColor: .gray
+                    ) {
+                        openURL(threadsProfileURL)
                     }
                 }
                 .bodyCardBackground(translucent: true)

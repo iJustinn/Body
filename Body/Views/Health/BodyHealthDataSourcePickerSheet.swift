@@ -98,7 +98,7 @@ struct BodyHealthDataSourcePickerSheet: View {
                 }
             }
             .sheet(isPresented: $showBodyProPaywall) {
-                NavigationStack { BodyProView() }
+                NavigationStack { BodyProView(showsCloseButton: true) }
             }
         }
     }

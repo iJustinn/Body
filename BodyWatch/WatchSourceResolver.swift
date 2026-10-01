@@ -27,6 +27,12 @@ import HealthKit
 /// task-group hop in `reads(for:...)`.
 enum WatchSourceRead: @unchecked Sendable {
     case skip
+    /// This watch's HealthKit holds NO source at all for the kind (Blood
+    /// Oxygen on a watch whose readings are computed on the iPhone, say). The
+    /// read can never run here, so the seeded values stand like a `.skip`, but
+    /// the compute treats the kind as carried from the phone instead of as a
+    /// failed Readiness input.
+    case unavailable
     case run(NSPredicate?)
 }
 
@@ -80,6 +86,7 @@ enum WatchSourceResolver {
               ) else {
             return .skip
         }
+        guard !sources.isEmpty else { return .unavailable }
 
         // `combinesSourcesByName` is deliberately NOT threaded through from the
         // seed: it only shapes the returned `options` list (which this discards),
@@ -171,6 +178,7 @@ enum WatchSourceResolver {
               ) else {
             return .skip
         }
+        guard !sources.isEmpty else { return .unavailable }
         let (_, sourcesByID) = BodyHealthSourceResolver.sourceOptionsAndMap(
             from: sources,
             combinesSourcesByName: false,

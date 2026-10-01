@@ -303,4 +303,174 @@ final class BodyHealthObservationTests: XCTestCase {
         XCTAssertEqual(captures, 1)
     }
 
+    // MARK: Deferred sleep
+
+    func testSleepWindowVitalsAreTheMainSessionVitalsOnly() {
+        XCTAssertEqual(BodyHealthObservationPolicy.sleepWindowVitals, [
+            HKQuantityTypeIdentifier.heartRate.rawValue, HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue,
+            HKQuantityTypeIdentifier.respiratoryRate.rawValue, HKQuantityTypeIdentifier.oxygenSaturation.rawValue
+        ])
+        XCTAssertFalse(BodyHealthObservationPolicy.sleepWindowVitals.contains(HKQuantityTypeIdentifier.appleSleepingWristTemperature.rawValue))
+        XCTAssertEqual(BodyHealthObservationPolicy.sleepVitalsWindow, 6 * 3_600)
+        XCTAssertEqual(BodyHealthObservationPolicy.sleepDeferralLimit, 24 * 3_600)
+    }
+
+    func testSleepOffPolicyDropsSleepDomainAndSynchronizeRemovesIt() async throws {
+        let on = BodyHealthObservationPolicy.registrations(permissions: .init(enabledPermissions: [.heart, .sleep]),
+            selection: .defaultValue, includesCompanionConsumers: true)
+        let off = BodyHealthObservationPolicy.registrations(permissions: .init(enabledPermissions: [.heart]),
+            selection: .defaultValue, includesCompanionConsumers: true)
+        let heartRate = HKQuantityTypeIdentifier.heartRate.rawValue
+        XCTAssertEqual(on.first { $0.type.identifier == heartRate }?.metrics.contains(.sleep), true)
+        XCTAssertEqual(off.first { $0.type.identifier == heartRate }?.metrics, [.heartRate])
+        XCTAssertTrue(off.allSatisfy { !$0.metrics.contains(.sleep) })
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("dirty.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let context = BodyHealthObserverContext(scope: .init(primary: [:], secondary: [:], aggregation: "UTC", sleepGoal: 28_800))
+        let ledger = BodyHealthDirtyWorkStore(file: file, domains: Set(on.flatMap(\.metrics)), context: context)
+        let before = await ledger.snapshot()
+        XCTAssertNotNil(before.entries["sleep"])
+        _ = await ledger.synchronize(domains: Set(off.flatMap(\.metrics)), context: context)
+        let after = await ledger.snapshot()
+        XCTAssertNil(after.entries["sleep"])
+        XCTAssertNotNil(after.entries["heartRate"])
+    }
+
+    /// A background store and coordinator over a clean ledger, so a deferral is
+    /// not folded into the first launch's pending work.
+    @MainActor
+    private func withSleepFixture(
+        summary: HealthSummarySnapshot = .empty, permissions: Set<BodyHealthPermission> = [.heart, .sleep],
+        _ body: (HealthKitWorkoutStore, BodyHealthChangeCoordinator, FakeHealthObserver, URL) async throws -> Void
+    ) async throws {
+        let restore = preserveInitialHealthLoadDefaults()
+        let foreground = BodyAppRuntime.isForegroundActive
+        BodyAppRuntime.setForegroundActive(false)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            BodyAppRuntime.setForegroundActive(foreground)
+            restore()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let file = directory.appendingPathComponent("dirty.json")
+        let store = HealthKitWorkoutStore(initialMonthSnapshots: [],
+            initialHealthDashboardSnapshot: HealthDashboardSnapshot(summary: summary, trends: .empty, activityRingHistory: .empty),
+            initialPermissionSelection: .init(enabledPermissions: permissions),
+            initialHealthDataSourceSelection: .defaultValue, initialSecondaryHealthDataSourceSelection: .defaultValue,
+            initialCombinesHealthDataSourcesByName: false, initialCustomHealthSourceGroups: [],
+            engineHealthStore: FakeHealthStore(), workoutJournalFile: nil)
+        store.contextRefreshOverride = { _ in }
+        let domains = Set(BodyHealthObservationPolicy.registrations(permissions: store.permissionSelection,
+            selection: .load(), includesCompanionConsumers: true).flatMap(\.metrics))
+        let seed = BodyHealthDirtyWorkStore(file: file, domains: domains, context: store.currentObserverLedgerContext())
+        for kind in domains {
+            let receipt = await seed.receipt(for: kind)
+            let acknowledged = await seed.acknowledge(try XCTUnwrap(receipt), current: true, history: true)
+            XCTAssertTrue(acknowledged)
+        }
+        let observer = FakeHealthObserver()
+        let coordinator = BodyHealthChangeCoordinator(store: store, file: file, observing: observer,
+                                                       suppressesInitialDelivery: { false })
+        await coordinator.configure()
+        try await body(store, coordinator, observer, file)
+    }
+
+    @MainActor
+    private func deliver(_ identifier: HKQuantityTypeIdentifier, failed: Bool = false,
+                         to observer: FakeHealthObserver) async throws {
+        let id = try XCTUnwrap(observer.registrations.first { $0.value.type.identifier == identifier.rawValue }?.key)
+        let captured = expectation(description: "\(identifier.rawValue) captured")
+        observer.fire(id, failed: failed) { captured.fulfill() }
+        await fulfillment(of: [captured], timeout: 3)
+    }
+
+    private func savedLedger(_ file: URL) throws -> BodyHealthDirtyWorkStore.Envelope {
+        try JSONDecoder().decode(BodyHealthDirtyWorkStore.Envelope.self, from: Data(contentsOf: file))
+    }
+
+    @MainActor
+    func testDaytimeHeartRateDefersSleepAndActivationSkipsItUntilAFullRefreshSettlesIt() async throws {
+        try await withSleepFixture { store, coordinator, observer, file in
+            XCTAssertFalse(store.sleepVitalsWindowIsOpen(), "no known night")
+            try await deliver(.heartRate, to: observer)
+            let saved = try savedLedger(file)
+            XCTAssertEqual(saved.entries["heartRate"]?.currentPending, true)
+            XCTAssertNil(saved.entries["heartRate"]?.deferredAt)
+            let sleep = try XCTUnwrap(saved.entries["sleep"])
+            XCTAssertTrue(sleep.currentPending)
+            XCTAssertTrue(sleep.historyPending)
+            XCTAssertNotNil(sleep.deferredAt)
+            let receipts = await coordinator.captureReceipts()
+            XCTAssertTrue(receipts.contains { $0.domain == "sleep" }, "a full refresh reads sleep anyway")
+            // With heart rate settled, the deferred sleep is not pending work.
+            await coordinator.acknowledgeCoverage(receipts, kinds: [.heartRate], history: true)
+            store.invalidateObservedHealthChanges()
+            await coordinator.prepareActivation()
+            XCTAssertFalse(store.hasObservedHealthChanges)
+            XCTAssertEqual(try savedLedger(file).entries["sleep"]?.deferredAt, sleep.deferredAt)
+            await coordinator.acknowledgeCoverage(receipts, kinds: [.sleep], history: true)
+            let settled = try XCTUnwrap(try savedLedger(file).entries["sleep"])
+            XCTAssertFalse(settled.currentPending)
+            XCTAssertNil(settled.deferredAt)
+        }
+    }
+
+    @MainActor
+    func testFailedDeliveryAndWristTemperatureMarkSleepNormallyAndPendingSleepOnlyGetsANewGeneration() async throws {
+        try await withSleepFixture(permissions: [.heart, .sleep, .wristTemperature]) { _, _, observer, file in
+            try await deliver(.heartRate, to: observer)
+            XCTAssertNotNil(try savedLedger(file).entries["sleep"]?.deferredAt)
+            try await deliver(.appleSleepingWristTemperature, to: observer)
+            let wrist = try XCTUnwrap(try savedLedger(file).entries["sleep"])
+            XCTAssertNil(wrist.deferredAt, "a nightly type reads sleep now")
+            XCTAssertTrue(wrist.currentPending)
+            try await deliver(.heartRate, to: observer)
+            let bumped = try XCTUnwrap(try savedLedger(file).entries["sleep"])
+            XCTAssertNil(bumped.deferredAt, "sleep already pending is read with this batch")
+            XCTAssertGreaterThan(bumped.generation, wrist.generation)
+        }
+        try await withSleepFixture { _, _, observer, file in
+            try await deliver(.heartRate, failed: true, to: observer)
+            let failed = try XCTUnwrap(try savedLedger(file).entries["sleep"])
+            XCTAssertNil(failed.deferredAt, "a failed delivery never defers")
+            XCTAssertTrue(failed.currentPending)
+        }
+    }
+
+    @MainActor
+    func testHeartRateInsideTheNightWindowMarksSleepNormally() async throws {
+        try await withSleepFixture(summary: sleepNightSummary(endingAgo: 3_600)) { store, _, observer, file in
+            XCTAssertTrue(store.sleepVitalsWindowIsOpen())
+            try await deliver(.heartRate, to: observer)
+            let sleep = try XCTUnwrap(try savedLedger(file).entries["sleep"])
+            XCTAssertTrue(sleep.currentPending)
+            XCTAssertNil(sleep.deferredAt)
+        }
+    }
+
+    @MainActor
+    func testReadInFlightOnACleanLedgerCannotConsumeADeferralAndTheNewNightMakesItWork() async throws {
+        try await withSleepFixture { store, coordinator, observer, file in
+            // A full read starts on the clean ledger: it has no sleep receipt.
+            let inFlight = await coordinator.captureReceipts()
+            XCTAssertFalse(inFlight.contains { $0.domain == "sleep" })
+            try await deliver(.heartRate, to: observer)
+            await coordinator.acknowledgeCoverage(inFlight, kinds: [.heartRate, .sleep], history: true)
+            let deferred = try XCTUnwrap(try savedLedger(file).entries["sleep"])
+            XCTAssertTrue(deferred.currentPending)
+            XCTAssertNotNil(deferred.deferredAt)
+            let heartRate = await coordinator.captureReceipts()
+            await coordinator.acknowledgeCoverage(heartRate, kinds: [.heartRate], history: true)
+            XCTAssertFalse(store.hasObservedHealthChanges)
+            // That read publishes the new night: the window opens and the deferral is ordinary work.
+            let published = await store.updateHealthDashboardSnapshot(summary: sleepNightSummary(endingAgo: 3_600),
+                trends: .empty, activityRingHistory: .empty, recomputesReadiness: false, recomputesStress: false,
+                recomputesBodyRadar: false, persists: false)
+            XCTAssertTrue(published)
+            XCTAssertTrue(store.sleepVitalsWindowIsOpen())
+            await coordinator.prepareActivation()
+            XCTAssertTrue(store.hasObservedHealthChanges)
+        }
+    }
+
 }

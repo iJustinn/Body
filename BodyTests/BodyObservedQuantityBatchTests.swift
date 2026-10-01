@@ -6,7 +6,13 @@ import HealthKit
 final class BodyObservedQuantityBatchTests: XCTestCase {
     private actor ReadGate {
         private var open = false
+        private var entered = false
         private var waiters: [CheckedContinuation<Void, Never>] = []
+        /// True for the first caller only.
+        func claimFirstEntry() -> Bool {
+            defer { entered = true }
+            return !entered
+        }
         func wait() async {
             guard !open else { return }
             await withCheckedContinuation { waiters.append($0) }
@@ -108,16 +114,19 @@ final class BodyObservedQuantityBatchTests: XCTestCase {
             let receipts = try await fixture.receipts()
             let task = Task { await fixture.store.repairObservedMetrics(receipts, ledger: fixture.ledger) }
             try await waitForFirstBatch(fixture)
-            XCTAssertEqual(fixture.store.refreshStage, .updatingHealth)
-            XCTAssertEqual(fixture.store.syncPresentation.stage, .updatingHealth)
+            // A Health change update holds the slot but begins no badge session.
+            XCTAssertTrue(fixture.store.isRefreshing)
+            XCTAssertTrue(fixture.store.isSilentRefresh)
+            XCTAssertNil(fixture.store.syncPresentation.passID)
+            XCTAssertNil(fixture.store.refreshStage)
             XCTAssertFalse(fixture.health.leafRequests.contains(.samples(fixture.types[3].identifier)))
             let before = await fixture.ledger.snapshot()
             XCTAssertTrue(before.entries.values.allSatisfy { $0.currentPending && $0.historyPending })
             await gate.release()
             let changed = await task.value
-            XCTAssertTrue(changed)
-            XCTAssertTrue(fixture.store.syncPresentation.didPublish)
-            XCTAssertFalse(fixture.store.syncPresentation.hadFailure)
+            XCTAssertTrue(changed, "Every batch published")
+            XCTAssertEqual(fixture.store.syncPresentation.phase, .hidden)
+            XCTAssertFalse(fixture.store.isSilentRefresh)
             let after = await fixture.ledger.snapshot()
             XCTAssertTrue(after.entries.values.allSatisfy { !$0.currentPending && !$0.historyPending })
             XCTAssertTrue(fixture.health.leafRequests.contains(.samples(fixture.types[3].identifier)))
@@ -132,9 +141,15 @@ final class BodyObservedQuantityBatchTests: XCTestCase {
             fixture.store.markRefreshSucceeded(date: Date(), refreshedVitals: true, publishesWatch: false)
             let gate = ReadGate()
             let admitted = expectation(description: "quiet read started")
+            // Only the first read, the quiet repair's, fulfills. A later body mass read,
+            // such as a body mass dashboard fetch that reaches this script while the
+            // test runs, must not fulfill again: over-fulfilling raises off the main
+            // thread and aborts the whole test process.
             fixture.health.scriptSamples(for: fixture.types[1], .gated({
-                XCTAssertEqual(HealthKitQueryPool.current, .background)
-                admitted.fulfill()
+                if await gate.claimFirstEntry() {
+                    XCTAssertEqual(HealthKitQueryPool.current, .background)
+                    admitted.fulfill()
+                }
                 await gate.wait()
             }, then: .samples([])))
             let receipts = try await fixture.receipts()
@@ -209,13 +224,101 @@ final class BodyObservedQuantityBatchTests: XCTestCase {
         try await withFixture { fixture in
             fixture.health.scriptSamples(for: fixture.types[1], .failure(nil))
             let receipts = try await fixture.receipts()
-            _ = await fixture.store.repairObservedMetrics(receipts, ledger: fixture.ledger)
-            XCTAssertTrue(fixture.store.syncPresentation.didPublish)
-            XCTAssertTrue(fixture.store.syncPresentation.hadFailure)
+            let changed = await fixture.store.repairObservedMetrics(receipts, ledger: fixture.ledger)
+            XCTAssertTrue(changed, "The other metrics still published")
+            XCTAssertEqual(fixture.store.syncPresentation.phase, .hidden)
             let after = await fixture.ledger.snapshot()
             for kind in fixture.kinds {
+                XCTAssertEqual(after.entries[kind.rawValue]?.currentPending, kind == .bodyMass)
                 XCTAssertEqual(after.entries[kind.rawValue]?.historyPending, kind == .bodyMass)
             }
+        }
+    }
+
+    /// With no session, a Health change update begins none. With an "All done"
+    /// confirmation on screen, it leaves the confirmation exactly as it was.
+    func testSilentRepairBeginsNoSessionAndLeavesAllDoneAlone() async throws {
+        try await withFixture { fixture in
+            let store = fixture.store
+            let receipts = try await fixture.receipts()
+            let first = await store.repairObservedMetrics(receipts, ledger: fixture.ledger)
+            XCTAssertTrue(first)
+            XCTAssertNil(store.syncPresentation.sessionID)
+            XCTAssertEqual(store.syncPresentation.phase, .hidden)
+            let settled = await fixture.ledger.snapshot()
+            XCTAssertTrue(settled.entries.values.allSatisfy { !$0.currentPending })
+
+            await store.withRefreshSlotHeld(regularRefresh: true) {
+                store.noteRefreshRequestedWhileBusy()
+                store.markRefreshSucceeded(date: Date(), refreshedVitals: false, publishesWatch: false, advancesSyncBadge: true)
+            }
+            try await Task.sleep(for: .seconds(BodySyncPresentation.settleDelay + 0.2))
+            store.advanceSyncPresentation(expected: store.syncPresentation)
+            XCTAssertEqual(store.syncPresentation.phase, .updated)
+            let confirmation = store.syncPresentation
+
+            _ = await fixture.ledger.mark(Set(fixture.kinds), context: store.currentObserverLedgerContext())
+            let next = try await fixture.receipts()
+            let second = await store.repairObservedMetrics(next, ledger: fixture.ledger)
+            XCTAssertTrue(second)
+            XCTAssertEqual(store.syncPresentation, confirmation)
+            let after = await fixture.ledger.snapshot()
+            XCTAssertTrue(after.entries.values.allSatisfy { !$0.currentPending })
+        }
+    }
+
+    /// A Health change update that runs while a badge is on screen and still syncing
+    /// joins it as a pass, so its failure still reports a partial result.
+    func testSilentRepairJoinsRevealedSessionAndRecordsPartialOnFailure() async throws {
+        try await withFixture { fixture in
+            let store = fixture.store
+            fixture.health.scriptSamples(for: fixture.types[1], .failure(nil))
+            var token: UUID?
+            await store.withRefreshSlotHeld(regularRefresh: true) {
+                store.noteRefreshRequestedWhileBusy()
+                token = store.queueForegroundContinuation()
+            }
+            XCTAssertEqual(store.syncPresentation.phase, .syncing)
+            XCTAssertTrue(store.syncPresentation.isRevealed)
+            XCTAssertNil(store.syncPresentation.passID)
+            XCTAssertFalse(store.syncPresentation.didPublish)
+            let session = store.syncPresentation.sessionID
+            let receipts = try await fixture.receipts()
+            let changed = await store.repairObservedMetrics(receipts, ledger: fixture.ledger)
+            XCTAssertTrue(changed)
+            XCTAssertEqual(store.syncPresentation.sessionID, session)
+            XCTAssertTrue(store.syncPresentation.didPublish)
+            XCTAssertTrue(store.syncPresentation.hadFailure)
+            store.settleForegroundContinuation(try XCTUnwrap(token))
+            var settled = store.syncPresentation
+            settled.advance(now: ProcessInfo.processInfo.systemUptime + BodySyncPresentation.settleDelay + 1)
+            XCTAssertEqual(settled.phase, .partial)
+        }
+    }
+
+    /// A hidden session held open only by a continuation token stays hidden: the
+    /// update does not join it, and it settles without a confirmation.
+    func testSilentRepairWithHiddenTokenHeldSessionStaysHidden() async throws {
+        try await withFixture { fixture in
+            let store = fixture.store
+            var token: UUID?
+            await store.withRefreshSlotHeld {
+                token = store.queueForegroundContinuation()
+            }
+            XCTAssertEqual(store.syncPresentation.phase, .syncing)
+            XCTAssertFalse(store.syncPresentation.isRevealed)
+            let session = store.syncPresentation.sessionID
+            let receipts = try await fixture.receipts()
+            let changed = await store.repairObservedMetrics(receipts, ledger: fixture.ledger)
+            XCTAssertTrue(changed)
+            XCTAssertEqual(store.syncPresentation.sessionID, session)
+            XCTAssertFalse(store.syncPresentation.isRevealed)
+            XCTAssertFalse(store.syncPresentation.didPublish)
+            store.settleForegroundContinuation(try XCTUnwrap(token))
+            var settled = store.syncPresentation
+            settled.advance(now: ProcessInfo.processInfo.systemUptime + BodySyncPresentation.settleDelay + 1)
+            XCTAssertEqual(settled.phase, .hidden)
+            XCTAssertNil(settled.completedAt)
         }
     }
 

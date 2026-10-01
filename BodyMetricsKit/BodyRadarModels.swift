@@ -2,7 +2,7 @@
 //  BodyRadarModels.swift
 //  Body
 //
-//  Body Radar (Beta v2): the overnight signal set, the nightly verdict, and the
+//  Body Radar (Beta v3): the overnight signal set, the nightly verdict, and the
 //  rolling summary the card and detail page read. Pure value types with no UI
 //  dependency so the watch targets can compile the same sources.
 //
@@ -196,6 +196,22 @@ enum BodyRadarSignalKind: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// The body system a signal reads. Same-night corroboration needs two
+    /// families, so heart rate and HRV moving together count once. Inactivity
+    /// has no family and never corroborates.
+    var family: BodyRadarSignalFamily? {
+        switch self {
+        case .sleepingHeartRate, .heartRateVariability:
+            return .autonomic
+        case .respiratoryRate:
+            return .respiratory
+        case .wristTemperature:
+            return .thermal
+        case .inactiveTime:
+            return nil
+        }
+    }
+
     var symbolName: String {
         switch self {
         case .wristTemperature:
@@ -212,6 +228,29 @@ enum BodyRadarSignalKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Groups of signals that corroborate each other only across groups.
+enum BodyRadarSignalFamily {
+    case autonomic
+    case respiratory
+    case thermal
+}
+
+/// Why a scored night may show Minor or Major signs: two families moved on the
+/// same night, or the previous night's raw evidence was already elevated.
+/// `none` on a night whose raw evidence reached Minor means it was held.
+enum BodyRadarCorroboration: String, Codable {
+    case sameNight
+    case persistence
+    case none
+}
+
+/// How a night entered the recorded array: frozen on its own day, or
+/// recomputed later for the recent-nights chart.
+enum BodyRadarCapture: String, Codable {
+    case freeze
+    case backfill
+}
+
 /// One signal on one night. `deviation` keeps the signal's native direction
 /// (positive means the reading was above the personal median), so the detail
 /// page can draw an up or down arrow without re-deriving it.
@@ -224,10 +263,13 @@ struct BodyRadarSignal: Codable, Equatable, Identifiable {
         kind.rawValue
     }
 
-    /// Deviation in the illness direction: HRV counts when it falls, everything
-    /// else when it rises.
+    /// Deviation in the illness direction: HRV counts when it falls,
+    /// respiratory rate in either direction, everything else when it rises.
     var directionalDeviation: Double {
-        kind.illnessDirectionIsUp ? deviation : -deviation
+        if kind == .respiratoryRate {
+            return abs(deviation)
+        }
+        return kind.illnessDirectionIsUp ? deviation : -deviation
     }
 }
 
@@ -240,26 +282,55 @@ struct BodyRadarNight: Codable, Equatable, Identifiable {
     /// Absent in Beta 1 payloads. Old results can be decoded, but never reused
     /// as a verdict from the current algorithm.
     var algorithmVersion: Int?
+    /// Set by the calculator on every scored night; absent in version 2 payloads.
+    var corroboration: BodyRadarCorroboration?
+    /// When and how the night was recorded; absent on live nights and in
+    /// version 2 payloads.
+    var capturedAt: Date?
+    var capture: BodyRadarCapture?
 
     var id: Date {
         date
     }
 
-    init(date: Date, state: BodyRadarState, evidence: Double = 0, signals: [BodyRadarSignal] = []) {
+    init(
+        date: Date,
+        state: BodyRadarState,
+        evidence: Double = 0,
+        signals: [BodyRadarSignal] = [],
+        corroboration: BodyRadarCorroboration? = nil
+    ) {
         self.date = date
         self.state = state
         self.evidence = evidence
         self.signals = signals
         self.algorithmVersion = BodyRadarCalculator.algorithmVersion
+        self.corroboration = corroboration
     }
 
     var isCurrentAlgorithm: Bool {
         algorithmVersion == BodyRadarCalculator.algorithmVersion
     }
 
+    /// A night whose raw evidence reached Minor but found no corroboration
+    /// shows No Signs; say why rather than leave it reading as typical.
+    var holdExplanation: String? {
+        guard state == .noSigns, evidence >= BodyRadarCalculator.Tuning.minorEvidence else {
+            return nil
+        }
+        return String(
+            localized: "bodyRadar.heldNight",
+            defaultValue: "Changes on one night only, not enough to confirm strain",
+            table: "BodyMetricsKit"
+        )
+    }
+
     /// A combination can cross the Minor threshold without an individual
     /// signal crossing its callout threshold. Never describe that as typical.
     var unflaggedExplanation: String {
+        if let holdExplanation {
+            return holdExplanation
+        }
         if !state.isScored {
             return state.title
         }

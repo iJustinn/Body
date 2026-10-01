@@ -568,8 +568,12 @@ extension WorkoutShareVideoTests {
         return url
     }
 
-    /// One frame, with the session ended where it started: a video track whose duration
-    /// is zero, which `load` must refuse.
+    /// A video track whose duration is zero, which `load` must refuse. One frame is
+    /// written with the session ended where it started, then every duration field in
+    /// the file's movie, track, and media headers is zeroed: `AVAssetWriter` gives a
+    /// lone frame a nominal 1/15 s on iOS 27, so no written file is ever zero-length on
+    /// its own, and a file whose headers claim no duration is exactly what the guard
+    /// is for.
     fileprivate static func makeZeroDurationFixture(in directory: URL) async throws -> URL {
         let url = directory.appendingPathComponent("empty-\(UUID().uuidString).mov")
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
@@ -602,7 +606,40 @@ extension WorkoutShareVideoTests {
         writer.endSession(atSourceTime: .zero)
         await writer.finishWriting()
         if writer.status != .completed { throw writer.error ?? WorkoutShareVideoError.noVideoTrack }
+        var data = try Data(contentsOf: url)
+        zeroHeaderDurations(in: &data)
+        try data.write(to: url)
         return url
+    }
+
+    /// Zeroes the duration field of every `mvhd`, `tkhd`, and `mdhd` box in a QuickTime
+    /// file, in both the version 0 (32-bit) and version 1 (64-bit) layouts. The media
+    /// header is the one AVFoundation reports the duration from; the other two are kept
+    /// consistent with it.
+    private static func zeroHeaderDurations(in data: inout Data) {
+        let bytes = [UInt8](data)
+        for box in ["mvhd", "tkhd", "mdhd"] {
+            let fourcc = Array(box.utf8)
+            var index = 0
+            while index + 4 <= bytes.count {
+                guard bytes[index] == fourcc[0], bytes[index + 1] == fourcc[1],
+                      bytes[index + 2] == fourcc[2], bytes[index + 3] == fourcc[3] else {
+                    index += 1
+                    continue
+                }
+                // Fields after the fourcc and the 4-byte version/flags word: creation
+                // and modification times (4 or 8 bytes each), then a 4-byte timescale
+                // (movie, media) or a 4-byte track ID plus 4 reserved bytes (track).
+                let version = bytes[index + 4]
+                let timeWidth = version == 1 ? 8 : 4
+                let durationOffset = 2 * timeWidth + (box == "tkhd" ? 8 : 4)
+                let start = index + 8 + durationOffset
+                if start + timeWidth <= data.count {
+                    data.replaceSubrange(start..<(start + timeWidth), with: [UInt8](repeating: 0, count: timeWidth))
+                }
+                index += 4
+            }
+        }
     }
 
     /// An audio-only file: nothing for `load` to render.

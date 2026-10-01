@@ -9,6 +9,11 @@ actor BodyHealthDirtyWorkStore {
         var context: String
         var currentPending = true
         var historyPending = true
+        /// Set while a sleep read is deferred (a daytime vital delivery). The
+        /// entry stays pending and generation-fenced; only immediate work skips
+        /// it until the coordinator's drain rules make it ordinary again.
+        /// Optional so envelopes written before it decode unchanged.
+        var deferredAt: Date?
     }
     struct Envelope: Codable, Equatable, Sendable {
         var schema = 2
@@ -93,8 +98,14 @@ actor BodyHealthDirtyWorkStore {
     /// Memory retains failed writes; a later capture/flush can retry. Callers
     /// must still complete observer callbacks, and force foreground reconciliation
     /// after failure instead of assuming HealthKit will redeliver the event.
+    /// A kind in `deferring` is recorded as a deferred obligation instead of
+    /// immediate work. One already pending and not deferred only gets the new
+    /// generation: it will be read anyway, and the bump rejects a read already
+    /// in flight so this batch is read again. Every other kind clears any deferral.
     @discardableResult
-    func mark(_ kinds: Set<HealthMetricKind>, context observerContext: BodyHealthObserverContext, reason: String = "delivery") -> Bool {
+    func mark(_ kinds: Set<HealthMetricKind>, deferring: Set<HealthMetricKind> = [],
+              context observerContext: BodyHealthObserverContext, reason: String = "delivery",
+              now: Date = Date()) -> Bool {
         let context = observerContext.signature
         guard !kinds.isEmpty else { return flush() }
         if envelope.revision == .max {
@@ -105,7 +116,20 @@ actor BodyHealthDirtyWorkStore {
             envelope.revision += 1
         }
         for kind in kinds {
-            envelope.entries[kind.rawValue] = Entry(generation: envelope.revision, context: context)
+            let existing = envelope.entries[kind.rawValue]
+            guard deferring.contains(kind) else {
+                envelope.entries[kind.rawValue] = Entry(generation: envelope.revision, context: context)
+                continue
+            }
+            if var entry = existing, entry.context == context, entry.currentPending, entry.deferredAt == nil {
+                entry.generation = envelope.revision
+                envelope.entries[kind.rawValue] = entry
+            } else {
+                // The limit counts from the first deferral of a still pending obligation.
+                var entry = Entry(generation: envelope.revision, context: context)
+                entry.deferredAt = existing?.deferredAt ?? now
+                envelope.entries[kind.rawValue] = entry
+            }
         }
         needsSave = true
         let durable = flush()
@@ -140,6 +164,8 @@ actor BodyHealthDirtyWorkStore {
               entry.generation == receipt.generation, entry.context == receipt.context.signature else { return false }
         if current { entry.currentPending = false }
         if history { entry.historyPending = false }
+        // A settled entry owes nothing, so a later deferral starts its own limit.
+        if !entry.currentPending, !entry.historyPending { entry.deferredAt = nil }
         var next = envelope
         next.entries[receipt.domain] = entry
         guard save(next) else {

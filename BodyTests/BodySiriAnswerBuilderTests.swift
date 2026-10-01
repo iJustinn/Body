@@ -24,12 +24,20 @@ final class BodySiriAnswerBuilderTests: XCTestCase {
 
     private func dashboard(
         readiness: ReadinessSummary = .unavailable,
-        warnings: [MetricWarningEvent] = []
+        warnings: [MetricWarningEvent] = [],
+        recordedReadiness: [RecordedReadinessEntry] = []
     ) -> HealthDashboardSnapshot {
         var summary = HealthSummarySnapshot.empty
         summary.readiness = readiness
         summary.metricWarnings = warnings
-        return HealthDashboardSnapshot(summary: summary, trends: .empty)
+        var trends = HealthTrendSnapshot.empty
+        trends.recordedReadiness = recordedReadiness
+        return HealthDashboardSnapshot(summary: summary, trends: trends)
+    }
+
+    /// Every warning metric validated at `date` by a quiet read.
+    private func warningMetricsValidated(at date: Date) -> [String: Date] {
+        Dictionary(uniqueKeysWithValues: Set(MetricWarningKind.allCases.map(\.metric)).map { ($0.rawValue, date) })
     }
 
     private func readinessSummary(
@@ -208,6 +216,151 @@ final class BodySiriAnswerBuilderTests: XCTestCase {
             BodySiriAnswerBuilder.metric(.readiness, bundle: bundle, calendar: calendar),
             BodySiriAnswerBuilder.readiness(bundle: bundle, calendar: calendar)
         )
+    }
+
+    /// Silent repairs recompute readiness without restamping the last full
+    /// refresh, so a score stamped today answers, and a quiet recompute from
+    /// validated inputs counts as fresh.
+    func testReadinessScoredTodayAnswersFromItsQuietValidation() {
+        var summary = readinessSummary(score: 41, status: .low)
+        summary.scoredDay = date(2026, 9, 17)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(readiness: summary),
+            dashboardAsOf: date(2026, 9, 16, 21, 0),
+            readinessValidatedAt: date(2026, 9, 17, 10, 30),
+            now: date(2026, 9, 17, 11, 8)
+        )
+
+        let answer = BodySiriAnswerBuilder.readiness(bundle: bundle, calendar: calendar)
+
+        XCTAssertEqual(answer.availability, .available)
+        XCTAssertEqual(answer.valueText, "41")
+        XCTAssertEqual(answer.asOf, date(2026, 9, 17, 10, 30))
+        XCTAssertFalse(answer.spoken.contains("Open Body"))
+        XCTAssertFalse(answer.spoken.contains("as of"))
+    }
+
+    /// Without a quiet validation, a score stamped today still answers, but
+    /// only as recent as yesterday's full refresh, and it says so with a date.
+    func testReadinessScoredTodayWithOnlyYesterdaysRefreshSaysWhenItIsFrom() {
+        var summary = readinessSummary(score: 41, status: .low)
+        summary.scoredDay = date(2026, 9, 17)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(readiness: summary),
+            dashboardAsOf: date(2026, 9, 16, 21, 0),
+            now: date(2026, 9, 17, 11, 8)
+        )
+
+        let answer = BodySiriAnswerBuilder.readiness(bundle: bundle, calendar: calendar)
+
+        XCTAssertEqual(answer.availability, .stale)
+        XCTAssertEqual(answer.valueText, "41")
+        XCTAssertTrue(answer.spoken.contains("snapshot taken"))
+        XCTAssertFalse(answer.spoken.contains("as of"))
+    }
+
+    func testReadinessWithNoValidationTimeAsksToOpenBodyToConfirm() {
+        var summary = readinessSummary(score: 41, status: .low)
+        summary.scoredDay = date(2026, 9, 17)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(readiness: summary),
+            now: date(2026, 9, 17, 11, 8)
+        )
+
+        let answer = BodySiriAnswerBuilder.readiness(bundle: bundle, calendar: calendar)
+
+        XCTAssertEqual(answer.availability, .stale)
+        XCTAssertEqual(answer.valueText, "41")
+        XCTAssertTrue(answer.spoken.contains("Open Body to make sure this is up to date."))
+    }
+
+    func testReadinessScoredYesterdayIsUnavailableEvenAfterATodaySave() {
+        var summary = readinessSummary(score: 82, status: .high)
+        summary.scoredDay = date(2026, 9, 16)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(readiness: summary),
+            dashboardAsOf: date(2026, 9, 17, 0, 30),
+            now: date(2026, 9, 17, 9, 0)
+        )
+
+        XCTAssertEqual(
+            BodySiriAnswerBuilder.readiness(bundle: bundle, calendar: calendar).availability,
+            .unavailable
+        )
+    }
+
+    /// The start of day score is the frozen morning record Home keeps, not
+    /// the drain's recomputed pre-drain score, which can drift from it.
+    func testDrainedReadinessSaysTheFrozenStartOfDayScore() {
+        var summary = readinessSummary(score: 25, status: .poor)
+        summary.activityDrainMorningScore = 44
+        summary.activityDrainPoints = 19
+        summary.scoredDay = date(2026, 9, 17)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(
+                readiness: summary,
+                recordedReadiness: [
+                    RecordedReadinessEntry(date: date(2026, 9, 16), score: 70),
+                    RecordedReadinessEntry(date: date(2026, 9, 17), score: 41)
+                ]
+            ),
+            dashboardAsOf: date(2026, 9, 17, 11, 0),
+            now: date(2026, 9, 17, 11, 45)
+        )
+
+        let answer = BodySiriAnswerBuilder.readiness(bundle: bundle, calendar: calendar)
+
+        XCTAssertEqual(answer.valueText, "25")
+        XCTAssertTrue(answer.spoken.contains("25"))
+        XCTAssertTrue(answer.spoken.contains("You started the day at 41, before today's workouts."))
+        XCTAssertTrue(answer.supporting.contains("Started the day at 41."))
+        XCTAssertFalse(answer.spoken.contains("44"))
+    }
+
+    func testDrainWithoutTodaysFrozenRecordDoesNotMentionTheStartOfDay() {
+        var summary = readinessSummary(score: 25, status: .poor)
+        summary.activityDrainMorningScore = 44
+        summary.activityDrainPoints = 19
+        summary.scoredDay = date(2026, 9, 17)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(
+                readiness: summary,
+                recordedReadiness: [RecordedReadinessEntry(date: date(2026, 9, 16), score: 70)]
+            ),
+            dashboardAsOf: date(2026, 9, 17, 11, 0),
+            now: date(2026, 9, 17, 11, 45)
+        )
+
+        let answer = BodySiriAnswerBuilder.readiness(bundle: bundle, calendar: calendar)
+
+        XCTAssertFalse(answer.spoken.contains("started the day"))
+        XCTAssertFalse(answer.supporting.contains("Started the day"))
+    }
+
+    func testUndrainedReadinessDoesNotMentionTheStartOfDay() {
+        var summary = readinessSummary(score: 82, status: .high)
+        summary.scoredDay = date(2026, 9, 17)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(readiness: summary),
+            dashboardAsOf: date(2026, 9, 17, 8, 0),
+            now: date(2026, 9, 17, 9, 0)
+        )
+
+        let answer = BodySiriAnswerBuilder.readiness(bundle: bundle, calendar: calendar)
+
+        XCTAssertFalse(answer.spoken.contains("started the day"))
+        XCTAssertFalse(answer.supporting.contains("Started the day"))
+    }
+
+    func testReadinessRecomputeStampsTheScoredDay() {
+        let now = date(2026, 9, 17, 11, 8)
+        let base = HealthDashboardSnapshot(summary: .empty, trends: .empty)
+
+        let recalculated = base.recalculatingReadiness(on: now, calendar: calendar, now: now)
+        let reapplied = base.reapplyingActivityReadiness(on: now, calendar: calendar, now: now)
+
+        XCTAssertEqual(recalculated.summary.readiness.scoredDay, date(2026, 9, 17))
+        XCTAssertEqual(reapplied.summary.readiness.scoredDay, date(2026, 9, 17))
     }
 
     // MARK: - Metrics
@@ -411,6 +564,134 @@ final class BodySiriAnswerBuilderTests: XCTestCase {
         )
     }
 
+    func testWarningsAnswerOnATodayScoreButSayWhenTheirMetricsWereRead() {
+        var summary = readinessSummary(score: 41, status: .low)
+        summary.scoredDay = date(2026, 9, 17)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(readiness: summary),
+            dashboardAsOf: date(2026, 9, 16, 21, 0),
+            now: date(2026, 9, 17, 9, 0)
+        )
+
+        let answer = BodySiriAnswerBuilder.warnings(bundle: bundle, calendar: calendar)
+
+        XCTAssertEqual(answer.availability, .stale)
+        XCTAssertTrue(answer.spoken.contains("snapshot taken"))
+    }
+
+    /// A fresh readiness recompute says nothing about the warning metrics:
+    /// the warnings time is the oldest read among the enabled warning metrics.
+    func testWarningsStayStaleUntilEveryEnabledWarningMetricIsValidated() {
+        var summary = readinessSummary(score: 41, status: .low)
+        summary.scoredDay = date(2026, 9, 17)
+        let now = date(2026, 9, 17, 18, 0)
+        var validated = warningMetricsValidated(at: date(2026, 9, 17, 17, 30))
+        validated[HealthMetricKind.oxygenSaturation.rawValue] = nil
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(readiness: summary),
+            dashboardAsOf: date(2026, 9, 17, 7, 0),
+            readinessValidatedAt: date(2026, 9, 17, 17, 45),
+            metricValidatedAt: validated,
+            now: now
+        )
+
+        XCTAssertEqual(BodySiriAnswerBuilder.readiness(bundle: bundle, calendar: calendar).availability, .available)
+        let stale = BodySiriAnswerBuilder.warnings(bundle: bundle, calendar: calendar)
+        XCTAssertEqual(stale.availability, .stale)
+        XCTAssertEqual(stale.asOf, date(2026, 9, 17, 7, 0))
+
+        var allRead = bundle
+        allRead.metricValidatedAt = warningMetricsValidated(at: date(2026, 9, 17, 17, 30))
+        XCTAssertEqual(BodySiriAnswerBuilder.warnings(bundle: allRead, calendar: calendar).availability, .available)
+
+        // A metric whose warnings are turned off does not hold the time back.
+        var heartOnly = bundle
+        heartOnly.warningKinds = [.lowHeartRate, .highHeartRate]
+        XCTAssertEqual(BodySiriAnswerBuilder.warnings(bundle: heartOnly, calendar: calendar).availability, .available)
+    }
+
+    // MARK: - Status
+
+    func testStatusSpeaksReadinessHeroLineAndWarnings() {
+        var summary = readinessSummary(score: 25, status: .poor)
+        summary.scoredDay = date(2026, 9, 17)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(
+                readiness: summary,
+                warnings: [
+                    MetricWarningEvent(
+                        kind: .highWristTemperature,
+                        startDate: date(2026, 9, 17, 3, 0),
+                        endDate: date(2026, 9, 17, 5, 0),
+                        extremeValue: 1.2,
+                        sampleCount: 1
+                    )
+                ]
+            ),
+            dashboardAsOf: date(2026, 9, 17, 8, 0),
+            now: date(2026, 9, 17, 9, 0)
+        )
+
+        let answer = BodySiriAnswerBuilder.status(bundle: bundle, calendar: calendar)
+
+        XCTAssertEqual(answer.availability, .available)
+        XCTAssertEqual(answer.valueText, "25")
+        XCTAssertEqual(answer.statusText, ReadinessStatus.poor.title)
+        XCTAssertTrue(answer.spoken.contains("25"))
+        XCTAssertTrue(answer.spoken.contains(summary.heroExplanation))
+        XCTAssertTrue(answer.spoken.contains("High Skin Temperature"))
+        XCTAssertEqual(answer.items, ["High Skin Temperature"])
+    }
+
+    func testStatusWithoutWarningsSaysSoAndNotesAStaleSnapshotOnce() {
+        var summary = readinessSummary(score: 82, status: .high)
+        summary.scoredDay = date(2026, 9, 17)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(readiness: summary),
+            dashboardAsOf: date(2026, 9, 17, 7, 0),
+            now: date(2026, 9, 17, 18, 0)
+        )
+
+        let answer = BodySiriAnswerBuilder.status(bundle: bundle, calendar: calendar)
+
+        XCTAssertEqual(answer.availability, .stale)
+        XCTAssertTrue(answer.spoken.contains("No warnings in Body's cached data"))
+        XCTAssertEqual(answer.spoken.components(separatedBy: "as of").count, 2)
+        XCTAssertFalse(answer.supporting.contains("as of"))
+    }
+
+    func testStatusUsesTheOlderOfReadinessAndWarningsTimes() {
+        var summary = readinessSummary(score: 82, status: .high)
+        summary.scoredDay = date(2026, 9, 17)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(readiness: summary),
+            dashboardAsOf: date(2026, 9, 17, 7, 0),
+            readinessValidatedAt: date(2026, 9, 17, 17, 45),
+            now: date(2026, 9, 17, 18, 0)
+        )
+
+        let answer = BodySiriAnswerBuilder.status(bundle: bundle, calendar: calendar)
+
+        XCTAssertEqual(answer.availability, .stale)
+        XCTAssertEqual(answer.asOf, date(2026, 9, 17, 7, 0))
+        XCTAssertEqual(answer.spoken.components(separatedBy: "as of").count, 2)
+    }
+
+    func testStatusFromAnotherDayIsUnavailable() {
+        var summary = readinessSummary(score: 82, status: .high)
+        summary.scoredDay = date(2026, 9, 16)
+        let bundle = BodySiriSnapshotBundle(
+            dashboard: dashboard(readiness: summary),
+            dashboardAsOf: date(2026, 9, 16, 20, 0),
+            now: date(2026, 9, 17, 9, 0)
+        )
+
+        let answer = BodySiriAnswerBuilder.status(bundle: bundle, calendar: calendar)
+
+        XCTAssertEqual(answer.availability, .unavailable)
+        XCTAssertTrue(answer.spoken.contains("Open Body"))
+    }
+
     // MARK: - Workouts
 
     /// Sunday 2026-11-29 through Saturday 2026-12-05: the week spans two months.
@@ -603,6 +884,7 @@ final class BodySiriAnswerBuilderTests: XCTestCase {
             BodySiriAnswerBuilder.readiness(bundle: bundle, calendar: calendar),
             BodySiriAnswerBuilder.metric(.heartRateVariability, bundle: bundle, calendar: calendar),
             BodySiriAnswerBuilder.warnings(bundle: bundle, calendar: calendar),
+            BodySiriAnswerBuilder.status(bundle: bundle, calendar: calendar),
             BodySiriAnswerBuilder.recentWorkouts(bundle: bundle, calendar: calendar),
             BodySiriAnswerBuilder.unavailableAnswer(title: "Readiness")
         ]

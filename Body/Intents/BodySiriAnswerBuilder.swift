@@ -15,8 +15,16 @@ import Foundation
 /// Everything an answer can be built from, read once per request.
 struct BodySiriSnapshotBundle {
     var dashboard: HealthDashboardSnapshot?
-    /// When the dashboard snapshot was last refreshed successfully.
+    /// When the dashboard snapshot was last refreshed in full, which validates
+    /// everything it holds.
     var dashboardAsOf: Date?
+    /// When a quiet repair last recomputed readiness from validated inputs.
+    var readinessValidatedAt: Date?
+    /// When a quiet repair last validated each metric, keyed by
+    /// `HealthMetricKind.rawValue`.
+    var metricValidatedAt: [String: Date]
+    /// The warning kinds the user has turned on; only these can be reported.
+    var warningKinds: Set<MetricWarningKind>
     var widget: HealthWidgetSnapshot?
     var currentMonthWorkouts: WorkoutMonthSnapshot?
     var previousMonthWorkouts: WorkoutMonthSnapshot?
@@ -25,6 +33,9 @@ struct BodySiriSnapshotBundle {
     init(
         dashboard: HealthDashboardSnapshot? = nil,
         dashboardAsOf: Date? = nil,
+        readinessValidatedAt: Date? = nil,
+        metricValidatedAt: [String: Date] = [:],
+        warningKinds: Set<MetricWarningKind> = Set(MetricWarningKind.allCases),
         widget: HealthWidgetSnapshot? = nil,
         currentMonthWorkouts: WorkoutMonthSnapshot? = nil,
         previousMonthWorkouts: WorkoutMonthSnapshot? = nil,
@@ -32,6 +43,9 @@ struct BodySiriSnapshotBundle {
     ) {
         self.dashboard = dashboard
         self.dashboardAsOf = dashboardAsOf
+        self.readinessValidatedAt = readinessValidatedAt
+        self.metricValidatedAt = metricValidatedAt
+        self.warningKinds = warningKinds
         self.widget = widget
         self.currentMonthWorkouts = currentMonthWorkouts
         self.previousMonthWorkouts = previousMonthWorkouts
@@ -46,13 +60,17 @@ struct BodySiriSnapshotBundle {
         let loaded = HealthDashboardSnapshotStore.exists()
             ? HealthDashboardSnapshotStore.loadWithContext()
             : nil
-        let asOf = loaded?.metadata.freshness?.date
-            ?? UserDefaults.standard.object(
-                forKey: HealthDashboardSnapshotStore.lastSuccessfulRefreshDateKey
-            ) as? Date
+        let metadata = loaded?.metadata
+        let warningSelection = BodyMetricWarningSelection.storedValue(
+            from: UserDefaults.standard.string(forKey: BodyAppearancePreference.metricWarningsKey)
+                ?? BodyMetricWarningSelection.defaultRawValue
+        )
         return BodySiriSnapshotBundle(
             dashboard: loaded?.snapshot,
-            dashboardAsOf: loaded == nil ? nil : asOf,
+            dashboardAsOf: metadata?.freshness?.date,
+            readinessValidatedAt: metadata?.readinessValidation?.date,
+            metricValidatedAt: (metadata?.observedMetricValidation ?? [:]).mapValues(\.date),
+            warningKinds: warningSelection.enabledKinds,
             widget: HealthWidgetSnapshotStore.load(),
             currentMonthWorkouts: WorkoutSnapshotStore.load(),
             previousMonthWorkouts: WorkoutSnapshotStore.loadPrevious(),
@@ -130,28 +148,33 @@ enum BodySiriAnswerBuilder {
         let title = BodySiriMetric.readiness.title
 
         guard
+            isCurrent(bundle, calendar: calendar),
             let summary = bundle.dashboard?.summary.readiness,
-            let score = summary.score,
-            let asOf = bundle.dashboardAsOf,
-            calendar.isDate(asOf, inSameDayAs: bundle.now)
+            let score = summary.score
         else {
             return unavailableAnswer(title: title)
         }
 
-        let isStale = bundle.now.timeIntervalSince(asOf) > staleInterval
+        let asOf = readinessAsOf(bundle)
+        let note = staleNote(asOf, now: bundle.now, calendar: calendar)
+        let isStale = note != nil
         let scoreText = "\(score)"
         let statusTitle = summary.status.title
-        var spoken = String(
-            localized: "Your readiness in Body is \(scoreText), \(statusTitle)."
-        )
-        if isStale {
-            spoken += " " + String(localized: "That is as of \(timeText(asOf)).")
+        let morning = morningScore(bundle, summary: summary, score: score, calendar: calendar)
+        var spoken = readinessSentence(summary: summary, score: score, morning: morning)
+        var supporting = String(localized: "\(scoreText), \(statusTitle).")
+        if let morning {
+            let morningText = "\(morning)"
+            supporting += " " + String(localized: "Started the day at \(morningText).")
+        }
+        if let note {
+            spoken += " " + note
         }
 
         return BodySiriAnswer(
             title: title,
             spoken: spoken,
-            supporting: String(localized: "\(scoreText), \(statusTitle)."),
+            supporting: supporting,
             valueText: scoreText,
             unit: readinessUnit,
             statusText: statusTitle,
@@ -218,21 +241,20 @@ enum BodySiriAnswerBuilder {
         let title = String(localized: "Health Warnings")
 
         guard
-            let summary = bundle.dashboard?.summary,
-            let asOf = bundle.dashboardAsOf,
-            calendar.isDate(asOf, inSameDayAs: bundle.now)
+            isCurrent(bundle, calendar: calendar),
+            let summary = bundle.dashboard?.summary
         else {
             return unavailableAnswer(title: title)
         }
 
-        let events = summary.metricWarnings.filter {
-            calendar.isDate($0.endDate, inSameDayAs: bundle.now)
-        }
+        let events = todaysWarnings(summary, bundle: bundle, calendar: calendar)
+        let asOf = warningsAsOf(bundle)
 
-        // A warning can land after the last refresh, so an old snapshot says
-        // when it was taken instead of passing as the current state.
-        let isStale = bundle.now.timeIntervalSince(asOf) > staleInterval
-        let staleNote = " " + String(localized: "That is as of \(timeText(asOf)).")
+        // A warning can land after its metric was last read, so an old read
+        // says when it was taken instead of passing as the current state.
+        let note = staleNote(asOf, now: bundle.now, calendar: calendar)
+        let isStale = note != nil
+        let staleNote = note.map { " " + $0 } ?? ""
 
         guard !events.isEmpty else {
             let supporting = String(localized: "No warnings in Body's cached data for today.")
@@ -247,7 +269,7 @@ enum BodySiriAnswerBuilder {
 
         let names = events.map { warningTitle(for: $0.kind) }
         let list = listText(names)
-        var spoken = String(localized: "Body's cached data shows \(list) today.")
+        var spoken = warningsSentence(names)
         if isStale {
             spoken += staleNote
         }
@@ -261,6 +283,65 @@ enum BodySiriAnswerBuilder {
             availability: isStale ? .stale : .available,
             items: names,
             count: events.count
+        )
+    }
+
+    // MARK: Status
+
+    /// Readiness, the line the Home hero shows under it, and today's warnings
+    /// in one answer, with a single stale note for the snapshot they share.
+    static func status(
+        bundle: BodySiriSnapshotBundle,
+        calendar: Calendar = .bodyGregorian
+    ) -> BodySiriAnswer {
+        let title = String(localized: "Body Status")
+
+        guard
+            isCurrent(bundle, calendar: calendar),
+            let summary = bundle.dashboard?.summary
+        else {
+            return unavailableAnswer(title: title)
+        }
+
+        var sentences: [String] = []
+        let readiness = summary.readiness
+        if let score = readiness.score {
+            let morning = morningScore(bundle, summary: readiness, score: score, calendar: calendar)
+            sentences.append(readinessSentence(summary: readiness, score: score, morning: morning))
+            sentences.append(readiness.heroExplanation)
+        }
+        let names = todaysWarnings(summary, bundle: bundle, calendar: calendar)
+            .map { warningTitle(for: $0.kind) }
+        sentences.append(
+            names.isEmpty
+                ? String(localized: "No warnings in Body's cached data for today.")
+                : warningsSentence(names)
+        )
+
+        // The oldest validation behind any part of the answer, so a fresh
+        // readiness never hides an old warnings read or the other way round.
+        let asOf = readiness.score == nil
+            ? warningsAsOf(bundle)
+            : oldest([readinessAsOf(bundle), warningsAsOf(bundle)])
+        let note = staleNote(asOf, now: bundle.now, calendar: calendar)
+        let isStale = note != nil
+        let supporting = sentences.joined(separator: " ")
+        var spoken = supporting
+        if let note {
+            spoken += " " + note
+        }
+
+        return BodySiriAnswer(
+            title: title,
+            spoken: spoken,
+            supporting: supporting,
+            valueText: readiness.score.map { "\($0)" },
+            unit: readiness.score == nil ? nil : readinessUnit,
+            statusText: readiness.score == nil ? nil : readiness.status.title,
+            asOf: asOf,
+            availability: isStale ? .stale : .available,
+            items: names,
+            count: names.count
         )
     }
 
@@ -375,6 +456,101 @@ enum BodySiriAnswerBuilder {
     static let workoutsUnit = String(localized: "workouts")
 
     // MARK: - Helpers
+
+    /// Whether the dashboard describes today. The readiness recompute stamps
+    /// its day on every refresh path; a snapshot saved before that stamp
+    /// existed falls back to when the snapshot last changed.
+    private static func isCurrent(_ bundle: BodySiriSnapshotBundle, calendar: Calendar) -> Bool {
+        guard let dashboard = bundle.dashboard else { return false }
+        if let day = dashboard.summary.readiness.scoredDay {
+            return calendar.isDate(day, inSameDayAs: bundle.now)
+        }
+        guard let asOf = bundle.dashboardAsOf else { return false }
+        return calendar.isDate(asOf, inSameDayAs: bundle.now)
+    }
+
+    /// When readiness was last computed from validated inputs: the later of
+    /// the last full refresh and the last quiet recompute stamp.
+    private static func readinessAsOf(_ bundle: BodySiriSnapshotBundle) -> Date? {
+        [bundle.dashboardAsOf, bundle.readinessValidatedAt].compactMap { $0 }.max()
+    }
+
+    /// When every metric behind an enabled warning kind was last validated,
+    /// each by its own quiet read or the last full refresh. The oldest one
+    /// counts; a metric validated by neither leaves the time unknown.
+    private static func warningsAsOf(_ bundle: BodySiriSnapshotBundle) -> Date? {
+        let metrics = Set(bundle.warningKinds.map(\.metric))
+        guard !metrics.isEmpty else { return bundle.dashboardAsOf }
+        return oldest(metrics.map { metric in
+            [bundle.dashboardAsOf, bundle.metricValidatedAt[metric.rawValue]].compactMap { $0 }.max()
+        })
+    }
+
+    /// The oldest of the dates, or nil when any of them is unknown.
+    private static func oldest(_ dates: [Date?]) -> Date? {
+        let known = dates.compactMap { $0 }
+        guard known.count == dates.count else { return nil }
+        return known.min()
+    }
+
+    /// Nil while the data behind an answer is recent. Otherwise says when it
+    /// is from, with the date once it is from another day, or asks to open
+    /// Body when no validation time is known at all.
+    private static func staleNote(_ asOf: Date?, now: Date, calendar: Calendar) -> String? {
+        guard let asOf else {
+            return String(localized: "Open Body to make sure this is up to date.")
+        }
+        guard now.timeIntervalSince(asOf) > staleInterval else { return nil }
+        guard calendar.isDate(asOf, inSameDayAs: now) else {
+            return String(localized: "That is from the snapshot taken \(dateAndTimeText(asOf)).")
+        }
+        return String(localized: "That is as of \(timeText(asOf)).")
+    }
+
+    /// Today's frozen morning score, the one the history charts and Home
+    /// keep, when today's workouts pulled the live score away from it.
+    private static func morningScore(
+        _ bundle: BodySiriSnapshotBundle,
+        summary: ReadinessSummary,
+        score: Int,
+        calendar: Calendar
+    ) -> Int? {
+        guard summary.activityDrainMorningScore != nil,
+              let recorded = bundle.dashboard?.trends.recordedReadiness.first(where: {
+                  calendar.isDate($0.date, inSameDayAs: bundle.now)
+              }),
+              recorded.score != score
+        else { return nil }
+        return recorded.score
+    }
+
+    private static func readinessSentence(summary: ReadinessSummary, score: Int, morning: Int?) -> String {
+        let scoreText = "\(score)"
+        let statusTitle = summary.status.title
+        var sentence = String(localized: "Your readiness in Body is \(scoreText), \(statusTitle).")
+        if let morning {
+            let morningText = "\(morning)"
+            sentence += " " + String(
+                localized: "You started the day at \(morningText), before today's workouts."
+            )
+        }
+        return sentence
+    }
+
+    private static func todaysWarnings(
+        _ summary: HealthSummarySnapshot,
+        bundle: BodySiriSnapshotBundle,
+        calendar: Calendar
+    ) -> [MetricWarningEvent] {
+        summary.metricWarnings.filter {
+            calendar.isDate($0.endDate, inSameDayAs: bundle.now)
+        }
+    }
+
+    private static func warningsSentence(_ names: [String]) -> String {
+        let list = listText(names)
+        return String(localized: "Body's cached data shows \(list) today.")
+    }
 
     private struct MonthKey: Equatable {
         let year: Int

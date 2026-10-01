@@ -35,7 +35,7 @@ enum BodyObserverRefreshDiagnostics {
     static func pending(_ envelope: BodyHealthDirtyWorkStore.Envelope) -> String {
         envelope.entries.sorted { $0.key < $1.key }.compactMap { kind, entry in
             guard entry.currentPending || entry.historyPending else { return nil }
-            return "\(kind):g\(entry.generation):c\(entry.currentPending ? 1 : 0)h\(entry.historyPending ? 1 : 0)"
+            return "\(kind):g\(entry.generation):c\(entry.currentPending ? 1 : 0)h\(entry.historyPending ? 1 : 0)\(entry.deferredAt == nil ? "" : "d")"
         }.joined(separator: ",")
     }
 

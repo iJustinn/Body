@@ -2747,6 +2747,19 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertEqual(movedUp.count, order.count)
     }
 
+    @MainActor
+    func testHomeCardDragIgnoresReordersUntilTheGridSettles() {
+        let dragState = BodyHomeCardDragState()
+        let start = ContinuousClock.now
+
+        XCTAssertTrue(dragState.acceptsReorder(at: start))
+
+        dragState.noteReorder(at: start)
+        XCTAssertFalse(dragState.acceptsReorder(at: start))
+        XCTAssertFalse(dragState.acceptsReorder(at: start + .milliseconds(200)))
+        XCTAssertTrue(dragState.acceptsReorder(at: start + .seconds(1)))
+    }
+
     func testHomeCardLayoutRowsTreatActivityRingsAsTwoSlots() {
         let defaultRows = BodyHomeCardKind.layoutRows(from: [.activityRings, .sleep, .basics])
 
@@ -2987,22 +3000,22 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
     func testVitalsHomeCardKindConfiguration() {
         XCTAssertEqual(BodyHomeCardKind.vitals.healthMetricKind, .vitals)
-        // Readiness and Stress carry the "v1" chip; Body Radar carries "Beta v2"
-        // instead (all still count as isBeta via betaVersionLabel).
+        // Readiness carries the "v2" chip and Stress "v1"; Body Radar carries
+        // "Beta v3" instead (all still count as isBeta via betaVersionLabel).
         XCTAssertFalse(BodyHomeCardKind.vitals.isBeta)
         XCTAssertFalse(BodyHomeCardKind.cardioFitness.isBeta)
         XCTAssertTrue(BodyHomeCardKind.readiness.isBeta)
         XCTAssertTrue(BodyHomeCardKind.bodyRadar.isBeta)
-        XCTAssertEqual(BodyHomeCardKind.bodyRadar.betaVersionLabel, "Beta v2")
+        XCTAssertEqual(BodyHomeCardKind.bodyRadar.betaVersionLabel, "Beta v3")
         XCTAssertNil(BodyStarMetric.from(rawValue: BodyHomeCardKind.vitals.rawValue))
     }
 
     /// A metric detail page's About card reads its chip from the summary card that
     /// owns the metric, so the two surfaces can never disagree.
     func testAboutCardVersionLabelsMatchTheSummaryCardChips() {
-        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .readiness), "v1")
+        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .readiness), "v2")
         XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .stress), "v1")
-        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .bodyRadar), "Beta v2")
+        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .bodyRadar), "Beta v3")
         XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .vitals))
         XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .sleep))
         XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .cardioFitness))
