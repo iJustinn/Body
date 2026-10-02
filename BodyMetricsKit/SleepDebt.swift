@@ -74,6 +74,18 @@ struct SleepDebtChartModel: Equatable {
     /// The pickable nights, the 13 nights the oldest one's window reaches back
     /// to, and the day before those for its Training Load and sleep HRV.
     static let entryDayCount = selectableNightCount + windowNightCount
+    /// The nights the watch Sleep page charts. Each is the same 14 night debt
+    /// the phone shows for that night, since a night reads only its own window,
+    /// the entry before it, and the 56 days of history behind them.
+    static let watchNightCount = 7
+
+    /// Days of sleep history, ending today, that `inputs` reads for a model of
+    /// `nightCount` nights: the entry days, the two days of slack, and a whole
+    /// HRV baseline before them (see `cutoff` and `historyCutoff` there). The
+    /// watch's compute seed keeps this many nights so it reads what the phone does.
+    static func historyDayCount(nightCount: Int) -> Int {
+        nightCount + windowNightCount + 2 + ReadinessScoreCalculator.baselineDayCount
+    }
     /// The bands About Sleep Debt names and the chart draws as dashed rules and
     /// dot colors: a debt under 2 hours is low, 2 to 4 hours is moderate, and
     /// over 4 hours is high. The total is capped at `maximumDebt`, so the chart's
@@ -165,14 +177,16 @@ struct SleepDebtChartModel: Equatable {
         var calendar: Calendar
     }
 
-    /// One entry per wake day, `entryDayCount` days ending today: the history's
-    /// night for the day (the live summary fills in today only, and only when
-    /// it is today's), the day's Training Load ratio, how the night's sleep HRV
-    /// compared with the nights before it, and the need learned by that day.
+    /// One entry per wake day, `nightCount + windowNightCount` days ending
+    /// today: the history's night for the day (the live summary fills in today
+    /// only, and only when it is today's), the day's Training Load ratio, how
+    /// the night's sleep HRV compared with the nights before it, and the need
+    /// learned by that day.
     static func entries(
         sleepHistory: SleepHistorySnapshot,
         currentDaySummary: SleepSummary?,
         trainingLoad: HealthTrendSeries,
+        nightCount: Int = selectableNightCount,
         today: Date = Date(),
         calendar: Calendar = .bodyGregorian
     ) -> [Entry] {
@@ -180,6 +194,7 @@ struct SleepDebtChartModel: Equatable {
             sleepHistory: sleepHistory,
             currentDaySummary: currentDaySummary,
             trainingLoad: trainingLoad,
+            nightCount: nightCount,
             today: today,
             calendar: calendar
         ))
@@ -190,10 +205,15 @@ struct SleepDebtChartModel: Equatable {
         sleepHistory: SleepHistorySnapshot,
         currentDaySummary: SleepSummary?,
         trainingLoad: HealthTrendSeries,
+        nightCount: Int = selectableNightCount,
         today: Date = Date(),
         calendar: Calendar = .bodyGregorian
     ) -> Inputs {
-        let days = SleepHistorySnapshot.datePickerDates(endingAt: today, dayCount: entryDayCount, calendar: calendar)
+        let days = SleepHistorySnapshot.datePickerDates(
+            endingAt: today,
+            dayCount: nightCount + windowNightCount,
+            calendar: calendar
+        )
         guard let firstDay = days.first else {
             return Inputs(days: [], nights: [], trainingLoadRatios: [], calendar: calendar)
         }
@@ -316,8 +336,14 @@ struct SleepDebtChartModel: Equatable {
     /// are shown. Each night is judged against `baseNeed(learnedNeed:sleepGoal:)`
     /// with its own entry's learned need, and against `sleepGoal` alone while
     /// that is nil, so no night is judged again by a need learned later.
-    static func make(entries: [Entry], sleepGoal: TimeInterval) -> SleepDebtChartModel {
-        guard entries.count == entryDayCount else {
+    /// `nightCount` is how many nights the model keeps (the watch charts 7);
+    /// `entries` must hold `nightCount + windowNightCount` days.
+    static func make(
+        entries: [Entry],
+        sleepGoal: TimeInterval,
+        nightCount: Int = selectableNightCount
+    ) -> SleepDebtChartModel {
+        guard nightCount > 0, entries.count == nightCount + windowNightCount else {
             return .empty
         }
 
@@ -343,7 +369,7 @@ struct SleepDebtChartModel: Equatable {
         }
 
         let todayIndex = entries.count - 1
-        let nights = ((entries.count - selectableNightCount)...todayIndex).map { index in
+        let nights = ((entries.count - nightCount)...todayIndex).map { index in
             let recordedGaps = ((index - windowNightCount + 1)...index).compactMap { gaps[$0] }
             // Today's night may still be syncing, so it has no point until it arrives.
             let isPendingToday = index == todayIndex && actuals[index] == nil
