@@ -6,7 +6,8 @@
 //  from HealthKit so those metrics can freshen between phone pushes, and owns
 //  the HealthKit authorization requests for both this path and the on-device
 //  compute (`WatchComputeCoordinator`, which does its own reads through the
-//  shared fetch leaves).
+//  shared fetch leaves). It also reads the "Last 8 hours" HR / HRV charts
+//  (`intradayBuckets`) behind the same source filter as the live values.
 //
 //  Source parity matters here too: once the phone has synced a specific source
 //  selection, the live reads run behind the same strict-resolved predicate the
@@ -117,6 +118,82 @@ actor WatchHealthStore {
             freshnessLimit: WatchMetricKindKey.liveFreshnessLimit(forKind: WatchMetricKindKey.heartRateVariability),
             source: source
         )
+    }
+
+    /// The "Last 8 hours" chart's slots for HR or HRV over `window`, or nil to
+    /// keep what's on screen (see `WatchIntradayChartStore.Load`). One
+    /// statistics collection query with 30 minute intervals anchored at the
+    /// window's start: like `mostRecentQuantity`, a statistics query resolves
+    /// the `HKQuantitySeries` a workout stores its heart rate in beat by beat,
+    /// where a sample query would return one blob per workout. The predicate
+    /// keeps HealthKit's default overlap matching, so a series that started
+    /// before the window still contributes its in-window beats; the earlier
+    /// ones fall into slots that are never enumerated.
+    func intradayBuckets(
+        kind: String,
+        permission: BodyHealthPermissionSelection,
+        window: WatchIntradayWindow
+    ) async -> [WatchIntradayBucket]? {
+        let identifier: HKQuantityTypeIdentifier
+        let unit: HKUnit
+        switch kind {
+        case WatchMetricKindKey.heartRate:
+            identifier = .heartRate
+            unit = HKUnit.count().unitDivided(by: .minute())
+        case WatchMetricKindKey.heartRateVariability:
+            // SDNN, the same type the HRV headline reads.
+            identifier = .heartRateVariabilitySDNN
+            unit = .secondUnit(with: .milli)
+        default:
+            return []
+        }
+        guard let type = HKQuantityType.quantityType(forIdentifier: identifier) else { return nil }
+
+        let sourceReads = await liveSourceReads(permission: permission)
+        let source = kind == WatchMetricKindKey.heartRate ? sourceReads.heartRate : sourceReads.heartRateVariability
+        let sourcePredicate: NSPredicate?
+        switch source {
+        case .run(let predicate):
+            sourcePredicate = predicate
+        case .unavailable:
+            // No source for this kind on this watch at all: nothing to chart.
+            return []
+        case .skip:
+            // The phone's selection couldn't be matched this time, which also
+            // covers a source discovery that failed briefly. Reading anyway
+            // would widen to every source, so keep the chart on screen.
+            return nil
+        }
+
+        var interval = DateComponents()
+        interval.minute = Int(WatchIntradayWindow.slotLength / 60)
+        let outcome = await store.statisticsCollection(
+            BodyStatisticsCollectionRequest(
+                quantityType: type,
+                predicate: BodyHealthSourceResolver.combinedPredicate(
+                    startDate: window.start,
+                    endDate: nil,
+                    sourcePredicate: sourcePredicate
+                ),
+                options: [.discreteAverage, .discreteMin, .discreteMax],
+                anchorDate: window.start,
+                intervalComponents: interval
+            )
+        )
+        // A locked (off wrist) watch has the query fail; keep the chart.
+        guard case .success(let collection) = outcome else { return nil }
+
+        var buckets: [WatchIntradayBucket] = []
+        collection.enumerateStatistics(from: window.start, to: window.end) { statistics, _ in
+            guard let average = statistics.averageQuantity()?.doubleValue(for: unit),
+                  let minimum = statistics.minimumQuantity()?.doubleValue(for: unit),
+                  let maximum = statistics.maximumQuantity()?.doubleValue(for: unit),
+                  average.isFinite, minimum.isFinite, maximum.isFinite else {
+                return
+            }
+            buckets.append(WatchIntradayBucket(start: statistics.startDate, minimum: minimum, maximum: maximum, average: average))
+        }
+        return buckets
     }
 
     private func latestQuantity(

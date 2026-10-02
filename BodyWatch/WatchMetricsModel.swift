@@ -35,6 +35,13 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     @Published private(set) var hiddenMetricKinds: Set<String>
 
     private let healthStore = WatchHealthStore()
+    /// The Heart Rate and HRV pages' "Last 8 hours" charts, read from the
+    /// watch's own HealthKit through `readIntradayBuckets` (the same gate and
+    /// source filter as the live values). Lazy because the read closure
+    /// captures `self`, which a stored `let` can't do before `super.init()`.
+    private(set) lazy var intradayCharts = WatchIntradayChartStore { [weak self] kind, window in
+        await self?.readIntradayBuckets(kind: kind, window: window)
+    }
     private let computeCoordinator = WatchComputeCoordinator()
     /// The compute path's outside world (see `WatchComputeEnvironment`).
     private let environment: WatchComputeEnvironment
@@ -347,6 +354,13 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         if seedChanged {
             bumpComputeGeneration()
         }
+        // The charts were read behind the old source selection, which the
+        // settings signature covers. Not tied to `seedChanged`: the seed's
+        // bytes change on most pushes, and a push would blank a chart the
+        // user is reading.
+        if settingsChanged {
+            intradayCharts.clear()
+        }
 
         guard settingsChanged else {
             guard let resolved = resolution.resolvedSnapshot else { return }
@@ -560,6 +574,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         guard UserDefaults.standard.string(forKey: key) != rawValue else { return }
         UserDefaults.standard.set(rawValue, forKey: key)
         hasRequestedLiveAuthorization = false
+        // Heart may have just been turned off: no chart read under the old
+        // selection stays on screen.
+        intradayCharts.clear()
         // A changed selection changes which categories the compute may read, so
         // re-request authorization on the next run and invalidate any compute
         // already running under the old selection.
@@ -674,8 +691,11 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// always lands even when nothing has crossed a staleness window yet.
     /// Sequenced, not parallel: the compute's HR/HRV come from the same samples
     /// the live read would take, and running it first means the live read only
-    /// ever confirms or improves on them.
+    /// ever confirms or improves on them. The "Last 8 hours" charts keep what
+    /// they show, but the next visit to the Heart Rate or HRV page reads fresh
+    /// (the button lives on the dashboard, so no chart page is visible).
     func refresh() async {
+        intradayCharts.invalidate()
         await recomputeIfStale(force: true)
         await refreshLiveMetrics(force: true)
     }
@@ -724,6 +744,23 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         var updated = snapshot
         updated.metrics = metrics
         apply(updated)
+    }
+
+    /// The "Last 8 hours" chart read (`WatchIntradayChartStore.Load`), behind
+    /// the live path's gate. A refused gate (Heart off on the phone, or the
+    /// selection never synced) returns `[]`, not nil, on purpose: it removes
+    /// the chart rather than keeping one read before Heart was turned off.
+    /// Shares the live path's authorization latch, so whichever of the two
+    /// reads first asks for HR and HRV, once.
+    private func readIntradayBuckets(kind: String, window: WatchIntradayWindow) async -> [WatchIntradayBucket]? {
+        let permission = BodyHealthPermissionSelection.load()
+        guard Self.hasSyncedPermissionSelection(), permission.includes(.heart) else { return [] }
+
+        if !hasRequestedLiveAuthorization {
+            hasRequestedLiveAuthorization = true
+            await healthStore.requestLiveAuthorization()
+        }
+        return await healthStore.intradayBuckets(kind: kind, permission: permission, window: window)
     }
 
     private func updating(_ metrics: [WatchMetric], kind: String, value: Double, measuredAt: Date, decimals: Int, unit: String) -> [WatchMetric] {

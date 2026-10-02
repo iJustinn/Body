@@ -16,6 +16,7 @@ struct BodyWatchApp: App {
         WindowGroup {
             WatchDashboardView()
                 .environmentObject(model)
+                .environmentObject(model.intradayCharts)
         }
         .onChange(of: scenePhase) { _, phase in
             // `onAppear` doesn't reliably re-fire when watchOS returns the app

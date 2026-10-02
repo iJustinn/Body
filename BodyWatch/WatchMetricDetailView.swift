@@ -17,12 +17,16 @@
 //  (`WatchSleepDebtChartView`). The Training Load page scrolls the same way whenever the
 //  snapshot carries the weekly workout minutes, adding the Weekly Workout Time
 //  complication's bar chart (`WatchExerciseWeekChartView`) below its value row.
+//  The Heart Rate and HRV pages scroll the same way whenever the watch has
+//  readings from the last 8 hours, adding the "Last 8 hours" chart
+//  (`WatchIntradayChartView`) below their value row.
 //  The
 //  tint fill is the page's own background so it slides with the vertical
 //  pager, giving a smooth color transition between metrics. Display-only: it
 //  reads the `weekly` series, `statusBand`, sleep score, sleep stages, and
-//  workout minutes the iPhone baked into the pushed snapshot, and the Sleep
-//  Debt the phone pushes or the watch recomputes (nothing is computed here).
+//  workout minutes the iPhone baked into the pushed snapshot, the Sleep Debt
+//  the phone pushes or the watch recomputes, and the last 8 hours the watch
+//  reads itself (nothing is computed here).
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -52,6 +56,10 @@ struct WatchMetricDetailView: View {
     /// complication's), drawn as bars below the Training Load page's info (the
     /// week chart stays). Ignored on every other page.
     var exerciseWeekMetric: WatchMetric? = nil
+    /// The watch's own last 8 hours of readings for this kind (see
+    /// `WatchIntradayChartStore`), drawn below the Heart Rate or HRV page's
+    /// info (the week chart stays). Ignored on every other page.
+    var intradayChart: WatchIntradayChart? = nil
 
     /// The page theme (title, background wash, chart line): the metric's static
     /// kind color, matching the iOS detail page — never the status-band color.
@@ -129,6 +137,18 @@ struct WatchMetricDetailView: View {
         return weekly.contains(where: { $0 != nil }) ? weekly : nil
     }
 
+    /// The Heart Rate or HRV page's last 8 hours, added below the page's info
+    /// and making the page scroll, or nil (the page reads exactly like every
+    /// other metric's) on any other page or when there are no readings.
+    static func intradayChart(_ chart: WatchIntradayChart?, kind: String) -> WatchIntradayChart? {
+        guard WatchIntradayChartStore.chartKinds.contains(kind), let chart, !chart.buckets.isEmpty else { return nil }
+        return chart
+    }
+
+    private var visibleIntradayChart: WatchIntradayChart? {
+        Self.intradayChart(intradayChart, kind: metric.kind)
+    }
+
     private var trailingLabel: String? {
         guard sleepScore == nil else { return metric.displayValue }
         guard let label = metric.statusBand?.label else { return nil }
@@ -140,7 +160,7 @@ struct WatchMetricDetailView: View {
             backgroundGradient
                 .ignoresSafeArea()
 
-            if sleepStageSegments != nil || sleepDebtSection != nil || exerciseWeekly != nil {
+            if sleepStageSegments != nil || sleepDebtSection != nil || exerciseWeekly != nil || visibleIntradayChart != nil {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
                         pageContent
@@ -162,6 +182,13 @@ struct WatchMetricDetailView: View {
 
                         if let exerciseWeekly {
                             WatchExerciseWeekChartView(weekly: exerciseWeekly, today: referenceDate, tint: pageTint)
+                                .frame(height: 86)
+                                .padding(.top, 10)
+                                .padding(.bottom, 12)
+                        }
+
+                        if let visibleIntradayChart {
+                            WatchIntradayChartView(chart: visibleIntradayChart, kind: metric.kind, tint: pageTint)
                                 .frame(height: 86)
                                 .padding(.top, 10)
                                 .padding(.bottom, 12)
@@ -330,6 +357,23 @@ struct WatchMetricDetailView: View {
             rangeMin: 54,
             rangeMax: 72,
             weekly: [58, 64, nil, 55, 72, 61, 62]
-        ))
+        ), intradayChart: .preview(kind: WatchMetricKindKey.heartRate))
+    }
+}
+
+#Preview("HRV") {
+    NavigationStack {
+        WatchMetricDetailView(metric: WatchMetric(
+            kind: WatchMetricKindKey.heartRateVariability,
+            title: "HRV",
+            displayValue: "44",
+            unit: "ms",
+            score: nil,
+            fillFraction: 0.4,
+            rawValue: 44,
+            rangeMin: 30,
+            rangeMax: 60,
+            weekly: [41, 48, 39, nil, 52, 46, 44]
+        ), intradayChart: .preview(kind: WatchMetricKindKey.heartRateVariability))
     }
 }
