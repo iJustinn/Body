@@ -312,12 +312,12 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
         XCTAssertTrue(project.contains("MARKETING_VERSION = 1.1.5;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 2;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 3;"))
         // All six targets (app, widget, tests, watch app, watch complications, watch tests)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
         XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.1.5;"), 12)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 2;"), 12)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 3;"), 12)
         // Strict concurrency stays on project-wide (targeted for now; complete and
         // Swift 6 are separate migrations) so actor and Sendable annotations are checked.
         XCTAssertEqual(project.occurrenceCount(of: "SWIFT_STRICT_CONCURRENCY = targeted;"), 2)
@@ -332,6 +332,9 @@ final class ProjectConfigurationTests: XCTestCase {
             (WatchMetricKindKey.heartRate, .heartRate),
             (WatchMetricKindKey.heartRateVariability, .heartRateVariability),
             (WatchMetricKindKey.restingHeartRate, .restingHeartRate),
+            (WatchMetricKindKey.steps, .steps),
+            (WatchMetricKindKey.activeEnergy, .activeEnergy),
+            (WatchMetricKindKey.restingEnergy, .restingEnergy),
             (WatchMetricKindKey.wristTemperature, .wristTemperature)
         ]
 
@@ -361,6 +364,10 @@ final class ProjectConfigurationTests: XCTestCase {
         let stressPresentation = try XCTUnwrap(HealthMetricPresentation.presentation(for: .stress))
         XCTAssertEqual(WatchMetricKindKey.symbolName(forKind: WatchMetricKindKey.stress), stressPresentation.symbolName)
         assertTint(stressPresentation.tint, matches: WatchMetricKindKey.stress)
+
+        // Steps, Active Energy and Resting Energy follow Resting HR, so Steps
+        // is the eighth entry.
+        XCTAssertEqual(WatchMetricKindKey.displayOrder.firstIndex(of: WatchMetricKindKey.steps), 7)
 
         // Exercise Minutes rides the watch snapshot for the rectangular
         // complication only: it has no dashboard card, no detail page and no
@@ -556,7 +563,8 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.1.5 build 2)"))
+        XCTAssertTrue(testPlan.contains("app version 1.1.5 build 3)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.5 build 2)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.5 build 1)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.3 build 8)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.3 build 7)"))
