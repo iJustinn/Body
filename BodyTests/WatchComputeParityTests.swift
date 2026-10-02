@@ -349,7 +349,7 @@ final class WatchComputeParityTests: XCTestCase {
         )
     }
 
-    /// Nights in the Sleep Debt fixture: past the seed's 79 night trim and the
+    /// Nights in the Sleep Debt fixture: past the seed's 86 night trim and the
     /// 102 days the card's 30 night model reads.
     private static let sleepDebtNightCount = 111
 
@@ -363,7 +363,7 @@ final class WatchComputeParityTests: XCTestCase {
     /// learned need and the HRV addition move the compared nights.
     private func sleepDebtNight(on day: Date, ageInDays age: Int, calendar: Calendar) -> SleepDaySummary {
         let dayStart = calendar.startOfDay(for: day)
-        var asleepHours = 8.0 + 0.6 * sin(Double(age) / 4.3) + 0.25 * sin(Double(age) / 1.7)
+        var asleepHours = 8.2 + 0.3 * sin(Double(age) / 3.5) + 0.25 * sin(Double(age) / 1.7)
         if age == 3 {
             asleepHours = 6
         }
@@ -470,7 +470,7 @@ final class WatchComputeParityTests: XCTestCase {
 
         // Then Stress, as the refresh runs it after readiness (with the
         // records' own context and the whole stress window's workouts), and
-        // the "Last 8 hours" `BodyCompanionPublisher` builds over the result.
+        // the "Last 12 hours" `BodyCompanionPublisher` builds over the result.
         var stressTimeline: WatchStressTimeline?
         if permission.includes(.heart) {
             recomputed = recomputed.recalculatingStress(
@@ -588,9 +588,9 @@ final class WatchComputeParityTests: XCTestCase {
         delta.latestNight = deltaNights.max { lhs, rhs in
             (lhs.summary.stageSnapshot.date ?? .distantPast) < (rhs.summary.stageSnapshot.date ?? .distantPast)
         }?.summary
-        // Stress's intraday reads cover whole days from the one `now - 9h`
+        // Stress's intraday reads cover whole days from the one `now - 13h`
         // falls on (`WatchDeltaFetcher`'s Stress window).
-        let stressWindowStart = calendar.startOfDay(for: now.addingTimeInterval(-9 * 3_600))
+        let stressWindowStart = calendar.startOfDay(for: now.addingTimeInterval(-WatchStressTimelineBuilder.span))
         func stressSlice(_ series: HealthTrendSeries) -> WatchFetchOutcome<HealthTrendSeries> {
             .success(HealthTrendSeries(points: series.points.filter { $0.date >= stressWindowStart && $0.date <= now }))
         }
@@ -741,7 +741,7 @@ final class WatchComputeParityTests: XCTestCase {
             XCTAssertEqual(phoneMetric.levelMin, watchMetric.levelMin, "\(kind).levelMin", file: file, line: line)
             XCTAssertEqual(phoneMetric.levelMax, watchMetric.levelMax, "\(kind).levelMax", file: file, line: line)
         }
-        // The Stress page's "Last 8 hours" is the same windows on both sides
+        // The Stress page's "Last 12 hours" is the same windows on both sides
         // (both paths stamp it with `now` here).
         if !excluding.contains(WatchMetricKindKey.stress) {
             XCTAssertEqual(phone.stressTimeline, watch.stressTimeline, "stressTimeline", file: file, line: line)
@@ -1198,11 +1198,11 @@ final class WatchComputeParityTests: XCTestCase {
         XCTAssertEqual(merged.stressTimeline, phone.stressTimeline)
     }
 
-    // MARK: - Sleep Debt: watch = phone = the iPhone card's last 7 nights
+    // MARK: - Sleep Debt: watch = phone = the iPhone card's last 14 nights
 
     /// The iPhone Sleep Debt card's model over the inputs the phone publish
     /// reads (the permission-filtered dashboard, as the store holds it): the
-    /// default 30 night `make`, whose last 7 nights the watch must show.
+    /// default 30 night `make`, whose last 14 nights the watch must show.
     private func cardSleepDebt(
         fixture: Fixture,
         now: Date,
@@ -1224,7 +1224,7 @@ final class WatchComputeParityTests: XCTestCase {
     }
 
     /// Night for night and the headline: the phone builder's debt and the
-    /// watch compute's both equal the card's last 7 nights. `computedAt` is
+    /// watch compute's both equal the card's last 14 nights. `computedAt` is
     /// provenance, which differs by design.
     private func assertSleepDebtsMatch(
         phone: WatchMetricsSnapshot,
@@ -1246,11 +1246,11 @@ final class WatchComputeParityTests: XCTestCase {
         XCTAssertEqual(watchDebt.debt, card.debt, "watch headline", file: file, line: line)
     }
 
-    /// The watch computes Sleep Debt from the TRIMMED seed (79 nights, the
+    /// The watch computes Sleep Debt from the TRIMMED seed (86 nights, the
     /// older ones collapsed) plus its own delta, the phone from its full
     /// history, and the iPhone card from that history with 30 nights: all
-    /// three must agree on the 7 nights the watch charts.
-    func testSleepDebtMatchesThePhoneAndTheCardsLastSevenNights() throws {
+    /// three must agree on the 14 nights the watch charts.
+    func testSleepDebtMatchesThePhoneAndTheCardsLastFourteenNights() throws {
         let calendar = Calendar.bodyGregorian
         let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
         let anchorDay = calendar.startOfDay(for: anchor)

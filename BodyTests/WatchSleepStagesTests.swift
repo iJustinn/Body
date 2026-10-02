@@ -126,7 +126,7 @@ final class WatchSleepStagesTests: XCTestCase {
 
         let sanitized = cached.sanitized(asOf: moment(day: 5, hour: 9))
 
-        XCTAssertNil(sanitized.sleepDebt, "yesterday's seven nights must not be labeled as ending today")
+        XCTAssertNil(sanitized.sleepDebt, "yesterday's nights must not be labeled as ending today")
         XCTAssertEqual(sanitized.showsSleepDebt, true, "the phone's flag isn't a reading and stays")
     }
 

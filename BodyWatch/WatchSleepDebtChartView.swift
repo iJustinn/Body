@@ -4,7 +4,7 @@
 //
 //  The iPhone Sleep Debt card's line (`BodySleepDebtChart`), drawn onto the
 //  Sleep detail page below the stages hypnogram: a header with the headline
-//  debt, the 14 night debt as it stood after each of the last 7 nights on the
+//  debt, the 14 night debt as it stood after each of the last 14 nights on the
 //  phone's fixed 0 to 6 hour scale, and weekday letters underneath. Same band
 //  colors, dashed 2 and 4 hour rules, and line that blends from one night's
 //  color to the next and breaks where a night has no debt; a night with no
@@ -214,7 +214,7 @@ struct WatchSleepDebtChartView: View {
 }
 
 extension WatchSleepDebt {
-    /// Seven nights ending today for previews: `debts` oldest first, with the
+    /// Nights ending today for previews: `debts` oldest first, with the
     /// nights in `unrecorded` marked as having no sleep recorded.
     static func preview(debts: [TimeInterval?], unrecorded: Set<Int> = [], headline: TimeInterval?) -> WatchSleepDebt {
         let calendar = Calendar.current
@@ -232,11 +232,11 @@ extension WatchSleepDebt {
 
 #Preview("Bands, gap, unrecorded") {
     let hour: TimeInterval = 3_600
-    let debts: [TimeInterval?] = [1.2 * hour, 2.5 * hour, nil, 3.6 * hour, 4.6 * hour, 5.4 * hour, 3.9 * hour]
+    let debts: [TimeInterval?] = [0.6 * hour, 1.1 * hour, 1.8 * hour, 2.4 * hour, nil, 2.9 * hour, 3.6 * hour, 4.6 * hour, 5.4 * hour, 4.8 * hour, 3.9 * hour, 3.1 * hour, 2.2 * hour, 1.7 * hour]
     return ZStack {
         Color.black.ignoresSafeArea()
         WatchSleepDebtChartView(
-            sleepDebt: .preview(debts: debts, unrecorded: [4], headline: 3.9 * hour),
+            sleepDebt: .preview(debts: debts, unrecorded: [8], headline: 1.7 * hour),
             tint: .indigo
         )
         .frame(height: 86)
@@ -246,7 +246,7 @@ extension WatchSleepDebt {
 
 #Preview("No headline") {
     let hour: TimeInterval = 3_600
-    let debts: [TimeInterval?] = [nil, nil, 0.8 * hour, 1.1 * hour, 0.4 * hour, nil, nil]
+    let debts: [TimeInterval?] = [nil, nil, nil, nil, nil, nil, nil, nil, nil, 0.8 * hour, 1.1 * hour, 0.4 * hour, nil, nil]
     return ZStack {
         Color.black.ignoresSafeArea()
         WatchSleepDebtChartView(

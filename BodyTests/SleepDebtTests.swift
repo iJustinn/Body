@@ -521,12 +521,12 @@ final class SleepDebtTests: XCTestCase {
 
     // MARK: - Watch nights
 
-    /// The watch charts the last 7 nights with the same 14 night debt: each
+    /// The watch charts the last 14 nights with the same 14 night debt: each
     /// night reads only its own window, the entry before it, and the history
-    /// behind them, so a 7 night model must equal the picker model's last 7
+    /// behind them, so a 14 night model must equal the picker model's last 14
     /// nights field for field, with learned needs, Training Load and sleep HRV
     /// all moving the needs.
-    func testWatchNightsAreThePickerModelsLastSevenNights() throws {
+    func testWatchNightsAreThePickerModelsLastFourteenNights() throws {
         let now = try date(2026, 6, 20, 9)
         let (history, trainingLoad) = watchParityHistory(now: now)
         let watchNightCount = SleepDebtChartModel.watchNightCount
@@ -550,7 +550,7 @@ final class SleepDebtTests: XCTestCase {
             nightCount: watchNightCount
         )
 
-        XCTAssertEqual(watchNightCount, 7)
+        XCTAssertEqual(watchNightCount, 14)
         XCTAssertEqual(watch.nights.count, watchNightCount)
         XCTAssertEqual(watch.nights, Array(card.nights.suffix(watchNightCount)))
         XCTAssertEqual(watch.debt, card.debt)
@@ -569,11 +569,11 @@ final class SleepDebtTests: XCTestCase {
     }
 
     /// The watch's compute seed keeps `historyDayCount` nights, so that is
-    /// exactly how far back `inputs` reads: 78 days back is read and 79 is
-    /// not for the watch's 7 nights (101 and 102 for the picker's 30).
+    /// exactly how far back `inputs` reads: 85 days back is read and 86 is
+    /// not for the watch's 14 nights (101 and 102 for the picker's 30).
     func testHistoryDayCountIsHowFarInputsReads() throws {
         let now = try date(2026, 6, 20, 9)
-        XCTAssertEqual(SleepDebtChartModel.historyDayCount(nightCount: SleepDebtChartModel.watchNightCount), 79)
+        XCTAssertEqual(SleepDebtChartModel.historyDayCount(nightCount: SleepDebtChartModel.watchNightCount), 86)
         XCTAssertEqual(SleepDebtChartModel.historyDayCount(nightCount: SleepDebtChartModel.selectableNightCount), 102)
 
         for nightCount in [SleepDebtChartModel.watchNightCount, SleepDebtChartModel.selectableNightCount] {
@@ -973,10 +973,10 @@ final class SleepDebtTests: XCTestCase {
     /// 6 hour night 3 days back), with sleep HRV near 58 ms that drops 2 to 3
     /// spreads low on a few nights, and Training Load ratios from 0.85 to 1.65.
     /// Every night of a 30 night model learns its need, and the debts of the
-    /// last 7 land between 0 and 6 hours.
+    /// last 14 land between 0 and 6 hours.
     private func watchParityHistory(now: Date) -> (history: SleepHistorySnapshot, trainingLoad: HealthTrendSeries) {
         let nights = (0..<110).map { age -> SleepDaySummary in
-            var asleep = 8.2 + 0.6 * sin(Double(age) / 4.3) + 0.25 * sin(Double(age) / 1.7)
+            var asleep = 8.35 + 0.3 * sin(Double(age) / 3.5) + 0.25 * sin(Double(age) / 1.7)
             if age == 3 {
                 asleep = 6
             }

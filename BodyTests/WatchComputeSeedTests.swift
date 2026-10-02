@@ -447,7 +447,7 @@ final class WatchComputeSeedTests: XCTestCase {
         let anchorDay = calendar.startOfDay(for: anchor)
         let trimmed = trendsFixture(dayCount: 365, anchor: anchor).watchComputeTrimmed(anchor: anchor, calendar: calendar)
 
-        XCTAssertEqual(WatchComputeSeed.sleepHistoryDayCount, 79)
+        XCTAssertEqual(WatchComputeSeed.sleepHistoryDayCount, 86)
         XCTAssertEqual(
             WatchComputeSeed.sleepHistoryDayCount,
             SleepDebtChartModel.historyDayCount(nightCount: SleepDebtChartModel.watchNightCount)
@@ -457,7 +457,7 @@ final class WatchComputeSeedTests: XCTestCase {
         }
         XCTAssertEqual(trimmed.sleepHistory.days.count, WatchComputeSeed.sleepHistoryDayCount)
         XCTAssertEqual(ages.min(), 0)
-        XCTAssertEqual(ages.max(), 78, "a night 78 days old is kept; 79 and older are dropped")
+        XCTAssertEqual(ages.max(), 85, "a night 85 days old is kept; 86 and older are dropped")
 
         // Every other series keeps the 70 day window, `trends.sleep` (a
         // readiness source series, whose length sets the readiness walk) too.
@@ -603,7 +603,7 @@ final class WatchComputeSeedTests: XCTestCase {
         var trends = trendsFixture(dayCount: 365, anchor: anchor)
         var summary = HealthSummarySnapshot.placeholder
         summary.sleep = try XCTUnwrap(trends.sleepHistory.summary(on: anchor, calendar: calendar)).summary
-        // Stress with its week and daily ranges, and a full "Last 8 hours".
+        // Stress with its week and daily ranges, and a full "Last 12 hours".
         summary.stress = trends.recordedStressDays.last
         summary.stressCurrentScore = 64
         trends.stress = HealthTrendSeries(points: trends.recordedStressDays.compactMap { entry in
@@ -673,7 +673,7 @@ final class WatchComputeSeedTests: XCTestCase {
         XCTAssertTrue(stress.hasValue)
         XCTAssertNotNil(stress.statusBand)
         XCTAssertEqual(stress.weeklyRanges?.compactMap { $0 }.count, 7)
-        XCTAssertEqual(snapshot.stressTimeline?.slots.count, 37)
+        XCTAssertEqual(snapshot.stressTimeline?.slots.count, timelineSlotCount)
         XCTAssertEqual(seed.trends.recordedStressDays.count, WatchComputeSeed.stressRecordDayCount)
 
         let snapshotSize = try XCTUnwrap(snapshot.encoded()).count

@@ -474,7 +474,7 @@ private func watchComputeWindowed(
 }
 
 extension SleepHistorySnapshot {
-    /// Keeps a `WatchComputeSeed.sleepHistoryDayCount` (79) day lookback, the
+    /// Keeps a `WatchComputeSeed.sleepHistoryDayCount` (86) day lookback, the
     /// compute trends' 70 days (including the 56-day readiness baseline)
     /// widened to everything the watch's Sleep Debt reads, then collapses stage detail for nights `WatchComputeSeed.sleepSegmentDayCount`
     /// (or more) days before `anchor` into a single synthesized segment

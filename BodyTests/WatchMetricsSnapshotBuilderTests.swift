@@ -397,7 +397,7 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         XCTAssertNil(makeSnapshot(anchor: anchor).sleepDebt)
     }
 
-    func testSleepDebtCarriesTheLastSevenNightsOfTheSharedModel() throws {
+    func testSleepDebtCarriesTheLastFourteenNightsOfTheSharedModel() throws {
         let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
         let history = sleepDebtHistory(anchor: anchor)
         let nightCount = SleepDebtChartModel.watchNightCount

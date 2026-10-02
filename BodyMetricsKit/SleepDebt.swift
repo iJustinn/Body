@@ -74,10 +74,11 @@ struct SleepDebtChartModel: Equatable {
     /// The pickable nights, the 13 nights the oldest one's window reaches back
     /// to, and the day before those for its Training Load and sleep HRV.
     static let entryDayCount = selectableNightCount + windowNightCount
-    /// The nights the watch Sleep page charts. Each is the same 14 night debt
-    /// the phone shows for that night, since a night reads only its own window,
-    /// the entry before it, and the 56 days of history behind them.
-    static let watchNightCount = 7
+    /// The nights the watch Sleep page charts: the same 14 the phone's chart
+    /// draws (`chartNights`). Each is the same 14 night debt the phone shows
+    /// for that night, since a night reads only its own window, the entry
+    /// before it, and the 56 days of history behind them.
+    static let watchNightCount = windowNightCount
 
     /// Days of sleep history, ending today, that `inputs` reads for a model of
     /// `nightCount` nights: the entry days, the two days of slack, and a whole
