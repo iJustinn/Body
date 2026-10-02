@@ -35,9 +35,11 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     @Published private(set) var hiddenMetricKinds: Set<String>
 
     private let healthStore = WatchHealthStore()
-    /// The Heart Rate and HRV pages' "Last 8 hours" charts, read from the
-    /// watch's own HealthKit through `readIntradayBuckets` (the same gate and
-    /// source filter as the live values). Lazy because the read closure
+    /// The Heart Rate, HRV, Steps and Active Energy pages' "Last 8 hours"
+    /// charts, read from the watch's own HealthKit through
+    /// `readIntradayBuckets` (HR and HRV behind the live values' gate and
+    /// source filter, the two totals behind their own permission and the
+    /// compute's movement source rule). Lazy because the read closure
     /// captures `self`, which a stored `let` can't do before `super.init()`.
     private(set) lazy var intradayCharts = WatchIntradayChartStore { [weak self] kind, window in
         await self?.readIntradayBuckets(kind: kind, window: window)
@@ -692,8 +694,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// Sequenced, not parallel: the compute's HR/HRV come from the same samples
     /// the live read would take, and running it first means the live read only
     /// ever confirms or improves on them. The "Last 8 hours" charts keep what
-    /// they show, but the next visit to the Heart Rate or HRV page reads fresh
-    /// (the button lives on the dashboard, so no chart page is visible).
+    /// they show, but the next visit to a page that carries one (Heart Rate,
+    /// HRV, Steps, Active Energy) reads fresh (the button
+    /// lives on the dashboard, so no chart page is visible).
     func refresh() async {
         intradayCharts.invalidate()
         await recomputeIfStale(force: true)
@@ -747,18 +750,31 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     }
 
     /// The "Last 8 hours" chart read (`WatchIntradayChartStore.Load`), behind
-    /// the live path's gate. A refused gate (Heart off on the phone, or the
-    /// selection never synced) returns `[]`, not nil, on purpose: it removes
-    /// the chart rather than keeping one read before Heart was turned off.
-    /// Shares the live path's authorization latch, so whichever of the two
-    /// reads first asks for HR and HRV, once.
+    /// the kind's own permission gate (Heart for HR and HRV, Steps for Steps,
+    /// Energy for Active Energy; see `WatchHealthStore.intradayQuery`). A
+    /// refused gate (the permission off on the phone, or the selection never
+    /// synced) returns `[]`, not nil, on purpose: it removes the chart rather
+    /// than keeping one read before the permission was turned off.
+    ///
+    /// Authorization: HR and HRV share the live path's latch, so whichever of
+    /// the two reads first asks for HR and HRV, once. The two totals are in
+    /// the compute's read set, not the live one, so they await the compute's
+    /// single shared request instead (normally long settled by the time a
+    /// page is open; otherwise the one sheet it raises is the one the
+    /// foreground compute would raise), never a second sheet of their own.
     private func readIntradayBuckets(kind: String, window: WatchIntradayWindow) async -> [WatchIntradayBucket]? {
         let permission = BodyHealthPermissionSelection.load()
-        guard Self.hasSyncedPermissionSelection(), permission.includes(.heart) else { return [] }
+        guard let query = WatchHealthStore.intradayQuery(forKind: kind),
+              Self.hasSyncedPermissionSelection(), permission.includes(query.permission) else { return [] }
 
-        if !hasRequestedLiveAuthorization {
-            hasRequestedLiveAuthorization = true
-            await healthStore.requestLiveAuthorization()
+        switch query.aggregation {
+        case .discrete:
+            if !hasRequestedLiveAuthorization {
+                hasRequestedLiveAuthorization = true
+                await healthStore.requestLiveAuthorization()
+            }
+        case .cumulativeSum:
+            await awaitComputeAuthorization(for: permission)
         }
         return await healthStore.intradayBuckets(kind: kind, permission: permission, window: window)
     }

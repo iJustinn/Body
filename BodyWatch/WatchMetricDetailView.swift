@@ -21,9 +21,11 @@
 //  (`WatchSleepDebtChartView`). The Training Load page scrolls the same way whenever the
 //  snapshot carries the weekly workout minutes, adding the Weekly Workout Time
 //  complication's bar chart (`WatchExerciseWeekChartView`) below its value row.
-//  The Heart Rate and HRV pages scroll the same way whenever the watch has
-//  readings from the last 8 hours, adding the "Last 8 hours" chart
-//  (`WatchIntradayChartView`) below their value row. The Stress page scrolls
+//  The Heart Rate, HRV, Steps and Active Energy pages scroll the same way
+//  whenever the watch has readings from the last 8 hours, adding the "Last 8
+//  hours" chart (`WatchIntradayChartView`) below their value row: ranges under
+//  a line for the two heart kinds, a bar per 30 minute slot for the two daily
+//  totals (Resting Energy has none, like the iPhone). The Stress page scrolls
 //  the same way whenever the snapshot's Stress timeline has a window in the
 //  last 12 hours, adding its own "Last 12 hours" chart (`WatchStressChartView`)
 //  below its value row.
@@ -64,8 +66,9 @@ struct WatchMetricDetailView: View {
     /// week chart stays). Ignored on every other page.
     var exerciseWeekMetric: WatchMetric? = nil
     /// The watch's own last 8 hours of readings for this kind (see
-    /// `WatchIntradayChartStore`), drawn below the Heart Rate or HRV page's
-    /// info (the week chart stays). Ignored on every other page.
+    /// `WatchIntradayChartStore`), drawn below the Heart Rate, HRV, Steps or
+    /// Active Energy page's info (the week chart stays). Ignored on every
+    /// other page.
     var intradayChart: WatchIntradayChart? = nil
     /// The snapshot's `stressTimeline` (the recent 15 minute Stress windows),
     /// drawn below the Stress page's info (the week chart stays). Ignored on
@@ -178,9 +181,10 @@ struct WatchMetricDetailView: View {
         return weekly.contains(where: { $0 != nil }) ? weekly : nil
     }
 
-    /// The Heart Rate or HRV page's last 8 hours, added below the page's info
-    /// and making the page scroll, or nil (the page reads exactly like every
-    /// other metric's) on any other page or when there are no readings.
+    /// The Heart Rate, HRV, Steps or Active Energy page's last 8 hours, added
+    /// below the page's info and making the page scroll, or nil (the page
+    /// reads exactly like every other metric's) on any other page or when
+    /// there are no readings.
     static func intradayChart(_ chart: WatchIntradayChart?, kind: String) -> WatchIntradayChart? {
         guard WatchIntradayChartStore.chartKinds.contains(kind), let chart, !chart.buckets.isEmpty else { return nil }
         return chart
@@ -245,7 +249,11 @@ struct WatchMetricDetailView: View {
                         }
 
                         if let visibleIntradayChart {
-                            WatchIntradayChartView(chart: visibleIntradayChart, kind: metric.kind, tint: pageTint)
+                            WatchIntradayChartView(
+                                chart: visibleIntradayChart,
+                                tint: pageTint,
+                                style: .style(forKind: metric.kind)
+                            )
                                 .frame(height: 86)
                                 .padding(.top, 10)
                                 .padding(.bottom, 12)
@@ -456,6 +464,24 @@ struct WatchMetricDetailView: View {
                 .init(low: 31, high: 84), .init(low: 27, high: 70), .init(low: 25, high: 68)
             ]
         ), intradayChart: .preview(kind: WatchMetricKindKey.heartRateVariability))
+    }
+}
+
+#Preview("Steps") {
+    NavigationStack {
+        WatchMetricDetailView(metric: WatchMetric(
+            kind: WatchMetricKindKey.steps,
+            title: "Steps",
+            displayValue: "8,432",
+            unit: "",
+            score: nil,
+            fillFraction: 0.77,
+            rawValue: 8_432,
+            rangeMin: 0,
+            rangeMax: 11_020,
+            weekly: [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 8_432],
+            weeklyAsOf: Date()
+        ), intradayChart: .preview(kind: WatchMetricKindKey.steps))
     }
 }
 

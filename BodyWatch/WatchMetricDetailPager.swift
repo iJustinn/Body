@@ -7,8 +7,8 @@
 //  Digital Crown to move between metrics (the right-edge page dots track
 //  position). Entered from a dashboard card or a complication tap, it opens
 //  positioned on the chosen metric — the order doesn't change. While the
-//  Heart Rate or HRV page is the visible one, it keeps that page's "Last 8
-//  hours" chart fresh (`WatchIntradayChartStore`). The Stress page's "Last 8
+//  Heart Rate, HRV, Steps or Active Energy page is the visible one, it keeps
+//  that page's "Last 8 hours" chart fresh (`WatchIntradayChartStore`). The Stress page's "Last 8
 //  hours" chart rides the snapshot instead (the compute builds it alongside
 //  the Stress value), so it is not read here.
 //

@@ -7,7 +7,8 @@
 //  `refreshInterval`, counted from the last read that FINISHED; a nil read
 //  keeps the chart but still starts the wait, an empty one removes it; a read
 //  that was cancelled, or that was in flight when `clear()` ran, lands nothing
-//  and records nothing; and only the Heart Rate and HRV kinds ever read.
+//  and records nothing; and only the four charted kinds (Heart Rate, HRV,
+//  Steps, Active Energy) ever read.
 //
 //  The clock and the HealthKit read are both injected. A held read parks
 //  inside the loader until the test releases it, and signals its arrival
@@ -283,6 +284,22 @@ final class WatchIntradayChartStoreTests: XCTestCase {
         XCTAssertTrue(loader.calls.isEmpty)
         XCTAssertTrue(store.charts.isEmpty)
         XCTAssertEqual(wait, interval)
+    }
+
+    func testDailyTotalKindsRead() async {
+        let (store, _, loader) = makeStore()
+        loader.results = [buckets(1_640), buckets(96)]
+
+        for kind in [WatchMetricKindKey.steps, WatchMetricKindKey.activeEnergy] {
+            let wait = await store.refreshIfStale(kind: kind)
+            XCTAssertEqual(wait, interval, kind)
+        }
+        let restingWait = await store.refreshIfStale(kind: WatchMetricKindKey.restingEnergy)
+
+        XCTAssertEqual(loader.calls.map(\.kind), [WatchMetricKindKey.steps, WatchMetricKindKey.activeEnergy], "Resting Energy never reads")
+        XCTAssertEqual(restingWait, interval)
+        XCTAssertEqual(store.charts[WatchMetricKindKey.steps]?.buckets, buckets(1_640))
+        XCTAssertEqual(store.charts[WatchMetricKindKey.activeEnergy]?.buckets, buckets(96))
     }
 
     func testEachKindKeepsItsOwnInterval() async {

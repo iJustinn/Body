@@ -2,11 +2,13 @@
 //  WatchIntradayChartTests.swift
 //  BodyWatchTests
 //
-//  Locks the Heart Rate and HRV pages' "Last 8 hours" chart: the rolling
-//  window opens 8 hours before the current local half hour slot, the
-//  average line breaks across an hour without readings, the value axis keeps
-//  every mark inside it, hour labels sit on even local hours away from the
-//  plot's edges, and only the Heart Rate and HRV pages show a chart.
+//  Locks the "Last 8 hours" chart on the Heart Rate, HRV, Steps and Active
+//  Energy pages: the rolling window opens 8 hours before the current local
+//  half hour slot, the average line breaks across an hour without readings,
+//  the value axis keeps every mark inside it (and starts at zero for the daily
+//  totals' bars), hour labels sit on even local hours away from the plot's
+//  edges, the daily total kinds take the bar style, and only those four pages
+//  show a chart.
 //
 
 import XCTest
@@ -84,37 +86,35 @@ final class WatchIntradayChartTests: XCTestCase {
 
     // MARK: - Value axis
 
-    func testHeartRateDomainCoversEveryCapsule() {
+    func testDomainCoversEveryCapsule() {
         let domain = WatchIntradayChartView.yDomain(
-            for: chart([bucket(0, min: 50, max: 80, average: 60), bucket(30, min: 100, max: 150, average: 120)]),
-            kind: WatchMetricKindKey.heartRate
+            for: chart([bucket(0, min: 50, max: 80, average: 60), bucket(30, min: 100, max: 150, average: 120)])
         )
-        XCTAssertLessThan(domain.lowerBound, 50)
-        XCTAssertGreaterThan(domain.upperBound, 150)
-    }
-
-    func testHRVDomainSpansTheAveragesOnly() {
-        let domain = WatchIntradayChartView.yDomain(
-            for: chart([bucket(0, min: 10, max: 200, average: 40), bucket(30, min: 10, max: 200, average: 60)]),
-            kind: WatchMetricKindKey.heartRateVariability
-        )
-        XCTAssertEqual(domain.lowerBound, 40 - 20 * 0.16, accuracy: 0.0001)
-        XCTAssertEqual(domain.upperBound, 60 + 20 * 0.16, accuracy: 0.0001)
+        XCTAssertEqual(domain.lowerBound, 50 - 100 * 0.16, accuracy: 0.0001)
+        XCTAssertEqual(domain.upperBound, 150 + 100 * 0.16, accuracy: 0.0001)
     }
 
     func testFlatValuesStillGetPadding() {
         let domain = WatchIntradayChartView.yDomain(
-            for: chart([bucket(0, min: 44, max: 44, average: 44)]),
-            kind: WatchMetricKindKey.heartRateVariability
+            for: chart([bucket(0, min: 44, max: 44, average: 44)])
         )
         XCTAssertLessThan(domain.lowerBound, 44)
         XCTAssertGreaterThan(domain.upperBound, 44)
     }
 
+    func testTotalsDomainStartsAtZeroAndClearsTheTallestBar() {
+        let domain = WatchIntradayChartView.yDomain(
+            for: chart([bucket(0, min: 420, max: 420, average: 420), bucket(30, min: 2_210, max: 2_210, average: 2_210)]),
+            style: .totals
+        )
+        XCTAssertEqual(domain.lowerBound, 0)
+        XCTAssertEqual(domain.upperBound, 2_210 * 1.16, accuracy: 0.0001)
+        XCTAssertEqual(WatchIntradayChartView.yDomain(for: chart([]), style: .totals), 0...1)
+    }
+
     func testDomainNeverGoesBelowZero() {
         let domain = WatchIntradayChartView.yDomain(
-            for: chart([bucket(0, min: 0.5, max: 3, average: 1)]),
-            kind: WatchMetricKindKey.heartRate
+            for: chart([bucket(0, min: 0.5, max: 3, average: 1)])
         )
         XCTAssertEqual(domain.lowerBound, 0)
         XCTAssertGreaterThan(domain.upperBound, 3)
@@ -154,20 +154,57 @@ final class WatchIntradayChartTests: XCTestCase {
 
     // MARK: - Capsule width
 
+    func testBarWidthStaysBetweenThreeAndTenPoints() {
+        XCTAssertEqual(WatchIntradayChartView.barWidth(forPlotWidth: 10), 3)
+        XCTAssertEqual(WatchIntradayChartView.barWidth(forPlotWidth: 1_000), 10)
+        XCTAssertEqual(WatchIntradayChartView.barWidth(forPlotWidth: 165), 165 / 17 * 0.8, accuracy: 0.0001)
+    }
+
     func testCapsuleWidthStaysBetweenTwoAndEightPoints() {
         XCTAssertEqual(WatchIntradayChartView.capsuleWidth(forPlotWidth: 10), 2)
         XCTAssertEqual(WatchIntradayChartView.capsuleWidth(forPlotWidth: 1_000), 8)
         XCTAssertEqual(WatchIntradayChartView.capsuleWidth(forPlotWidth: 165), 165 / 17 * 0.62, accuracy: 0.0001)
     }
 
+    // MARK: - Style
+
+    func testTotalsStyleForTheDailyTotalKindsOnly() {
+        for kind in [WatchMetricKindKey.steps, WatchMetricKindKey.activeEnergy, WatchMetricKindKey.restingEnergy] {
+            XCTAssertEqual(WatchIntradayChartView.Style.style(forKind: kind), .totals, kind)
+        }
+        for kind in [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability, WatchMetricKindKey.sleep] {
+            XCTAssertEqual(WatchIntradayChartView.Style.style(forKind: kind), .range, kind)
+        }
+    }
+
     // MARK: - Page gate
 
-    func testOnlyHeartRateAndHRVPagesShowAChart() {
+    func testOnlyTheFourIntradayPagesShowAChart() {
         let filled = chart([bucket(0)])
-        XCTAssertNotNil(WatchMetricDetailView.intradayChart(filled, kind: WatchMetricKindKey.heartRate))
-        XCTAssertNotNil(WatchMetricDetailView.intradayChart(filled, kind: WatchMetricKindKey.heartRateVariability))
-        XCTAssertNil(WatchMetricDetailView.intradayChart(filled, kind: WatchMetricKindKey.sleep))
-        XCTAssertNil(WatchMetricDetailView.intradayChart(filled, kind: WatchMetricKindKey.trainingLoad))
+        for kind in [
+            WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability,
+            WatchMetricKindKey.steps, WatchMetricKindKey.activeEnergy
+        ] {
+            XCTAssertNotNil(WatchMetricDetailView.intradayChart(filled, kind: kind), kind)
+        }
+        for kind in [
+            WatchMetricKindKey.sleep, WatchMetricKindKey.trainingLoad, WatchMetricKindKey.restingHeartRate,
+            WatchMetricKindKey.stress, WatchMetricKindKey.wristTemperature, WatchMetricKindKey.restingEnergy
+        ] {
+            XCTAssertNil(WatchMetricDetailView.intradayChart(filled, kind: kind), kind)
+        }
+    }
+
+    func testPreviewTotalsCarryOneNumberPerSlot() {
+        let steps = WatchIntradayChart.preview(kind: WatchMetricKindKey.steps, now: base, calendar: calendar)
+        XCTAssertFalse(steps.buckets.isEmpty)
+        for bucket in steps.buckets {
+            XCTAssertEqual(bucket.minimum, bucket.average)
+            XCTAssertEqual(bucket.maximum, bucket.average)
+            XCTAssertGreaterThan(bucket.average, 0)
+        }
+        XCTAssertLessThan(steps.buckets.count, 17, "an idle hour leaves slots out")
+        XCTAssertEqual(WatchIntradayChart.preview(kind: WatchMetricKindKey.activeEnergy, now: base, calendar: calendar).buckets.count, steps.buckets.count)
     }
 
     func testNoChartWithoutReadings() {

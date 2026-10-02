@@ -2,17 +2,17 @@
 //  WatchIntradayChartStore.swift
 //  BodyWatch
 //
-//  The data behind the "Last 8 hours" charts on the Heart Rate and HRV detail
-//  pages: the watch reads them from its own Apple Health data, in 30 minute
-//  slots, with no phone involved. Held in memory only. The pager asks for a
+//  The data behind the "Last 8 hours" charts on the Heart Rate, HRV, Steps
+//  and Active Energy detail pages: the watch reads them from its own Apple
+//  Health data, in 30 minute slots, with no phone involved. Held in memory only. The pager asks for a
 //  kind only while that kind's page is the visible one (see
 //  `WatchMetricDetailPager`), and a kind is read at most once every
 //  `refreshInterval`, counted from the last read that finished, so paging
 //  back and forth costs no extra HealthKit queries.
 //
 //  The read itself is injected (`Load`): production wires it to
-//  `WatchMetricsModel.readIntradayBuckets`, which owns the permission gate
-//  and the source resolution; tests script it.
+//  `WatchMetricsModel.readIntradayBuckets`, which owns the per kind permission
+//  gate and the source resolution; tests script it.
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -20,7 +20,10 @@
 import Foundation
 
 /// One 30 minute slot of readings, in the metric's display unit (bpm for
-/// Heart Rate, ms for HRV). Slots without a reading are never built.
+/// Heart Rate, ms for HRV, steps, kcal or kJ for the energies). Slots without
+/// a reading are never built. For the daily total kinds (Steps, Active Energy)
+/// a slot has one number, its sum, carried in all three fields; the chart's
+/// `.totals` style reads `average`.
 struct WatchIntradayBucket: Equatable, Sendable {
     let start: Date
     let minimum: Double
@@ -80,14 +83,18 @@ final class WatchIntradayChartStore: ObservableObject {
     /// screen": the read failed (a locked or off wrist watch), or the phone's
     /// source selection couldn't be resolved this time. An empty array is a
     /// real absence: no readings in the window, the kind isn't charted, or the
-    /// gate refused the read (Heart turned off on the phone, or nothing
-    /// synced yet), and it removes the chart.
+    /// gate refused the read (the kind's permission, Heart, Steps or Energy,
+    /// turned off on the phone, or nothing synced yet), and it removes the
+    /// chart.
     typealias Load = @MainActor (_ kind: String, _ window: WatchIntradayWindow) async -> [WatchIntradayBucket]?
 
     /// The minimum time between two finished reads of the same kind.
     static let refreshInterval: TimeInterval = 5 * 60
     /// The kinds whose pages carry a "Last 8 hours" chart.
-    static let chartKinds: Set<String> = [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability]
+    static let chartKinds: Set<String> = [
+        WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability,
+        WatchMetricKindKey.steps, WatchMetricKindKey.activeEnergy
+    ]
 
     /// The latest chart per kind; a kind without one shows no chart and its
     /// page doesn't scroll.
@@ -168,19 +175,38 @@ extension WatchIntradayChart {
     /// A deterministic chart ending at `now` for previews and the watch page
     /// screenshots. Heart Rate: a resting stretch, a workout spike, and an
     /// hour off the wrist that breaks the average line. HRV: a few sparse
-    /// readings, the way the watch takes them.
+    /// readings, the way the watch takes them: a run of consecutive slots the
+    /// line joins, lone slots it skips, each with a small spread and one with
+    /// a single reading. Steps and Active Energy: a walk, a desk stretch with
+    /// an idle hour (no slots), and a late walk.
     static func preview(kind: String, now: Date = Date(), calendar: Calendar = .current) -> WatchIntradayChart {
         let window = WatchIntradayWindow.endingAt(now, calendar: calendar)
         let slotCount = Int((window.plotEnd.timeIntervalSince(window.start) / WatchIntradayWindow.slotLength).rounded())
         func slotStart(_ index: Int) -> Date {
             window.start.addingTimeInterval(Double(index) * WatchIntradayWindow.slotLength)
         }
+        func totals(_ sums: [Double?]) -> WatchIntradayChart {
+            let buckets = sums.prefix(slotCount).enumerated().compactMap { index, sum -> WatchIntradayBucket? in
+                guard let sum else { return nil }
+                return WatchIntradayBucket(start: slotStart(index), minimum: sum, maximum: sum, average: sum)
+            }
+            return WatchIntradayChart(window: window, buckets: buckets)
+        }
+
+        switch kind {
+        case WatchMetricKindKey.steps:
+            return totals([420, 980, 1_640, 310, 120, nil, nil, 260, 2_210, 1_480, 390, 150, 90, 640, 1_120, 710, 480])
+        case WatchMetricKindKey.activeEnergy:
+            return totals([28, 54, 96, 24, 12, nil, nil, 20, 138, 92, 30, 14, 9, 42, 70, 46, 31])
+        default:
+            break
+        }
 
         guard kind == WatchMetricKindKey.heartRate else {
-            let readings: [(slot: Int, value: Double)] = [(1, 48), (4, 41), (8, 56), (12, 44), (15, 38)]
+            let readings: [(slot: Int, value: Double, spread: Double)] = [(1, 48, 9), (2, 52, 7), (3, 45, 5), (8, 56, 14), (12, 44, 0), (14, 41, 6), (15, 38, 7)]
             let buckets = readings
                 .filter { $0.slot < slotCount }
-                .map { WatchIntradayBucket(start: slotStart($0.slot), minimum: $0.value, maximum: $0.value, average: $0.value) }
+                .map { WatchIntradayBucket(start: slotStart($0.slot), minimum: $0.value - $0.spread, maximum: $0.value + $0.spread, average: $0.value) }
             return WatchIntradayChart(window: window, buckets: buckets)
         }
 

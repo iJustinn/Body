@@ -5,9 +5,10 @@
 //  Opt-in writer for `watch-pages-screenshots/`: one full page render each
 //  for the Heart Rate, HRV and Stress detail pages at this simulator's screen
 //  size, the first screen (the 7-day chart with its daily ranges) with the
-//  "Last 8 hours" (Stress: "Last 12 hours") chart below it, and one screen
-//  each for the Steps, Active Energy and Resting Energy pages (their 7 day
-//  bars and today's total; nothing scrolls in below). It touches the worktree, so it skips unless
+//  "Last 8 hours" (Stress: "Last 12 hours") chart below it, the same for the
+//  Steps and Active Energy pages (their 7 day bars and today's total, then the
+//  "Last 8 hours" slot bars), and one screen for Resting Energy (no intraday
+//  chart, like the iPhone). It touches the worktree, so it skips unless
 //  `BODY_WATCH_PAGE_SCREENSHOTS=1` is in the environment. Not a snapshot
 //  test.
 //
@@ -50,8 +51,8 @@ final class WatchPageScreenshotTests: XCTestCase {
             try writePage(item.name, metric: item.metric, now: now, to: directory) {
                 WatchIntradayChartView(
                     chart: .preview(kind: item.metric.kind, now: now),
-                    kind: item.metric.kind,
-                    tint: Color(WatchMetricKindKey.tint(forKind: item.metric.kind))
+                    tint: Color(WatchMetricKindKey.tint(forKind: item.metric.kind)),
+                    style: .range
                 )
             }
         }
@@ -60,11 +61,17 @@ final class WatchPageScreenshotTests: XCTestCase {
             WatchStressChartView(timeline: .preview(now: now), now: now, palette: .builtIn)
         }
 
-        // The day's running totals: a single screen each (the 7 day bars and
-        // today's total, no section scrolls in below), so nothing is stacked.
+        // The day's running totals: the 7 day bars and today's total, then,
+        // where the page has one, the last 8 hours as a bar per 30 minute slot.
         for item in dailyTotals(now: now) {
             try writePage(item.name, metric: item.metric, now: now, to: directory) {
-                EmptyView()
+                if WatchIntradayChartStore.chartKinds.contains(item.metric.kind) {
+                    WatchIntradayChartView(
+                        chart: .preview(kind: item.metric.kind, now: now),
+                        tint: Color(WatchMetricKindKey.tint(forKind: item.metric.kind)),
+                        style: .totals
+                    )
+                }
             }
         }
     }
