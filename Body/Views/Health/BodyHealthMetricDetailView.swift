@@ -2535,10 +2535,10 @@ struct BodyHealthMetricDetailView: View {
                         // day — a dot on every hour reads as noise, so flat runs keep
                         // only their start and end dots.
                         collapsesUnchangedPoints: model.kind == .readiness,
-                        // Heart rate and respiratory rate plot min-max bars on their
-                        // Week/Month/6M/Year chart, so their Day View carries the same
-                        // bars per hour.
-                        showsHourlyRangeBars: model.kind == .heartRate || model.kind == .respiratoryRate,
+                        // Heart rate, HRV and respiratory rate plot min-max bars on
+                        // their Week/Month/6M/Year chart, so their Day View carries the
+                        // same bars per hour.
+                        showsHourlyRangeBars: model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .respiratoryRate,
                         floatingCallout: floatingCallout
                     )
                     .frame(height: BodyHealthDetailChartLayout.dayChartHeight)

@@ -1710,10 +1710,10 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(chartBlock.contains(".cornerRadius(rangeBarWidth / 2)"))
         XCTAssertTrue(chartBlock.contains(".foregroundStyle(Self.rangeBarColor)"))
         XCTAssertTrue(chartBlock.contains("bodyRangeChartPointSymbolSize(forBarWidth: rangeBarWidth)"))
-        // Only the two metrics whose long-range chart bars its min-max opt in, and
-        // the domain has to grow to the extremes the bars reach or they clip at the
-        // plot edges.
-        XCTAssertTrue(source.contains("showsHourlyRangeBars: model.kind == .heartRate || model.kind == .respiratoryRate"))
+        // Only the three metrics whose long-range chart bars its min-max opt in,
+        // and the domain has to grow to the extremes the bars reach or they clip
+        // at the plot edges.
+        XCTAssertTrue(source.contains("showsHourlyRangeBars: model.kind == .heartRate || model.kind == .heartRateVariability || model.kind == .respiratoryRate"))
         XCTAssertTrue(source.contains("let rangeEntries = showsHourlyRangeBars ? Self.makeRangeEntries(from: buckets) : []"))
         XCTAssertTrue(source.contains("rangeEntries.flatMap { [$0.lowValue, $0.highValue] }"))
     }
