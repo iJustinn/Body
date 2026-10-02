@@ -6,7 +6,8 @@
 //  metric's fixed kind color washes the whole screen (the status-band color
 //  appears only on the band highlight and the status label, matching the iOS
 //  detail page), the title sits top-right, the recent-
-//  week chart sits below it, and the current value reads large at the
+//  week chart sits below it (on Heart Rate and HRV with each day's low to
+//  high range under the line), and the current value reads large at the
 //  bottom-left — followed, for Readiness and Training Load, by the status level
 //  beside it ("85 · HIGH"), and on Sleep by the night's duration under the same
 //  dot ("85 pts · 7h 32m"). On the Sleep page, whenever the snapshot carries
@@ -23,7 +24,7 @@
 //  The
 //  tint fill is the page's own background so it slides with the vertical
 //  pager, giving a smooth color transition between metrics. Display-only: it
-//  reads the `weekly` series, `statusBand`, sleep score, sleep stages, and
+//  reads the `weekly` series and its daily ranges, `statusBand`, sleep score, sleep stages, and
 //  workout minutes the iPhone baked into the pushed snapshot, the Sleep Debt
 //  the phone pushes or the watch recomputes, and the last 8 hours the watch
 //  reads itself (nothing is computed here).
@@ -86,6 +87,19 @@ struct WatchMetricDetailView: View {
             weekly[weekly.count - 1] = nil
         }
         return weekly
+    }
+
+    /// Each day's low/high under the sparkline (Heart Rate and HRV), rewound
+    /// onto `today` exactly like `sparklineWeekly` so every capsule stays
+    /// under its own day's point. Today's slot follows the headline too: a
+    /// cleared metric drops today's capsule along with today's point. Nil when
+    /// no day has a range.
+    static func sparklineRanges(metric: WatchMetric, generatedAt: Date, today: Date, calendar: Calendar = .current) -> [WatchDayRange?]? {
+        var ranges = metric.weeklyRangesRewound(from: generatedAt, to: today, calendar: calendar)
+        if !metric.hasValue, !ranges.isEmpty {
+            ranges[ranges.count - 1] = nil
+        }
+        return ranges.contains(where: { $0 != nil }) ? ranges : nil
     }
 
     /// The night's 0–100 sleep score, as the iPhone baked it into the Sleep
@@ -220,7 +234,8 @@ struct WatchMetricDetailView: View {
                     band: metric.statusBand,
                     bandTint: statusTint,
                     currentValue: metric.weeklyCurrentValue,
-                    dayLabels: weekdayLabels(count: weekly.count)
+                    dayLabels: weekdayLabels(count: weekly.count),
+                    ranges: Self.sparklineRanges(metric: metric, generatedAt: generatedAt, today: referenceDate)
                 )
                 .frame(height: 86)
                 .padding(.top, 4)
@@ -356,7 +371,11 @@ struct WatchMetricDetailView: View {
             rawValue: 62,
             rangeMin: 54,
             rangeMax: 72,
-            weekly: [58, 64, nil, 55, 72, 61, 62]
+            weekly: [58, 64, nil, 55, 72, 61, 62],
+            weeklyRanges: [
+                .init(low: 47, high: 131), .init(low: 49, high: 152), nil, .init(low: 46, high: 118),
+                .init(low: 52, high: 166), .init(low: 48, high: 139), .init(low: 50, high: 127)
+            ]
         ), intradayChart: .preview(kind: WatchMetricKindKey.heartRate))
     }
 }
@@ -373,7 +392,11 @@ struct WatchMetricDetailView: View {
             rawValue: 44,
             rangeMin: 30,
             rangeMax: 60,
-            weekly: [41, 48, 39, nil, 52, 46, 44]
+            weekly: [41, 48, 39, nil, 52, 46, 44],
+            weeklyRanges: [
+                .init(low: 24, high: 66), .init(low: 29, high: 78), .init(low: 22, high: 61), nil,
+                .init(low: 31, high: 84), .init(low: 27, high: 70), .init(low: 25, high: 68)
+            ]
         ), intradayChart: .preview(kind: WatchMetricKindKey.heartRateVariability))
     }
 }

@@ -7,7 +7,9 @@
 //  with a ringed dot per day and a solid dot for today (line broken across
 //  missing days), and weekday labels along the bottom. For banded metrics
 //  (Readiness, Training Load) it also highlights today's status band behind the
-//  line — a translucent fill bounded by two bright stripes.
+//  line — a translucent fill bounded by two bright stripes. Heart Rate and HRV
+//  also draw each day's lowest to highest reading as a faint capsule under the
+//  line, the iPhone week chart's range bars.
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -29,6 +31,10 @@ struct WatchSparklineView: View {
     var currentValue: Double? = nil
     /// Per-day labels (oldest → today), drawn along the bottom of the chart.
     var dayLabels: [String] = []
+    /// Each day's lowest and highest reading (oldest → today, aligned with
+    /// `values`), drawn as a capsule behind the line; `nil` for a day without
+    /// one, and for metrics without ranges.
+    var ranges: [WatchDayRange?]? = nil
 
     private let topInset: CGFloat = 5
     private let bottomPlotInset: CGFloat = 3
@@ -38,6 +44,9 @@ struct WatchSparklineView: View {
     private let currentPointDiameter: CGFloat = 7
     private let pointRingWidth: CGFloat = 1.5
     private let stripeHeight: CGFloat = 1.5
+    /// The "Last 8 hours" chart's capsule color, so the two charts on one
+    /// page read alike.
+    private let rangeColor = Color.white.opacity(0.28)
 
     var body: some View {
         GeometryReader { geo in
@@ -54,6 +63,8 @@ struct WatchSparklineView: View {
                     // dot is solid: an earlier day with data must not be rendered
                     // as if it were current.
                     let currentIndex = values.indices.last.flatMap { values[$0]?.isFinite == true ? $0 : nil }
+
+                    rangeLayer(in: size, plotHeight: plotHeight, domain: domain)
 
                     bandLayer(in: size, plotHeight: plotHeight, domain: domain)
 
@@ -119,6 +130,34 @@ struct WatchSparklineView: View {
         }
     }
 
+    // MARK: - Daily ranges
+
+    /// A capsule per day from its lowest to its highest reading, centered in
+    /// the day's slot under the point. A day whose low equals its high gets a
+    /// round dot of the capsule's width.
+    @ViewBuilder
+    private func rangeLayer(in size: CGSize, plotHeight: CGFloat, domain: (lo: Double, hi: Double)) -> some View {
+        if let ranges {
+            let count = Swift.max(values.count, 1)
+            let width = Self.rangeWidth(forSlotWidth: size.width / CGFloat(count))
+            ForEach(Array(ranges.prefix(count).enumerated()), id: \.offset) { index, range in
+                if let range, range.low.isFinite, range.high.isFinite {
+                    let yTop = y(for: Swift.max(range.low, range.high), plotHeight: plotHeight, domain: domain)
+                    let yBottom = y(for: Swift.min(range.low, range.high), plotHeight: plotHeight, domain: domain)
+                    Capsule()
+                        .fill(rangeColor)
+                        .frame(width: width, height: Swift.max(yBottom - yTop, width))
+                        .position(x: size.width * (CGFloat(index) + 0.5) / CGFloat(count), y: (yTop + yBottom) / 2)
+                }
+            }
+        }
+    }
+
+    /// About a quarter of a day's slot, kept between 4 and 8 points.
+    static func rangeWidth(forSlotWidth slotWidth: CGFloat) -> CGFloat {
+        Swift.min(Swift.max(slotWidth * 0.26, 4), 8)
+    }
+
     // MARK: - Status band
 
     @ViewBuilder
@@ -173,11 +212,15 @@ struct WatchSparklineView: View {
 
     // MARK: - Geometry
 
-    /// Y domain over the finite values plus any finite band bounds and the
-    /// current-value dot, padded 12% and clamped ≥ 0 — mirroring the iPhone
-    /// line chart's `computeYDomain`.
+    /// Y domain over the finite values plus any finite band bounds, daily
+    /// range ends and the current-value dot, padded 12% and clamped ≥ 0 —
+    /// mirroring the iPhone line chart's `computeYDomain`.
     private func yDomain() -> (lo: Double, hi: Double)? {
         var domainValues = values.compactMap { $0 }.filter(\.isFinite)
+        for range in (ranges ?? []).prefix(values.count) {
+            guard let range else { continue }
+            domainValues.append(contentsOf: [range.low, range.high].filter(\.isFinite))
+        }
         if let dotValue = Self.currentDotValue(values: values, currentValue: currentValue) {
             domainValues.append(dotValue)
         }
