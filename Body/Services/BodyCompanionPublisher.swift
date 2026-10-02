@@ -233,7 +233,7 @@ final class BodyCompanionPublisher {
                         .max()
                 }
             }
-            // The Stress page's "Last 8 hours", built here off the main actor
+            // The Stress page's "Last 12 hours", built here off the main actor
             // because it rescans the stress window. Over the store's LIVE
             // summary and trends: only they still carry the intraday day
             // samples, which the persisted dashboard and the seed both strip.
@@ -372,7 +372,7 @@ final class BodyCompanionPublisher {
 
     /// Size budget for the compute seed alone (before the display snapshot and
     /// permission key are added on top) — the `WatchComputeSeedTests` size test
-    /// pins a realistic fixture (70 days of trends, 79 nights of sleep history)
+    /// pins a realistic fixture (70 days of trends, 86 nights of sleep history)
     /// comfortably under this. Separate from
     /// `WatchConnectivityPublisher`'s whole-context budget, which accounts for
     /// the other context keys too.

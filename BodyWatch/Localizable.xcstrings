@@ -237,6 +237,23 @@
         }
       }
     },
+    "Last 12 hours" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last 12 hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近 12 小时"
+          }
+        }
+      }
+    },
     "Last 8 hours" : {
       "extractionState" : "manual",
       "localizations" : {

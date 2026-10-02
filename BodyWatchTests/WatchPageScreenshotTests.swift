@@ -5,7 +5,7 @@
 //  Opt-in writer for `watch-pages-screenshots/`: one full page render each
 //  for the Heart Rate, HRV and Stress detail pages at this simulator's screen
 //  size, the first screen (the 7-day chart with its daily ranges) with the
-//  "Last 8 hours" chart below it. It touches the worktree, so it skips unless
+//  "Last 8 hours" (Stress: "Last 12 hours") chart below it. It touches the worktree, so it skips unless
 //  `BODY_WATCH_PAGE_SCREENSHOTS=1` is in the environment. Not a snapshot
 //  test.
 //

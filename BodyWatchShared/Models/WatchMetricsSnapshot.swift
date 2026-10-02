@@ -389,7 +389,7 @@ struct WatchSleepDebt: Codable, Equatable {
     }
 }
 
-/// The Stress page's "Last 8 hours" chart: the recent 15 minute Stress windows,
+/// The Stress page's "Last 12 hours" chart: the recent 15 minute Stress windows,
 /// built by the shared `WatchStressTimelineBuilder` on either device. Compact
 /// on purpose, since it rides every push: one entry per window from `start`
 /// instead of a pair of dates each. Plain values so this file stays free of
@@ -513,12 +513,12 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// and shows it only while this is true. Nil (an older phone, which never
     /// shipped a debt) reads as off.
     var showsSleepDebt: Bool? = nil
-    /// The Stress page's "Last 8 hours" chart. Like `sleepDebt` it does not
+    /// The Stress page's "Last 12 hours" chart. Like `sleepDebt` it does not
     /// move with its card: it has its own provenance
     /// (`WatchStressTimeline.computedAt`) and merge rule, since the windows
     /// keep coming after midnight while the new day's average is still blank.
     /// No sanitize rule: the page draws only the windows inside its own last
-    /// 8 hours. Optional so snapshots from before this field decode.
+    /// 12 hours. Optional so snapshots from before this field decode.
     var stressTimeline: WatchStressTimeline? = nil
     /// The phone's custom workout colors (`BodyWorkoutColorOverrides` raw
     /// form, empty without Body Pro), for the workout shading on the Stress

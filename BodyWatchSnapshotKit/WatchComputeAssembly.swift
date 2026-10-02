@@ -245,7 +245,7 @@ enum WatchComputeAssembly {
                 //   record on the first compute; nil means "don't re-key them".
                 // Stress below makes the same `recordedStressContext: nil`
                 // call, and one more documented deviation of its own:
-                // * "Yesterday": when the last 8 hours cross midnight the
+                // * "Yesterday": when the last 12 hours cross midnight the
                 //   watch reads all of yesterday, so its recompute replaces
                 //   the seeded record for yesterday (fresh wins) and the
                 //   adopted week shows the watch's score for it. Local only;
@@ -257,7 +257,7 @@ enum WatchComputeAssembly {
 
         // Stress: the phone's `recalculatingStress` over the seed's recorded
         // days (the baselines and the week) plus this run's intraday reads,
-        // then the "Last 8 hours" timeline over the same inputs. Only the
+        // then the "Last 12 hours" timeline over the same inputs. Only the
         // Stress fields are taken from it, so everything the builder reads
         // for the other cards is exactly `recomputed`. With no reads at all
         // it rebuilds the week from the seeded records alone.
@@ -584,7 +584,7 @@ enum WatchComputeAssembly {
         return now
     }
 
-    /// Stress's watermark in `dataAsOf`, which also covers the "Last 8 hours"
+    /// Stress's watermark in `dataAsOf`, which also covers the "Last 12 hours"
     /// timeline (`WatchComputeMerge.mergingComputed`), or nil when neither
     /// may be adopted. Coverage semantics, like Sleep Debt's: Stress scores
     /// today's intraday heart rate, SDNN and RMSSD, masks movement with the

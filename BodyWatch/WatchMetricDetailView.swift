@@ -9,13 +9,14 @@
 //  week chart sits below it (on Heart Rate, HRV and Stress with each day's low
 //  to high range under the line), and the current value reads large at the
 //  bottom-left — followed, for Readiness, Training Load and Stress, by the
-//  status level beside it ("85 · HIGH"), and on Sleep by the night's duration
-//  under the same dot ("85 pts · 7h 32m"). On the Sleep page, whenever the
+//  status level beside it ("85 · HIGH"; Readiness and Training Load also
+//  highlight that level's band behind the week chart, Stress doesn't), and on
+//  Sleep by the night's duration under the same dot ("85 pts · 7h 32m"). On the Sleep page, whenever the
 //  snapshot carries
 //  the night's stages or a Sleep Debt to chart, that first screen scrolls: the
 //  week chart stays exactly where it is and the night's stages hypnogram
 //  (`WatchSleepStagesChartView`) is added below the value row, reached by
-//  scrolling down, followed by the last 7 nights' Sleep Debt line
+//  scrolling down, followed by the last 14 nights' Sleep Debt line
 //  (`WatchSleepDebtChartView`). The Training Load page scrolls the same way whenever the
 //  snapshot carries the weekly workout minutes, adding the Weekly Workout Time
 //  complication's bar chart (`WatchExerciseWeekChartView`) below its value row.
@@ -23,7 +24,7 @@
 //  readings from the last 8 hours, adding the "Last 8 hours" chart
 //  (`WatchIntradayChartView`) below their value row. The Stress page scrolls
 //  the same way whenever the snapshot's Stress timeline has a window in the
-//  last 8 hours, adding its own "Last 8 hours" chart (`WatchStressChartView`)
+//  last 12 hours, adding its own "Last 12 hours" chart (`WatchStressChartView`)
 //  below its value row.
 //  The
 //  tint fill is the page's own background so it slides with the vertical
@@ -52,7 +53,7 @@ struct WatchMetricDetailView: View {
     /// only), drawn as a hypnogram below the Sleep page's info (the week chart
     /// stays). Ignored on every other page.
     var sleepStages: [WatchSleepStageSegment]? = nil
-    /// The snapshot's `sleepDebt` (the last 7 nights' Sleep Debt), drawn as a
+    /// The snapshot's `sleepDebt` (the last 14 nights' Sleep Debt), drawn as a
     /// line below the Sleep page's hypnogram; nil while the phone doesn't show
     /// Sleep Debt (the pager resolves `showsSleepDebt`). Ignored on every other
     /// page.
@@ -111,6 +112,13 @@ struct WatchMetricDetailView: View {
             ranges[ranges.count - 1] = nil
         }
         return ranges.contains(where: { $0 != nil }) ? ranges : nil
+    }
+
+    /// The status band highlighted behind the week chart: Readiness's and
+    /// Training Load's. Stress names its band beside the value but draws its
+    /// week as the daily averages and their ranges alone, so it has none.
+    static func sparklineBand(for metric: WatchMetric) -> WatchStatusBand? {
+        metric.kind == WatchMetricKindKey.stress ? nil : metric.statusBand
     }
 
     /// The night's 0–100 sleep score, as the iPhone baked it into the Sleep
@@ -177,7 +185,7 @@ struct WatchMetricDetailView: View {
     /// The Stress page's timeline, added below the page's info and making the
     /// page scroll, or nil (the page reads exactly like every other metric's)
     /// on any other page or when no scored or movement window falls in the
-    /// last 8 hours before `now` (a timeline that stopped advancing ages out
+    /// last 12 hours before `now` (a timeline that stopped advancing ages out
     /// here, so it needs no sanitize rule).
     static func stressTimeline(_ timeline: WatchStressTimeline?, kind: String, now: Date, calendar: Calendar = .current) -> WatchStressTimeline? {
         guard kind == WatchMetricKindKey.stress, let timeline,
@@ -269,7 +277,7 @@ struct WatchMetricDetailView: View {
                 WatchSparklineView(
                     values: weekly,
                     tint: pageTint,
-                    band: metric.statusBand,
+                    band: Self.sparklineBand(for: metric),
                     bandTint: statusTint,
                     currentValue: metric.weeklyCurrentValue,
                     dayLabels: weekdayLabels(count: weekly.count),
@@ -376,7 +384,7 @@ struct WatchMetricDetailView: View {
 
 #Preview("Sleep (scored)") {
     let hour: TimeInterval = 3_600
-    let debts: [TimeInterval?] = [1.2 * hour, 2.5 * hour, nil, 3.6 * hour, 4.6 * hour, 5.4 * hour, 3.9 * hour]
+    let debts: [TimeInterval?] = [0.6 * hour, 1.1 * hour, 1.8 * hour, 2.4 * hour, nil, 2.9 * hour, 3.6 * hour, 4.6 * hour, 5.4 * hour, 4.8 * hour, 3.9 * hour, 3.1 * hour, 2.2 * hour, 1.7 * hour]
     return NavigationStack {
         WatchMetricDetailView(
             metric: WatchMetric(
@@ -392,7 +400,7 @@ struct WatchMetricDetailView: View {
                 weekly: [6.5, 7.2, nil, 8.1, 7.0, 6.8, 7.53]
             ),
             sleepStages: WatchMetricsSnapshot.placeholder.sleepStages,
-            sleepDebt: .preview(debts: debts, unrecorded: [4], headline: 3.9 * hour)
+            sleepDebt: .preview(debts: debts, unrecorded: [8], headline: 1.7 * hour)
         )
     }
 }

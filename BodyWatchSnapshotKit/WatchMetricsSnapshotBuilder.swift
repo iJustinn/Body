@@ -52,7 +52,7 @@ enum WatchMetricsSnapshotBuilder {
         // pushed flag decides visibility. `false` (the default) omits it, so
         // a caller that doesn't show it never pays for the model.
         includesSleepDebt: Bool = false,
-        // The Stress page's "Last 8 hours" chart, built by the caller with
+        // The Stress page's "Last 12 hours" chart, built by the caller with
         // `WatchStressTimelineBuilder` (it needs the intraday day samples and
         // the workouts, which this builder never reads). Stamped as passed.
         stressTimeline: WatchStressTimeline? = nil,

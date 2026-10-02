@@ -2,7 +2,7 @@
 //  WatchStressTimelineBuilderTests.swift
 //  BodyTests
 //
-//  The Stress page's "Last 8 hours" chart (`WatchStressTimelineBuilder`): the
+//  The Stress page's "Last 12 hours" chart (`WatchStressTimelineBuilder`): the
 //  slots must be the iPhone Day View's own windows (`stressWindows(for:)`),
 //  placed on one continuous 15 minute grid across midnight and DST, with the
 //  sleep and workout shading clipped to the span.
@@ -85,29 +85,29 @@ final class WatchStressTimelineBuilderTests: XCTestCase {
             dashboard: snapshot, workouts: [], now: now, calendar: calendar, computedAt: now
         ))
 
-        // The first window overlapping `now - 9h` (17:07) is 17:00's.
-        XCTAssertEqual(timeline.start, yesterday.addingTimeInterval(68 * 900))
+        // The first window overlapping `now - 13h` (13:07) is 13:00's.
+        XCTAssertEqual(timeline.start, yesterday.addingTimeInterval(52 * 900))
         XCTAssertEqual(timeline.end, now)
         XCTAssertEqual(timeline.computedAt, now)
-        // 17:00 to midnight is 28 slots, so today's first window is slot 28.
-        XCTAssertEqual(timeline.interval(at: 28).start, today)
-        XCTAssertEqual(timeline.slot(at: 0), .none, "17:00 has no readings")
+        // 13:00 to midnight is 44 slots, so today's first window is slot 44.
+        XCTAssertEqual(timeline.interval(at: 44).start, today)
+        XCTAssertEqual(timeline.slot(at: 0), .none, "13:00 has no readings")
         XCTAssertEqual(timeline.slot(at: 1), .none)
 
         let windows = (snapshot.stressWindows(for: yesterday, calendar: calendar, now: now)
             + snapshot.stressWindows(for: today, calendar: calendar, now: now))
-            .filter { $0.interval.end > now.addingTimeInterval(-9 * 3_600) }
+            .filter { $0.interval.end > now.addingTimeInterval(-WatchStressTimelineBuilder.span) }
         XCTAssertEqual(windows.first?.interval.start, timeline.start)
         for (index, window) in windows.enumerated() {
             XCTAssertEqual(timeline.interval(at: index).start, window.interval.start, "slot \(index)")
             XCTAssertEqual(index < timeline.slots.count ? timeline.slots[index] : nil, expectedSlot(window), "slot \(index)")
         }
-        XCTAssertNotNil(timeline.slots[27], "23:45 yesterday")
-        XCTAssertNotNil(timeline.slots[28], "midnight")
+        XCTAssertNotNil(timeline.slots[43], "23:45 yesterday")
+        XCTAssertNotNil(timeline.slots[44], "midnight")
         // The last scored window is 01:45; the partial 02:00 one has no
         // readings yet, and a trailing gap isn't shipped.
-        XCTAssertEqual(timeline.slots.count, 36)
-        guard case .scored(let lateScore) = timeline.slot(at: 35), case .scored(let calmScore) = timeline.slot(at: 30) else {
+        XCTAssertEqual(timeline.slots.count, 52)
+        guard case .scored(let lateScore) = timeline.slot(at: 51), case .scored(let calmScore) = timeline.slot(at: 46) else {
             return XCTFail("the last hour and the one before it must both score")
         }
         XCTAssertGreaterThan(lateScore, calmScore)
@@ -120,9 +120,9 @@ final class WatchStressTimelineBuilderTests: XCTestCase {
         let yesterday = try date(2025, 3, 8)
         let today = try date(2025, 3, 9)
         let now = try date(2025, 3, 9, 5, 7)
-        // `now - 9h` is 19:07 EST yesterday. 19:00 yesterday to midnight, then
+        // `now - 13h` is 15:07 EST yesterday. 15:00 yesterday to midnight, then
         // midnight to 05:00 EDT (4 absolute hours).
-        let heartRate = heartRateSamples(from: yesterday, windows: 76..<96, value: 62)
+        let heartRate = heartRateSamples(from: yesterday, windows: 60..<96, value: 62)
             + heartRateSamples(from: today, windows: 0..<16, value: 62)
         let snapshot = dashboard(heartRate: heartRate, baselinesBefore: yesterday)
 
@@ -130,13 +130,13 @@ final class WatchStressTimelineBuilderTests: XCTestCase {
             dashboard: snapshot, workouts: [], now: now, calendar: calendar, computedAt: nil
         ))
 
-        XCTAssertEqual(timeline.start, yesterday.addingTimeInterval(76 * 900))
-        XCTAssertEqual(timeline.slots.count, 36)
+        XCTAssertEqual(timeline.start, yesterday.addingTimeInterval(60 * 900))
+        XCTAssertEqual(timeline.slots.count, 52)
         XCTAssertTrue(timeline.slots.allSatisfy { $0 != nil }, "no hole at the skipped hour")
-        XCTAssertEqual(timeline.interval(at: 20).start, today)
-        XCTAssertEqual(calendar.component(.hour, from: timeline.interval(at: 27).start), 1)
-        XCTAssertEqual(calendar.component(.hour, from: timeline.interval(at: 28).start), 3, "02:00 is skipped")
-        XCTAssertEqual(timeline.interval(at: 35).end, try date(2025, 3, 9, 5, 0))
+        XCTAssertEqual(timeline.interval(at: 36).start, today)
+        XCTAssertEqual(calendar.component(.hour, from: timeline.interval(at: 43).start), 1)
+        XCTAssertEqual(calendar.component(.hour, from: timeline.interval(at: 44).start), 3, "02:00 is skipped")
+        XCTAssertEqual(timeline.interval(at: 51).end, try date(2025, 3, 9, 5, 0))
     }
 
     /// Fall back: today has 100 windows and 01:00 to 02:00 happens twice; the
@@ -152,7 +152,7 @@ final class WatchStressTimelineBuilderTests: XCTestCase {
             dashboard: snapshot, workouts: [], now: now, calendar: calendar, computedAt: nil
         ))
 
-        // `now - 9h` is 22:07 EDT yesterday, which had no readings, so its
+        // `now - 13h` is 18:07 EDT yesterday, which had no readings, so its
         // day never enters the scan and the timeline opens at midnight.
         XCTAssertEqual(timeline.start, today)
         XCTAssertEqual(timeline.slots.count, 28)
@@ -181,9 +181,9 @@ final class WatchStressTimelineBuilderTests: XCTestCase {
             dashboard: snapshot, workouts: [workout], now: now, calendar: calendar, computedAt: nil
         ))
 
-        // `now - 9h` is 05:07, so the timeline opens on 05:00's window (20).
-        XCTAssertEqual(timeline.start, day.addingTimeInterval(20 * 900))
-        func slot(atWindow window: Int) -> WatchStressTimeline.Slot { timeline.slot(at: window - 20) }
+        // `now - 13h` is 01:07, so the timeline opens on 01:00's window (4).
+        XCTAssertEqual(timeline.start, day.addingTimeInterval(4 * 900))
+        func slot(atWindow window: Int) -> WatchStressTimeline.Slot { timeline.slot(at: window - 4) }
         XCTAssertEqual(slot(atWindow: 23), .none, "no readings before 06:00")
         XCTAssertEqual(slot(atWindow: 40), .none, "one reading is a gap, never a zero")
         for window in 48..<52 {
@@ -242,11 +242,11 @@ final class WatchStressTimelineBuilderTests: XCTestCase {
             workouts: [WorkoutSummary(type: .running, startDate: workoutStart, duration: 1_800, endDate: workoutStart.addingTimeInterval(1_800))],
             now: now, calendar: calendar, computedAt: now
         ), "uncalibrated")
-        // Readings that all predate the span.
+        // Readings that all predate the span (00:00 to 01:00, before 01:07).
         XCTAssertNil(WatchStressTimelineBuilder.make(
-            dashboard: dashboard(heartRate: heartRateSamples(from: day, windows: 0..<16, value: 70), baselinesBefore: day),
+            dashboard: dashboard(heartRate: heartRateSamples(from: day, windows: 0..<4, value: 70), baselinesBefore: day),
             workouts: [], now: now, calendar: calendar, computedAt: now
-        ), "nothing in the last 9 hours")
+        ), "nothing in the last 13 hours")
     }
 
     // MARK: - Context
@@ -257,7 +257,7 @@ final class WatchStressTimelineBuilderTests: XCTestCase {
     func testContextBandsAreClippedToTheSpanAndSorted() throws {
         let day = try date(2025, 3, 20)
         let now = try date(2025, 3, 20, 14, 7)
-        let spanStart = now.addingTimeInterval(-9 * 3_600)
+        let spanStart = now.addingTimeInterval(-WatchStressTimelineBuilder.span)
         let mainStart = day.addingTimeInterval(-3_600)
         let mainEnd = day.addingTimeInterval(7 * 3_600)
         let napStart = day.addingTimeInterval(13 * 3_600)
@@ -274,8 +274,8 @@ final class WatchStressTimelineBuilderTests: XCTestCase {
         let workoutStart = day.addingTimeInterval(12 * 3_600)
         let workouts = [
             WorkoutSummary(type: .cycling, startDate: workoutStart, duration: 1_500, endDate: workoutStart.addingTimeInterval(30 * 60)),
-            // Before the span: never shaded.
-            WorkoutSummary(type: .running, startDate: day.addingTimeInterval(3 * 3_600), duration: 1_800)
+            // Before the span (22:00 the evening before): never shaded.
+            WorkoutSummary(type: .running, startDate: day.addingTimeInterval(-2 * 3_600), duration: 1_800)
         ]
         let heartRate = heartRateSamples(from: day, windows: 24..<56, value: 70)
         var summary = HealthSummarySnapshot.empty

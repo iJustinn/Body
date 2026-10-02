@@ -53,8 +53,9 @@ struct WatchIntradayWindow: Equatable, Sendable {
     /// start plus whole 30 minute steps, not at a whole multiple of 30 minutes
     /// since the reference date: a +5:45 zone would otherwise put the slot
     /// edges at :15 and :45, and an hour shortened by a DST change would drift
-    /// them.
-    static func endingAt(_ now: Date, calendar: Calendar = .current) -> WatchIntradayWindow {
+    /// them. `length` is how far back it opens: the Heart Rate and HRV charts'
+    /// 8 hours by default, the Stress chart's 12.
+    static func endingAt(_ now: Date, length: TimeInterval = Self.length, calendar: Calendar = .current) -> WatchIntradayWindow {
         let hourStart = calendar.dateInterval(of: .hour, for: now)?.start ?? now
         let offset = max(0, now.timeIntervalSince(hourStart))
         let slotStart = hourStart.addingTimeInterval((offset / slotLength).rounded(.down) * slotLength)

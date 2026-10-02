@@ -133,12 +133,12 @@ actor WatchDeltaFetcher {
         )
         // Stress's intraday inputs, in the shapes the phone's
         // `fetchIntradayDaySamples` and heartbeat scan read. WHOLE days only:
-        // the window opens at the midnight before the last 9 hours (the 8 hour
-        // chart's reach plus slack), so once those hours cross midnight
+        // the window opens at the midnight before the last 13 hours (the 12
+        // hour chart's reach plus slack), so once those hours cross midnight
         // yesterday is read whole. The assembly recomputes each day these series
         // touch, and a partial yesterday would replace its seeded record with a
         // short day.
-        let stressStart = calendar.startOfDay(for: now.addingTimeInterval(-9 * 60 * 60))
+        let stressStart = calendar.startOfDay(for: now.addingTimeInterval(-WatchStressTimelineBuilder.span))
         async let stressHeartRateSamples = sampleSeries(
             .heartRate, reads: reads, start: stressStart, end: now
         )

@@ -37,7 +37,7 @@ struct WatchComputeDelta {
     var workouts: WatchFetchOutcome<[WorkoutSummary]> = .failure
 
     /// Stress's intraday inputs over whole days (`WatchDeltaFetcher`'s Stress
-    /// window: today, plus yesterday when the last 8 hours reach into it), in
+    /// window: today, plus yesterday when the last 12 hours reach into it), in
     /// the shape of the phone's day-sample series: raw heart rate and SDNN
     /// samples, RMSSD points (Recovery HRV, or one per heartbeat series), and
     /// hourly step and active energy sums. Stress is stamped only when every

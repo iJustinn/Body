@@ -2,11 +2,12 @@
 //  WatchStressChartTests.swift
 //  BodyWatchTests
 //
-//  Locks the Stress page's "Last 8 hours" chart: it shares the Heart Rate and
-//  HRV charts' window and hour labels, places each 15 minute window by its
+//  Locks the Stress page's "Last 12 hours" chart: it shares the Heart Rate and
+//  HRV charts' window alignment (opened 12 hours back instead of 8) and hour
+//  labels, places each 15 minute window by its
 //  own interval clamped to that window, drops windows outside it and the
 //  unscored gaps, clips the context shading, and only the Stress page shows
-//  the chart, only while a window falls inside the last 8 hours.
+//  the chart, only while a window falls inside the last 12 hours.
 //
 
 import XCTest
@@ -23,7 +24,7 @@ final class WatchStressChartTests: XCTestCase {
         calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour, minute: minute))!
     }
 
-    /// 15:07: the window runs 07:00 to 15:30.
+    /// 15:07: the window runs 03:00 to 15:30.
     private var now: Date { date(15, 7) }
     private var domain: ClosedRange<Date> { WatchStressChartView.domain(endingAt: now, calendar: calendar) }
 
@@ -39,34 +40,38 @@ final class WatchStressChartTests: XCTestCase {
 
     // MARK: - Window and ticks
 
-    func testDomainIsTheIntradayWindow() {
-        let window = WatchIntradayWindow.endingAt(now, calendar: calendar)
+    func testDomainIsTheIntradayWindowOpenedTwelveHoursBack() {
+        let window = WatchIntradayWindow.endingAt(now, length: WatchStressChartView.windowLength, calendar: calendar)
         XCTAssertEqual(domain, window.start...window.plotEnd)
-        XCTAssertEqual(domain, date(7, 0)...date(15, 30))
+        XCTAssertEqual(domain, date(3, 0)...date(15, 30))
+        // The same alignment as the Heart Rate and HRV charts, 4 hours longer.
+        let heartRate = WatchIntradayWindow.endingAt(now, calendar: calendar)
+        XCTAssertEqual(heartRate.plotEnd, window.plotEnd)
+        XCTAssertEqual(heartRate.start.timeIntervalSince(window.start), 4 * 3_600)
     }
 
     func testTicksReuseTheIntradayHourTicks() {
         let ticks = WatchStressChartView.ticks(endingAt: now, calendar: calendar)
         XCTAssertEqual(ticks, WatchIntradayChartView.hourTicks(in: domain, calendar: calendar))
-        XCTAssertEqual(ticks, [date(8, 0), date(10, 0), date(12, 0), date(14, 0)])
+        XCTAssertEqual(ticks, [date(4, 0), date(6, 0), date(8, 0), date(10, 0), date(12, 0), date(14, 0)])
     }
 
     // MARK: - X mapping
 
     func testFractionMapsAcrossTheDomainAndClamps() {
-        XCTAssertEqual(WatchStressChartView.fraction(for: date(7, 0), in: domain), 0)
+        XCTAssertEqual(WatchStressChartView.fraction(for: date(3, 0), in: domain), 0)
         XCTAssertEqual(WatchStressChartView.fraction(for: date(15, 30), in: domain), 1)
-        XCTAssertEqual(WatchStressChartView.fraction(for: date(11, 15), in: domain), 0.5, accuracy: 0.0001)
-        XCTAssertEqual(WatchStressChartView.fraction(for: date(5, 0), in: domain), 0)
+        XCTAssertEqual(WatchStressChartView.fraction(for: date(9, 15), in: domain), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(WatchStressChartView.fraction(for: date(1, 0), in: domain), 0)
         XCTAssertEqual(WatchStressChartView.fraction(for: date(18, 0), in: domain), 1)
     }
 
     func testMarksArePlacedByTheirWindow() {
         let marks = WatchStressChartView.marks(
-            in: timeline(start: date(11, 15), slots: [40, WatchStressTimeline.activityMarker]),
+            in: timeline(start: date(9, 15), slots: [40, WatchStressTimeline.activityMarker]),
             domain: domain
         )
-        let quarter = 15.0 / 510.0
+        let quarter = 15.0 / 750.0
         XCTAssertEqual(marks.map(\.slot), [.scored(40), .activity])
         XCTAssertEqual(marks[0].xStart, 0.5, accuracy: 0.0001)
         XCTAssertEqual(marks[0].xEnd, 0.5 + quarter, accuracy: 0.0001)
@@ -88,9 +93,9 @@ final class WatchStressChartTests: XCTestCase {
     // MARK: - Visible windows
 
     func testWindowsOutsideTheDomainAreDropped() {
-        // 06:30 and 06:45 end at or before 07:00; 07:00 is the first inside.
+        // 02:30 and 02:45 end at or before 03:00; 03:00 is the first inside.
         let marks = WatchStressChartView.marks(
-            in: timeline(start: date(6, 30), slots: [20, 22, 24]),
+            in: timeline(start: date(2, 30), slots: [20, 22, 24]),
             domain: domain
         )
         XCTAssertEqual(marks.map(\.slot), [.scored(24)])
@@ -98,10 +103,10 @@ final class WatchStressChartTests: XCTestCase {
     }
 
     func testAWindowStraddlingTheDomainStartIsClipped() {
-        let marks = WatchStressChartView.marks(in: timeline(start: date(6, 50), slots: [30]), domain: domain)
+        let marks = WatchStressChartView.marks(in: timeline(start: date(2, 50), slots: [30]), domain: domain)
         XCTAssertEqual(marks.count, 1)
         XCTAssertEqual(marks[0].xStart, 0)
-        XCTAssertEqual(marks[0].xEnd, WatchStressChartView.fraction(for: date(7, 5), in: domain), accuracy: 0.0001)
+        XCTAssertEqual(marks[0].xEnd, WatchStressChartView.fraction(for: date(3, 5), in: domain), accuracy: 0.0001)
     }
 
     func testUnscoredWindowsAreGaps() {
@@ -111,7 +116,7 @@ final class WatchStressChartTests: XCTestCase {
     }
 
     func testATimelineOlderThanTheWindowHasNothingToDraw() {
-        let old = timeline(start: date(4, 0), slots: [30, 35, 40, 45, 50, 55, 60, 65])
+        let old = timeline(start: date(0, 0), slots: [30, 35, 40, 45, 50, 55, 60, 65])
         XCTAssertTrue(old.hasMarks)
         XCTAssertTrue(WatchStressChartView.marks(in: old, domain: domain).isEmpty)
         XCTAssertFalse(WatchStressChartView.hasVisibleMarks(old, endingAt: now, calendar: calendar))
@@ -127,7 +132,7 @@ final class WatchStressChartTests: XCTestCase {
             end: date(14, 0),
             workoutType: "running"
         )
-        let earlier = WatchStressContextBand(kind: WatchStressContextBand.napKind, start: date(5, 0), end: date(6, 0))
+        let earlier = WatchStressContextBand(kind: WatchStressContextBand.napKind, start: date(1, 0), end: date(2, 0))
         let spans = WatchStressChartView.contextSpans(
             in: timeline(start: date(7, 0), slots: [30], context: [earlier, sleep, workout]),
             domain: domain
@@ -178,7 +183,7 @@ final class WatchStressChartTests: XCTestCase {
             WatchMetricDetailView.stressTimeline(timeline(start: date(12, 0), slots: [nil, nil]), kind: stress, now: now, calendar: calendar)
         )
         XCTAssertNil(
-            WatchMetricDetailView.stressTimeline(timeline(start: date(4, 0), slots: [40, 42]), kind: stress, now: now, calendar: calendar)
+            WatchMetricDetailView.stressTimeline(timeline(start: date(0, 0), slots: [40, 42]), kind: stress, now: now, calendar: calendar)
         )
         // Movement alone still draws its stubs, so the chart shows.
         XCTAssertNotNil(
@@ -195,7 +200,7 @@ final class WatchStressChartTests: XCTestCase {
 
     func testPreviewEndsAtNowOnTheStressGrid() {
         let preview = WatchStressTimeline.preview(now: now, calendar: calendar)
-        XCTAssertEqual(preview.start, date(6, 0))
+        XCTAssertEqual(preview.start, date(2, 0))
         XCTAssertEqual(preview.end, now)
         XCTAssertEqual(preview.computedAt, now)
         XCTAssertEqual(preview.interval(at: preview.slots.count - 1), DateInterval(start: date(15, 0), end: now))
@@ -222,5 +227,24 @@ final class WatchStressChartTests: XCTestCase {
             score: nil, fillFraction: 0.5, rawValue: 1.05, rangeMin: 0, rangeMax: 2, tint: relaxedGreen
         )
         XCTAssertEqual(WatchMetricCardView.symbolTint(for: trainingLoad), relaxedGreen)
+    }
+
+    /// The Stress week chart draws no band highlight, though the band still
+    /// names the value ("42 · RELAXED"); Training Load keeps its highlight.
+    func testOnlyTheStressWeekChartDropsTheBandHighlight() {
+        let relaxed = WatchStatusBand(min: 25.5, max: 50.5, label: "Relaxed")
+        let stress = WatchMetric(
+            kind: WatchMetricKindKey.stress, title: "Stress", displayValue: "42", unit: "",
+            score: 42, fillFraction: 0.42, rawValue: 42, rangeMin: 0, rangeMax: 100, statusBand: relaxed
+        )
+        XCTAssertNil(WatchMetricDetailView.sparklineBand(for: stress))
+        XCTAssertEqual(stress.statusBand?.label, "Relaxed")
+
+        let optimal = WatchStatusBand(min: 0.8, max: 1.3, label: "Optimal")
+        let trainingLoad = WatchMetric(
+            kind: WatchMetricKindKey.trainingLoad, title: "Training Load", displayValue: "1.05", unit: "",
+            score: nil, fillFraction: 0.5, rawValue: 1.05, rangeMin: 0, rangeMax: 2, statusBand: optimal
+        )
+        XCTAssertEqual(WatchMetricDetailView.sparklineBand(for: trainingLoad), optimal)
     }
 }

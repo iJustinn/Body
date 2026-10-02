@@ -2,9 +2,10 @@
 //  WatchStressChartView.swift
 //  BodyWatch
 //
-//  The "Last 8 hours" chart on the Stress detail page, drawn onto the page
-//  below its value row. It shares the Heart Rate and HRV charts' header,
-//  window (`WatchIntradayWindow`) and even hour labels, and draws the iPhone
+//  The "Last 12 hours" chart on the Stress detail page, drawn onto the page
+//  below its value row. It shares the Heart Rate and HRV charts' header
+//  style, half hour aligned window (`WatchIntradayWindow`, opened 12 hours
+//  back instead of their 8) and even hour labels, and draws the iPhone
 //  Day View's Stress plot (`BodyStressIntradayRenderPlot` in
 //  Body/Views/Health/Charts/StressChart.swift, iOS only) in the same order:
 //  sleep and workout shading with a symbol above each band, the dashed band
@@ -22,11 +23,15 @@ import SwiftUI
 
 struct WatchStressChartView: View {
     let timeline: WatchStressTimeline
-    /// The window's end: the chart shows the 8 hours before the current half
-    /// hour slot, like the Heart Rate and HRV charts.
+    /// The window's end: the chart shows the `windowLength` before the
+    /// current half hour slot, aligned like the Heart Rate and HRV charts.
     let now: Date
     /// Workout shading colors, the phone's custom colors included.
     let palette: BodyWorkoutColorPalette
+
+    /// How far back the chart reaches: 12 hours, against the Heart Rate and
+    /// HRV charts' 8.
+    static let windowLength: TimeInterval = 12 * 60 * 60
 
     /// The row above the plot the band symbols sit in.
     private static let symbolRowHeight: CGFloat = 12
@@ -51,7 +56,7 @@ struct WatchStressChartView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("Last 8 hours")
+            Text("Last 12 hours")
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
                 .textCase(.uppercase)
@@ -72,7 +77,7 @@ struct WatchStressChartView: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(localized: "Last 8 hours"))
+        .accessibilityLabel(String(localized: "Last 12 hours"))
     }
 
     // MARK: - Drawing
@@ -219,13 +224,14 @@ struct WatchStressChartView: View {
     // MARK: - Geometry
 
     /// The x domain: the Heart Rate and HRV charts' window ending at `now`,
-    /// from its oldest slot's start through the current slot's end.
+    /// opened `windowLength` back, from its oldest slot's start through the
+    /// current slot's end.
     static func domain(endingAt now: Date, calendar: Calendar = .current) -> ClosedRange<Date> {
-        let window = WatchIntradayWindow.endingAt(now, calendar: calendar)
+        let window = WatchIntradayWindow.endingAt(now, length: windowLength, calendar: calendar)
         return window.start...window.plotEnd
     }
 
-    /// The Heart Rate and HRV charts' hour labels for the same window.
+    /// The Heart Rate and HRV charts' hour labels, over this chart's window.
     static func ticks(endingAt now: Date, calendar: Calendar = .current) -> [Date] {
         WatchIntradayChartView.hourTicks(in: domain(endingAt: now, calendar: calendar), calendar: calendar)
     }
@@ -289,13 +295,13 @@ struct WatchStressChartView: View {
 
 extension WatchStressTimeline {
     /// A deterministic timeline ending at `now` for previews and the watch
-    /// page screenshots: about 9 hours of windows from a quarter hour of local
+    /// page screenshots: about 13 hours of windows from a quarter hour of local
     /// time, so the first hour falls before the chart's window. The night's
-    /// end under the sleep shading, a calm desk stretch, a stressor, 45
+    /// second half under the sleep shading, a calm desk stretch, a stressor, 45
     /// minutes off the wrist, a run masked as movement under its workout
     /// shading, and the latest window cut at `now`.
     static func preview(now: Date = Date(), calendar: Calendar = .current) -> WatchStressTimeline {
-        let earliest = now.addingTimeInterval(-9 * 60 * 60)
+        let earliest = now.addingTimeInterval(-13 * 60 * 60)
         let hourStart = calendar.dateInterval(of: .hour, for: earliest)?.start ?? earliest
         let quarters = (max(0, earliest.timeIntervalSince(hourStart)) / slotLength).rounded(.down)
         let start = hourStart.addingTimeInterval(quarters * slotLength)
@@ -303,7 +309,8 @@ extension WatchStressTimeline {
 
         let a = activityMarker
         let pattern: [Int?] = [
-            // Asleep: the night's end.
+            // Asleep: the night's second half.
+            12, 10, 9, 8, 11, 9, 7, 10, 13, 11, 9, 8, 10, 12, 9, 11,
             14, 11, 9, 12, 16, 13, 18, 21,
             // Awake, then the desk.
             nil, 33, 29, 36, 41, 38, 31, 44, 39,
@@ -324,11 +331,11 @@ extension WatchStressTimeline {
             start.addingTimeInterval(Double(slot) * slotLength + minutes * 60)
         }
         let context = [
-            WatchStressContextBand(kind: WatchStressContextBand.sleepKind, start: at(-28), end: at(8, minutes: -4)),
+            WatchStressContextBand(kind: WatchStressContextBand.sleepKind, start: at(-12), end: at(24, minutes: -4)),
             WatchStressContextBand(
                 kind: WatchStressContextBand.workoutKind,
-                start: at(29, minutes: 2),
-                end: at(33, minutes: -2),
+                start: at(45, minutes: 2),
+                end: at(49, minutes: -2),
                 workoutType: BodyWorkoutType.running.rawValue
             )
         ].filter { $0.start < now }

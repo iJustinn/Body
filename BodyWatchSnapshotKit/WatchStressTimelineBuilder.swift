@@ -2,7 +2,7 @@
 //  WatchStressTimelineBuilder.swift
 //  BodyWatchSnapshotKit
 //
-//  Builds the Stress page's "Last 8 hours" chart (`WatchStressTimeline`) from
+//  Builds the Stress page's "Last 12 hours" chart (`WatchStressTimeline`) from
 //  a dashboard snapshot that still carries the intraday day samples. The
 //  phone's publisher and the watch's compute both call it, so the chart the
 //  watch shows is the same function of the same inputs on either device, and
@@ -12,10 +12,11 @@
 import Foundation
 
 enum WatchStressTimelineBuilder {
-    /// How far back the timeline reaches. The page draws the last 8 hours
+    /// How far back the timeline reaches. The page draws the last 12 hours
     /// before the current half hour slot, so it never looks further back than
-    /// 8h30m; the extra half hour is slack.
-    static let span: TimeInterval = 9 * 60 * 60
+    /// 12h30m; the extra half hour is slack. The watch's Stress reads open at
+    /// the midnight before it.
+    static let span: TimeInterval = 13 * 60 * 60
 
     /// The Stress windows overlapping `[now - span, now]` and the sleep and
     /// workout shading behind them, or nil when no window is scored or masked
