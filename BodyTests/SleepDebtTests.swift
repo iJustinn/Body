@@ -519,6 +519,176 @@ final class SleepDebtTests: XCTestCase {
         XCTAssertEqual(SleepDebtChartModel.make(entries: Array(entries.dropFirst()), sleepGoal: goal), .empty)
     }
 
+    // MARK: - Frozen nights
+
+    /// A frozen night keeps what it was captured with when its history
+    /// changes later, and every window that reaches it sums the frozen gap,
+    /// so neither its dot nor today's headline moves. Without the record the
+    /// same change moves both.
+    func testAFrozenNightAndTheHeadlineHoldWhenTheHistoryChanges() throws {
+        let today = try date(2026, 6, 20)
+        let frozenDay = daysAgo(5, from: today)
+        var durations = nights(0..<SleepDebtChartModel.entryDayCount, hours(7.75))
+        let captured = SleepDebtChartModel.make(entries: entries(today: today, durations: durations), sleepGoal: goal)
+        let record = try XCTUnwrap(SleepDebtRecord(
+            night: try XCTUnwrap(captured.night(on: frozenDay)),
+            capturedAt: daysAgo(4, from: today)
+        ))
+
+        durations[5] = hours(8.75)
+        let changed = entries(today: today, durations: durations)
+        let frozen = SleepDebtChartModel.make(entries: changed, sleepGoal: goal, records: [record])
+        let live = SleepDebtChartModel.make(entries: changed, sleepGoal: goal)
+
+        XCTAssertEqual(frozen.night(on: frozenDay), captured.night(on: frozenDay))
+        XCTAssertEqual(frozen, captured, "every window sums the frozen gap, so no night moves")
+        XCTAssertEqual(try XCTUnwrap(frozen.debt), hours(3.5), accuracy: 0.001)
+        XCTAssertEqual(live.night(on: frozenDay)?.actualDuration, hours(8.75))
+        XCTAssertEqual(try XCTUnwrap(live.night(on: frozenDay)?.debtAfterNight), hours(2.5), accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(live.debt), hours(2.5), accuracy: 0.001)
+    }
+
+    /// The model emits a frozen night as the record holds it, every field,
+    /// and the later windows sum the record's gap (its need minus its slept
+    /// time), not the history's.
+    func testAFrozenNightIsEmittedVerbatimAndItsGapFeedsTheLaterWindows() throws {
+        let today = try date(2026, 6, 20)
+        let frozenDay = daysAgo(5, from: today)
+        let entries = entries(today: today, durations: nights(0..<SleepDebtChartModel.entryDayCount, hours(7.75)))
+        // The history says 15 minutes short against the 8 hour goal; the
+        // record says an hour more needed, with its own adjustments and debt.
+        let night = SleepDebtNight(
+            day: frozenDay,
+            actualDuration: hours(7.75),
+            needDuration: hours(9),
+            isNeedLearned: true,
+            trainingAdjustment: 25 * 60,
+            hrvAdjustment: 15 * 60,
+            recordedNightCount: 9,
+            debtAfterNight: 1_234
+        )
+        let record = try XCTUnwrap(SleepDebtRecord(night: night, capturedAt: daysAgo(4, from: today)))
+
+        let model = SleepDebtChartModel.make(entries: entries, sleepGoal: goal, records: [record])
+
+        XCTAssertEqual(model.night(on: frozenDay), night)
+        XCTAssertEqual(record.night(on: frozenDay), night)
+        // Nights 4 days ago through today reach the frozen night; 6 days ago doesn't.
+        XCTAssertEqual(try XCTUnwrap(model.night(on: daysAgo(4, from: today))?.debtAfterNight), hours(4.5), accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(model.debt), hours(4.5), accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(model.night(on: daysAgo(6, from: today))?.debtAfterNight), hours(3.5), accuracy: 0.001)
+        // The record's adjustments are its own; the next night's come from the entries.
+        XCTAssertEqual(model.night(on: daysAgo(4, from: today))?.trainingAdjustment, 0)
+        XCTAssertEqual(model.night(on: daysAgo(4, from: today))?.hrvAdjustment, 0)
+    }
+
+    /// A record captured in another zone files its day under that zone's
+    /// midnight: it still matches the entry by start of day, and the night
+    /// is filed under the entry's day.
+    func testARecordIsMatchedByStartOfDay() throws {
+        let today = try date(2026, 6, 20)
+        let frozenDay = daysAgo(5, from: today)
+        let entries = entries(today: today, durations: nights(0..<SleepDebtChartModel.entryDayCount, hours(7.75)))
+        var record = try XCTUnwrap(SleepDebtRecord(
+            night: SleepDebtNight(
+                day: frozenDay,
+                actualDuration: hours(7.75),
+                needDuration: hours(9),
+                isNeedLearned: true,
+                trainingAdjustment: 0,
+                hrvAdjustment: 0,
+                recordedNightCount: 14,
+                debtAfterNight: hours(4.5)
+            ),
+            capturedAt: today
+        ))
+        record.day = frozenDay.addingTimeInterval(hours(15))
+
+        let model = SleepDebtChartModel.make(entries: entries, sleepGoal: goal, records: [record])
+
+        let night = try XCTUnwrap(model.nights.first { $0.day == frozenDay })
+        XCTAssertEqual(night.needDuration, hours(9))
+        XCTAssertEqual(night.debtAfterNight, hours(4.5))
+        XCTAssertEqual(model.nights.count, SleepDebtChartModel.selectableNightCount)
+        XCTAssertEqual(try XCTUnwrap(model.debt), hours(4.5), accuracy: 0.001)
+    }
+
+    /// A night with no sleep stays live, so a late sync can still fill it.
+    func testANightWithoutSleepIsNeverFrozen() throws {
+        let today = try date(2026, 6, 20)
+        var durations = nights(0..<SleepDebtChartModel.entryDayCount, hours(7.75))
+        durations[4] = nil
+        let live = model(today: today, durations: durations)
+        let missing = try XCTUnwrap(live.night(on: daysAgo(4, from: today)))
+        XCTAssertNil(missing.actualDuration)
+
+        XCTAssertNil(SleepDebtRecord(night: missing, capturedAt: today))
+        let records = SleepDebtChartModel.freezing(records: [], nights: live.nights, today: today, now: today, calendar: calendar)
+        XCTAssertFalse(records.contains { calendar.isDate($0.day, inSameDayAs: missing.day) })
+        XCTAssertEqual(records.count, live.nights.count - 2, "every night before today's but the empty one")
+    }
+
+    /// `freezing` freezes every recorded night before today's as it stands,
+    /// sorted, leaves today's recorded night live, and never rewrites a
+    /// record once taken.
+    func testFreezingTakesOnlyPastNightsAndNeverRewritesARecord() throws {
+        let today = try date(2026, 6, 20)
+        var durations = nights(0..<SleepDebtChartModel.entryDayCount, hours(7.75))
+        let live = model(today: today, durations: durations)
+        XCTAssertEqual(live.nights.last?.isRecorded, true)
+
+        let records = SleepDebtChartModel.freezing(records: [], nights: live.nights, today: today, now: today, calendar: calendar)
+
+        XCTAssertEqual(records.map(\.day), live.nights.dropLast().map(\.day), "today stays live")
+        XCTAssertEqual(records.map { $0.night(on: $0.day) }, Array(live.nights.dropLast()))
+        XCTAssertTrue(records.allSatisfy { $0.capturedAt == today })
+
+        durations[5] = hours(8.75)
+        let changed = model(today: today, durations: durations)
+        XCTAssertNotEqual(changed.night(on: daysAgo(5, from: today)), live.night(on: daysAgo(5, from: today)))
+        let later = today.addingTimeInterval(hours(2))
+        XCTAssertEqual(
+            SleepDebtChartModel.freezing(records: records, nights: changed.nights, today: today, now: later, calendar: calendar),
+            records,
+            "a record keeps the values it was frozen with"
+        )
+    }
+
+    func testFreezingPrunesRecordsPastTheRetentionWindowAndSortsByDay() throws {
+        let today = try date(2026, 6, 20)
+        func record(daysAgo count: Int) throws -> SleepDebtRecord {
+            try XCTUnwrap(SleepDebtRecord(
+                night: SleepDebtNight(
+                    day: daysAgo(count, from: today),
+                    actualDuration: hours(7),
+                    needDuration: goal,
+                    isNeedLearned: false,
+                    trainingAdjustment: 0,
+                    hrvAdjustment: 0,
+                    recordedNightCount: 5,
+                    debtAfterNight: hours(1)
+                ),
+                capturedAt: today
+            ))
+        }
+        XCTAssertEqual(SleepDebtChartModel.recordRetentionDayCount, 58)
+
+        let records = try [record(daysAgo: 3), record(daysAgo: 59), record(daysAgo: 58), record(daysAgo: 1)]
+        let kept = SleepDebtChartModel.freezing(records: records, nights: [], today: today, now: today, calendar: calendar)
+
+        XCTAssertEqual(kept, try [record(daysAgo: 58), record(daysAgo: 3), record(daysAgo: 1)])
+    }
+
+    func testNoRecordsLeavesTheModelAsItWas() throws {
+        let today = try date(2026, 6, 20)
+        let entries = entries(today: today, durations: nights(0..<20, hours(7)))
+
+        XCTAssertEqual(
+            SleepDebtChartModel.make(entries: entries, sleepGoal: goal),
+            SleepDebtChartModel.make(entries: entries, sleepGoal: goal, records: [])
+        )
+    }
+
     // MARK: - Watch nights
 
     /// The watch charts the last 14 nights with the same 14 night debt: each

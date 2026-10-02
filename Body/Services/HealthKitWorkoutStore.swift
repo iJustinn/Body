@@ -3679,6 +3679,10 @@ final class HealthKitWorkoutStore {
         persistDaySampleSidecar()
         await recomputeStress(on: Date(), calendar: calendar)
         await recomputeBodyRadar(on: Date(), calendar: calendar)
+        // The live sleep history here is whatever the last refresh left, which
+        // right after a short refresh is the phase 1 window: apply the frozen
+        // nights, never mint one (`loadFullTrendWindow` does that).
+        await recomputeSleepDebt(on: Date(), calendar: calendar, freezes: false)
     }
 
     /// Phase 2 of the two-phase trend window (RefreshOptimizationPlan-02 P0-A).
@@ -3759,6 +3763,11 @@ final class HealthKitWorkoutStore {
         // captured — day samples, Stress state, recorded readiness — stays as
         // the LIVE snapshot has it, because the Stress input load and the
         // history backfill mutate exactly those fields while this runs.
+        // Whether the live sleep history is now the whole year: the sleep leaf
+        // itself refetched AND admitted. A failed or superseded leaf leaves the
+        // phase 1 history in place, which must not be frozen.
+        let appliedWholeSleepHistory = result.successfulLeaves.contains(.sleep)
+            && capturedRevisions[.sleep, default: 0] == trendInputRevisions[.sleep, default: 0]
         healthTrends = Self.applyingFullWindowTrendSeries(from: result, to: healthTrends,
             capturedRevisions: capturedRevisions, currentRevisions: trendInputRevisions)
         if result.hadQueryFailure { completedDashboardFreshness = nil }
@@ -3775,6 +3784,18 @@ final class HealthKitWorkoutStore {
             // if concurrent compute/input work superseded our derived copy.
             persistDashboardSnapshot()
         }
+
+        // The Sleep Debt freeze point. Phase 1 never mints a record: its short
+        // window may still hold a boundary night an older build cut short (the
+        // cache keeps it until this refetch repairs it), and a record is never
+        // rewritten, so freezing from it would make a wrong need permanent. A
+        // night therefore freezes the first time a whole year history exists
+        // after its day has passed, minutes after the refresh in the normal case.
+        guard appliedWholeSleepHistory, mayPublishQuietMaintenance, !isRefreshing,
+              Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+            return
+        }
+        await recomputeSleepDebt(on: Date(), calendar: calendar, freezes: true)
     }
 
     /// Copies the daily trend series phase 2 refetched onto the live snapshot.
@@ -6016,6 +6037,11 @@ final class HealthKitWorkoutStore {
             // Same ordering fix, for Stress's activity mask.
             await recomputeStress(on: date, calendar: calendar, persists: false)
             await recomputeBodyRadar(on: date, calendar: calendar, persists: false)
+            // Freeze only from a whole year history: a short window may still
+            // hold a boundary night an older build cut short, and a record is
+            // never rewritten. A failed leaf may be the sleep one, which leaves
+            // the cached history in place. Phase 2 freezes once it lands.
+            await recomputeSleepDebt(on: date, calendar: calendar, freezes: !fetchedPartialTrendWindow && !hadQueryFailure, persists: false)
             publishWatchSnapshot()
             startStressInputLoadIfNeeded()
             // Phase 2 of the two-phase trend window, and only when phase 1
@@ -6171,6 +6197,14 @@ final class HealthKitWorkoutStore {
             await reapplyActivityReadinessAfterWorkouts(date: refreshDate, calendar: calendar)
             await recomputeStress(on: refreshDate, calendar: calendar)
             await recomputeBodyRadar(on: refreshDate, calendar: calendar)
+            // Same rule as `refreshRecentMonths`, and `refreshWorkoutMonth`
+            // (`updatesHealthSummary == false`) fetched no sleep history at all,
+            // so it only applies the frozen nights to the cached one.
+            await recomputeSleepDebt(
+                on: refreshDate,
+                calendar: calendar,
+                freezes: updatesHealthSummary && !fetchedPartialTrendWindow && !hadQueryFailure
+            )
             publishWatchSnapshot()
             startStressInputLoadIfNeeded()
             // Phase 2 of the two-phase trend window, same rule as
@@ -7239,6 +7273,27 @@ final class HealthKitWorkoutStore {
         .wristTemperature
     ]
 
+    /// Metric kinds whose data feeds Sleep Debt: the sleep history every night's
+    /// slept time and learned need come from, the Training Load series its
+    /// training adjustment reads, and the HRV source its sleep HRV adjustment
+    /// reads through (`fetchSleepVitals`). The record context signs the source
+    /// chosen for each, so switching one re-judges every frozen night.
+    nonisolated static let sleepDebtInputMetricKinds: Set<HealthMetricKind> = [
+        .sleep,
+        .trainingLoad,
+        .heartRateVariability
+    ]
+
+    /// Permissions whose data feeds Sleep Debt: Sleep for the nights, Workouts
+    /// for the training adjustment, Heart for the sleep HRV adjustment. Toggling
+    /// one changes what a night's need is built from, so the frozen nights
+    /// recorded under the previous inputs are dropped and refrozen.
+    nonisolated static let sleepDebtInputPermissions: Set<BodyHealthPermission> = [
+        .sleep,
+        .workouts,
+        .heart
+    ]
+
     /// The intraday day-sample series Stress scores from. The dashboard refresh
     /// carries these forward from cache without refetching, so the Stress loader
     /// is what keeps them (and therefore today's curve) current.
@@ -7812,6 +7867,99 @@ final class HealthKitWorkoutStore {
                 metadata: persistenceMetadata,
                 authoritativeDaySampleSeries: daySampleWriteIntent
             )
+        }
+    }
+
+    /// Applies, and with `freezes` mints, the frozen Sleep Debt nights after the
+    /// sleep history settles. A record is never rewritten, so `freezes` must be
+    /// true only where the live sleep history is known to be whole: a phase 1
+    /// window can still hold a boundary night an older build cut short, and a
+    /// need learned from it would be frozen for good. With `freezes` false this
+    /// only drops records whose context went stale. No sync stage of its own:
+    /// it is a few arithmetic passes over cached history.
+    private func recomputeSleepDebt(on date: Date, calendar: Calendar, freezes: Bool, persists: Bool = true) async {
+        guard computesSleepDebt else {
+            return
+        }
+
+        let epoch = cacheEpoch
+        let inputs = captureRefreshInputs()
+        let scope = currentDashboardCacheScope()
+        let now = Date()
+        let captured = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        )
+        let sleepGoal = Self.storedIdealSleepDuration()
+        let recordedSleepDebtContext = sleepDebtRecordContextSignature()
+        let recomputed = await Task.detached(priority: .userInitiated) {
+            captured.recalculatingSleepDebt(
+                on: date,
+                calendar: calendar,
+                now: now,
+                sleepGoal: sleepGoal,
+                freezes: freezes,
+                recordedSleepDebtContext: recordedSleepDebtContext
+            )
+        }.value
+
+        // Same rule as `recomputeBodyRadar`: a Clear Cache or an abandoned
+        // refresh that landed while the off-actor pass ran must win.
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+              mayApplyRefreshInputs(inputs), scope == currentDashboardCacheScope(), mayApplyRefreshResults else {
+            return
+        }
+
+        // Merge only the Sleep Debt owned fields into the CURRENT live snapshot,
+        // for the reason spelled out in `recomputeStress`.
+        var trends = healthTrends
+        trends.recordedSleepDebt = recomputed.trends.recordedSleepDebt
+        trends.recordedSleepDebtContext = recomputed.trends.recordedSleepDebtContext
+
+        // The context counts as a change too: the companion publish strips the
+        // records while the persisted context is stale, so a fresh stamp has to
+        // reach disk even when no night was added or dropped.
+        let changed = trends.recordedSleepDebt != healthTrends.recordedSleepDebt
+            || trends.recordedSleepDebtContext != healthTrends.recordedSleepDebtContext
+        healthTrends = trends
+        guard changed, persists else {
+            return
+        }
+
+        let snapshotToSave = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: trends,
+            activityRingHistory: activityRingHistory
+        )
+        let daySampleSignatures = currentDaySampleSignatures()
+        let summaryContextSignature = healthSummaryPrimarySignature
+        let persistenceMetadata = currentDashboardPersistenceMetadata()
+        let daySampleWriteIntent = authoritativeDaySampleSeries
+        let token = dashboardPublicationToken
+        Self.snapshotPersistQueue.async {
+            guard token.isValid else { return }
+            HealthDashboardSnapshotStore.saveWithOutcome(
+                snapshotToSave,
+                daySampleSignatures: daySampleSignatures,
+                summaryContextSignature: summaryContextSignature,
+                metadata: persistenceMetadata,
+                authoritativeDaySampleSeries: daySampleWriteIntent
+            )
+        }
+    }
+
+    /// The sleep goal is part of the Sleep Debt record context, so a goal change
+    /// drops every frozen night. They are not refrozen here: the cached history
+    /// may still be a phase 1 window, so the next recompute on a whole year
+    /// history freezes them under the new goal. The companion republish waits
+    /// for the drop, so the watch never receives nights judged against the old
+    /// goal next to a new goal.
+    func sleepGoalDidChange() {
+        Task { [weak self] in
+            guard let self else { return }
+            await self.recomputeSleepDebt(on: Date(), calendar: .bodyGregorian, freezes: false)
+            self.republishCompanionSnapshots()
         }
     }
 
@@ -8510,8 +8658,17 @@ final class HealthKitWorkoutStore {
     func makeSharedPublishInput() -> BodyCompanionPublishInput.Shared {
         _ = captureRefreshInputs()
         reconcileDashboardCacheScope()
+        // Frozen Sleep Debt nights ride the watch seed. Between a goal, source
+        // or permission change and the recompute that refreezes them, they hold
+        // needs judged under the old context, so the copy ships none and the
+        // watch computes those nights live. Only the copy: the live snapshot
+        // keeps them for the recompute to drop.
+        var trends = healthTrends
+        if trends.recordedSleepDebtContext != sleepDebtRecordContextSignature() {
+            trends.recordedSleepDebt = []
+        }
         return BodyCompanionPublishInput.Shared(
-            trends: healthTrends,
+            trends: trends,
             summary: healthSummary,
             temperatureUnitPreference: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference(),
             energyUnitPreference: HealthWidgetSnapshotBuilder.storedEnergyUnitPreference(),
@@ -8646,6 +8803,38 @@ final class HealthKitWorkoutStore {
             + customSourceGroupsSignatureSuffix + ";radar[\(BodyRadarCalculator.algorithmVersion)]"
     }
 
+    /// The Sleep Debt counterpart of `readinessRecordContextSignature`: which
+    /// Sleep Debt permissions are enabled, the primary source per input kind,
+    /// whether same-name sources are combined, the sleep goal, and the awake
+    /// stage prefs. The frozen nights are tagged with it and dropped when it
+    /// changes, because each one carries a need judged against the old goal and
+    /// a slept time parsed under the old inputs. Only these changes, or a new
+    /// algorithm version, may move a past night.
+    nonisolated static func sleepDebtRecordContextSignature(
+        permissionSelection: BodyHealthPermissionSelection,
+        healthDataSourceSelection: BodyHealthDataSourceSelection,
+        combinesHealthDataSourcesByName: Bool,
+        idealSleepDuration: TimeInterval,
+        showsSubMinuteAwakeStages: Bool,
+        showsLeadingTrailingAwakeStages: Bool,
+        customSourceGroupsSignatureSuffix: String = ""
+    ) -> String {
+        let permissions = sleepDebtInputPermissions
+            .sorted { $0.rawValue < $1.rawValue }
+            .map { "\($0.rawValue):\(permissionSelection.includes($0) ? "1" : "0")" }
+            .joined(separator: ",")
+        let sources = sleepDebtInputMetricKinds
+            .sorted { $0.rawValue < $1.rawValue }
+            .map { "\($0.rawValue):\(healthDataSourceSelection.option(for: $0).id)" }
+            .joined(separator: ",")
+        // The goal is every night's base need, so a goal change re-judges every
+        // frozen night under the new one.
+        let sleepGoalMinutes = Int((idealSleepDuration / 60).rounded())
+        let awakeFlags = "a[\(showsSubMinuteAwakeStages ? "1" : "0")];l[\(showsLeadingTrailingAwakeStages ? "1" : "0")]"
+        return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];g[\(sleepGoalMinutes)];\(awakeFlags)"
+            + customSourceGroupsSignatureSuffix + ";sleepDebt[\(SleepDebtChartModel.algorithmVersion)]"
+    }
+
     /// Internal so the Body Radar replay export can report the configured context.
     func bodyRadarRecordContextSignature() -> String {
         Self.bodyRadarRecordContextSignature(
@@ -8664,6 +8853,28 @@ final class HealthKitWorkoutStore {
     private var computesBodyRadar: Bool {
         permissionSelection.includes(.sleep)
             && BodyDashboardFetchSelection.load().includes(.bodyRadar)
+    }
+
+    /// Internal so the Sleep page and the companion publish can tell whether the
+    /// frozen nights still match the configured goal, sources and permissions.
+    func sleepDebtRecordContextSignature() -> String {
+        Self.sleepDebtRecordContextSignature(
+            permissionSelection: permissionSelection,
+            healthDataSourceSelection: healthDataSourceSelection,
+            combinesHealthDataSourcesByName: combinesHealthDataSourcesByName,
+            idealSleepDuration: Self.storedIdealSleepDuration(),
+            showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
+            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(),
+            customSourceGroupsSignatureSuffix: customSourceGroupsSignatureSuffix
+        )
+    }
+
+    /// Sleep Debt nights are frozen whenever sleep is read at all, not only for
+    /// Pro: freezing is cheap, and the records have to exist already on the day
+    /// the user subscribes or the chart would open on nights judged live.
+    private var computesSleepDebt: Bool {
+        permissionSelection.includes(.sleep)
+            && BodyDashboardFetchSelection.load().includes(.sleep)
     }
 
     private func stressRecordContextSignature() -> String {
@@ -8738,6 +8949,10 @@ final class HealthKitWorkoutStore {
         // days it invalidates must drop now rather than at the next refresh.
         await recomputeStress(on: Date(), calendar: .bodyGregorian)
         await recomputeBodyRadar(on: Date(), calendar: .bodyGregorian)
+        // A Sleep or Workouts toggle changes the Sleep Debt record context; drop
+        // the nights it invalidates now. The next recompute on a whole year
+        // history refreezes them, since the cached one may be a phase 1 window.
+        await recomputeSleepDebt(on: Date(), calendar: .bodyGregorian, freezes: false)
         guard mayApplyRefreshInputs(inputs), scope == currentDashboardCacheScope() else { return }
 
         if !permissionSelection.includes(.workouts) {

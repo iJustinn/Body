@@ -1089,6 +1089,54 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         return nights.filter { $0.date >= cutoff }.sorted { $0.date < $1.date }
     }
 
+    /// The Sleep Debt records as the Sleep page's model would leave them: the
+    /// records are dropped when `recordedSleepDebtContext` no longer matches
+    /// (the goal, a source, a permission or the algorithm changed), the 30
+    /// night model is built on the sleep history, today's live sleep and the
+    /// Training Load with the surviving records applied, and, with `freezes`,
+    /// every night before today that has sleep and no record yet is frozen
+    /// (`SleepDebtChartModel.freezing`). `freezes` is false on a phase 1
+    /// refresh, whose short sleep window may still carry a night an earlier
+    /// build cut at its boundary: a record is never rewritten, so one minted
+    /// from that history would make the wrong need permanent. Only the
+    /// records change; nothing else in the snapshot is touched.
+    func recalculatingSleepDebt(
+        on date: Date = Date(),
+        calendar: Calendar = .bodyGregorian,
+        now: Date = Date(),
+        sleepGoal: TimeInterval,
+        freezes: Bool,
+        recordedSleepDebtContext: String? = nil
+    ) -> HealthDashboardSnapshot {
+        var next = self
+        if let recordedSleepDebtContext, next.trends.recordedSleepDebtContext != recordedSleepDebtContext {
+            next.trends.recordedSleepDebt = []
+            next.trends.recordedSleepDebtContext = recordedSleepDebtContext
+        }
+
+        let todayStart = calendar.startOfDay(for: date)
+        let model = SleepDebtChartModel.make(
+            entries: SleepDebtChartModel.entries(
+                sleepHistory: next.trends.sleepHistory,
+                currentDaySummary: next.summary.sleep,
+                trainingLoad: next.trends.trainingLoad,
+                today: date,
+                calendar: calendar
+            ),
+            sleepGoal: sleepGoal,
+            records: next.trends.recordedSleepDebt,
+            calendar: calendar
+        )
+        next.trends.recordedSleepDebt = SleepDebtChartModel.freezing(
+            records: next.trends.recordedSleepDebt,
+            nights: freezes ? model.nights : [],
+            today: todayStart,
+            now: now,
+            calendar: calendar
+        )
+        return next
+    }
+
     /// A reading older than this is history, not "right now": the home card must
     /// not present it as the current band. Four 15-minute windows.
     static let stressCurrentScoreMaxAge: TimeInterval = 60 * 60

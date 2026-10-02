@@ -177,6 +177,9 @@ struct HealthDashboardCacheScope: Codable, Equatable {
         if !sourceChanged.isDisjoint(with: HealthKitWorkoutStore.bodyRadarSignedSourceKinds) {
             next.trends.recordedBodyRadarContext = "invalidated source context"
         }
+        if !sourceChanged.isDisjoint(with: HealthKitWorkoutStore.sleepDebtInputMetricKinds) {
+            next.trends.recordedSleepDebtContext = "invalidated source context"
+        }
         return next
     }
 

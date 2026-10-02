@@ -1318,8 +1318,9 @@ final class WatchComputeParityTests: XCTestCase {
     // MARK: - Sleep Debt: watch = phone = the iPhone card's last 14 nights
 
     /// The iPhone Sleep Debt card's model over the inputs the phone publish
-    /// reads (the permission-filtered dashboard, as the store holds it): the
-    /// default 30 night `make`, whose last 14 nights the watch must show.
+    /// reads (the permission-filtered dashboard, as the store holds it, with
+    /// its frozen nights): the default 30 night `make`, whose last 14 nights
+    /// the watch must show.
     private func cardSleepDebt(
         fixture: Fixture,
         now: Date,
@@ -1336,7 +1337,9 @@ final class WatchComputeParityTests: XCTestCase {
                 today: now,
                 calendar: calendar
             ),
-            sleepGoal: fixture.idealSleepDuration
+            sleepGoal: fixture.idealSleepDuration,
+            records: filtered.trends.recordedSleepDebt,
+            calendar: calendar
         )
     }
 
@@ -1416,6 +1419,66 @@ final class WatchComputeParityTests: XCTestCase {
         // 1's 71 nights fit inside the trim; these 111 don't, so this is the
         // case that would catch a readiness or sleep score reading past it.
         assertMetricsMatch(phone, result.snapshot)
+    }
+
+    /// The phone's frozen nights ride the seed: every night of the card's
+    /// model except yesterday's and today's is recorded with a need 10 minutes
+    /// above and a debt 10 minutes off what the history gives, so a side that
+    /// ignored the records would differ on the frozen nights it emits and on
+    /// the two live nights, whose windows sum the frozen gaps. Yesterday is
+    /// left live as after a partial refresh, today as always.
+    func testSleepDebtMatchesWithThePhonesFrozenNights() throws {
+        let calendar = Calendar.bodyGregorian
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let anchorDay = calendar.startOfDay(for: anchor)
+        let yesterday = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: anchorDay))
+        var fixture = try makeFixture(anchor: anchor, calendar: calendar, hardensSleepDebt: true)
+        let liveCard = cardSleepDebt(fixture: fixture, now: anchor, calendar: calendar)
+        fixture.trends.recordedSleepDebt = liveCard.nights
+            .filter { $0.day < yesterday }
+            .compactMap { night -> SleepDebtRecord? in
+                var perturbed = night
+                perturbed.needDuration += 10 * 60
+                perturbed.debtAfterNight = night.debtAfterNight.map { $0 + 10 * 60 }
+                return SleepDebtRecord(night: perturbed, capturedAt: night.day.addingTimeInterval(36 * 3_600))
+            }
+        fixture.trends.recordedSleepDebtContext = "fixture-sleep-debt-context"
+        XCTAssertEqual(fixture.trends.recordedSleepDebt.count, SleepDebtChartModel.selectableNightCount - 2)
+
+        let phone = phoneSnapshot(fixture: fixture, now: anchor, calendar: calendar)
+        let (result, seed) = try watchResult(
+            fixture: fixture,
+            seedSummary: fixture.summary,
+            seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
+            seedTrainingLoadDailyLoads: fixture.trainingLoadDailyLoads,
+            dataThrough: anchor, now: anchor, calendar: calendar
+        )
+        let card = cardSleepDebt(fixture: fixture, now: anchor, calendar: calendar)
+
+        try assertSleepDebtsMatch(phone: phone, watch: result.snapshot, card: card)
+        XCTAssertEqual(result.snapshot.sleepDebt?.nights.last?.day, anchorDay)
+
+        // The seed carried the frozen nights the watch reads…
+        XCTAssertEqual(
+            seed.trends.recordedSleepDebt.count,
+            SleepDebtChartModel.watchNightCount + SleepDebtChartModel.windowNightCount - 2
+        )
+        // …the charted frozen nights are the records, verbatim…
+        let compared = Array(card.nights.suffix(SleepDebtChartModel.watchNightCount))
+        let liveCompared = Array(liveCard.nights.suffix(SleepDebtChartModel.watchNightCount))
+        for (frozen, live) in zip(compared, liveCompared).dropLast(2) {
+            XCTAssertEqual(frozen.needDuration, live.needDuration + 10 * 60)
+            XCTAssertEqual(try XCTUnwrap(frozen.debtAfterNight), try XCTUnwrap(live.debtAfterNight) + 10 * 60, accuracy: 0.001)
+        }
+        // …and the two live nights moved with the frozen gaps, not the
+        // history's, with no debt at a clamp that could hide a different sum.
+        for (frozen, live) in zip(compared, liveCompared).suffix(2) {
+            XCTAssertEqual(frozen.needDuration, live.needDuration, "a live night keeps its own need")
+            XCTAssertNotEqual(frozen.debtAfterNight, live.debtAfterNight, "a live night sums the frozen gaps")
+        }
+        let debts = compared.compactMap(\.debtAfterNight)
+        XCTAssertEqual(debts.count, SleepDebtChartModel.watchNightCount)
+        XCTAssertTrue(debts.allSatisfy { $0 > 0 && $0 < SleepDebtChartModel.maximumDebt })
     }
 
     /// With Workouts off, both sides drop Training Load from the needs (the

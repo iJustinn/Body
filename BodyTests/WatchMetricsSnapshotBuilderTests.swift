@@ -362,11 +362,13 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         anchor: Date,
         includesSleepDebt: Bool = true,
         permissionSelection: BodyHealthPermissionSelection = .defaultValue,
-        perKindDataAsOf: ((String) -> Date?)? = nil
+        perKindDataAsOf: ((String) -> Date?)? = nil,
+        records: [SleepDebtRecord] = []
     ) -> WatchMetricsSnapshot {
         let history = sleepDebtHistory(anchor: anchor)
         var trends = HealthTrendSnapshot.empty
         trends.sleepHistory = history
+        trends.recordedSleepDebt = records
         var summary = HealthSummarySnapshot.placeholder
         summary.sleep = history.days[0].summary
         return WatchMetricsSnapshotBuilder.makeSnapshot(
@@ -424,6 +426,38 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(debt.nights.last?.day, calendar.startOfDay(for: anchor), "the nights end on the build day")
         XCTAssertEqual(try XCTUnwrap(debt.debt), 3.5 * 3_600, accuracy: 0.001)
         XCTAssertTrue(debt.hasChartableNight)
+    }
+
+    /// A frozen night rides the trends from the phone: the built night carries
+    /// the record's debt, not what the history gives, and the later windows
+    /// sum the record's gap.
+    func testSleepDebtCarriesTheRecordedNightOverTheHistory() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
+        let frozenDay = try XCTUnwrap(calendar.date(byAdding: .day, value: -5, to: calendar.startOfDay(for: anchor)))
+        // The history gives 7h45m against an 8 hour need and a 3h30m debt.
+        let record = try XCTUnwrap(SleepDebtRecord(
+            night: SleepDebtNight(
+                day: frozenDay,
+                actualDuration: 7.75 * 3_600,
+                needDuration: 9 * 3_600,
+                isNeedLearned: true,
+                trainingAdjustment: 30 * 60,
+                hrvAdjustment: 30 * 60,
+                recordedNightCount: 14,
+                debtAfterNight: 1_234
+            ),
+            capturedAt: frozenDay.addingTimeInterval(36 * 3_600)
+        ))
+
+        let live = try XCTUnwrap(sleepDebtSnapshot(anchor: anchor).sleepDebt)
+        let frozen = try XCTUnwrap(sleepDebtSnapshot(anchor: anchor, records: [record]).sleepDebt)
+
+        XCTAssertEqual(try XCTUnwrap(live.nights.first { $0.day == frozenDay }?.debt), 3.5 * 3_600, accuracy: 0.001)
+        let frozenNight = try XCTUnwrap(frozen.nights.first { $0.day == frozenDay })
+        XCTAssertEqual(frozenNight.debt, 1_234)
+        XCTAssertTrue(frozenNight.isRecorded)
+        // Today's window sums the record's 1h15m gap instead of the history's 15 minutes.
+        XCTAssertEqual(try XCTUnwrap(frozen.debt), 4.5 * 3_600, accuracy: 0.001)
     }
 
     func testSleepDebtIsStampedWithTheNewerOfTheSleepAndTrainingLoadCutoffs() throws {

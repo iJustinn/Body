@@ -395,7 +395,8 @@ extension HealthTrendSnapshot {
     /// reads (readiness, HR/RHR/HRV, the HR/HRV daily ranges for one week,
     /// respiratory, SpO₂, Training Load, wrist temperature, sleep + sleep
     /// history, recorded-readiness + its context, the recorded Stress days for
-    /// `WatchComputeSeed.stressRecordDayCount` days + their context)
+    /// `WatchComputeSeed.stressRecordDayCount` days + their context, the
+    /// frozen Sleep Debt nights the watch's 14 night model reads + their context)
     /// — everything else (secondary-source series, day-sample series, Basics,
     /// Activity Rings inputs, …) collapses to `.empty` since the watch never
     /// computes those.
@@ -444,6 +445,24 @@ extension HealthTrendSnapshot {
             return day >= oldestStressDay && day <= anchorDay
         }
         trimmed.recordedStressContext = recordedStressContext
+
+        // The frozen Sleep Debt nights of the entry days the watch's model
+        // reads (`watchNightCount + windowNightCount`, 28) ending at the anchor.
+        // The watch never freezes a night itself: the phone is authoritative,
+        // as for the readiness morning records (see the deviation note in
+        // `WatchComputeAssembly`). So after midnight and before the next push
+        // the watch computes yesterday live, and the next seed brings the
+        // phone's record. The context rides along as is; the watch never re-keys.
+        let oldestSleepDebtDay = calendar.date(
+            byAdding: .day,
+            value: -(SleepDebtChartModel.watchNightCount + SleepDebtChartModel.windowNightCount - 1),
+            to: anchorDay
+        ) ?? anchorDay
+        trimmed.recordedSleepDebt = recordedSleepDebt.filter { record in
+            let day = calendar.startOfDay(for: record.day)
+            return day >= oldestSleepDebtDay && day <= anchorDay
+        }
+        trimmed.recordedSleepDebtContext = recordedSleepDebtContext
 
         return trimmed
     }

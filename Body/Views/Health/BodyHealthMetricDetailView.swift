@@ -3514,9 +3514,12 @@ struct BodyHealthMetricDetailView: View {
 
     // Gathering the inputs is a single pass over the history each render; the
     // cache rebuilds the model, with its HRV baselines and each night's learned
-    // need, only when they or the goal change. The Training Load series comes straight from the store, like
+    // need, only when they, the goal, or the frozen nights change. The Training Load series comes straight from the store, like
     // `liveDaySeries`, since the detail model doesn't carry it; this page's
     // pull refreshes it along with sleep (`performHealthMetricRefresh`).
+    // Frozen nights are used only while their context matches the store's
+    // current one, so between a goal change and the store's recompute the
+    // page never renders needs frozen under the old goal.
     private var sleepDebtChartModel: SleepDebtChartModel {
         let calendar = Calendar.bodyGregorian
         let now = Date()
@@ -3528,7 +3531,10 @@ struct BodyHealthMetricDetailView: View {
                 today: now,
                 calendar: calendar
             ),
-            sleepGoal: BodySleepDurationGoal.duration(from: sleepDurationGoalMinutes)
+            sleepGoal: BodySleepDurationGoal.duration(from: sleepDurationGoalMinutes),
+            records: workoutStore.healthTrends.recordedSleepDebtContext == workoutStore.sleepDebtRecordContextSignature()
+                ? workoutStore.healthTrends.recordedSleepDebt
+                : []
         )
     }
 
@@ -4083,21 +4089,22 @@ final class BodySleepConsistencyChartCache: ObservableObject {
 /// night's need from the 56 days ending on it, and the detail
 /// view asks for it on every `body` evaluation (each day selection or
 /// progressive-refresh tick). Keyed on the gathered inputs, one value per night,
-/// and the sleep goal.
+/// the sleep goal, and the frozen nights.
 @MainActor
 final class BodySleepDebtChartCache: ObservableObject {
-    private var cached: (inputs: SleepDebtChartModel.Inputs, sleepGoal: TimeInterval, model: SleepDebtChartModel)?
+    private var cached: (inputs: SleepDebtChartModel.Inputs, sleepGoal: TimeInterval, records: [SleepDebtRecord], model: SleepDebtChartModel)?
 
-    func model(inputs: SleepDebtChartModel.Inputs, sleepGoal: TimeInterval) -> SleepDebtChartModel {
-        if let cached, cached.inputs == inputs, cached.sleepGoal == sleepGoal {
+    func model(inputs: SleepDebtChartModel.Inputs, sleepGoal: TimeInterval, records: [SleepDebtRecord] = []) -> SleepDebtChartModel {
+        if let cached, cached.inputs == inputs, cached.sleepGoal == sleepGoal, cached.records == records {
             return cached.model
         }
 
         let model = SleepDebtChartModel.make(
             entries: SleepDebtChartModel.entries(from: inputs),
-            sleepGoal: sleepGoal
+            sleepGoal: sleepGoal,
+            records: records
         )
-        cached = (inputs, sleepGoal, model)
+        cached = (inputs, sleepGoal, records, model)
         return model
     }
 }

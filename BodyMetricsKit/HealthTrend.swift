@@ -163,6 +163,20 @@ struct HealthTrendSnapshot: Codable, Equatable {
     /// three metrics read different inputs, so a change to one must not drop the
     /// others' records (see `recalculatingBodyRadar`).
     var recordedBodyRadarContext: String
+    /// Per night frozen Sleep Debt records, keyed by `startOfDay` of the wake
+    /// day. A night is frozen by the first recompute on a whole year history
+    /// after its day has passed and is never rewritten, so a later revision of
+    /// the sleep history, the Training Load or the learned need cannot move a
+    /// past point on the chart (`SleepDebtChartModel.make(records:)`). Carried
+    /// forward across refreshes like `recordedBodyRadar`: Sleep Debt is
+    /// derived, never fetched. Shipped to the watch in the compute seed.
+    var recordedSleepDebt: [SleepDebtRecord]
+    /// Signature of the Sleep Debt input context (sleep goal, sleep and
+    /// Training Load permissions and sources, awake stage prefs, algorithm
+    /// version) under which `recordedSleepDebt` was captured. A mismatch drops
+    /// the records so a recompute under the new inputs is authoritative
+    /// (see `recalculatingSleepDebt`).
+    var recordedSleepDebtContext: String
 
     static let empty = HealthTrendSnapshot(
         sleep: .empty,
@@ -225,7 +239,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         recordedReadiness: [],
         recordedReadinessContext: "",
         recordedBodyRadar: [],
-        recordedBodyRadarContext: ""
+        recordedBodyRadarContext: "",
+        recordedSleepDebt: [],
+        recordedSleepDebtContext: ""
     )
 
     var isEmpty: Bool {
@@ -287,7 +303,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
             stepsDaySamplesSecondary.isEmpty &&
             recordedStressDays.isEmpty &&
             recordedReadiness.isEmpty &&
-            recordedBodyRadar.isEmpty
+            recordedBodyRadar.isEmpty &&
+            recordedSleepDebt.isEmpty
     }
 
     init(
@@ -354,7 +371,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         recordedReadiness: [RecordedReadinessEntry] = [],
         recordedReadinessContext: String = "",
         recordedBodyRadar: [BodyRadarNight] = [],
-        recordedBodyRadarContext: String = ""
+        recordedBodyRadarContext: String = "",
+        recordedSleepDebt: [SleepDebtRecord] = [],
+        recordedSleepDebtContext: String = ""
     ) {
         self.sleep = sleep
         self.sleepSecondary = sleepSecondary
@@ -420,6 +439,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.recordedReadinessContext = recordedReadinessContext
         self.recordedBodyRadar = recordedBodyRadar
         self.recordedBodyRadarContext = recordedBodyRadarContext
+        self.recordedSleepDebt = recordedSleepDebt
+        self.recordedSleepDebtContext = recordedSleepDebtContext
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -487,6 +508,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case recordedReadinessContext
         case recordedBodyRadar
         case recordedBodyRadarContext
+        case recordedSleepDebt
+        case recordedSleepDebtContext
     }
 
     /// Decodes tolerantly: a missing series key is treated as an empty series rather than a
@@ -659,6 +682,14 @@ struct HealthTrendSnapshot: Codable, Equatable {
         recordedBodyRadarContext = try container.decodeIfPresent(
             String.self,
             forKey: .recordedBodyRadarContext
+        ) ?? ""
+        recordedSleepDebt = try container.decodeIfPresent(
+            [SleepDebtRecord].self,
+            forKey: .recordedSleepDebt
+        ) ?? []
+        recordedSleepDebtContext = try container.decodeIfPresent(
+            String.self,
+            forKey: .recordedSleepDebtContext
         ) ?? ""
     }
 
@@ -895,6 +926,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.sleepSecondary = refreshed.sleepSecondary
             next.sleepHistory = refreshed.sleepHistory
             next.sleepHistorySecondary = refreshed.sleepHistorySecondary
+            next.recordedSleepDebt = refreshed.recordedSleepDebt
+            next.recordedSleepDebtContext = refreshed.recordedSleepDebtContext
         case .basics:
             next.bodyMass = refreshed.bodyMass
             next.bodyFatPercentage = refreshed.bodyFatPercentage
@@ -1021,6 +1054,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             // Body Radar is scored end to end from the overnight signals, so the
             // frozen nights go with the history they were scored from.
             filtered.recordedBodyRadar = []
+            // Sleep Debt is judged night by night from the same history, so
+            // its frozen nights go with it too.
+            filtered.recordedSleepDebt = []
         }
         if !selection.includes(.heart) {
             filtered.heartRate = .empty

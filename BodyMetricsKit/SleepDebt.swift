@@ -40,6 +40,62 @@ struct SleepDebtNight: Equatable, Identifiable {
     }
 }
 
+/// A night frozen once its day has passed: every field the night row and the
+/// chart read, so the night renders exactly as it did when it was captured,
+/// and later nights sum its gap (`needDuration` minus `actualDuration`) as it
+/// stood. Only a recorded night is frozen; a night with no sleep stays live so
+/// a late sync can still fill it. Never rewritten: only a context change (the
+/// goal, a source, a permission, the algorithm) drops the records, and then
+/// every night is judged again from scratch (`recalculatingSleepDebt`).
+struct SleepDebtRecord: Codable, Equatable, Identifiable {
+    /// Start of the wake day, in the zone the night was captured in; readers
+    /// key it by `startOfDay` again, like the Readiness records.
+    var day: Date
+    var actualDuration: TimeInterval
+    var needDuration: TimeInterval
+    var isNeedLearned: Bool
+    var trainingAdjustment: TimeInterval
+    var hrvAdjustment: TimeInterval
+    var recordedNightCount: Int
+    var debtAfterNight: TimeInterval?
+    var capturedAt: Date
+
+    var id: Date {
+        day
+    }
+
+    /// Nil for a night with no sleep recorded.
+    init?(night: SleepDebtNight, capturedAt: Date) {
+        guard let actualDuration = night.actualDuration else {
+            return nil
+        }
+
+        day = night.day
+        self.actualDuration = actualDuration
+        needDuration = night.needDuration
+        isNeedLearned = night.isNeedLearned
+        trainingAdjustment = night.trainingAdjustment
+        hrvAdjustment = night.hrvAdjustment
+        recordedNightCount = night.recordedNightCount
+        debtAfterNight = night.debtAfterNight
+        self.capturedAt = capturedAt
+    }
+
+    /// The night as it was captured, filed under `day`.
+    func night(on day: Date) -> SleepDebtNight {
+        SleepDebtNight(
+            day: day,
+            actualDuration: actualDuration,
+            needDuration: needDuration,
+            isNeedLearned: isNeedLearned,
+            trainingAdjustment: trainingAdjustment,
+            hrvAdjustment: hrvAdjustment,
+            recordedNightCount: recordedNightCount,
+            debtAfterNight: debtAfterNight
+        )
+    }
+}
+
 /// The Sleep page's Sleep Debt: each night's need (a base need that moves the
 /// sleep goal a third of the way toward what the 8 weeks of sleep ending on
 /// that night show, or the goal alone until enough nights exist, plus Training
@@ -66,6 +122,13 @@ struct SleepDebtChartModel: Equatable {
         /// against it, so its need stays what it was on its own day.
         var learnedNeed: TimeInterval? = nil
     }
+
+    /// Rides the records' context signature: bumping it drops every frozen
+    /// night so the new rule judges them again, like Body Radar's.
+    static let algorithmVersion = 1
+    /// Frozen nights older than this many days before today are pruned: the
+    /// entry days the model reads, plus a window of slack.
+    static let recordRetentionDayCount = entryDayCount + windowNightCount
 
     static let windowNightCount = 14
     static let minimumRecordedNightCount = 5
@@ -337,16 +400,27 @@ struct SleepDebtChartModel: Equatable {
     /// are shown. Each night is judged against `baseNeed(learnedNeed:sleepGoal:)`
     /// with its own entry's learned need, and against `sleepGoal` alone while
     /// that is nil, so no night is judged again by a need learned later.
-    /// `nightCount` is how many nights the model keeps (the watch charts 7);
-    /// `entries` must hold `nightCount + windowNightCount` days.
+    /// `nightCount` is how many nights the model keeps (the watch charts 14);
+    /// `entries` must hold `nightCount + windowNightCount` days. A day with a
+    /// frozen record in `records` takes its slept time, need and adjustments
+    /// from the record, so every window that reaches it sums the gap it was
+    /// frozen with, and is emitted as the record's night, unchanged.
     static func make(
         entries: [Entry],
         sleepGoal: TimeInterval,
-        nightCount: Int = selectableNightCount
+        nightCount: Int = selectableNightCount,
+        records: [SleepDebtRecord] = [],
+        calendar: Calendar = .bodyGregorian
     ) -> SleepDebtChartModel {
         guard nightCount > 0, entries.count == nightCount + windowNightCount else {
             return .empty
         }
+
+        let recordsByDay = Dictionary(
+            records.map { (calendar.startOfDay(for: $0.day), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let frozen = entries.map { recordsByDay[calendar.startOfDay(for: $0.day)] }
 
         let baseNeeds = entries.map { entry in
             entry.learnedNeed.map { baseNeed(learnedNeed: $0, sleepGoal: sleepGoal) } ?? sleepGoal
@@ -360,6 +434,14 @@ struct SleepDebtChartModel: Equatable {
         var actuals = [TimeInterval?](repeating: nil, count: entries.count)
         var gaps = [TimeInterval?](repeating: nil, count: entries.count)
         for index in entries.indices.dropFirst() {
+            if let record = frozen[index] {
+                trainingAdjustments[index] = record.trainingAdjustment
+                hrvAdjustments[index] = record.hrvAdjustment
+                needs[index] = record.needDuration
+                actuals[index] = record.actualDuration
+                gaps[index] = record.needDuration - record.actualDuration
+                continue
+            }
             trainingAdjustments[index] = trainingAdjustment(forTrainingLoadRatio: entries[index - 1].trainingLoadRatio)
             hrvAdjustments[index] = hrvAdjustment(forHRVZScore: entries[index - 1].hrvZScore)
             needs[index] = baseNeeds[index] + trainingAdjustments[index] + hrvAdjustments[index]
@@ -371,6 +453,9 @@ struct SleepDebtChartModel: Equatable {
 
         let todayIndex = entries.count - 1
         let nights = ((entries.count - nightCount)...todayIndex).map { index in
+            if let record = frozen[index] {
+                return record.night(on: entries[index].day)
+            }
             let recordedGaps = ((index - windowNightCount + 1)...index).compactMap { gaps[$0] }
             // Today's night may still be syncing, so it has no point until it arrives.
             let isPendingToday = index == todayIndex && actuals[index] == nil
@@ -390,6 +475,37 @@ struct SleepDebtChartModel: Equatable {
         }
 
         return SleepDebtChartModel(nights: nights, sleepGoal: sleepGoal)
+    }
+
+    /// `records` with every night of `nights` whose day is before `today`'s
+    /// and that has sleep recorded frozen as it stands, when it has no record
+    /// yet. An existing record is never rewritten; today's night stays live so
+    /// a late sync still lands. Records older than `recordRetentionDayCount`
+    /// days before today are dropped, and the result is sorted by day.
+    static func freezing(
+        records: [SleepDebtRecord],
+        nights: [SleepDebtNight],
+        today: Date,
+        now: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> [SleepDebtRecord] {
+        let todayStart = calendar.startOfDay(for: today)
+        var recordedDays = Set(records.map { calendar.startOfDay(for: $0.day) })
+        var updated = records
+        for night in nights {
+            let day = calendar.startOfDay(for: night.day)
+            guard day < todayStart, !recordedDays.contains(day),
+                  let record = SleepDebtRecord(night: night, capturedAt: now) else {
+                continue
+            }
+            recordedDays.insert(day)
+            updated.append(record)
+        }
+
+        let cutoff = calendar.date(byAdding: .day, value: -recordRetentionDayCount, to: todayStart) ?? todayStart
+        return updated
+            .filter { calendar.startOfDay(for: $0.day) >= cutoff }
+            .sorted { $0.day < $1.day }
     }
 
     /// Body's own addition to a night's need after a day of heavier than usual

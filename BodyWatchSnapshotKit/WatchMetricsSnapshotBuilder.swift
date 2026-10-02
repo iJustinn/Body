@@ -112,6 +112,7 @@ enum WatchMetricsSnapshotBuilder {
                     sleepHistory: trends.sleepHistory,
                     currentDaySummary: summary.sleep,
                     trainingLoad: trends.trainingLoad,
+                    records: trends.recordedSleepDebt,
                     sleepGoal: idealSleepDuration,
                     now: now,
                     // The information cutoff of both inputs: the sleep read
@@ -424,12 +425,14 @@ enum WatchMetricsSnapshotBuilder {
     /// The last `SleepDebtChartModel.watchNightCount` nights of the iPhone
     /// Sleep Debt card, built by the same shared model: a night reads only its
     /// own 14 night window, the day before it, and the history behind them,
-    /// so each one carries the debt the card shows for it. Nil when the model
-    /// has no nights.
+    /// so each one carries the debt the card shows for it. `records` are the
+    /// phone's frozen nights, which the model emits unchanged and sums into
+    /// the later windows, as the card does. Nil when the model has no nights.
     private static func sleepDebtSnapshot(
         sleepHistory: SleepHistorySnapshot,
         currentDaySummary: SleepSummary,
         trainingLoad: HealthTrendSeries,
+        records: [SleepDebtRecord],
         sleepGoal: TimeInterval,
         now: Date,
         computedAt: Date?
@@ -444,7 +447,8 @@ enum WatchMetricsSnapshotBuilder {
                 today: now
             ),
             sleepGoal: sleepGoal,
-            nightCount: nightCount
+            nightCount: nightCount,
+            records: records
         )
         guard !model.nights.isEmpty else { return nil }
         return WatchSleepDebt(

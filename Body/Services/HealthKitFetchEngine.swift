@@ -3824,6 +3824,10 @@ actor HealthKitFetchEngine {
         // reason the recorded stress days do.
         let cachedRecordedBodyRadar = cachedTrends.recordedBodyRadar
         let cachedRecordedBodyRadarContext = cachedTrends.recordedBodyRadarContext
+        // Sleep Debt's frozen nights carry forward for the same reason: a
+        // record is never rebuilt from the history, only applied to it.
+        let cachedRecordedSleepDebt = cachedTrends.recordedSleepDebt
+        let cachedRecordedSleepDebtContext = cachedTrends.recordedSleepDebtContext
 
         // Oldest day a windowed leaf queries, and the boundary the merge splices
         // on. Every windowed leaf below reads `trendWindowDays` as its `maxDays`
@@ -4283,7 +4287,9 @@ actor HealthKitFetchEngine {
             recordedReadiness: cachedTrends.recordedReadiness,
             recordedReadinessContext: cachedTrends.recordedReadinessContext,
             recordedBodyRadar: cachedRecordedBodyRadar,
-            recordedBodyRadarContext: cachedRecordedBodyRadarContext
+            recordedBodyRadarContext: cachedRecordedBodyRadarContext,
+            recordedSleepDebt: cachedRecordedSleepDebt,
+            recordedSleepDebtContext: cachedRecordedSleepDebtContext
         )
         // These domains have no retained intraday dependency. A full primary
         // and configured comparison read can therefore settle their history.

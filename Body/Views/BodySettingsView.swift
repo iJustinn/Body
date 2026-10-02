@@ -152,10 +152,13 @@ struct BodySettingsView: View {
                     await workoutStore.refetchAfterStarMetricChange()
                 }
             }
+            // The goal is part of the Sleep Debt record context: the store drops
+            // and refreezes the nights under it, then republishes both companion
+            // snapshots.
+            .onChange(of: sleepDurationGoalMinutes) { workoutStore.sleepGoalDidChange() }
             // Republish both companion snapshots (widget + watch) when a
             // formatting-only pref changes, without waiting for the next
             // refresh.
-            .onChange(of: sleepDurationGoalMinutes) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedTemperatureUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: followsSystemUnits) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: showSleepScore) { workoutStore.republishCompanionSnapshots() }

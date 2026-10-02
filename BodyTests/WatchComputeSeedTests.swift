@@ -9,7 +9,8 @@
 //  still-relevant last-7-days window, the sleep history's wider window for
 //  the watch's Sleep Debt, the HR / HRV range series' one week window, the
 //  compressed payload's size budget, and the
-//  whole WatchConnectivity push's budget.
+//  whole WatchConnectivity push's budget, and the frozen Sleep Debt nights'
+//  window.
 //
 
 import XCTest
@@ -152,6 +153,32 @@ final class WatchComputeSeedTests: XCTestCase {
         .sorted { $0.date < $1.date }
     }
 
+    /// The phone's frozen Sleep Debt nights as it keeps them: one per day
+    /// before the anchor's, back to `recordRetentionDayCount` days, every
+    /// field set at full double precision like real ones.
+    private func recordedSleepDebtFixture(anchor: Date) -> [SleepDebtRecord] {
+        let anchorDay = calendar.startOfDay(for: anchor)
+        return (1...SleepDebtChartModel.recordRetentionDayCount).reversed().compactMap { age -> SleepDebtRecord? in
+            guard let day = calendar.date(byAdding: .day, value: -age, to: anchorDay) else { return nil }
+            let need = 8 * 3_600 + Double(age % 4) * 5 * 60
+            return SleepDebtRecord(
+                night: SleepDebtNight(
+                    day: day,
+                    actualDuration: 7.4 * 3_600 + 2_100 * sin(Double(age) / 2.3),
+                    needDuration: need,
+                    isNeedLearned: true,
+                    trainingAdjustment: Double(age % 3) * 5 * 60,
+                    hrvAdjustment: age % 5 == 0 ? 10 * 60 : 0,
+                    recordedNightCount: 14,
+                    debtAfterNight: 9_000 + 1_800 * sin(Double(age) / 4.1)
+                ),
+                // Whole seconds: the seed's ISO 8601 dates drop fractions, and
+                // the round trip test compares exactly.
+                capturedAt: day.addingTimeInterval(36 * 3_600 + Double(age) * 61)
+            )
+        }
+    }
+
     /// A realistic multi-week `HealthTrendSnapshot`: populated vitals/training
     /// load series plus a multi-segment, vitals-hydrated sleep history — used
     /// both for the trim-equivalence check and (once trimmed) the size test.
@@ -173,6 +200,8 @@ final class WatchComputeSeedTests: XCTestCase {
         trends.recordedReadinessContext = "fixture-context"
         trends.recordedStressDays = recordedStressFixture(dayCount: dayCount, anchor: anchor)
         trends.recordedStressContext = "fixture-stress-context"
+        trends.recordedSleepDebt = recordedSleepDebtFixture(anchor: anchor)
+        trends.recordedSleepDebtContext = "fixture-sleep-debt-context"
         return trends
     }
 
@@ -543,6 +572,34 @@ final class WatchComputeSeedTests: XCTestCase {
         XCTAssertTrue(trimmed.heartRateDaySamples.points.isEmpty)
     }
 
+    // MARK: - Recorded Sleep Debt nights (the phone's frozen nights)
+
+    /// The watch charts 14 nights whose windows reach 13 nights further back,
+    /// so its model reads 28 entry days ending at the anchor: the seed keeps
+    /// the frozen nights of those days, whole, with their context, and drops
+    /// the rest of the phone's 58 day ledger.
+    func testRecordedSleepDebtKeepsTheTwentyEightDaysTheWatchModelReads() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        let anchorDay = calendar.startOfDay(for: anchor)
+        let full = trendsFixture(dayCount: 365, anchor: anchor)
+        XCTAssertEqual(full.recordedSleepDebt.count, SleepDebtChartModel.recordRetentionDayCount)
+
+        let trimmed = full.watchComputeTrimmed(anchor: anchor, calendar: calendar)
+
+        func age(_ record: SleepDebtRecord) -> Int {
+            calendar.dateComponents([.day], from: calendar.startOfDay(for: record.day), to: anchorDay).day ?? -1
+        }
+        let ages = trimmed.recordedSleepDebt.map(age)
+        XCTAssertEqual(ages.min(), 1, "today is never frozen, so the newest record is yesterday's")
+        XCTAssertEqual(ages.max(), 27, "a night 27 days old is kept; 28 and older are dropped")
+        XCTAssertEqual(
+            trimmed.recordedSleepDebt.count,
+            SleepDebtChartModel.watchNightCount + SleepDebtChartModel.windowNightCount - 1
+        )
+        XCTAssertEqual(trimmed.recordedSleepDebt, full.recordedSleepDebt.filter { age($0) <= 27 }, "whole records, not slimmed")
+        XCTAssertEqual(trimmed.recordedSleepDebtContext, "fixture-sleep-debt-context")
+    }
+
     // MARK: - Range series window (HR / HRV week chart capsules)
 
     /// The capsules ride the seed for one week only: the builder reads them
@@ -705,6 +762,11 @@ final class WatchComputeSeedTests: XCTestCase {
         XCTAssertEqual(stress.weeklyRanges?.compactMap { $0 }.count, 7)
         XCTAssertEqual(snapshot.stressTimeline?.slots.count, timelineSlotCount)
         XCTAssertEqual(seed.trends.recordedStressDays.count, WatchComputeSeed.stressRecordDayCount)
+        XCTAssertEqual(trends.recordedSleepDebt.count, SleepDebtChartModel.recordRetentionDayCount)
+        XCTAssertEqual(
+            seed.trends.recordedSleepDebt.count,
+            SleepDebtChartModel.watchNightCount + SleepDebtChartModel.windowNightCount - 1
+        )
 
         let snapshotSize = try XCTUnwrap(snapshot.encoded()).count
         let permissionSize = BodyHealthPermissionSelection.defaultRawValue.utf8.count
