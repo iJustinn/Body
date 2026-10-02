@@ -44,6 +44,7 @@ struct WatchMetricDetailPager: View {
                         metric: metric,
                         generatedAt: model.snapshot.generatedAt,
                         sleepStages: model.snapshot.sleepStages,
+                        sleepDebt: model.snapshot.showsSleepDebt == true ? model.snapshot.sleepDebt : nil,
                         exerciseWeekMetric: WatchComplicationTimeline.exerciseWeekMetric(in: model.snapshot)
                     )
                         .tag(metric.kind as String?)

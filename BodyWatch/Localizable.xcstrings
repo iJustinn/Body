@@ -356,6 +356,57 @@
         }
       }
     },
+    "Sleep Debt" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Debt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠负债"
+          }
+        }
+      }
+    },
+    "Sleep Debt, %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Debt, %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠负债，%@"
+          }
+        }
+      }
+    },
+    "Sleep Debt, needs more data" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Debt, needs more data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠负债，数据不足"
+          }
+        }
+      }
+    },
     "Sleep stages" : {
       "extractionState" : "manual",
       "localizations" : {
