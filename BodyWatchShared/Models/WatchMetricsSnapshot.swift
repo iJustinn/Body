@@ -57,6 +57,13 @@ enum WatchMetricKindKey {
     /// (`HealthWidgetMetric`), so `ProjectConfigurationTests` pins its look
     /// against the iPhone's `HealthMetricPresentation` row instead.
     static let stress = "stress"
+    /// The day's running totals, one card each directly under Resting HR:
+    /// today's total so far as the headline and the last 7 days' totals as
+    /// the week. Grouped in `dailyTotalKinds` below for the rules that treat
+    /// them alike.
+    static let steps = "steps"
+    static let activeEnergy = "activeEnergy"
+    static let restingEnergy = "restingEnergy"
     /// Legacy activity-ring exercise minutes. No longer published: the weekly
     /// workout complication reads `workoutMinutes` below and only falls back to
     /// this kind when it finds a cached snapshot from an older phone build.
@@ -72,12 +79,21 @@ enum WatchMetricKindKey {
     static let workoutMinutes = "workoutMinutes"
 
     /// Dashboard ordering — Readiness leads (drawn as the home screen's hero
-    /// rather than a card), then Sleep, Training Load and Stress. The watch
-    /// complications are independent widgets and don't read this.
+    /// rather than a card), then Sleep, Training Load and Stress, the heart
+    /// vitals, the day's running totals (Steps, Active Energy, Resting Energy)
+    /// directly under Resting HR, and Skin Temp last. The watch complications
+    /// are independent widgets and don't read this.
     static let displayOrder: [String] = [
         readiness, sleep, trainingLoad, stress, heartRate,
-        heartRateVariability, restingHeartRate, wristTemperature
+        heartRateVariability, restingHeartRate, steps, activeEnergy,
+        restingEnergy, wristTemperature
     ]
+
+    /// The kinds whose headline is today's running total rather than a
+    /// reading or a score. It starts over at midnight, so a value built on an
+    /// earlier day is cleared at display time (`WatchMetricsSnapshot.sanitized`)
+    /// while its week stays, and the detail page draws that week as daily bars.
+    static let dailyTotalKinds: Set<String> = [steps, activeEnergy, restingEnergy]
 
     /// Card/ring tints mirroring the iOS dashboard (`HealthWidgetMetric.tintColor`).
     static func tint(forKind kind: String) -> WatchMetricColor {
@@ -87,6 +103,9 @@ enum WatchMetricKindKey {
         case heartRate, heartRateVariability, restingHeartRate:
             return WatchMetricColor(red: 1.00, green: 0.25, blue: 0.45)
         case trainingLoad: return WatchMetricColor(red: 1.00, green: 0.38, blue: 0.12)
+        // The iPhone's move orange, the same as Training Load's.
+        case steps, activeEnergy: return WatchMetricColor(red: 1.00, green: 0.38, blue: 0.12)
+        case restingEnergy: return WatchMetricColor(red: 0.14, green: 0.72, blue: 0.42)
         case wristTemperature: return WatchMetricColor(red: 0.00, green: 0.75, blue: 0.85)
         case stress: return WatchMetricColor(red: 0.90, green: 0.35, blue: 0.75)
         default: return WatchMetricColor(red: 0.55, green: 0.55, blue: 0.60)
@@ -101,6 +120,9 @@ enum WatchMetricKindKey {
         case heartRate, restingHeartRate: return "heart.fill"
         case heartRateVariability: return "waveform.path.ecg"
         case trainingLoad: return "figure.strengthtraining.traditional"
+        case steps: return "figure.walk"
+        case activeEnergy: return "flame.fill"
+        case restingEnergy: return "leaf.fill"
         case wristTemperature: return "thermometer.medium"
         case stress: return "brain.head.profile.fill"
         default: return "heart.text.square"
@@ -290,6 +312,14 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// carried Celsius range without sniffing the unit string.
     var usesFahrenheit: Bool? = nil
 
+    /// Whether `displayValue`/`unit` and `weekly` are in kilojoules, stamped
+    /// by the builder for Active Energy and Resting Energy only (`nil` for
+    /// every other metric, and for snapshots from a phone build before this
+    /// field). Unlike `unit` it survives `cleared()`, so the energy
+    /// complications' header reads it to keep naming the week's unit after
+    /// the midnight clear blanks the reading.
+    var usesKilojoules: Bool? = nil
+
     var id: String { kind }
 
     /// Whether this metric carries a real reading (vs. a `--` placeholder). Used
@@ -304,9 +334,10 @@ struct WatchMetric: Codable, Equatable, Identifiable {
 
     /// This metric with its reading cleared to the builder's empty state
     /// ("--", no score/fill/value), keeping identity + chart context (kind,
-    /// title, weekly, ranges). Reuses the file's existing "--" sentinel (see
-    /// `hasValue`) so it matches the value the snapshot builder emits for a
-    /// metric it has no reading for. Used by `WatchMetricsSnapshot.sanitized`.
+    /// title, weekly, ranges, and the week's `usesKilojoules`). Reuses the
+    /// file's existing "--" sentinel (see `hasValue`) so it matches the value
+    /// the snapshot builder emits for a metric it has no reading for. Used by
+    /// `WatchMetricsSnapshot.sanitized`.
     func cleared() -> WatchMetric {
         var metric = self
         metric.displayValue = "--"
@@ -591,6 +622,12 @@ struct WatchMetricsSnapshot: Codable, Equatable {
             WatchMetric(kind: WatchMetricKindKey.heartRate, title: String(localized: "Heart Rate", table: "BodyWatchShared"), displayValue: "62", unit: "bpm", score: nil, fillFraction: 0.45, rawValue: 62, rangeMin: 54, rangeMax: 72),
             WatchMetric(kind: WatchMetricKindKey.heartRateVariability, title: String(localized: "HRV", table: "BodyWatchShared"), displayValue: "48", unit: "ms", score: nil, fillFraction: 0.60, rawValue: 48, rangeMin: 30, rangeMax: 60),
             WatchMetric(kind: WatchMetricKindKey.restingHeartRate, title: String(localized: "Resting HR", table: "BodyWatchShared"), displayValue: "56", unit: "bpm", score: nil, fillFraction: 0.70, rawValue: 56, rangeMin: 52, rangeMax: 64),
+            // The day's running totals draw their week as bars, so each needs a
+            // sample week (oldest → today) ending on its headline. Filled
+            // against the week's best day, as the builder fills them.
+            WatchMetric(kind: WatchMetricKindKey.steps, title: String(localized: "Steps", table: "BodyWatchShared"), displayValue: "8,432", unit: "", score: nil, fillFraction: 8432.0 / 11020.0, rawValue: 8432, rangeMin: 0, rangeMax: 11020, weekly: [6210, 9870, 7540, 11020, 4980, 8300, 8432]),
+            WatchMetric(kind: WatchMetricKindKey.activeEnergy, title: String(localized: "Active Energy", table: "BodyWatchShared"), displayValue: "512", unit: "kcal", score: nil, fillFraction: 512.0 / 720.0, rawValue: 512, rangeMin: 0, rangeMax: 720, weekly: [430, 610, 380, 720, 290, 540, 512], usesKilojoules: false),
+            WatchMetric(kind: WatchMetricKindKey.restingEnergy, title: String(localized: "Resting Energy", table: "BodyWatchShared"), displayValue: "1,640", unit: "kcal", score: nil, fillFraction: 1640.0 / 1668.0, rawValue: 1640, rangeMin: 0, rangeMax: 1668, weekly: [1610, 1655, 1590, 1632, 1601, 1668, 1640], usesKilojoules: false),
             WatchMetric(kind: WatchMetricKindKey.trainingLoad, title: String(localized: "Training Load", table: "BodyWatchShared"), displayValue: "1.05", unit: "", score: nil, fillFraction: 0.53, rawValue: 1.05, rangeMin: 0, rangeMax: 2, levelMin: 0.8, levelMax: 1.3, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
             WatchMetric(kind: WatchMetricKindKey.wristTemperature, title: String(localized: "Skin Temp", table: "BodyWatchShared"), displayValue: "93.4", unit: "°F", score: nil, fillFraction: 0.50, rawValue: 34.1, rangeMin: 33.8, rangeMax: 34.4),
             // The weekly workout time complication draws only `weekly`, so the
@@ -684,6 +721,13 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// (nil reads as not today, like `sleepNight`), it is cleared to the
     /// builder's blank Stress card: no value and no status band, since today's
     /// band went with today's average. Its week stays for the chart.
+    ///
+    /// Fifth, independent rule: the same day check for the running daily
+    /// totals (`WatchMetricKindKey.dailyTotalKinds`). Today's steps or energy
+    /// so far starts over at midnight, so a total built on another day, or on
+    /// an unknown one, is cleared to the builder's blank card. They carry no
+    /// status band, so `cleared()` alone is that card, and their week (and
+    /// its `usesKilojoules`) stays for the chart and the complications.
     func sanitized(asOf now: Date = Date()) -> WatchMetricsSnapshot {
         let clearsSleep = metric(forKind: WatchMetricKindKey.sleep) != nil
             && !isSleepNightCurrent(asOf: now)
@@ -700,7 +744,13 @@ struct WatchMetricsSnapshot: Codable, Equatable {
             guard let builtOn = stress.weeklyAsOf else { return true }
             return !Calendar(identifier: .gregorian).isDate(builtOn, inSameDayAs: now)
         } ?? false
-        guard clearsSleep || clearsStale || clearsSleepDebt || clearsStress else { return self }
+        let clearedDailyTotals = Set(metrics.compactMap { metric -> String? in
+            // Same day-boundary convention as `isSleepNightCurrent`.
+            guard WatchMetricKindKey.dailyTotalKinds.contains(metric.kind), metric.hasValue else { return nil }
+            guard let builtOn = metric.weeklyAsOf else { return metric.kind }
+            return Calendar(identifier: .gregorian).isDate(builtOn, inSameDayAs: now) ? nil : metric.kind
+        })
+        guard clearsSleep || clearsStale || clearsSleepDebt || clearsStress || !clearedDailyTotals.isEmpty else { return self }
 
         var copy = self
         if clearsSleep { copy.sleepStages = nil }
@@ -715,6 +765,7 @@ struct WatchMetricsSnapshot: Codable, Equatable {
                 cleared.statusBand = nil
                 return cleared
             }
+            if clearedDailyTotals.contains(metric.kind) { return metric.cleared() }
             return isOutOfTrendWindow(metric, windowStart: windowStart) ? metric.cleared() : metric
         }
         return copy

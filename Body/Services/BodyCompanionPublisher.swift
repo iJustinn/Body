@@ -23,18 +23,20 @@ struct BodyCompanionPublishInput: Sendable {
         let trends: HealthTrendSnapshot
         let summary: HealthSummarySnapshot
         let temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
+        /// Shared since the watch gained Active Energy and Resting Energy,
+        /// which its snapshot formats in this unit as the widget does.
+        let energyUnitPreference: BodyValueFormat.EnergyUnitPreference
         let idealSleepDuration: TimeInterval
         let showSleepScore: Bool
     }
 
     /// The widget snapshot's captures: the shared half plus what only the widget
     /// renders. Split from `Shared` so the watch publish pays for neither the
-    /// energy and weight unit preferences, which nothing in the watch snapshot
-    /// formats with, nor the sixteen `@MainActor` source lookups behind
+    /// weight unit preference, which nothing in the watch snapshot formats
+    /// with, nor the sixteen `@MainActor` source lookups behind
     /// `primarySourceNames`.
     struct Widget: Sendable {
         let shared: Shared
-        let energyUnitPreference: BodyValueFormat.EnergyUnitPreference
         let weightUnitPreference: BodyValueFormat.WeightUnitPreference
         /// Resolved on the main actor because `selectedHealthDataSourceOption(for:)`
         /// is `@MainActor`; the builder only needs the resulting names.
@@ -148,7 +150,7 @@ final class BodyCompanionPublisher {
                 trends: input.shared.trends,
                 summary: input.shared.summary,
                 temperatureUnitPreference: input.shared.temperatureUnitPreference,
-                energyUnitPreference: input.energyUnitPreference,
+                energyUnitPreference: input.shared.energyUnitPreference,
                 weightUnitPreference: input.weightUnitPreference,
                 idealSleepDuration: input.shared.idealSleepDuration,
                 showSleepScore: input.shared.showSleepScore,
@@ -260,6 +262,7 @@ final class BodyCompanionPublisher {
                 lastRefreshDate: input.lastRefreshDate,
                 permissionSelection: input.permissionSelection,
                 temperatureUnitPreference: input.shared.temperatureUnitPreference,
+                energyUnitPreference: input.shared.energyUnitPreference,
                 idealSleepDuration: input.shared.idealSleepDuration,
                 showSleepScore: input.shared.showSleepScore,
                 now: input.now,
@@ -315,6 +318,12 @@ final class BodyCompanionPublisher {
                     healthDataSourceSelectionRaw: input.healthDataSourceSelectionRaw,
                     combinesHealthDataSourcesByName: input.combinesByName,
                     customHealthSourceGroupsRaw: input.customHealthSourceGroupsRaw,
+                    // Nil for kilocalories, the watch's own default, so a
+                    // kilocalorie user's seed signs as it did before the energy
+                    // cards and only a kilojoule user re-seeds once.
+                    selectedEnergyUnitRaw: input.shared.energyUnitPreference == .kilojoules
+                        ? BodyValueFormat.EnergyUnitPreference.kilojoules.rawValue
+                        : nil,
                     recentTimeZoneIdentifiersByDay: HealthKitWorkoutStore.recentTimeZoneIdentifiersByDay(now: input.now)
                 )
                 let seed = HealthKitWorkoutStore.makeComputeSeed(

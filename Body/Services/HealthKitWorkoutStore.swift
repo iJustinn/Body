@@ -7140,13 +7140,19 @@ final class HealthKitWorkoutStore {
     /// need their own `perKindDataAsOf` stamp (`lastMetricPullDates`).
     /// Readiness and Training Load carry their dedicated watermarks instead;
     /// the raw values match `WatchMetricKindKey` (pinned by
-    /// `ProjectConfigurationTests`).
+    /// `ProjectConfigurationTests`). Steps and the two energy kinds are not
+    /// vitals, but their cards' headline is today's total, published only
+    /// under a watermark on today (`WatchMetricsSnapshotBuilder`'s day guard),
+    /// so a pull of one of them needs the stamp just the same.
     nonisolated static let watchVitalsPullKinds: Set<HealthMetricKind> = [
         .heartRate,
         .heartRateVariability,
         .restingHeartRate,
         .sleep,
-        .wristTemperature
+        .wristTemperature,
+        .steps,
+        .activeEnergy,
+        .restingEnergy
     ]
 
     nonisolated static let readinessInputMetricKinds: Set<HealthMetricKind> = [
@@ -8414,6 +8420,11 @@ final class HealthKitWorkoutStore {
         let customGroupsFragment = customGroups.isEmpty
             ? ""
             : ";groups[\(BodyCustomHealthSourceGroupStore.canonicalSignature(for: customGroups))]"
+        // The energy unit extends it on the same terms: the phone carries one
+        // only for kilojoules, so a kilocalorie seed signs as it did before the
+        // energy cards, while a switch either way still re-seeds, like the
+        // temperature unit's `t[…]`.
+        let energyUnitFragment = settings.selectedEnergyUnitRaw.map { ";e[\($0)]" } ?? ""
         return "d[\(settings.idealSleepDurationMinutes)]" +
             ";u[\(settings.followsSystemUnits ? "1" : "0")]" +
             ";t[\(settings.selectedTemperatureUnitRaw)]" +
@@ -8427,7 +8438,8 @@ final class HealthKitWorkoutStore {
             // fresher local provenance and fall back to older phone values.
             ";src[\(BodyHealthDataSourceSelection.storedValue(from: settings.healthDataSourceSelectionRaw).canonicalSignature)]" +
             ";comb[\(settings.combinesHealthDataSourcesByName ? "1" : "0")]" +
-            customGroupsFragment
+            customGroupsFragment +
+            energyUnitFragment
     }
 
     /// The primary selection as a Pro-locked watch must see it: every `custom:`
@@ -8502,17 +8514,18 @@ final class HealthKitWorkoutStore {
             trends: healthTrends,
             summary: healthSummary,
             temperatureUnitPreference: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference(),
+            energyUnitPreference: HealthWidgetSnapshotBuilder.storedEnergyUnitPreference(),
             idealSleepDuration: Self.storedIdealSleepDuration(),
             showSleepScore: HealthWidgetSnapshotBuilder.storedShowSleepScore()
         )
     }
 
-    /// Adds the widget-only captures to a `Shared` one: the energy and weight
-    /// unit preferences, and the per-metric primary source names.
+    /// Adds the widget-only captures to a `Shared` one: the weight unit
+    /// preference and the per-metric primary source names.
     /// `selectedHealthDataSourceOption(for:)` is `@MainActor`, so the names are
     /// resolved here and the builder off-actor only reads the resulting map.
-    /// Kept off `Shared` so the watch publish, which renders none of the three,
-    /// does not run those sixteen lookups on the main actor.
+    /// Kept off `Shared` so the watch publish, which renders neither, does not
+    /// run those sixteen lookups on the main actor.
     private func makeWidgetPublishInput(
         shared: BodyCompanionPublishInput.Shared
     ) -> BodyCompanionPublishInput.Widget {
@@ -8524,7 +8537,6 @@ final class HealthKitWorkoutStore {
 
         return BodyCompanionPublishInput.Widget(
             shared: shared,
-            energyUnitPreference: HealthWidgetSnapshotBuilder.storedEnergyUnitPreference(),
             weightUnitPreference: HealthWidgetSnapshotBuilder.storedWeightUnitPreference(),
             primarySourceNames: primarySourceNames
         )

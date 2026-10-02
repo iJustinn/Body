@@ -108,6 +108,9 @@ extension WatchMetric {
         var adopted = self
         adopted.displayValue = other.displayValue
         adopted.unit = other.unit
+        // The energy unit flag describes the adopted value and week, so it
+        // travels with `unit`.
+        adopted.usesKilojoules = other.usesKilojoules
         adopted.score = other.score
         adopted.fillFraction = other.fillFraction
         adopted.rawValue = other.rawValue

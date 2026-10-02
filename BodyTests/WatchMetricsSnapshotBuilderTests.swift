@@ -645,3 +645,179 @@ extension WatchMetricsSnapshotBuilderTests {
         XCTAssertEqual(unknownDay.sanitized(asOf: sameDay).metric(forKind: WatchMetricKindKey.stress)?.displayValue, "--")
     }
 }
+
+// MARK: - The day's running totals (Steps, Active Energy, Resting Energy)
+
+extension WatchMetricsSnapshotBuilderTests {
+    private func totalsFixture(anchor: Date) -> (summary: HealthSummarySnapshot, trends: HealthTrendSnapshot) {
+        var (summary, trends) = fixture(anchor: anchor)
+        trends.steps = series([6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 8_432], endingAt: anchor)
+        trends.activeEnergy = series([430, 610, 380, 720, 290, 540, 512], endingAt: anchor)
+        trends.restingEnergy = series([1_610, 1_655, 1_590, 1_632, 1_601, 1_668, 1_640], endingAt: anchor)
+        summary.steps = HealthMetricSummary(value: 8_432)
+        summary.activeEnergy = HealthMetricSummary(value: 512)
+        summary.restingEnergy = HealthMetricSummary(value: 1_640)
+        return (summary, trends)
+    }
+
+    private func totalsSnapshot(
+        anchor: Date,
+        lastRefreshDate: Date?,
+        permission: BodyHealthPermissionSelection = .defaultValue,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories,
+        perKindDataAsOf: ((String) -> Date?)? = nil,
+        now: Date? = nil
+    ) -> WatchMetricsSnapshot {
+        let (summary, trends) = totalsFixture(anchor: anchor)
+        return WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary,
+            trends: trends,
+            lastRefreshDate: lastRefreshDate,
+            permissionSelection: permission,
+            temperatureUnitPreference: .celsius,
+            energyUnitPreference: energyUnitPreference,
+            idealSleepDuration: 8 * 3_600,
+            now: now ?? anchor,
+            perKindDataAsOf: perKindDataAsOf
+        )
+    }
+
+    func testDailyTotalsSitDirectlyUnderRestingHRWithTheirWeekAndTodaysTotal() throws {
+        let anchor = Date(timeIntervalSince1970: 1_800_000_000)
+        let snapshot = totalsSnapshot(anchor: anchor, lastRefreshDate: anchor)
+
+        let kinds = snapshot.orderedMetrics.map(\.kind)
+        let restingHR = try XCTUnwrap(kinds.firstIndex(of: WatchMetricKindKey.restingHeartRate))
+        XCTAssertEqual(
+            Array(kinds[(restingHR + 1)...(restingHR + 3)]),
+            [WatchMetricKindKey.steps, WatchMetricKindKey.activeEnergy, WatchMetricKindKey.restingEnergy]
+        )
+
+        let steps = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.steps))
+        XCTAssertEqual(steps.displayValue, BodyValueFormat.numberText(8_432, decimals: 0))
+        XCTAssertEqual(steps.unit, "", "the title already says Steps, like the iPhone card's summary")
+        XCTAssertEqual(steps.rawValue, 8_432)
+        XCTAssertEqual(steps.weekly, [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 8_432])
+        XCTAssertEqual(steps.weeklyAsOf, anchor)
+        XCTAssertEqual(steps.rangeMin, 0)
+        XCTAssertEqual(steps.rangeMax, 11_020)
+        XCTAssertEqual(steps.fillFraction, 8_432 / 11_020, accuracy: 1e-9)
+        XCTAssertNil(steps.statusBand)
+        XCTAssertNil(steps.measuredAt, "a sum over the day is not one sample")
+        XCTAssertNil(steps.usesKilojoules)
+        XCTAssertNil(steps.weeklyRanges)
+
+        let active = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.activeEnergy))
+        XCTAssertEqual(active.displayValue, "512")
+        XCTAssertEqual(active.unit, "kcal")
+        XCTAssertEqual(active.usesKilojoules, false)
+        XCTAssertEqual(active.weekly, [430, 610, 380, 720, 290, 540, 512])
+
+        let resting = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.restingEnergy))
+        XCTAssertEqual(resting.displayValue, BodyValueFormat.numberText(1_640, decimals: 0))
+        XCTAssertEqual(resting.unit, "kcal")
+        XCTAssertEqual(resting.usesKilojoules, false)
+        XCTAssertEqual(resting.computedAt, anchor)
+    }
+
+    func testEnergyTotalsAndTheirWeekFollowTheKilojoulePreference() throws {
+        let anchor = Date(timeIntervalSince1970: 1_800_000_000)
+        let snapshot = totalsSnapshot(anchor: anchor, lastRefreshDate: anchor, energyUnitPreference: .kilojoules)
+
+        let active = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.activeEnergy))
+        let expected = BodyValueFormat.energyValue(kilocalories: 512, energyUnitPreference: .kilojoules)
+        XCTAssertEqual(active.unit, "kJ")
+        XCTAssertEqual(active.usesKilojoules, true)
+        XCTAssertEqual(active.displayValue, BodyValueFormat.numberText(expected.value, decimals: 0))
+        XCTAssertEqual(try XCTUnwrap(active.rawValue), expected.value, accuracy: 1e-9)
+        // The week is in the same unit as the headline, so the bars and the
+        // value agree, and the fill is scaled within that unit.
+        let week = try XCTUnwrap(active.weekly)
+        XCTAssertEqual(try XCTUnwrap(week.last ?? nil), expected.value, accuracy: 1e-9)
+        XCTAssertEqual(
+            try XCTUnwrap(week[3]),
+            BodyValueFormat.energyValue(kilocalories: 720, energyUnitPreference: .kilojoules).value,
+            accuracy: 1e-9
+        )
+        XCTAssertEqual(active.fillFraction, 512 / 720, accuracy: 1e-9)
+        // Steps never carries the flag.
+        XCTAssertNil(snapshot.metric(forKind: WatchMetricKindKey.steps)?.usesKilojoules)
+    }
+
+    func testDailyTotalsAreGatedOnTheirOwnPermissions() {
+        let anchor = Date(timeIntervalSince1970: 1_800_000_000)
+        var noSteps = BodyHealthPermissionSelection.defaultValue
+        noSteps.enabledPermissions.remove(.steps)
+        let withoutSteps = totalsSnapshot(anchor: anchor, lastRefreshDate: anchor, permission: noSteps)
+        XCTAssertNil(withoutSteps.metric(forKind: WatchMetricKindKey.steps))
+        XCTAssertNotNil(withoutSteps.metric(forKind: WatchMetricKindKey.activeEnergy))
+        XCTAssertNotNil(withoutSteps.metric(forKind: WatchMetricKindKey.restingEnergy))
+
+        var noEnergy = BodyHealthPermissionSelection.defaultValue
+        noEnergy.enabledPermissions.remove(.energy)
+        let withoutEnergy = totalsSnapshot(anchor: anchor, lastRefreshDate: anchor, permission: noEnergy)
+        XCTAssertNotNil(withoutEnergy.metric(forKind: WatchMetricKindKey.steps))
+        XCTAssertNil(withoutEnergy.metric(forKind: WatchMetricKindKey.activeEnergy))
+        XCTAssertNil(withoutEnergy.metric(forKind: WatchMetricKindKey.restingEnergy))
+    }
+
+    func testDailyTotalWithoutATodayIsBlankButKeepsItsWeek() throws {
+        let anchor = Date(timeIntervalSince1970: 1_800_000_000)
+        var (summary, trends) = totalsFixture(anchor: anchor)
+        summary.steps = HealthMetricSummary(value: nil)
+        trends.steps = HealthTrendSeries(points: trends.steps.points.dropLast())
+        let snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary,
+            trends: trends,
+            lastRefreshDate: anchor,
+            permissionSelection: .defaultValue,
+            temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600,
+            now: anchor
+        )
+
+        let steps = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.steps))
+        XCTAssertFalse(steps.hasValue)
+        XCTAssertEqual(steps.displayValue, "--")
+        XCTAssertEqual(steps.unit, "")
+        XCTAssertEqual(steps.fillFraction, 0)
+        XCTAssertEqual(steps.weekly, [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, nil])
+        XCTAssertEqual(steps.rangeMax, 11_020, "the ring still scales against the week it carries")
+    }
+
+    /// The build-time day guard (the first of the two the Stress card has):
+    /// `HealthMetricSummary` carries no date, so a republish after midnight
+    /// over a cached summary must not ship yesterday's total under a fresh
+    /// `weeklyAsOf`. The headline needs the kind's own watermark to fall on
+    /// `now`'s day; the week is unaffected.
+    func testDailyTotalHeadlineIsBlankWhenItsWatermarkIsNotTodays() throws {
+        let calendar = Calendar.bodyGregorian
+        let yesterday = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 19, hour: 22)))
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 1)))
+
+        // The uniform vitals date is yesterday's: every total is blank.
+        let stale = totalsSnapshot(anchor: today, lastRefreshDate: yesterday)
+        for kind in WatchMetricKindKey.dailyTotalKinds {
+            let metric = try XCTUnwrap(stale.metric(forKind: kind), kind)
+            XCTAssertFalse(metric.hasValue, kind)
+            XCTAssertEqual(metric.weekly?.count, 7, kind)
+            XCTAssertEqual(metric.weeklyAsOf, today, kind)
+        }
+        // Energy keeps naming its unit for the complication header.
+        XCTAssertEqual(stale.metric(forKind: WatchMetricKindKey.activeEnergy)?.usesKilojoules, false)
+
+        // A per-kind watermark on today's day (a single-metric pull, or the
+        // watch's own read) restores that kind's headline alone.
+        let pulled = totalsSnapshot(
+            anchor: today,
+            lastRefreshDate: yesterday,
+            perKindDataAsOf: { $0 == WatchMetricKindKey.steps ? today : nil }
+        )
+        XCTAssertTrue(try XCTUnwrap(pulled.metric(forKind: WatchMetricKindKey.steps)).hasValue)
+        XCTAssertFalse(try XCTUnwrap(pulled.metric(forKind: WatchMetricKindKey.activeEnergy)).hasValue)
+
+        // No watermark at all reads as not today.
+        let unknown = totalsSnapshot(anchor: today, lastRefreshDate: nil)
+        XCTAssertFalse(try XCTUnwrap(unknown.metric(forKind: WatchMetricKindKey.restingEnergy)).hasValue)
+    }
+}

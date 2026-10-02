@@ -256,6 +256,36 @@ final class WatchComputeSeedTests: XCTestCase {
         XCTAssertNil(decoded.settings.recentTimeZoneIdentifiersByDay)
     }
 
+    /// `selectedEnergyUnitRaw` is left out of the encoding when nil (the
+    /// kilocalorie case the phone sends), so a kilocalorie seed's bytes, and
+    /// with them its on-disk identity, are what they were before the energy
+    /// cards; a kilojoule raw round-trips.
+    func testEnergyUnitRawIsOmittedWhenNilAndRoundTripsOtherwise() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        let kilocalories = makeSeed(anchor: anchor)
+        XCTAssertNil(kilocalories.settings.selectedEnergyUnitRaw)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let encoded = try encoder.encode(kilocalories.settings)
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("selectedEnergyUnitRaw"))
+
+        var settings = kilocalories.settings
+        settings.selectedEnergyUnitRaw = BodyValueFormat.EnergyUnitPreference.kilojoules.rawValue
+        // An explicit preference, like the phone's `storedEnergyUnitPreference`,
+        // reads the raw only when the units don't follow the system.
+        settings.followsSystemUnits = false
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(WatchComputeSettings.self, from: try encoder.encode(settings))
+        XCTAssertEqual(decoded.selectedEnergyUnitRaw, "kilojoules")
+        XCTAssertEqual(WatchComputeAssembly.energyUnitPreference(for: decoded), .kilojoules)
+        XCTAssertEqual(WatchComputeAssembly.energyUnitPreference(for: kilocalories.settings), .kilocalories)
+        var explicitKilocalories = settings
+        explicitKilocalories.selectedEnergyUnitRaw = nil
+        XCTAssertEqual(WatchComputeAssembly.energyUnitPreference(for: explicitKilocalories), .kilocalories, "nil raw is kilocalories")
+    }
+
     func testDecodingAnEmptyPayloadDoesNotThrow() throws {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

@@ -18,6 +18,7 @@ final class BodyCompanionPublisherTests: XCTestCase {
             trends: .empty,
             summary: .empty,
             temperatureUnitPreference: .celsius,
+            energyUnitPreference: .kilocalories,
             idealSleepDuration: 8 * 60 * 60,
             showSleepScore: true
         )
@@ -123,6 +124,7 @@ final class BodyCompanionPublisherTests: XCTestCase {
             trends: trends,
             summary: .empty,
             temperatureUnitPreference: .celsius,
+            energyUnitPreference: .kilocalories,
             idealSleepDuration: 8 * 60 * 60,
             showSleepScore: true
         )
@@ -213,7 +215,6 @@ final class BodyCompanionPublisherTests: XCTestCase {
         publisher.saveWidgetSnapshot(
             BodyCompanionPublishInput.Widget(
                 shared: Self.makeSharedInput(),
-                energyUnitPreference: .kilocalories,
                 weightUnitPreference: .kilograms,
                 primarySourceNames: [:]
             )

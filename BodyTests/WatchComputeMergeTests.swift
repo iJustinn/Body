@@ -1740,3 +1740,195 @@ final class WatchComputeMergeTests: XCTestCase {
         XCTAssertEqual(kept?.weeklyAsOf, t2)
     }
 }
+
+// MARK: - The day's running totals (Steps, Active Energy, Resting Energy)
+
+extension WatchComputeMergeTests {
+    private func totalMetric(
+        _ kind: String,
+        displayValue: String,
+        rawValue: Double?,
+        weekly: [Double?],
+        weeklyAsOf: Date?,
+        computedAt: Date? = nil,
+        usesKilojoules: Bool? = nil
+    ) -> WatchMetric {
+        WatchMetric(
+            kind: kind,
+            title: kind,
+            displayValue: displayValue,
+            unit: kind == WatchMetricKindKey.steps ? "" : "kcal",
+            score: nil,
+            fillFraction: 0.5,
+            rawValue: rawValue,
+            rangeMin: 0,
+            rangeMax: weekly.compactMap { $0 }.max(),
+            computedAt: computedAt,
+            weekly: weekly,
+            weeklyAsOf: weeklyAsOf,
+            usesKilojoules: usesKilojoules
+        )
+    }
+
+    func testStampedDailyTotalReplacesThePhonesHeadlineAndWeek() throws {
+        let phoneWeek: [Double?] = [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 8_432]
+        let watchWeek: [Double?] = [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 9_101]
+        let current = WatchMetricsSnapshot(
+            generatedAt: t0, lastRefreshDate: t0,
+            metrics: [totalMetric(WatchMetricKindKey.steps, displayValue: "8,432", rawValue: 8_432, weekly: phoneWeek, weeklyAsOf: t0, computedAt: t0)]
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            WatchComputeResult(
+                snapshot: WatchMetricsSnapshot(
+                    generatedAt: t1, lastRefreshDate: t0,
+                    metrics: [totalMetric(WatchMetricKindKey.steps, displayValue: "9,101", rawValue: 9_101, weekly: watchWeek, weeklyAsOf: t1)]
+                ),
+                dataAsOf: [WatchMetricKindKey.steps: t1],
+                chartDataAsOf: [:],
+                coverage: t1,
+                generation: 1
+            ),
+            into: current
+        )
+
+        let steps = try XCTUnwrap(merged.metric(forKind: WatchMetricKindKey.steps))
+        XCTAssertEqual(steps.displayValue, "9,101")
+        XCTAssertEqual(steps.weekly, watchWeek)
+        XCTAssertEqual(steps.weeklyAsOf, t1)
+        XCTAssertEqual(steps.computedAt, t1)
+        XCTAssertEqual(steps.liveUpdatedAt, t1)
+        XCTAssertEqual(merged.generatedAt, t0, "the publication line is never advanced by a compute")
+    }
+
+    func testAdoptedEnergyTotalCarriesItsUnitFlag() throws {
+        let current = WatchMetricsSnapshot(
+            generatedAt: t0, lastRefreshDate: t0,
+            metrics: [totalMetric(WatchMetricKindKey.activeEnergy, displayValue: "512", rawValue: 512, weekly: [430, 610, 380, 720, 290, 540, 512], weeklyAsOf: t0, computedAt: t0, usesKilojoules: false)]
+        )
+        var candidate = totalMetric(WatchMetricKindKey.activeEnergy, displayValue: "2,301", rawValue: 2_301, weekly: [1_799, 2_552, 1_590, 3_013, 1_213, 2_259, 2_301], weeklyAsOf: t1, usesKilojoules: true)
+        candidate.unit = "kJ"
+        let merged = WatchComputeMerge.mergingComputed(
+            WatchComputeResult(
+                snapshot: WatchMetricsSnapshot(generatedAt: t1, lastRefreshDate: t0, metrics: [candidate]),
+                dataAsOf: [WatchMetricKindKey.activeEnergy: t1],
+                chartDataAsOf: [:],
+                coverage: t1,
+                generation: 1
+            ),
+            into: current
+        )
+
+        let active = try XCTUnwrap(merged.metric(forKind: WatchMetricKindKey.activeEnergy))
+        XCTAssertEqual(active.unit, "kJ")
+        XCTAssertEqual(active.usesKilojoules, true, "the flag travels with the unit it describes")
+    }
+
+    func testUnstampedOrBlankDailyTotalNeverOverwritesThePhones() throws {
+        let phoneWeek: [Double?] = [430, 610, 380, 720, 290, 540, 512]
+        let current = WatchMetricsSnapshot(
+            generatedAt: t0, lastRefreshDate: t0,
+            metrics: [totalMetric(WatchMetricKindKey.activeEnergy, displayValue: "512", rawValue: 512, weekly: phoneWeek, weeklyAsOf: t0, computedAt: t0)]
+        )
+
+        // The week read failed: the assembly leaves the kind out of `dataAsOf`
+        // even though the builder still shows the seed's headline over empty
+        // bars. Neither the headline nor the week may move.
+        let unstamped = WatchComputeMerge.mergingComputed(
+            WatchComputeResult(
+                snapshot: WatchMetricsSnapshot(
+                    generatedAt: t1, lastRefreshDate: t0,
+                    metrics: [totalMetric(WatchMetricKindKey.activeEnergy, displayValue: "512", rawValue: 512, weekly: Array(repeating: nil, count: 7), weeklyAsOf: t1)]
+                ),
+                dataAsOf: [WatchMetricKindKey.heartRate: t1],
+                chartDataAsOf: [:],
+                coverage: t1,
+                generation: 1
+            ),
+            into: current
+        )
+        let kept = try XCTUnwrap(unstamped.metric(forKind: WatchMetricKindKey.activeEnergy))
+        XCTAssertEqual(kept.weekly, phoneWeek)
+        XCTAssertEqual(kept.weeklyAsOf, t0)
+        XCTAssertEqual(kept.computedAt, t0)
+
+        // A stamped but blank total (a successful read with nothing today)
+        // never clears a shown value either.
+        let blank = WatchComputeMerge.mergingComputed(
+            WatchComputeResult(
+                snapshot: WatchMetricsSnapshot(
+                    generatedAt: t1, lastRefreshDate: t0,
+                    metrics: [totalMetric(WatchMetricKindKey.activeEnergy, displayValue: "--", rawValue: nil, weekly: [610, 380, 720, 290, 540, 512, nil], weeklyAsOf: t1)]
+                ),
+                dataAsOf: [WatchMetricKindKey.activeEnergy: t1],
+                chartDataAsOf: [:],
+                coverage: t1,
+                generation: 1
+            ),
+            into: current
+        )
+        let preserved = try XCTUnwrap(blank.metric(forKind: WatchMetricKindKey.activeEnergy))
+        XCTAssertEqual(preserved.displayValue, "512")
+        XCTAssertEqual(preserved.weekly, phoneWeek)
+    }
+
+    func testDailyTotalThePhoneNeverSentIsAppendedOnlyWhenStampedWithAValue() {
+        // The iPhone's own Steps card hidden: its push carries a blank Steps
+        // metric or none. The watch's stamped total fills the card in.
+        let current = WatchMetricsSnapshot(
+            generatedAt: t0, lastRefreshDate: t0,
+            metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "62", rawValue: 62, computedAt: t0)]
+        )
+        let week: [Double?] = [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 8_432]
+        let appended = WatchComputeMerge.mergingComputed(
+            WatchComputeResult(
+                snapshot: WatchMetricsSnapshot(
+                    generatedAt: t1, lastRefreshDate: t0,
+                    metrics: [
+                        totalMetric(WatchMetricKindKey.steps, displayValue: "8,432", rawValue: 8_432, weekly: week, weeklyAsOf: t1),
+                        totalMetric(WatchMetricKindKey.restingEnergy, displayValue: "--", rawValue: nil, weekly: Array(repeating: nil, count: 7), weeklyAsOf: t1)
+                    ]
+                ),
+                dataAsOf: [WatchMetricKindKey.steps: t1, WatchMetricKindKey.restingEnergy: t1],
+                chartDataAsOf: [:],
+                coverage: t1,
+                generation: 1
+            ),
+            into: current
+        )
+        XCTAssertEqual(appended.metric(forKind: WatchMetricKindKey.steps)?.weekly, week)
+        XCTAssertEqual(appended.metric(forKind: WatchMetricKindKey.steps)?.computedAt, t1)
+        XCTAssertNil(appended.metric(forKind: WatchMetricKindKey.restingEnergy), "a blank card the phone never sent is not appended")
+    }
+
+    /// Push over local: a blank push (the iPhone card hidden) keeps the whole
+    /// watch-computed card, bars included; a non-blank push wins unless the
+    /// watch's compute is the fresher of the two.
+    func testPushKeepsAWatchComputedDailyTotalBehindABlankOrOlderCard() throws {
+        let watchWeek: [Double?] = [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 9_101]
+        var local = totalMetric(WatchMetricKindKey.steps, displayValue: "9,101", rawValue: 9_101, weekly: watchWeek, weeklyAsOf: t2, computedAt: t2)
+        local.liveUpdatedAt = t2
+        let current = WatchMetricsSnapshot(generatedAt: t0, lastRefreshDate: t0, metrics: [local])
+
+        let blankPush = WatchMetricsSnapshot(
+            generatedAt: t3, lastRefreshDate: t3,
+            metrics: [totalMetric(WatchMetricKindKey.steps, displayValue: "--", rawValue: nil, weekly: Array(repeating: nil, count: 7), weeklyAsOf: t3, computedAt: t3)]
+        )
+        let afterBlank = WatchComputeMerge.merging(blankPush, over: current)
+        XCTAssertEqual(afterBlank.metric(forKind: WatchMetricKindKey.steps)?.weekly, watchWeek)
+        XCTAssertEqual(afterBlank.metric(forKind: WatchMetricKindKey.steps)?.displayValue, "9,101")
+
+        let olderPush = WatchMetricsSnapshot(
+            generatedAt: t1, lastRefreshDate: t1,
+            metrics: [totalMetric(WatchMetricKindKey.steps, displayValue: "8,432", rawValue: 8_432, weekly: [1, 2, 3, 4, 5, 6, 7], weeklyAsOf: t1, computedAt: t1)]
+        )
+        let afterOlder = WatchComputeMerge.merging(olderPush, over: current)
+        XCTAssertEqual(afterOlder.metric(forKind: WatchMetricKindKey.steps)?.weekly, watchWeek, "the watch's fresher compute keeps its whole card")
+
+        let newerPush = WatchMetricsSnapshot(
+            generatedAt: t3, lastRefreshDate: t3,
+            metrics: [totalMetric(WatchMetricKindKey.steps, displayValue: "12,004", rawValue: 12_004, weekly: [1, 2, 3, 4, 5, 6, 12_004], weeklyAsOf: t3, computedAt: t3)]
+        )
+        let afterNewer = WatchComputeMerge.merging(newerPush, over: current)
+        XCTAssertEqual(afterNewer.metric(forKind: WatchMetricKindKey.steps)?.displayValue, "12,004", "a later iPhone refresh wins back")
+    }
+}

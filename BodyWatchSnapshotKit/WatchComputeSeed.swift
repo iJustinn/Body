@@ -51,6 +51,12 @@ struct WatchComputeSettings: Codable, Equatable {
     /// Nil when the phone has no groups (or Body Pro has lapsed), which keeps
     /// the encoding byte-identical to a pre-feature seed.
     var customHealthSourceGroupsRaw: String?
+    /// `BodyValueFormat.EnergyUnitPreference.rawValue` the phone formats Active
+    /// Energy and Resting Energy in, so the watch's compute formats them the
+    /// same way. Nil means kilocalories: the phone passes nil for kilocalorie
+    /// users, which keeps their encoding and settings signature byte-identical
+    /// to a pre-feature seed, so only kilojoule users re-seed once.
+    var selectedEnergyUnitRaw: String?
     /// Recent per-night time zones, keyed by ISO day string (`"yyyy-MM-dd"`) —
     /// NEVER `[Date: String]`, whose JSON encoding is a nondeterministic
     /// unkeyed array of key/value pairs that would defeat `.sortedKeys`
@@ -70,6 +76,7 @@ struct WatchComputeSettings: Codable, Equatable {
         case healthDataSourceSelectionRaw
         case combinesHealthDataSourcesByName
         case customHealthSourceGroupsRaw
+        case selectedEnergyUnitRaw
         case recentTimeZoneIdentifiersByDay
     }
 
@@ -83,6 +90,7 @@ struct WatchComputeSettings: Codable, Equatable {
         healthDataSourceSelectionRaw: String,
         combinesHealthDataSourcesByName: Bool,
         customHealthSourceGroupsRaw: String? = nil,
+        selectedEnergyUnitRaw: String? = nil,
         recentTimeZoneIdentifiersByDay: [String: String]? = nil
     ) {
         self.idealSleepDurationMinutes = idealSleepDurationMinutes
@@ -94,6 +102,7 @@ struct WatchComputeSettings: Codable, Equatable {
         self.healthDataSourceSelectionRaw = healthDataSourceSelectionRaw
         self.combinesHealthDataSourcesByName = combinesHealthDataSourcesByName
         self.customHealthSourceGroupsRaw = customHealthSourceGroupsRaw
+        self.selectedEnergyUnitRaw = selectedEnergyUnitRaw
         self.recentTimeZoneIdentifiersByDay = recentTimeZoneIdentifiersByDay
     }
 
@@ -113,6 +122,7 @@ struct WatchComputeSettings: Codable, Equatable {
         healthDataSourceSelectionRaw = try container.decodeIfPresent(String.self, forKey: .healthDataSourceSelectionRaw) ?? ""
         combinesHealthDataSourcesByName = try container.decodeIfPresent(Bool.self, forKey: .combinesHealthDataSourcesByName) ?? false
         customHealthSourceGroupsRaw = try container.decodeIfPresent(String.self, forKey: .customHealthSourceGroupsRaw)
+        selectedEnergyUnitRaw = try container.decodeIfPresent(String.self, forKey: .selectedEnergyUnitRaw)
         recentTimeZoneIdentifiersByDay = try container.decodeIfPresent([String: String].self, forKey: .recentTimeZoneIdentifiersByDay)
     }
 }

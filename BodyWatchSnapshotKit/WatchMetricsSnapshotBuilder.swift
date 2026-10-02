@@ -21,6 +21,12 @@ enum WatchMetricsSnapshotBuilder {
         lastRefreshDate: Date?,
         permissionSelection: BodyHealthPermissionSelection,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        // The unit Active Energy and Resting Energy are formatted in, their
+        // headline and week alike, as the iPhone cards show them. The phone
+        // passes the user's preference and the watch's compute the one the
+        // seed carries. Kilocalories (the default) keeps every caller that
+        // predates these metrics compiling and formatting as before.
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories,
         idealSleepDuration: TimeInterval,
         showSleepScore: Bool = true,
         now: Date = Date(),
@@ -139,6 +145,62 @@ enum WatchMetricsSnapshotBuilder {
             // Stress is heart-derived end to end, so it rides Heart too.
             metrics.append(stressMetric(summary: summary, now: now))
         }
+
+        // The day's running totals (Steps, Active Energy, Resting Energy).
+        // Build-time day guard, like the first of Stress's two guards (in
+        // `stressMetric`): their `HealthMetricSummary` carries no date, so a
+        // phone republish after midnight over a cached summary (a settings
+        // change or a toggle before any overnight refresh) would otherwise
+        // ship yesterday's total under `weeklyAsOf = now`, which the
+        // display-time rule in `sanitized` then keeps, beside a week whose
+        // today slot is blank. So the headline is published only when the
+        // kind's watermark (the same one stamped as `computedAt` below) falls
+        // on `now`'s day; the week is unaffected. The watch's compute stamps a
+        // successful read with `now`, so there the guard never fires. Inline
+        // because the stamping runs after the metrics are built.
+        func todaysTotal(_ value: Double?, kind: String) -> Double? {
+            guard let watermark = perKindDataAsOf?(kind) ?? lastRefreshDate,
+                  Calendar.bodyGregorian.isDate(watermark, inSameDayAs: now) else { return nil }
+            return value
+        }
+        // Energy in the display unit, the headline and the week alike (the
+        // rule Skin Temp's week follows), so the chart and the value agree.
+        func energyDisplay(kilocalories: Double) -> (value: Double, unit: String) {
+            BodyValueFormat.energyValue(kilocalories: kilocalories, energyUnitPreference: energyUnitPreference)
+        }
+        func energyWeek(_ series: HealthTrendSeries) -> [Double?] {
+            weekly(series, now: now).map { day in day.map { energyDisplay(kilocalories: $0).value } }
+        }
+        if permissionSelection.includes(.steps) {
+            // No unit string, like the iPhone Steps card's summary: the title
+            // already says Steps.
+            metrics.append(dailyTotalMetric(
+                kind: WatchMetricKindKey.steps, title: String(localized: "Steps", table: "BodyWatchSnapshotKit"),
+                value: todaysTotal(summary.steps.value, kind: WatchMetricKindKey.steps),
+                unit: "",
+                weekValues: weekly(trends.steps, now: now)
+            ))
+        }
+        if permissionSelection.includes(.energy) {
+            let activeEnergy = todaysTotal(summary.activeEnergy.value, kind: WatchMetricKindKey.activeEnergy)
+                .map { energyDisplay(kilocalories: $0) }
+            metrics.append(dailyTotalMetric(
+                kind: WatchMetricKindKey.activeEnergy, title: String(localized: "Active Energy", table: "BodyWatchSnapshotKit"),
+                value: activeEnergy?.value,
+                unit: activeEnergy?.unit ?? "",
+                weekValues: energyWeek(trends.activeEnergy),
+                usesKilojoules: energyUnitPreference == .kilojoules
+            ))
+            let restingEnergy = todaysTotal(summary.restingEnergy.value, kind: WatchMetricKindKey.restingEnergy)
+                .map { energyDisplay(kilocalories: $0) }
+            metrics.append(dailyTotalMetric(
+                kind: WatchMetricKindKey.restingEnergy, title: String(localized: "Resting Energy", table: "BodyWatchSnapshotKit"),
+                value: restingEnergy?.value,
+                unit: restingEnergy?.unit ?? "",
+                weekValues: energyWeek(trends.restingEnergy),
+                usesKilojoules: energyUnitPreference == .kilojoules
+            ))
+        }
         if permissionSelection.includes(.workouts) {
             metrics.append(trainingLoadMetric(summary.trainingLoad.value))
             if let workoutWeeklyMinutes {
@@ -180,6 +242,10 @@ enum WatchMetricsSnapshotBuilder {
             case WatchMetricKindKey.restingHeartRate: return weekly(trends.restingHeartRate, now: now)
             case WatchMetricKindKey.trainingLoad: return weekly(trends.trainingLoad, now: now)
             case WatchMetricKindKey.stress: return weekly(trends.stress, now: now)
+            // The same daily totals the cards' fill was scaled against.
+            case WatchMetricKindKey.steps: return weekly(trends.steps, now: now)
+            case WatchMetricKindKey.activeEnergy: return energyWeek(trends.activeEnergy)
+            case WatchMetricKindKey.restingEnergy: return energyWeek(trends.restingEnergy)
             case WatchMetricKindKey.workoutMinutes: return workoutWeeklyMinutes
             // The legacy compatibility copy carries the same week (see the
             // version-skew comment where both metrics are appended).
@@ -470,6 +536,43 @@ enum WatchMetricsSnapshotBuilder {
             statusBand: band.map {
                 WatchStatusBand(min: $0.lowerBound, max: $0.upperBound, label: $0.title)
             }
+        )
+    }
+
+    /// A running daily total (Steps, Active Energy, Resting Energy): today's
+    /// total so far as the headline, already in the display unit and grouped
+    /// with no decimals like the iPhone card's summary, with the ring filled
+    /// against the best day of the week the card carries (`weekValues`, the
+    /// same display unit; today included). No ring band and no `measuredAt`:
+    /// the headline is a sum over the day, not one sample, so `computedAt` is
+    /// the honest watermark. `usesKilojoules` is set for the two energy kinds
+    /// only.
+    private static func dailyTotalMetric(
+        kind: String,
+        title: String,
+        value: Double?,
+        unit: String,
+        weekValues: [Double?],
+        usesKilojoules: Bool? = nil
+    ) -> WatchMetric {
+        let high = (weekValues + [value]).compactMap { $0 }.max()
+        let fill: Double
+        if let value, let high, high > 0 {
+            fill = min(max(value / high, 0), 1)
+        } else {
+            fill = 0
+        }
+        return WatchMetric(
+            kind: kind,
+            title: title,
+            displayValue: value.map { BodyValueFormat.numberText($0, decimals: 0) } ?? "--",
+            unit: value == nil ? "" : unit,
+            score: nil,
+            fillFraction: fill,
+            rawValue: value,
+            rangeMin: 0,
+            rangeMax: high,
+            usesKilojoules: usesKilojoules
         )
     }
 
