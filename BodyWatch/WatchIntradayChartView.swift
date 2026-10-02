@@ -7,8 +7,9 @@
 //  minute slots with even local hours on the bottom axis. Heart Rate draws
 //  each slot's min to max range as a faint capsule under a tinted line through
 //  the slot averages, broken where an hour or more has no readings; HRV, whose
-//  readings are sparse, draws one ringed dot per slot. The latest slot gets a
-//  solid dot. Display-only: no selection or scrubbing. Reads the chart
+//  readings are sparse, draws the dots alone. Every slot's average gets a
+//  ringed dot like the 7-day chart's, the latest one solid. Display-only: no
+//  selection or scrubbing. Reads the chart
 //  `WatchIntradayChartStore` holds.
 //
 //  Watch-only: not compiled into the iOS `Body` target.
@@ -95,14 +96,15 @@ struct WatchIntradayChartView: View {
                         .lineStyle(StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round, lineJoin: .round))
                     }
                 }
-            } else {
-                ForEach(chart.buckets, id: \.start) { bucket in
-                    PointMark(x: .value("Time", bucket.midpoint), y: .value("Average", bucket.average))
-                        .symbol { dot(isLatest: false) }
-                }
             }
 
-            // Drawn last so it sits on the line, and covers HRV's ringed dot.
+            // On top of the line: a ringed dot per slot average, for both kinds.
+            ForEach(chart.buckets, id: \.start) { bucket in
+                PointMark(x: .value("Time", bucket.midpoint), y: .value("Average", bucket.average))
+                    .symbol { dot(isLatest: false) }
+            }
+
+            // Drawn last so the latest slot's solid dot covers its ringed one.
             if let latestBucket {
                 PointMark(x: .value("Time", latestBucket.midpoint), y: .value("Average", latestBucket.average))
                     .symbol { dot(isLatest: true) }
