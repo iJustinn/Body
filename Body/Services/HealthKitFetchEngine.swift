@@ -260,10 +260,9 @@ actor HealthKitFetchEngine {
 
     /// Sleep-history window when no card renders sleep and it is fetched only as
     /// a Stress input: the 56-day readiness/sleep-score vitals baseline plus the
-    /// ~34-day recomputed-day reach, plus margin. The contract is query days —
-    /// the oldest wake day may lose the leading samples of its prior evening at
-    /// the boundary (the Stress backfill queries one day early for exactly that,
-    /// `+Sleep.swift`), which the margin covers for every consumer.
+    /// ~34-day recomputed-day reach, plus margin. The contract is query days,
+    /// and the oldest wake day is whole: `sleepHistoryQueryWindow` queries one
+    /// day early and drops the partial day before the boundary.
     static let stressInputSleepHistoryDays = 100
 
     init(
@@ -925,6 +924,47 @@ actor HealthKitFetchEngine {
             return interval.start
         }
         return calendar.startOfDay(for: clampedStart)
+    }
+
+    /// Where a windowed sleep history query starts, and the oldest wake day it
+    /// may keep. A wake day's night can start any time the day before, so a
+    /// query from the boundary itself would return that night cut short, or
+    /// miss it, and the merge would then replace the cached whole night with
+    /// it. Querying one day early, as the watch (`WatchDeltaFetcher.sleepStart`)
+    /// and the Stress backfill already do, makes the boundary wake day whole.
+    ///
+    /// `boundaryDay` is `clampedTrendStart` when it actually clamps, else `nil`
+    /// (the whole interval is queried and nothing is trimmed). Because it is the
+    /// same day `fetchHealthTrends` hands `mergeWindowedSleepHistory` as its
+    /// window start, the query and the merge agree on the boundary by
+    /// construction: the boundary day comes whole from the fetch, the day
+    /// before it from the cache.
+    nonisolated static func sleepHistoryQueryWindow(
+        interval: (start: Date, end: Date),
+        maxDays: Int?,
+        calendar: Calendar
+    ) -> (queryStart: Date, boundaryDay: Date?) {
+        let clampedStart = clampedTrendStart(interval: interval, maxDays: maxDays, calendar: calendar)
+        guard clampedStart != interval.start else {
+            return (interval.start, nil)
+        }
+        let queryStart = calendar.date(byAdding: .day, value: -1, to: clampedStart) ?? clampedStart
+        return (queryStart, clampedStart)
+    }
+
+    /// Drops the wake days a `sleepHistoryQueryWindow` query read only for
+    /// their evening: anything before `boundaryDay` holds just the tail of a
+    /// night whose start lies outside the query, and the merge keeps the cached
+    /// whole copy of it instead. `nil` keeps every grouping.
+    nonisolated static func trimmedSleepDayGroupings(
+        _ groupings: [SleepDayGrouping],
+        from boundaryDay: Date?,
+        calendar: Calendar
+    ) -> [SleepDayGrouping] {
+        guard let boundaryDay else {
+            return groupings
+        }
+        return groupings.filter { calendar.startOfDay(for: $0.day.date) >= boundaryDay }
     }
 
     /// Merge a windowed phase-1 fetch back into a full-span series.

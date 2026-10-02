@@ -296,6 +296,100 @@ final class RecentTrendWindowTests: XCTestCase {
         XCTAssertEqual(merged.days.last?.summary.duration, 8 * 3_600)
     }
 
+    // MARK: - Two-phase window: whole wake days at the sleep boundary
+
+    /// A wake day's night starts the evening before, so the query has to open a
+    /// day before the boundary the merge splices on, or the boundary night
+    /// comes back cut short.
+    func testSleepHistoryQueryStartsOneDayBeforeTheDaySnappedBoundary() throws {
+        let anchor = try anchor()
+        let interval = HealthKitFetchEngine.recentHealthTrendInterval(calendar: calendar, anchor: anchor)
+        let window = HealthKitFetchEngine.sleepHistoryQueryWindow(interval: interval, maxDays: 60, calendar: calendar)
+        let boundary = try XCTUnwrap(window.boundaryDay)
+
+        XCTAssertEqual(boundary, HealthKitFetchEngine.clampedTrendStart(interval: interval, maxDays: 60, calendar: calendar))
+        XCTAssertEqual(boundary, calendar.startOfDay(for: boundary))
+        XCTAssertEqual(window.queryStart, calendar.date(byAdding: .day, value: -1, to: boundary))
+    }
+
+    func testSleepHistoryQueryKeepsTheIntervalWhenNothingClamps() throws {
+        let anchor = try anchor()
+        let interval = HealthKitFetchEngine.recentHealthTrendInterval(calendar: calendar, anchor: anchor)
+
+        for maxDays in [nil, BodyHealthTrendRange.maximumDayCount + 30] {
+            let window = HealthKitFetchEngine.sleepHistoryQueryWindow(
+                interval: interval,
+                maxDays: maxDays,
+                calendar: calendar
+            )
+            XCTAssertNil(window.boundaryDay)
+            XCTAssertEqual(window.queryStart, interval.start)
+        }
+    }
+
+    private func grouping(_ dayOffset: Int, from anchor: Date, duration: TimeInterval) throws -> SleepDayGrouping {
+        SleepDayGrouping(
+            day: SleepDaySummary(
+                date: try windowStart(dayOffset, from: anchor),
+                summary: SleepSummary(duration: duration)
+            ),
+            mainSessionInterval: nil
+        )
+    }
+
+    func testGroupingTrimDropsTheWakeDayBeforeTheBoundaryAndKeepsTheOneOnIt() throws {
+        let anchor = try anchor()
+        let groupings = [
+            try grouping(-61, from: anchor, duration: 2 * 3_600),
+            try grouping(-60, from: anchor, duration: 8 * 3_600),
+            try grouping(-10, from: anchor, duration: 7 * 3_600)
+        ]
+
+        let trimmed = HealthKitFetchEngine.trimmedSleepDayGroupings(
+            groupings,
+            from: try windowStart(-60, from: anchor),
+            calendar: calendar
+        )
+        XCTAssertEqual(trimmed.map(\.day.date), [try windowStart(-60, from: anchor), try windowStart(-10, from: anchor)])
+
+        let untrimmed = HealthKitFetchEngine.trimmedSleepDayGroupings(groupings, from: nil, calendar: calendar)
+        XCTAssertEqual(untrimmed.map(\.day.date), groupings.map(\.day.date))
+    }
+
+    /// The whole path the windowed refresh takes: the query read the day before
+    /// the boundary only for its evening, the trim drops that partial night,
+    /// and the merge keeps the cached whole one, so every wake day appears once
+    /// and whole.
+    func testTrimThenMergeKeepsOneWholeNightOnTheBoundaryDay() throws {
+        let anchor = try anchor()
+        let boundary = try windowStart(-60, from: anchor)
+        let fetched = [
+            try grouping(-61, from: anchor, duration: 1 * 3_600),
+            try grouping(-60, from: anchor, duration: 8 * 3_600),
+            try grouping(-1, from: anchor, duration: 7 * 3_600)
+        ]
+        let cached = SleepHistorySnapshot(days: [
+            SleepDaySummary(date: try windowStart(-62, from: anchor), summary: SleepSummary(duration: 6 * 3_600)),
+            SleepDaySummary(date: try windowStart(-61, from: anchor), summary: SleepSummary(duration: 7.5 * 3_600)),
+            SleepDaySummary(date: try windowStart(-60, from: anchor), summary: SleepSummary(duration: 5 * 3_600))
+        ])
+
+        let fresh = SleepHistorySnapshot(
+            days: HealthKitFetchEngine.trimmedSleepDayGroupings(fetched, from: boundary, calendar: calendar).map(\.day)
+        )
+        let merged = HealthKitFetchEngine.mergeWindowedSleepHistory(cached: cached, fresh: fresh, windowStart: boundary)
+
+        let boundaryNights = merged.days.filter { $0.date == boundary }
+        XCTAssertEqual(boundaryNights.count, 1)
+        XCTAssertEqual(boundaryNights.first?.summary.duration, 8 * 3_600)
+        let dayBefore = try windowStart(-61, from: anchor)
+        XCTAssertEqual(merged.days.filter { $0.date == dayBefore }.map(\.summary.duration), [7.5 * 3_600])
+        XCTAssertEqual(
+            merged.days.map(\.date),
+            [try windowStart(-62, from: anchor), dayBefore, boundary, try windowStart(-1, from: anchor)]
+        )
+    }
+
     // MARK: - Watch display-time clearing
 
     private func watchMetric(

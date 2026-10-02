@@ -124,17 +124,14 @@ extension HealthKitFetchEngine {
         }
 
         let interval = recentHealthTrendInterval(calendar: calendar)
-        // Whole-window refetch (the assembled history replaces the cached one),
-        // so clamping the start simply shortens the window rather than leaving a
-        // hole. `maxDays` counts query days back from the interval end.
-        var startDate = interval.start
-        if let maxDays,
-           let clampedStart = calendar.date(byAdding: .day, value: -maxDays, to: interval.end),
-           clampedStart > startDate {
-            startDate = clampedStart
-        }
+        // `maxDays` counts days back from the interval end to a day snapped
+        // boundary, the same one `fetchHealthTrends` merges on. The query starts
+        // a day before it so the boundary wake day's night is read whole, and
+        // the partial day before the boundary is trimmed below, so the merge
+        // keeps the cached whole copy of that one instead.
+        let window = Self.sleepHistoryQueryWindow(interval: interval, maxDays: maxDays, calendar: calendar)
         nonisolated(unsafe) let predicate = combinedPredicate(
-            startDate: startDate,
+            startDate: window.queryStart,
             endDate: interval.end,
             sourceKind: .sleep,
             sourceOption: sourceOption
@@ -156,11 +153,17 @@ extension HealthKitFetchEngine {
         guard case .success(let sleepSamples) = samplesOutcome else {
             return SleepHistoryFetchResult(history: nil, vitalsHadFailure: false)
         }
-        let groupings = sleepDayGroupings(
-            from: sleepSamples,
-            calendar: calendar,
-            showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
-            showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
+        // Trimmed before hydration, so the partial day is neither hydrated nor
+        // returned.
+        let groupings = Self.trimmedSleepDayGroupings(
+            sleepDayGroupings(
+                from: sleepSamples,
+                calendar: calendar,
+                showsSubMinuteAwakeStages: showsSubMinuteAwakeStages,
+                showsLeadingTrailingAwakeStages: showsLeadingTrailingAwakeStages
+            ),
+            from: window.boundaryDay,
+            calendar: calendar
         )
 
         let days = groupings.map(\.day)
