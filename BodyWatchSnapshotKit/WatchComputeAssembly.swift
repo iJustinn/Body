@@ -164,6 +164,31 @@ enum WatchComputeAssembly {
             summary.sleep = freshSleepNight
         }
 
+        // Steps, Active Energy and Resting Energy: the week this run read
+        // replaces the series WHOLESALE rather than splicing, because the seed
+        // carries no history for these kinds (`watchComputeTrimmed` collapses
+        // them to `.empty`), and today's point is the card's headline, the
+        // same "today's bucket only" the phone's summary means (nil when today
+        // has no total yet). Set here, beside the other overlays, so they ride
+        // the permission filter below like every other card's inputs. A failed
+        // read leaves the seed's values: its empty series, and the phone's own
+        // summary from the last push, which the builder may still show. That
+        // is safe because the kind then stays out of `dataAsOf` (and
+        // `chartDataAsOf`), and `WatchComputeMerge.mergingComputed` adopts no
+        // unstamped kind, so whatever the card already shows stands.
+        if case .success(let stepsWeek) = delta.stepsWeek {
+            trends.steps = stepsWeek
+            summary.steps = HealthMetricSummary(value: stepsWeek.point(on: calendar.startOfDay(for: now))?.value)
+        }
+        if case .success(let activeEnergyWeek) = delta.activeEnergyWeek {
+            trends.activeEnergy = activeEnergyWeek
+            summary.activeEnergy = HealthMetricSummary(value: activeEnergyWeek.point(on: calendar.startOfDay(for: now))?.value)
+        }
+        if case .success(let restingEnergyWeek) = delta.restingEnergyWeek {
+            trends.restingEnergy = restingEnergyWeek
+            summary.restingEnergy = HealthMetricSummary(value: restingEnergyWeek.point(on: calendar.startOfDay(for: now))?.value)
+        }
+
         // Training Load: replay the phone's dense day-indexed loads with the
         // watch's own workouts overwriting every slot from the delta window
         // onward, then re-run the identical acute/chronic EWA. Overwriting (not
@@ -312,6 +337,7 @@ enum WatchComputeAssembly {
             lastRefreshDate: seed.lastVitalsRefreshDate,
             permissionSelection: permission,
             temperatureUnitPreference: Self.temperatureUnitPreference(for: seed.settings),
+            energyUnitPreference: Self.energyUnitPreference(for: seed.settings),
             idealSleepDuration: idealSleepDuration,
             showSleepScore: seed.settings.showSleepScore,
             now: now,
@@ -522,6 +548,23 @@ enum WatchComputeAssembly {
         if permission.includes(.workouts), delta.workouts.isSuccess {
             map[WatchMetricKindKey.workoutMinutes] = now
         }
+        // Steps, Active Energy and Resting Energy are COVERAGE claims for the
+        // same reason: each card's headline and bars come from this run's week
+        // of daily totals alone, and a successful read with no total today is
+        // fresh information too (nothing counted yet, a "--" the merge never
+        // adopts over a value), so the watermark is the query window's end.
+        // Absent when the permission is off or the read failed: nothing was
+        // re-derived, and the phone's own card stays authoritative. Neither
+        // readiness nor Stress inputs.
+        if permission.includes(.steps), delta.stepsWeek.isSuccess {
+            map[WatchMetricKindKey.steps] = now
+        }
+        if permission.includes(.energy), delta.activeEnergyWeek.isSuccess {
+            map[WatchMetricKindKey.activeEnergy] = now
+        }
+        if permission.includes(.energy), delta.restingEnergyWeek.isSuccess {
+            map[WatchMetricKindKey.restingEnergy] = now
+        }
         // Readiness consumes the trend SERIES the splice refreshed (whole-day
         // HR, HRV, resting HR, respiratory, O₂, wrist temperature), the sleep
         // history, and — when Workouts is permitted — the workout list plus the
@@ -696,5 +739,20 @@ enum WatchComputeAssembly {
         settings.followsSystemUnits
             ? BodyValueFormat.TemperatureUnitPreference.systemValue(locale: .current)
             : BodyValueFormat.TemperatureUnitPreference.storedValue(from: settings.selectedTemperatureUnitRaw)
+    }
+
+    /// The phone's `HealthWidgetSnapshotBuilder.storedEnergyUnitPreference()`
+    /// resolution, exactly, so a watch-built Active or Resting Energy card
+    /// reads in the iPhone card's unit. The seed carries no raw value for
+    /// kilocalories (`selectedEnergyUnitRaw` nil), which falls back to the
+    /// default like an unset preference on the phone.
+    static func energyUnitPreference(
+        for settings: WatchComputeSettings
+    ) -> BodyValueFormat.EnergyUnitPreference {
+        settings.followsSystemUnits
+            ? BodyValueFormat.EnergyUnitPreference.systemValue(locale: .current)
+            : BodyValueFormat.EnergyUnitPreference.storedValue(
+                from: settings.selectedEnergyUnitRaw ?? BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
+            )
     }
 }

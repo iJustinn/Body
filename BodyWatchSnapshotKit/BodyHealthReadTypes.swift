@@ -166,14 +166,16 @@ enum BodyHealthReadTypes {
     /// queries for the watch metrics: workouts (+ effort scores) for Training
     /// Load and the readiness activity drain, the three heart types,
     /// respiratory rate and blood oxygen (readiness autonomic inputs and
-    /// nocturnal vitals), sleep, and wrist temperature, plus Stress's own
-    /// inputs: Recovery HRV and beat-to-beat series (its RMSSD), and steps and
-    /// active energy (its movement mask).
+    /// nocturnal vitals), sleep, and wrist temperature; steps, active energy
+    /// and resting energy, each feeding its own card and 7 day bars (a week
+    /// of daily totals), with steps and active energy also Stress's movement
+    /// mask; and Stress's own inputs, Recovery HRV and beat-to-beat series
+    /// (its RMSSD).
     ///
     /// Deliberately narrower than the phone's request: no workout routes, body
-    /// measurements, resting energy, exercise minutes, daylight, activity
-    /// summaries or date of birth — the watch reads none of those, and a
-    /// HealthKit read prompt should ask for no more than the app will read.
+    /// measurements, exercise minutes, daylight, activity summaries or date of
+    /// birth — the watch reads none of those, and a HealthKit read prompt
+    /// should ask for no more than the app will read.
     /// Each entry is still gated on the phone's permission selection, which the
     /// watch adopts one-way, so a category hidden on the phone is never
     /// requested here either.
@@ -217,12 +219,17 @@ enum BodyHealthReadTypes {
         if selection.includes(.wristTemperature) {
             quantityIdentifiers.append(.appleSleepingWristTemperature)
         }
-        // Stress's movement mask: hourly steps and active energy.
+        // The Steps, Active Energy and Resting Energy cards (a week of daily
+        // totals each), and Stress's movement mask (hourly steps and active
+        // energy).
         if selection.includes(.steps) {
             quantityIdentifiers.append(.stepCount)
         }
         if selection.includes(.energy) {
-            quantityIdentifiers.append(.activeEnergyBurned)
+            quantityIdentifiers += [
+                .activeEnergyBurned,
+                .basalEnergyBurned
+            ]
         }
 
         quantityIdentifiers

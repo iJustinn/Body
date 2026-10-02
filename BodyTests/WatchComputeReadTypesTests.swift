@@ -3,8 +3,9 @@
 //  BodyTests
 //
 //  The watch's compute read set (`BodyHealthReadTypes.watchComputeReadObjectTypes`)
-//  carries Stress's own inputs, each only under the permission the phone gates
-//  it with, and stays inside the phone's request.
+//  carries Stress's own inputs and the Steps, Active Energy and Resting Energy
+//  cards' reads, each only under the permission the phone gates it with, and
+//  stays inside the phone's request.
 //
 
 import XCTest
@@ -43,7 +44,11 @@ final class WatchComputeReadTypesTests: XCTestCase {
         let energy = BodyHealthReadTypes.watchComputeReadObjectTypes(
             for: BodyHealthPermissionSelection(enabledPermissions: [.energy])
         )
-        XCTAssertEqual(energy, [try quantity(.activeEnergyBurned)], "resting energy is never read on the watch")
+        XCTAssertEqual(
+            energy,
+            Set([try quantity(.activeEnergyBurned), try quantity(.basalEnergyBurned)]),
+            "the watch reads active energy for the movement mask and its card, and resting energy for its card"
+        )
     }
 
     func testComputeSetStaysInsideThePhoneRequest() {

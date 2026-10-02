@@ -71,6 +71,11 @@ final class WatchComputeParityTests: XCTestCase {
         trends.wristTemperature = dailySeries(dayCount: 365, anchor: anchor, calendar: calendar, baseline: 36.2, amplitude: 0.4)
         trends.heartRateRanges = rangeSeries(around: trends.heartRate, spread: 18, anchor: anchor, calendar: calendar)
         trends.heartRateVariabilityRanges = rangeSeries(around: trends.heartRateVariability, spread: 25, anchor: anchor, calendar: calendar)
+        // The day's running totals: a month is plenty, the watch reads only
+        // the trailing week and the seed trims them away entirely.
+        trends.steps = dailySeries(dayCount: 30, anchor: anchor, calendar: calendar, baseline: 8_400, amplitude: 2_600)
+        trends.activeEnergy = dailySeries(dayCount: 30, anchor: anchor, calendar: calendar, baseline: 520, amplitude: 180)
+        trends.restingEnergy = dailySeries(dayCount: 30, anchor: anchor, calendar: calendar, baseline: 1_640, amplitude: 40)
         let recordedStressContext = "fixture-stress-context"
         stressFixture(into: &trends, anchor: anchor, calendar: calendar)
         trends.recordedStressContext = recordedStressContext
@@ -119,13 +124,13 @@ final class WatchComputeParityTests: XCTestCase {
             respiratoryRate: HealthMetricSummary(value: trends.respiratoryRate.point(on: anchorDay)?.value),
             oxygenSaturation: HealthMetricSummary(value: trends.oxygenSaturation.point(on: anchorDay)?.value),
             bodyMassIndex: HealthMetricSummary(value: nil),
-            activeEnergy: HealthMetricSummary(value: nil),
-            restingEnergy: HealthMetricSummary(value: nil),
+            activeEnergy: HealthMetricSummary(value: trends.activeEnergy.point(on: anchorDay)?.value),
+            restingEnergy: HealthMetricSummary(value: trends.restingEnergy.point(on: anchorDay)?.value),
             exerciseMinutes: HealthMetricSummary(value: nil),
             trainingLoad: HealthMetricSummary(value: trends.trainingLoad.point(on: anchorDay)?.value),
             wristTemperature: HealthMetricSummary(value: trends.wristTemperature.point(on: anchorDay)?.value),
             timeInDaylight: HealthMetricSummary(value: nil),
-            steps: HealthMetricSummary(value: nil)
+            steps: HealthMetricSummary(value: trends.steps.point(on: anchorDay)?.value)
         )
 
         // A morning record for TODAY is already frozen — matching the seed's
@@ -599,6 +604,16 @@ final class WatchComputeParityTests: XCTestCase {
         delta.stressRMSSDSamples = stressSlice(fixture.trends.heartbeatRMSSDDaySamples)
         delta.stressHourlySteps = stressSlice(fixture.trends.stepsDaySamples)
         delta.stressHourlyActiveEnergy = stressSlice(fixture.trends.activeEnergyDaySamples)
+        // The day's running totals: a fixed trailing week ending today, the
+        // window `WatchDeltaFetcher.weeklyTotalSeries` reads whatever the
+        // delta window is (the seed carries nothing to splice onto).
+        let totalsWeekStart = calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now)) ?? now
+        func weekSlice(_ series: HealthTrendSeries) -> WatchFetchOutcome<HealthTrendSeries> {
+            .success(HealthTrendSeries(points: series.points.filter { $0.date >= totalsWeekStart && $0.date <= now }))
+        }
+        delta.stepsWeek = weekSlice(fixture.trends.steps)
+        delta.activeEnergyWeek = weekSlice(fixture.trends.activeEnergy)
+        delta.restingEnergyWeek = weekSlice(fixture.trends.restingEnergy)
         mutateDelta(&delta)
 
         let result = try XCTUnwrap(WatchComputeAssembly.assemble(
@@ -652,6 +667,9 @@ final class WatchComputeParityTests: XCTestCase {
         summary.respiratoryRate = HealthMetricSummary(value: fixture.trends.respiratoryRate.point(on: dataThroughDay)?.value)
         summary.oxygenSaturation = HealthMetricSummary(value: fixture.trends.oxygenSaturation.point(on: dataThroughDay)?.value)
         summary.wristTemperature = HealthMetricSummary(value: fixture.trends.wristTemperature.point(on: dataThroughDay)?.value)
+        summary.steps = HealthMetricSummary(value: fixture.trends.steps.point(on: dataThroughDay)?.value)
+        summary.activeEnergy = HealthMetricSummary(value: fixture.trends.activeEnergy.point(on: dataThroughDay)?.value)
+        summary.restingEnergy = HealthMetricSummary(value: fixture.trends.restingEnergy.point(on: dataThroughDay)?.value)
         summary.sleep = fixture.trends.sleepHistory.summary(on: dataThroughDay, calendar: calendar)?.summary ?? SleepSummary(duration: nil)
 
         let trainingLoadStartDay = try XCTUnwrap(calendar.date(byAdding: .day, value: -407, to: dataThroughDay))
@@ -808,6 +826,96 @@ final class WatchComputeParityTests: XCTestCase {
             Set(timeline.context.map(\.kind)),
             [WatchStressContextBand.sleepKind, WatchStressContextBand.workoutKind]
         )
+    }
+
+    // MARK: - The day's running totals (Steps, Active Energy, Resting Energy)
+
+    /// The three cards are compared for real in `assertMetricsMatch` (they
+    /// are in `displayOrder`); this makes the stamping explicit: a successful
+    /// week read stamps the kind with the query window's end (coverage
+    /// semantics, like `workoutMinutes`), carries a real total and a dense
+    /// week, and a read that failed, or a permission that is off, leaves the
+    /// kind out of `dataAsOf` so the merge never adopts what the builder
+    /// still shows from the seed.
+    func testDailyTotalsAreStampedOnlyWhenTheirWeekWasRead() throws {
+        let calendar = Calendar.bodyGregorian
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let fixture = try makeFixture(anchor: anchor, calendar: calendar)
+        let totals = [WatchMetricKindKey.steps, WatchMetricKindKey.activeEnergy, WatchMetricKindKey.restingEnergy]
+
+        func result(
+            permission: BodyHealthPermissionSelection = .defaultValue,
+            _ mutateDelta: @escaping (inout WatchComputeDelta) -> Void = { _ in }
+        ) throws -> WatchComputeResult {
+            try watchResult(
+                fixture: fixture,
+                seedSummary: fixture.summary,
+                seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
+                seedTrainingLoadDailyLoads: fixture.trainingLoadDailyLoads,
+                dataThrough: anchor, now: anchor, calendar: calendar,
+                permission: permission,
+                mutateDelta: mutateDelta
+            ).result
+        }
+
+        // Every week read succeeded: all three stamped at `now`, each with
+        // today's total and a 7 slot week matching the phone's.
+        let fresh = try result()
+        let phone = phoneSnapshot(fixture: fixture, now: anchor, calendar: calendar)
+        for kind in totals {
+            XCTAssertEqual(fresh.dataAsOf[kind], anchor, kind)
+            let metric = try XCTUnwrap(fresh.snapshot.metric(forKind: kind), kind)
+            XCTAssertTrue(metric.hasValue, kind)
+            XCTAssertEqual(metric.weekly?.count, 7, kind)
+            XCTAssertEqual(metric.weekly, phone.metric(forKind: kind)?.weekly, kind)
+            XCTAssertEqual(metric.displayValue, phone.metric(forKind: kind)?.displayValue, kind)
+        }
+        XCTAssertEqual(fresh.snapshot.metric(forKind: WatchMetricKindKey.steps)?.unit, "")
+        XCTAssertEqual(fresh.snapshot.metric(forKind: WatchMetricKindKey.activeEnergy)?.unit, "kcal")
+        XCTAssertEqual(fresh.snapshot.metric(forKind: WatchMetricKindKey.restingEnergy)?.usesKilojoules, false)
+
+        // One failed read leaves exactly that kind unstamped; the others are
+        // untouched. Not a readiness or Stress input, so neither moves.
+        let failedSteps = try result { $0.stepsWeek = .failure }
+        XCTAssertNil(failedSteps.dataAsOf[WatchMetricKindKey.steps])
+        XCTAssertEqual(failedSteps.dataAsOf[WatchMetricKindKey.activeEnergy], anchor)
+        XCTAssertEqual(failedSteps.dataAsOf[WatchMetricKindKey.restingEnergy], anchor)
+        XCTAssertEqual(failedSteps.dataAsOf[WatchMetricKindKey.readiness], fresh.dataAsOf[WatchMetricKindKey.readiness])
+        XCTAssertEqual(failedSteps.dataAsOf[WatchMetricKindKey.stress], fresh.dataAsOf[WatchMetricKindKey.stress])
+        XCTAssertTrue(failedSteps.readinessBlockers.isEmpty)
+        // The seed carries no week for it, so the bars are blank; the headline
+        // is whatever the seed's summary said, which the merge never adopts
+        // because the kind is unstamped (`WatchComputeMergeTests`).
+        XCTAssertEqual(
+            failedSteps.snapshot.metric(forKind: WatchMetricKindKey.steps)?.weekly?.compactMap { $0 },
+            []
+        )
+
+        // A successful read with nothing today still stamps (coverage), and
+        // the card is blank: nothing counted yet.
+        let emptyToday = try result { delta in
+            if case .success(let week) = delta.restingEnergyWeek {
+                delta.restingEnergyWeek = .success(HealthTrendSeries(
+                    points: week.points.filter { !calendar.isDate($0.date, inSameDayAs: anchor) }
+                ))
+            }
+        }
+        XCTAssertEqual(emptyToday.dataAsOf[WatchMetricKindKey.restingEnergy], anchor)
+        let restingToday = try XCTUnwrap(emptyToday.snapshot.metric(forKind: WatchMetricKindKey.restingEnergy))
+        XCTAssertFalse(restingToday.hasValue)
+        XCTAssertEqual(restingToday.weekly?.last ?? nil, nil)
+        XCTAssertEqual(restingToday.weekly?.compactMap { $0 }.count, 6)
+
+        // Permission off: the builder omits the card and nothing is stamped,
+        // even though the delta still carries a successful read.
+        var withoutMovement = BodyHealthPermissionSelection.defaultValue
+        withoutMovement.enabledPermissions.remove(.steps)
+        withoutMovement.enabledPermissions.remove(.energy)
+        let hidden = try result(permission: withoutMovement)
+        for kind in totals {
+            XCTAssertNil(hidden.dataAsOf[kind], kind)
+            XCTAssertNil(hidden.snapshot.metric(forKind: kind), kind)
+        }
     }
 
     // MARK: - Case 3: DST transition inside the delta window
@@ -1159,7 +1267,16 @@ final class WatchComputeParityTests: XCTestCase {
             }
         )
 
-        assertMetricsMatch(phone, result.snapshot)
+        // The Steps, Active Energy and Resting Energy cards ride these same
+        // permissions, so both sides omit them here.
+        assertMetricsMatch(
+            phone, result.snapshot,
+            excluding: [WatchMetricKindKey.steps, WatchMetricKindKey.activeEnergy, WatchMetricKindKey.restingEnergy]
+        )
+        for kind in WatchMetricKindKey.dailyTotalKinds {
+            XCTAssertNil(phone.metric(forKind: kind), kind)
+            XCTAssertNil(result.snapshot.metric(forKind: kind), kind)
+        }
         XCTAssertNotEqual(
             result.snapshot.stressTimeline?.slots,
             phoneSnapshot(fixture: fixture, now: anchor, calendar: calendar).stressTimeline?.slots,

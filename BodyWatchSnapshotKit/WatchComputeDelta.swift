@@ -48,6 +48,18 @@ struct WatchComputeDelta {
     var stressHourlySteps: WatchFetchOutcome<HealthTrendSeries> = .failure
     var stressHourlyActiveEnergy: WatchFetchOutcome<HealthTrendSeries> = .failure
 
+    /// The Steps, Active Energy and Resting Energy cards' trailing week of
+    /// daily totals (`WatchDeltaFetcher`'s fixed week: today and the six days
+    /// before it, one point per day with a sum), read by the watch alone:
+    /// there is no seeded history for these kinds (the seed collapses their
+    /// series to `.empty`), so a successful read replaces the series wholesale
+    /// and feeds both the card's headline (today's point) and its 7 day bars.
+    /// Stamped in `WatchComputeAssembly.dataAsOf` only on success, so a failed
+    /// read is never adopted over what the card shows.
+    var stepsWeek: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var activeEnergyWeek: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var restingEnergyWeek: WatchFetchOutcome<HealthTrendSeries> = .failure
+
     /// Source kinds this watch holds no HealthKit source for at all
     /// (`WatchSourceRead.unavailable`). Their series stay `.failure`, so the
     /// seed is preserved, but they do not block Readiness.

@@ -6,11 +6,16 @@
 //  phone's seeded history. Deliberately a THIN SHIM: every query and every
 //  transformation below is a call into the shared `BodyWatchSnapshotKit` leaves
 //  the iOS `HealthKitFetchEngine` also calls (`BodyHealthSourceResolver`,
-//  `BodyHealthQuantityFetch`, `BodyHeartbeatRMSSDFetch`, `BodySleepFetch`,
-//  `BodyWorkoutFetch`, `BodyWorkoutEffortFetcher`). It owns no query logic of
-//  its own — a hand-forked watch fetch layer drifted from the phone within a
-//  day in the June 2026 standalone-compute attempt (a 26-hour night), and this
-//  file exists precisely so there is nothing left to drift.
+//  `BodyHealthQuantityFetch`, `BodyRestingEnergyEstimates`,
+//  `BodyHeartbeatRMSSDFetch`, `BodySleepFetch`, `BodyWorkoutFetch`,
+//  `BodyWorkoutEffortFetcher`). One leaf is not called by the phone yet:
+//  `BodyHealthQuantityFetch.dailyCumulativeSeries`, the week of daily totals
+//  behind the Steps, Active Energy and Resting Energy cards, which mirrors the
+//  engine's `fetchDailyCumulativeQuantitySeries` and shares its resting energy
+//  estimate fold. This file owns no query logic of its own — a hand-forked
+//  watch fetch layer drifted from the phone within a day in the June 2026
+//  standalone-compute attempt (a 26-hour night), and this file exists
+//  precisely so there is nothing left to drift.
 //
 //  Two rules run through everything here:
 //  * Source parity — every source-selectable read resolves the PHONE's synced
@@ -18,7 +23,8 @@
 //    to one of its own `HKSource`s resolves `.unresolved` and the read is
 //    SKIPPED with failure semantics (keep the seed) rather than silently
 //    widening to all sources. Widening is what made the first attempt disagree
-//    with the phone.
+//    with the phone. Steps, active energy and resting energy are the one
+//    documented exception (see `fetchDelta`).
 //  * Tri-state outcomes — a query failure (`.failure`) preserves the seed
 //    untouched, while a genuine empty result still clears its window. See
 //    `WatchFetchOutcome`.
@@ -36,6 +42,8 @@ actor WatchDeltaFetcher {
     /// starts one day earlier so a night that BEGAN before the window but wakes
     /// inside it is still sessionized whole, and workouts reach back a full
     /// week so the weekly workout-minutes bars can be built without a seed.
+    /// Steps, active energy and resting energy read a fixed week of daily
+    /// totals for the same reason (`weeklyTotalSeries`), whatever the window.
     func fetchDelta(
         seed: WatchComputeSeed,
         permission: BodyHealthPermissionSelection,
@@ -56,7 +64,7 @@ actor WatchDeltaFetcher {
         // Resolve every source-selectable kind's predicate up front (one
         // `HKSourceQuery` fan-out per kind), so the reads below only ever run
         // with a predicate the phone would have produced.
-        let reads = await WatchSourceResolver.reads(
+        async let resolvedReads = WatchSourceResolver.reads(
             for: BodyHealthSourceResolver.watchComputeSourceKinds,
             selection: selection,
             expectedSourceIDsByKind: seed.expectedSourceIDsByKind,
@@ -64,6 +72,35 @@ actor WatchDeltaFetcher {
             permission: permission,
             store: store
         )
+        // Steps, active energy and resting energy, resolved ONCE per run
+        // beside the kinds above and handed to every read that uses them:
+        // Stress's hourly movement mask and the week of daily totals behind
+        // their own cards. A permission that is off resolves `.skip`.
+        //
+        // A deliberate deviation from the source parity rule above: these
+        // kinds resolve WITHOUT the phone's expected source universe
+        // (`expectedSourceIDsByKind: nil`), so a pinned or custom selection
+        // stays strict but All Sources reads the sources this watch can see.
+        // The iPhone's pedometer is almost always a phone source the watch
+        // never sees, so the universe check would skip these reads, and with
+        // them Stress and the three cards, for nearly everyone. The mask is a
+        // coarse threshold (200 steps or 25 kcal in an hour) that only matters
+        // where the wrist is producing the heart rate being scored, and the
+        // watch sees its own movement. The cards accept the cost: a total
+        // built here counts only what this watch sees, so it can read lower
+        // than the iPhone's while the watch is off the wrist, until a fresher
+        // iPhone push replaces it (the merge keeps whichever is fresher, as
+        // for Stress).
+        async let resolvedMovementReads = WatchSourceResolver.reads(
+            for: [.steps, .activeEnergy, .restingEnergy],
+            selection: selection,
+            expectedSourceIDsByKind: nil,
+            customGroups: customGroups,
+            permission: permission,
+            store: store
+        )
+        let reads = await resolvedReads
+        let movementReads = await resolvedMovementReads
 
         var delta = WatchComputeDelta()
         delta.carriedKinds = Set(reads.compactMap { kind, read in
@@ -149,12 +186,29 @@ actor WatchDeltaFetcher {
             reads: reads, start: stressStart, end: now
         )
         async let stressHourlySteps = hourlySeries(
-            .steps, selection: selection, customGroups: customGroups, permission: permission,
+            .steps, reads: movementReads,
             start: stressStart, end: now, calendar: calendar
         )
         async let stressHourlyActiveEnergy = hourlySeries(
-            .activeEnergy, selection: selection, customGroups: customGroups, permission: permission,
+            .activeEnergy, reads: movementReads,
             start: stressStart, end: now, calendar: calendar
+        )
+        // The Steps, Active Energy and Resting Energy cards: a fixed trailing
+        // week of daily totals, today included, so every day the 7 day bars
+        // draw sits inside the query (see `weeklyTotalSeries`).
+        let today = calendar.startOfDay(for: now)
+        let weekStart = calendar.date(byAdding: .day, value: -6, to: today) ?? today
+        async let stepsWeek = weeklyTotalSeries(
+            .steps, reads: movementReads,
+            start: weekStart, end: now, calendar: calendar
+        )
+        async let activeEnergyWeek = weeklyTotalSeries(
+            .activeEnergy, reads: movementReads,
+            start: weekStart, end: now, calendar: calendar
+        )
+        async let restingEnergyWeek = weeklyTotalSeries(
+            .restingEnergy, reads: movementReads,
+            start: weekStart, end: now, calendar: calendar
         )
 
         delta.heartRateSeries = await heartRateSeries
@@ -180,6 +234,10 @@ actor WatchDeltaFetcher {
         delta.stressRMSSDSamples = await stressRMSSDSamples
         delta.stressHourlySteps = await stressHourlySteps
         delta.stressHourlyActiveEnergy = await stressHourlyActiveEnergy
+
+        delta.stepsWeek = await stepsWeek
+        delta.activeEnergyWeek = await activeEnergyWeek
+        delta.restingEnergyWeek = await restingEnergyWeek
 
         return delta
     }
@@ -371,23 +429,13 @@ actor WatchDeltaFetcher {
     }
 
     /// Hourly sums for Stress's movement mask (steps, active energy): the
-    /// descriptor's intraday `.hourlyCumulative` row. A permission that is off
-    /// resolves `.skip` and leaves `.failure`.
-    ///
-    /// A deliberate deviation from the source parity rule above: these kinds
-    /// resolve WITHOUT the phone's expected source universe
-    /// (`expectedSourceIDsByKind: nil`), so a pinned or custom selection stays
-    /// strict but All Sources reads the sources this watch can see. The
-    /// iPhone's pedometer is almost always a phone source the watch never
-    /// sees, so the universe check would skip these reads, and with them
-    /// Stress, for nearly everyone. The mask is a coarse threshold (200 steps
-    /// or 25 kcal in an hour) that only matters where the wrist is producing
-    /// the heart rate being scored, and the watch sees its own movement.
+    /// descriptor's intraday `.hourlyCumulative` row, under the kind's
+    /// resolution in `movementReads` (resolved without the phone's source
+    /// universe; see `fetchDelta`). A permission that is off resolves `.skip`
+    /// and leaves `.failure`.
     private func hourlySeries(
         _ kind: HealthMetricKind,
-        selection: BodyHealthDataSourceSelection,
-        customGroups: [BodyCustomHealthSourceGroup],
-        permission: BodyHealthPermissionSelection,
+        reads: [HealthMetricKind: WatchSourceRead],
         start: Date,
         end: Date,
         calendar: Calendar
@@ -395,18 +443,52 @@ actor WatchDeltaFetcher {
         guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
               descriptor.intradayDaySamples == .hourlyCumulative,
               let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType),
-              case .run(let resolvedSourcePredicate) = await WatchSourceResolver.read(
-                  for: descriptor.sourceKind,
-                  selection: selection,
-                  expectedSourceIDsByKind: nil,
-                  customGroups: customGroups,
-                  permission: permission,
-                  store: store
-              ) else {
+              case .run(let resolvedSourcePredicate) = reads[descriptor.sourceKind] else {
             return .failure
         }
 
         return await BodyHealthQuantityFetch.hourlyCumulativeSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: BodyHealthSourceResolver.combinedPredicate(
+                startDate: start,
+                endDate: end,
+                sourcePredicate: resolvedSourcePredicate
+            ),
+            unit: descriptor.unit,
+            start: start,
+            end: end,
+            calendar: calendar,
+            valueTransform: descriptor.valueTransform
+        )
+    }
+
+    // MARK: - Daily totals
+
+    /// A week of daily totals for the Steps, Active Energy and Resting Energy
+    /// cards and their 7 day bars: the descriptor's `.dailyCumulative` trend
+    /// row, under the kind's resolution in `movementReads` (see `fetchDelta`),
+    /// through the shared leaf that also applies the phone's resting energy
+    /// scale-estimate rule. The window is a fixed week, like `workoutDelta`'s
+    /// floor, rather than the delta window: there is no seeded history for
+    /// these kinds to splice onto, so the assembly replaces their series with
+    /// this read wholesale. A permission that is off resolves `.skip`, and any
+    /// read that can't run leaves `.failure`, which stamps nothing.
+    private func weeklyTotalSeries(
+        _ kind: HealthMetricKind,
+        reads: [HealthMetricKind: WatchSourceRead],
+        start: Date,
+        end: Date,
+        calendar: Calendar
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              descriptor.trend == .dailyCumulative,
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType),
+              case .run(let resolvedSourcePredicate) = reads[descriptor.sourceKind] else {
+            return .failure
+        }
+
+        return await BodyHealthQuantityFetch.dailyCumulativeSeries(
             store: store,
             quantityType: quantityType,
             predicate: BodyHealthSourceResolver.combinedPredicate(
