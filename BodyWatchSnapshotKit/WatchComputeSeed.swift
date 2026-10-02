@@ -374,8 +374,9 @@ extension HealthTrendSnapshot {
     /// windowed to `WatchComputeSeed.trendDayCount` most-recent days ending at
     /// `anchor` (the sleep history to `WatchComputeSeed.sleepHistoryDayCount`),
     /// keeping only the series the watch's on-device recompute
-    /// reads (readiness, HR/RHR/HRV, respiratory, SpO₂, Training Load, wrist
-    /// temperature, sleep + sleep history, recorded-readiness + its context)
+    /// reads (readiness, HR/RHR/HRV, the HR/HRV daily ranges for one week,
+    /// respiratory, SpO₂, Training Load, wrist temperature, sleep + sleep
+    /// history, recorded-readiness + its context)
     /// — everything else (secondary-source series, day-sample series, Basics,
     /// Activity Rings inputs, …) collapses to `.empty` since the watch never
     /// computes those.
@@ -392,6 +393,17 @@ extension HealthTrendSnapshot {
         trimmed.oxygenSaturation = watchComputeWindowed(oxygenSaturation, dayCount: days, anchor: anchor, calendar: calendar)
         trimmed.trainingLoad = watchComputeWindowed(trainingLoad, dayCount: days, anchor: anchor, calendar: calendar)
         trimmed.wristTemperature = watchComputeWindowed(wristTemperature, dayCount: days, anchor: anchor, calendar: calendar)
+        // The Heart Rate and HRV week charts' daily min/max capsules keep only
+        // a week, not `trendDayCount`: the builder reads them through
+        // `.recentWeek` alone (nothing scores them), a seed is at most
+        // `maxComputeAge` (7 days) old, and the delta re-reads them from
+        // `dataThrough`'s day minus 2 days, so these 7 days plus the delta
+        // always cover the 7 the chart draws. 70 would only grow the push.
+        let rangeDays = BodyHealthTrendRange.recentWeek.dayCount
+        trimmed.heartRateRanges = watchComputeWindowed(heartRateRanges, dayCount: rangeDays, anchor: anchor, calendar: calendar)
+        trimmed.heartRateVariabilityRanges = watchComputeWindowed(
+            heartRateVariabilityRanges, dayCount: rangeDays, anchor: anchor, calendar: calendar
+        )
         trimmed.sleepHistory = sleepHistory.watchComputeTrimmed(anchor: anchor, calendar: calendar)
 
         let anchorDay = calendar.startOfDay(for: anchor)
@@ -420,6 +432,22 @@ private func watchComputeWindowed(
     let startDate = calendar.date(byAdding: .day, value: -(dayCount - 1), to: anchorDayStart) ?? anchorDayStart
     let endDate = calendar.date(byAdding: .day, value: 1, to: anchorDayStart) ?? anchor
     return HealthTrendSeries(
+        points: series.points.filter { $0.date >= startDate && $0.date < endDate }
+    )
+}
+
+/// `watchComputeWindowed` for a daily range series, with the same day-boundary
+/// math (for `.recentWeek`'s 7 days it equals `HealthTrendRangeSeries.limited(to:)`).
+private func watchComputeWindowed(
+    _ series: HealthTrendRangeSeries,
+    dayCount: Int,
+    anchor: Date,
+    calendar: Calendar
+) -> HealthTrendRangeSeries {
+    let anchorDayStart = calendar.startOfDay(for: anchor)
+    let startDate = calendar.date(byAdding: .day, value: -(dayCount - 1), to: anchorDayStart) ?? anchorDayStart
+    let endDate = calendar.date(byAdding: .day, value: 1, to: anchorDayStart) ?? anchor
+    return HealthTrendRangeSeries(
         points: series.points.filter { $0.date >= startDate && $0.date < endDate }
     )
 }

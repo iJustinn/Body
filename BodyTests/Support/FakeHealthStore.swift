@@ -80,6 +80,8 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
     private var statisticsCollectionScripts: [String: Script] = [:]
     private var cumulativeQuantities: [String: HKQuantity?] = [:]
     private var dailyQuantityValues: [String: [BodyDatedQuantity]] = [:]
+    private var dailyQuantityRangeValues: [String: [BodyDatedQuantityRange]] = [:]
+    private var dailyQuantityRangeRequestsValue: [BodyStatisticsCollectionRequest] = []
     private var executedQueriesValue: [HKQuery] = []
     private var stoppedQueriesValue: [HKQuery] = []
     private var leafRequestsValue: [LeafRequest] = []
@@ -177,6 +179,37 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
         aggregation: BodyDailyQuantityAggregation, from start: Date, to end: Date
     ) async -> BodyHealthReadOutcome<[BodyDatedQuantity]> {
         if let values = scriptedDailyQuantities(request.quantityType.identifier) {
+            record(.statisticsCollection(request.quantityType.identifier))
+            return .success(values)
+        }
+        switch await statisticsCollection(request) {
+        case .failure(let error): return .failure(error)
+        case .cancelled: return .cancelled
+        case .success: return .failure(Unscripted())
+        }
+    }
+
+    func scriptDailyQuantityRanges(for type: HKQuantityType, values: [BodyDatedQuantityRange]) {
+        lock.lock(); dailyQuantityRangeValues[type.identifier] = values; lock.unlock()
+    }
+
+    private func scriptedDailyQuantityRanges(_ identifier: String) -> [BodyDatedQuantityRange]? {
+        lock.lock(); defer { lock.unlock() }
+        return dailyQuantityRangeValues[identifier]
+    }
+
+    /// Every `dailyQuantityRanges` request, scripted or not, so a test can pin
+    /// the collection's options and anchor: the one thing a scripted answer
+    /// cannot check, and what decides whether HealthKit returns a min and max.
+    var dailyQuantityRangeRequests: [BodyStatisticsCollectionRequest] {
+        lock.lock(); defer { lock.unlock() }; return dailyQuantityRangeRequestsValue
+    }
+
+    func dailyQuantityRanges(_ request: BodyStatisticsCollectionRequest,
+        from start: Date, to end: Date
+    ) async -> BodyHealthReadOutcome<[BodyDatedQuantityRange]> {
+        lock.lock(); dailyQuantityRangeRequestsValue.append(request); lock.unlock()
+        if let values = scriptedDailyQuantityRanges(request.quantityType.identifier) {
             record(.statisticsCollection(request.quantityType.identifier))
             return .success(values)
         }

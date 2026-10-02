@@ -8,7 +8,8 @@
 //  that passing `nil` for both new parameters reproduces `makeSnapshot`'s
 //  prior output exactly (the existing iOS call sites don't pass them yet).
 //  Also covers the `sleepStages` payload the watch Sleep Stages complication
-//  draws, and the Sleep page's `sleepDebt`.
+//  draws, the Sleep page's `sleepDebt`, and the Heart Rate / HRV week charts'
+//  `weeklyRanges`.
 //
 
 import XCTest
@@ -181,6 +182,83 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         // Every other kind falls back to the uniform `lastRefreshDate` (== anchor here).
         XCTAssertEqual(snapshot.metric(forKind: WatchMetricKindKey.heartRateVariability)?.computedAt, anchor)
         XCTAssertEqual(snapshot.metric(forKind: WatchMetricKindKey.readiness)?.computedAt, anchor)
+    }
+
+    // MARK: - weeklyRanges (Heart Rate / HRV week chart capsules)
+
+    /// Range points keyed by day offset from `anchor` (0 = today).
+    private func ranges(_ byOffset: [Int: (low: Double, high: Double)], endingAt anchor: Date) -> HealthTrendRangeSeries {
+        let anchorDay = calendar.startOfDay(for: anchor)
+        return HealthTrendRangeSeries(points: byOffset.keys.sorted().map { offset in
+            let range = byOffset[offset]!
+            return HealthTrendRangeDataPoint(
+                date: calendar.date(byAdding: .day, value: offset, to: anchorDay)!,
+                lowValue: range.low,
+                highValue: range.high,
+                averageValue: (range.low + range.high) / 2
+            )
+        })
+    }
+
+    func testHeartRateAndHRVCarrySevenWeeklyRangeSlotsAlignedWithWeekly() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
+        let (summary, baseTrends) = fixture(anchor: anchor)
+        var trends = baseTrends
+        trends.heartRateRanges = ranges([
+            -9: (40, 140),  // before the week: never drawn
+            -4: (50, 70),
+            -3: (52, 72),
+            // -2 has an average (62) but no range.
+            -1: (.nan, 76), // a non-finite bound is no capsule
+            0: (55, 80)
+        ], endingAt: anchor)
+        trends.heartRateVariabilityRanges = ranges([-6: (30, 70), 0: (40, 75)], endingAt: anchor)
+
+        let snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary, trends: trends, lastRefreshDate: anchor,
+            permissionSelection: .defaultValue, temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600, now: anchor
+        )
+
+        let heartRate = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.heartRate))
+        XCTAssertEqual(heartRate.weekly, [nil, nil, 58, 60, 62, 64, 66])
+        XCTAssertEqual(heartRate.weeklyRanges, [
+            nil, nil,
+            WatchDayRange(low: 50, high: 70),
+            WatchDayRange(low: 52, high: 72),
+            nil,
+            nil,
+            WatchDayRange(low: 55, high: 80)
+        ])
+        XCTAssertEqual(
+            snapshot.metric(forKind: WatchMetricKindKey.heartRateVariability)?.weeklyRanges,
+            [WatchDayRange(low: 30, high: 70), nil, nil, nil, nil, nil, WatchDayRange(low: 40, high: 75)]
+        )
+        for kind in [
+            WatchMetricKindKey.readiness, WatchMetricKindKey.sleep, WatchMetricKindKey.restingHeartRate,
+            WatchMetricKindKey.trainingLoad, WatchMetricKindKey.wristTemperature
+        ] {
+            let metric = try XCTUnwrap(snapshot.metric(forKind: kind), kind)
+            XCTAssertNil(metric.weeklyRanges, kind)
+        }
+    }
+
+    func testWeeklyRangesAreNilWithoutARangeInTheWeek() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
+        let empty = makeSnapshot(anchor: anchor)
+        XCTAssertNil(empty.metric(forKind: WatchMetricKindKey.heartRate)?.weeklyRanges)
+        XCTAssertNil(empty.metric(forKind: WatchMetricKindKey.heartRateVariability)?.weeklyRanges)
+
+        // Only older days: seven nil slots would be the same as none.
+        let (summary, baseTrends) = fixture(anchor: anchor)
+        var trends = baseTrends
+        trends.heartRateRanges = ranges([-8: (50, 70), -7: (52, 72)], endingAt: anchor)
+        let stale = WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary, trends: trends, lastRefreshDate: anchor,
+            permissionSelection: .defaultValue, temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600, now: anchor
+        )
+        XCTAssertNil(stale.metric(forKind: WatchMetricKindKey.heartRate)?.weeklyRanges)
     }
 
     // MARK: - Sleep stages (watch Sleep Stages complication)

@@ -5,7 +5,8 @@
 //  `WatchMetric.weeklyRewound` keeps the weekly workout time complication's
 //  rightmost bar on today: a snapshot cached across midnight must shift its
 //  elapsed days out and append empty slots instead of holding yesterday's
-//  window (the cache is only rewritten when the phone pushes).
+//  window (the cache is only rewritten when the phone pushes). Also pins the
+//  `weeklyRanges` beside the week across phone/watch version skew.
 //
 
 import XCTest
@@ -71,6 +72,56 @@ final class WatchMetricWeeklyRewoundTests: XCTestCase {
         let weekly: [Double?] = [12, 30, nil, 45, 22, 0, 38]
         let rewound = metric(weekly: weekly).weeklyRewound(from: date(28), to: date(27), calendar: calendar)
         XCTAssertEqual(rewound, weekly)
+    }
+
+    // MARK: - `weeklyRanges` schema evolution
+    //
+    // The HR / HRV week chart's daily capsules ride beside `weekly`. An older
+    // phone omits them and its week must still decode, as the plain line.
+
+    func testMetricWithoutWeeklyRangesDecodesThemAsNil() throws {
+        let snapshot = try XCTUnwrap(WatchMetricsSnapshot.decoded(from: Data("""
+        {
+          "generatedAt": "2026-08-28T09:00:00Z",
+          "metrics": [
+            {
+              "kind": "heartRate",
+              "title": "Heart Rate",
+              "displayValue": "62",
+              "unit": "bpm",
+              "fillFraction": 0.5,
+              "weekly": [58, 60, null, 64, 66, 61, 62]
+            }
+          ]
+        }
+        """.utf8)))
+
+        let heartRate = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.heartRate))
+        XCTAssertEqual(heartRate.weekly, [58, 60, nil, 64, 66, 61, 62])
+        XCTAssertNil(heartRate.weeklyRanges)
+    }
+
+    func testWeeklyRangesRoundTripWithTheirEmptyDays() throws {
+        let heartRate = WatchMetric(
+            kind: WatchMetricKindKey.heartRate,
+            title: "Heart Rate",
+            displayValue: "62",
+            unit: "bpm",
+            score: nil,
+            fillFraction: 0.5,
+            weekly: [58, 60, nil, 64, 66, 61, 62],
+            weeklyAsOf: date(28),
+            weeklyRanges: [
+                WatchDayRange(low: 48, high: 92), nil, nil,
+                WatchDayRange(low: 50, high: 101), nil, WatchDayRange(low: 47, high: 88), WatchDayRange(low: 52, high: 95)
+            ]
+        )
+        let original = WatchMetricsSnapshot(generatedAt: date(28), lastRefreshDate: date(28), metrics: [heartRate])
+
+        let decoded = try XCTUnwrap(WatchMetricsSnapshot.decoded(from: try XCTUnwrap(original.encoded())))
+
+        XCTAssertEqual(decoded.metrics.first?.weeklyRanges, heartRate.weeklyRanges)
+        XCTAssertEqual(decoded, original)
     }
 
     // MARK: - Legacy `exerciseMinutes` fallback

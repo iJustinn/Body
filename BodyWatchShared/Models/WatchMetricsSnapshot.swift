@@ -21,6 +21,14 @@ struct WatchMetricColor: Codable, Equatable {
     var blue: Double
 }
 
+/// One day's lowest and highest reading behind a metric's recent-week chart
+/// (`WatchMetric.weeklyRanges`), in the metric's display unit: the iPhone's
+/// daily range series for the same day.
+struct WatchDayRange: Codable, Equatable {
+    var low: Double
+    var high: Double
+}
+
 /// Status band to highlight behind a metric's recent-week chart (Readiness,
 /// Training Load) — the value range of TODAY's status, mirroring the iPhone
 /// trend chart's highlighted range. A `nil` bound is open-ended (the band fills
@@ -213,8 +221,30 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// so without this a complication drawn after midnight would keep
     /// yesterday as its rightmost day.
     func weeklyRewound(from generatedAt: Date, to today: Date, calendar: Calendar = .current) -> [Double?] {
-        let recent = Array((weekly ?? []).suffix(7))
-        let padded = Array(repeating: Double?.none, count: 7 - recent.count) + recent
+        rewound(weekly ?? [], from: generatedAt, to: today, calendar: calendar)
+    }
+
+    /// Each day's lowest and highest reading behind the recent-week chart
+    /// (oldest → today, `nil` for a day without both), aligned slot for slot
+    /// with `weekly` and windowed on the same `weeklyAsOf`. Heart Rate and HRV
+    /// only, drawn as a capsule per day under the line. Not to be confused
+    /// with `rangeMin`/`rangeMax`, the whole-series bounds the ring fill and
+    /// corner gauge scale against. Optional/defaulted per the schema-evolution
+    /// note below: an older phone omits it and the chart is the plain line.
+    var weeklyRanges: [WatchDayRange?]? = nil
+
+    /// `weeklyRanges` re-windowed onto `today` exactly like `weeklyRewound`,
+    /// so a day's capsule stays under that day's point.
+    func weeklyRangesRewound(from generatedAt: Date, to today: Date, calendar: Calendar = .current) -> [WatchDayRange?] {
+        rewound(weeklyRanges ?? [], from: generatedAt, to: today, calendar: calendar)
+    }
+
+    /// The week's last 7 slots (missing older days padded with nil), shifted
+    /// by the days elapsed from the week's own day (`weeklyAsOf`, else the
+    /// snapshot's build day) to `today`, with nil slots appended.
+    private func rewound<Slot>(_ slots: [Slot?], from generatedAt: Date, to today: Date, calendar: Calendar) -> [Slot?] {
+        let recent = Array(slots.suffix(7))
+        let padded = Array(repeating: Slot?.none, count: 7 - recent.count) + recent
         let snapshotDay = calendar.startOfDay(for: weeklyAsOf ?? generatedAt)
         let entryDay = calendar.startOfDay(for: today)
         let elapsed = calendar.dateComponents([.day], from: snapshotDay, to: entryDay).day ?? 0

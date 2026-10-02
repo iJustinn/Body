@@ -68,6 +68,8 @@ final class WatchComputeParityTests: XCTestCase {
         trends.respiratoryRate = dailySeries(dayCount: 365, anchor: anchor, calendar: calendar, baseline: 15, amplitude: 1.2)
         trends.oxygenSaturation = dailySeries(dayCount: 365, anchor: anchor, calendar: calendar, baseline: 97, amplitude: 1.0)
         trends.wristTemperature = dailySeries(dayCount: 365, anchor: anchor, calendar: calendar, baseline: 36.2, amplitude: 0.4)
+        trends.heartRateRanges = rangeSeries(around: trends.heartRate, spread: 18, anchor: anchor, calendar: calendar)
+        trends.heartRateVariabilityRanges = rangeSeries(around: trends.heartRateVariability, spread: 25, anchor: anchor, calendar: calendar)
 
         var nights: [SleepDaySummary] = []
         for offset in 0...(hardensSleepDebt ? Self.sleepDebtNightCount - 1 : 70) {
@@ -211,6 +213,32 @@ final class WatchComputeParityTests: XCTestCase {
             points.append(HealthTrendDataPoint(date: day, value: value))
         }
         return HealthTrendSeries(points: points)
+    }
+
+    /// Age (days before `anchor`) of the one day whose average has no range:
+    /// inside the charted week, so a nil capsule slot has to line up on both
+    /// sides.
+    private static let rangelessAgeDay = 3
+
+    /// The daily min/max capsules the phone's one collection query yields
+    /// beside `series`' averages: an asymmetric spread around each day's
+    /// average (so low and high can't be swapped unnoticed), with the average
+    /// itself as `averageValue`. `rangelessAgeDay` has none.
+    private func rangeSeries(
+        around series: HealthTrendSeries, spread: Double, anchor: Date, calendar: Calendar
+    ) -> HealthTrendRangeSeries {
+        let anchorDay = calendar.startOfDay(for: anchor)
+        return HealthTrendRangeSeries(points: series.points.compactMap { point in
+            let age = calendar.dateComponents([.day], from: calendar.startOfDay(for: point.date), to: anchorDay).day ?? 0
+            guard age != Self.rangelessAgeDay else { return nil }
+            let swing = spread * (1 + Double(age % 5) / 10)
+            return HealthTrendRangeDataPoint(
+                date: point.date,
+                lowValue: point.value - swing * 0.4,
+                highValue: point.value + swing * 0.6,
+                averageValue: point.value
+            )
+        })
     }
 
     /// One night, `ageInDays` before the anchor. Nights 8–15 (inclusive) get a
@@ -451,6 +479,9 @@ final class WatchComputeParityTests: XCTestCase {
         func deltaSlice(_ series: HealthTrendSeries) -> WatchFetchOutcome<HealthTrendSeries> {
             .success(HealthTrendSeries(points: series.points.filter { $0.date >= windowStart && $0.date <= now }))
         }
+        func deltaRangeSlice(_ series: HealthTrendRangeSeries) -> WatchFetchOutcome<HealthTrendRangeSeries> {
+            .success(HealthTrendRangeSeries(points: series.points.filter { $0.date >= windowStart && $0.date <= now }))
+        }
         // `latestQuantitySample` has NO date predicate on the real fetch path —
         // the absolute newest sample wins regardless of the delta window — so
         // these read the fixture's global latest point, not a windowed slice.
@@ -463,6 +494,8 @@ final class WatchComputeParityTests: XCTestCase {
         delta.heartRateSeries = deltaSlice(fixture.trends.heartRate)
         delta.restingHeartRateSeries = deltaSlice(fixture.trends.restingHeartRate)
         delta.heartRateVariabilitySeries = deltaSlice(fixture.trends.heartRateVariability)
+        delta.heartRateRanges = deltaRangeSlice(fixture.trends.heartRateRanges)
+        delta.heartRateVariabilityRanges = deltaRangeSlice(fixture.trends.heartRateVariabilityRanges)
         delta.respiratoryRateSeries = deltaSlice(fixture.trends.respiratoryRate)
         delta.oxygenSaturationSeries = deltaSlice(fixture.trends.oxygenSaturation)
         delta.wristTemperatureSeries = deltaSlice(fixture.trends.wristTemperature)
@@ -610,6 +643,9 @@ final class WatchComputeParityTests: XCTestCase {
             assertOptionalDoublesMatch(phoneMetric.rangeMin, watchMetric.rangeMin, "\(kind).rangeMin")
             assertOptionalDoublesMatch(phoneMetric.rangeMax, watchMetric.rangeMax, "\(kind).rangeMax")
             assertWeeklyMatches(phoneMetric.weekly, watchMetric.weekly, "\(kind).weekly")
+            // Fixture values carried through untouched (no arithmetic on
+            // either side), so exact even under `accuracy`.
+            XCTAssertEqual(phoneMetric.weeklyRanges, watchMetric.weeklyRanges, "\(kind).weeklyRanges", file: file, line: line)
             XCTAssertEqual(phoneMetric.tint, watchMetric.tint, "\(kind).tint", file: file, line: line)
             XCTAssertEqual(phoneMetric.statusBand, watchMetric.statusBand, "\(kind).statusBand", file: file, line: line)
             XCTAssertEqual(phoneMetric.levelMin, watchMetric.levelMin, "\(kind).levelMin", file: file, line: line)
@@ -806,6 +842,103 @@ final class WatchComputeParityTests: XCTestCase {
         XCTAssertEqual(mergedWristTemp.weekly ?? nil, watchWristTemp.weekly ?? nil, "the freshly spliced trend must reach the merged card")
         XCTAssertEqual(mergedWristTemp.weekly?.last ?? nil, freshWristTemp)
         XCTAssertNil(mergedWristTemp.liveUpdatedAt, "chart adoption makes no provenance claim")
+    }
+
+    // MARK: - Weekly ranges (the HR / HRV week charts' capsules)
+
+    /// The watch computes the capsules from the seed's one trimmed week plus
+    /// its own delta re-read, the phone from its full range series: on a seed
+    /// 2 days stale, the last 2 days exist only in the delta, so equality
+    /// here proves the splice, not just the seed.
+    func testWeeklyRangesMatchThePhoneWithTheDeltaSplicedOverAStaleSeed() throws {
+        let calendar = Calendar.bodyGregorian
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let dataThrough = try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: now))
+        let fixture = try makeFixture(anchor: now, calendar: calendar)
+        let seededInputs = try seedInputs(from: fixture, asOf: dataThrough, calendar: calendar)
+
+        let phone = phoneSnapshot(fixture: fixture, now: now, calendar: calendar)
+        let (result, seed) = try watchResult(
+            fixture: fixture,
+            seedSummary: seededInputs.summary,
+            seedTrainingLoadStartDay: seededInputs.trainingLoadStartDay,
+            seedTrainingLoadDailyLoads: seededInputs.trainingLoadDailyLoads,
+            dataThrough: dataThrough, now: now, calendar: calendar
+        )
+
+        XCTAssertEqual(seed.trends.heartRateRanges.points.map(\.date).max(), calendar.startOfDay(for: dataThrough))
+        for kind in [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability] {
+            let phoneRanges = try XCTUnwrap(phone.metric(forKind: kind)?.weeklyRanges, kind)
+            XCTAssertEqual(phoneRanges.count, 7, kind)
+            XCTAssertNil(phoneRanges[6 - Self.rangelessAgeDay], "\(kind): the day without a range")
+            XCTAssertNotNil(phoneRanges[5], kind)
+            XCTAssertNotNil(phoneRanges[6], kind)
+            XCTAssertEqual(result.snapshot.metric(forKind: kind)?.weeklyRanges, phoneRanges, kind)
+        }
+    }
+
+    /// The range reads are display only: failed on a fresh seed, the seed's
+    /// week still matches the phone, and readiness is stamped as usual.
+    func testFailedRangeReadOnAFreshSeedCarriesTheSeedAndNeverBlocksReadiness() throws {
+        let calendar = Calendar.bodyGregorian
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let fixture = try makeFixture(anchor: anchor, calendar: calendar)
+
+        let phone = phoneSnapshot(fixture: fixture, now: anchor, calendar: calendar)
+        let (result, _) = try watchResult(
+            fixture: fixture,
+            seedSummary: fixture.summary,
+            seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
+            seedTrainingLoadDailyLoads: fixture.trainingLoadDailyLoads,
+            dataThrough: anchor, now: anchor, calendar: calendar,
+            mutateDelta: { delta in
+                delta.heartRateRanges = .failure
+                delta.heartRateVariabilityRanges = .failure
+            }
+        )
+
+        assertMetricsMatch(phone, result.snapshot)
+        XCTAssertNotNil(phone.metric(forKind: WatchMetricKindKey.heartRate)?.weeklyRanges)
+        XCTAssertEqual(result.readinessBlockers, [])
+        XCTAssertEqual(result.dataAsOf[WatchMetricKindKey.readiness], anchor)
+    }
+
+    /// The accepted edge (`WatchComputeAssembly.assemble`): with the range
+    /// read failed on a stale seed, the week keeps the seed's capsules, so the
+    /// days after `dataThrough` have none under their fresh average points
+    /// until the next compute or push.
+    func testFailedRangeReadOnAStaleSeedKeepsOnlyTheSeedsCapsules() throws {
+        let calendar = Calendar.bodyGregorian
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let dataThrough = try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: now))
+        let fixture = try makeFixture(anchor: now, calendar: calendar)
+        let seededInputs = try seedInputs(from: fixture, asOf: dataThrough, calendar: calendar)
+
+        let phone = phoneSnapshot(fixture: fixture, now: now, calendar: calendar)
+        let (result, _) = try watchResult(
+            fixture: fixture,
+            seedSummary: seededInputs.summary,
+            seedTrainingLoadStartDay: seededInputs.trainingLoadStartDay,
+            seedTrainingLoadDailyLoads: seededInputs.trainingLoadDailyLoads,
+            dataThrough: dataThrough, now: now, calendar: calendar,
+            mutateDelta: { delta in
+                delta.heartRateRanges = .failure
+                delta.heartRateVariabilityRanges = .failure
+            }
+        )
+
+        for kind in [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability] {
+            let phoneRanges = try XCTUnwrap(phone.metric(forKind: kind)?.weeklyRanges, kind)
+            let watchMetric = try XCTUnwrap(result.snapshot.metric(forKind: kind), kind)
+            let watchRanges = try XCTUnwrap(watchMetric.weeklyRanges, kind)
+            XCTAssertEqual(Array(watchRanges.prefix(5)), Array(phoneRanges.prefix(5)), "\(kind): the seed's days")
+            XCTAssertEqual(Array(watchRanges.suffix(2)), [nil, nil], "\(kind): no capsule after dataThrough")
+            XCTAssertNotNil(phoneRanges[5], kind)
+            XCTAssertNotNil(phoneRanges[6], kind)
+            XCTAssertNotNil(watchMetric.weekly?[5] ?? nil, "\(kind): the average was re-read")
+            XCTAssertNotNil(watchMetric.weekly?[6] ?? nil, "\(kind): the average was re-read")
+        }
+        XCTAssertEqual(result.readinessBlockers, [])
     }
 
     // MARK: - Sleep Debt: watch = phone = the iPhone card's last 7 nights

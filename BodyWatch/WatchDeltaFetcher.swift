@@ -95,6 +95,16 @@ actor WatchDeltaFetcher {
             .wristTemperature, reads: reads,
             start: windowStart, end: now, calendar: calendar
         )
+        // The HR / HRV week charts' daily min/max capsules, over the same
+        // window and source predicate as their averages above.
+        async let heartRateRanges = dailyRangeSeries(
+            .heartRate, reads: reads,
+            start: windowStart, end: now, calendar: calendar
+        )
+        async let heartRateVariabilityRanges = dailyRangeSeries(
+            .heartRateVariability, reads: reads,
+            start: windowStart, end: now, calendar: calendar
+        )
         // Latest-sample summaries: bounded to the daily trend window, matching
         // the phone's `latestQuantity`, so a local read can never introduce a
         // reading older than the charts can show. The value on the card and its
@@ -128,6 +138,8 @@ actor WatchDeltaFetcher {
         delta.respiratoryRateSeries = await respiratoryRateSeries
         delta.oxygenSaturationSeries = await oxygenSaturationSeries
         delta.wristTemperatureSeries = await wristTemperatureSeries
+        delta.heartRateRanges = await heartRateRanges
+        delta.heartRateVariabilityRanges = await heartRateVariabilityRanges
         delta.heartRateSample = await heartRateSample
         delta.restingHeartRateSample = await restingHeartRateSample
         delta.heartRateVariabilitySample = await heartRateVariabilitySample
@@ -179,6 +191,40 @@ actor WatchDeltaFetcher {
             ),
             aggregation: aggregation,
             unit: unit,
+            start: start,
+            end: end,
+            calendar: calendar,
+            valueTransform: descriptor.valueTransform
+        )
+    }
+
+    /// `dailySeries`' daily min/max counterpart for the Heart Rate and HRV
+    /// week charts' capsules: the same descriptor, source predicate and
+    /// window, through the shared leaf that applies the phone's range point
+    /// rule. `.failure` keeps the seed's capsules, and is never a readiness
+    /// blocker.
+    private func dailyRangeSeries(
+        _ kind: HealthMetricKind,
+        reads: [HealthMetricKind: WatchSourceRead],
+        start: Date,
+        end: Date,
+        calendar: Calendar
+    ) async -> WatchFetchOutcome<HealthTrendRangeSeries> {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType),
+              case .run(let resolvedSourcePredicate) = reads[descriptor.sourceKind] else {
+            return .failure
+        }
+
+        return await BodyHealthQuantityFetch.dailyQuantityRangeSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: BodyHealthSourceResolver.combinedPredicate(
+                startDate: start,
+                endDate: end,
+                sourcePredicate: resolvedSourcePredicate
+            ),
+            unit: descriptor.unit,
             start: start,
             end: end,
             calendar: calendar,

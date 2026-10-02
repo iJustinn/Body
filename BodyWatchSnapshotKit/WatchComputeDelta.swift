@@ -24,6 +24,12 @@ struct WatchComputeDelta {
     var heartRateSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var restingHeartRateSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var heartRateVariabilitySeries: WatchFetchOutcome<HealthTrendSeries> = .failure
+    /// The Heart Rate and HRV week charts' daily min/max capsules
+    /// (`trends.heartRateRanges` / `heartRateVariabilityRanges`). Display only:
+    /// deliberately NOT readiness inputs (`WatchComputeAssembly.readinessBlockers`),
+    /// so a failed range read keeps the seed's capsules and never blocks a score.
+    var heartRateRanges: WatchFetchOutcome<HealthTrendRangeSeries> = .failure
+    var heartRateVariabilityRanges: WatchFetchOutcome<HealthTrendRangeSeries> = .failure
     var respiratoryRateSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var oxygenSaturationSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var wristTemperatureSeries: WatchFetchOutcome<HealthTrendSeries> = .failure

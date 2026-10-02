@@ -183,6 +183,17 @@ enum WatchMetricsSnapshotBuilder {
             }
         }
 
+        // Each day's min/max under the Heart Rate and HRV week charts (the
+        // iPhone week chart's capsules), windowed exactly like `weekly` above,
+        // so slot i is the same day in both. nil for every other kind.
+        func weeklyRangeValues(forKind kind: String) -> [WatchDayRange?]? {
+            switch kind {
+            case WatchMetricKindKey.heartRate: return weeklyRanges(trends.heartRateRanges, now: now)
+            case WatchMetricKindKey.heartRateVariability: return weeklyRanges(trends.heartRateVariabilityRanges, now: now)
+            default: return nil
+            }
+        }
+
         // The reading's own measurement time (`WatchMetric.measuredAt`): the
         // latest sample's `endDate` for the sample-headline vitals, the night's
         // end for sleep. Computed metrics (Readiness, Training Load) carry
@@ -202,6 +213,7 @@ enum WatchMetricsSnapshotBuilder {
             stampedMetric.computedAt = perKindDataAsOf?(metric.kind) ?? lastRefreshDate
             stampedMetric.measuredAt = measuredAt(forKind: metric.kind)
             stampedMetric.weekly = weeklyValues(forKind: metric.kind)
+            stampedMetric.weeklyRanges = weeklyRangeValues(forKind: metric.kind)
             stampedMetric.weeklyAsOf = stampedMetric.weekly == nil ? nil : now
             return stampedMetric
         }
@@ -471,6 +483,18 @@ enum WatchMetricsSnapshotBuilder {
     /// reading), using the same daily aggregation as the iPhone "Week" trend chart.
     private static func weekly(_ series: HealthTrendSeries, now: Date) -> [Double?] {
         series.calendarPoints(to: .recentWeek, date: now).map(\.value)
+    }
+
+    /// The recent week's daily min/max as 7 slots (oldest → today; `nil` for a
+    /// day without a finite low and high, which `calendarPoints` already
+    /// drops), over the same days as `weekly(_:now:)`. `nil` when no day has
+    /// one, so a trend snapshot without the range series ships no field.
+    private static func weeklyRanges(_ series: HealthTrendRangeSeries, now: Date) -> [WatchDayRange?]? {
+        let days = series.calendarPoints(to: .recentWeek, date: now).map { point -> WatchDayRange? in
+            guard let low = point.lowValue, let high = point.highValue else { return nil }
+            return WatchDayRange(low: low, high: high)
+        }
+        return days.contains { $0 != nil } ? days : nil
     }
 
     /// The lower of the local series' minimum and an optional override bound —

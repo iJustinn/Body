@@ -77,11 +77,23 @@ enum WatchComputeAssembly {
         trends.heartRate = WatchDeltaSplicer.splice(
             seedSeries: trends.heartRate, delta: delta.heartRateSeries, from: windowStart, calendar: calendar
         )
+        // The week charts' daily min/max capsules, spliced like the averages
+        // they sit under. Accepted edge: the range read is its own query and
+        // not a readiness input, so when it fails while the average succeeds
+        // the week keeps the seed's capsules (today's may be missing, or an
+        // older partial day's) under a fresh average point, until the next
+        // compute or push.
+        trends.heartRateRanges = WatchDeltaSplicer.spliceRanges(
+            seedSeries: trends.heartRateRanges, delta: delta.heartRateRanges, from: windowStart
+        )
         trends.restingHeartRate = WatchDeltaSplicer.splice(
             seedSeries: trends.restingHeartRate, delta: delta.restingHeartRateSeries, from: windowStart, calendar: calendar
         )
         trends.heartRateVariability = WatchDeltaSplicer.splice(
             seedSeries: trends.heartRateVariability, delta: delta.heartRateVariabilitySeries, from: windowStart, calendar: calendar
+        )
+        trends.heartRateVariabilityRanges = WatchDeltaSplicer.spliceRanges(
+            seedSeries: trends.heartRateVariabilityRanges, delta: delta.heartRateVariabilityRanges, from: windowStart
         )
         trends.respiratoryRate = WatchDeltaSplicer.splice(
             seedSeries: trends.respiratoryRate, delta: delta.respiratoryRateSeries, from: windowStart, calendar: calendar
@@ -532,6 +544,8 @@ enum WatchComputeAssembly {
     ) -> [String] {
         var inputs: [(kind: HealthMetricKind, succeeded: Bool)] = []
         if permission.includes(.heart) {
+            // The HR / HRV range reads are deliberately absent: they only draw
+            // the week charts' capsules, which the score never reads.
             inputs.append((.heartRate, delta.heartRateSeries.isSuccess))
             inputs.append((.restingHeartRate, delta.restingHeartRateSeries.isSuccess))
             inputs.append((.heartRateVariability, delta.heartRateVariabilitySeries.isSuccess))

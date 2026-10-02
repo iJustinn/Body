@@ -117,6 +117,9 @@ extension WatchMetric {
         adopted.levelMax = other.levelMax
         adopted.tint = other.tint
         adopted.weekly = other.weekly
+        // The week's daily capsules are windowed with `weekly`, so they travel
+        // with it.
+        adopted.weeklyRanges = other.weeklyRanges
         adopted.weeklyAsOf = other.weeklyAsOf
         adopted.statusBand = other.statusBand
         // Including nil: the candidate's "no drain" must clear a stale dot,
@@ -211,6 +214,7 @@ enum WatchComputeMerge {
                     if result.coverage > displayedAsOf {
                         var adopted = metric
                         adopted.weekly = candidate.weekly
+                        adopted.weeklyRanges = candidate.weeklyRanges
                         adopted.weeklyAsOf = candidate.weeklyAsOf
                         adopted.rangeMin = candidate.rangeMin
                         adopted.rangeMax = candidate.rangeMax

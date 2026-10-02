@@ -225,4 +225,71 @@ enum BodyHealthQuantityFetch {
             return .success(HealthMetricSummary(value: latestPoint.value))
         }
     }
+
+    /// One min/max point per calendar day over `[start, end]`, the daily range
+    /// series behind the Heart Rate and HRV week charts' capsules: the same
+    /// one-day collection (anchored at the window's `startOfDay`, average + min
+    /// + max) the iOS engine's `fetchDailyQuantityAverageAndRangeSeries` runs,
+    /// with its exact point rule. A day gets a point only when its average,
+    /// minimum AND maximum are all present and finite after `valueTransform`,
+    /// dated to the day's start, with the average as `averageValue`. Anything
+    /// looser would let the watch draw a capsule the phone's chart never shows.
+    static func dailyQuantityRangeSeries(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        start: Date,
+        end: Date,
+        calendar: Calendar,
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<HealthTrendRangeSeries> {
+        let anchor = calendar.startOfDay(for: start)
+        var intervalComponents = DateComponents()
+        intervalComponents.day = 1
+
+        switch await store.dailyQuantityRanges(
+            BodyStatisticsCollectionRequest(
+                quantityType: quantityType,
+                predicate: predicate,
+                options: [.discreteAverage, .discreteMin, .discreteMax],
+                anchorDate: anchor,
+                intervalComponents: intervalComponents
+            ), from: start, to: end
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let ranges):
+            var points: [HealthTrendRangeDataPoint] = []
+            for dated in ranges {
+                guard let minimum = dated.minimum,
+                      let maximum = dated.maximum,
+                      let average = dated.average else {
+                    continue
+                }
+
+                let low = valueTransform(minimum.doubleValue(for: unit))
+                let high = valueTransform(maximum.doubleValue(for: unit))
+                let averageValue = valueTransform(average.doubleValue(for: unit))
+                guard low.isFinite, high.isFinite, averageValue.isFinite else {
+                    continue
+                }
+
+                points.append(
+                    HealthTrendRangeDataPoint(
+                        date: calendar.startOfDay(for: dated.date),
+                        lowValue: low,
+                        highValue: high,
+                        averageValue: averageValue
+                    )
+                )
+            }
+
+            return .success(HealthTrendRangeSeries(points: points))
+        }
+    }
 }

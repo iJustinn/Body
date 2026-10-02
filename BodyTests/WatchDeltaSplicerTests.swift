@@ -3,8 +3,8 @@
 //  BodyTests
 //
 //  Covers `WatchDeltaSplicer` (Phase 1c of the on-watch realtime compute
-//  plan): the failure/empty/overlap/out-of-window splice semantics for both
-//  a plain trend series and sleep history, plus `deltaStart`'s calendar-day
+//  plan): the failure/empty/overlap/out-of-window splice semantics for a
+//  plain trend series, a daily range series and sleep history, plus `deltaStart`'s calendar-day
 //  (not fixed-48h) math across a DST transition.
 //
 
@@ -125,6 +125,61 @@ final class WatchDeltaSplicerTests: XCTestCase {
         XCTAssertEqual(result, HealthTrendSeries(points: [
             point(day(0, from: start), 1),
             point(day(3, from: start), 10)
+        ]))
+    }
+
+    // MARK: - spliceRanges (HealthTrendRangeSeries)
+
+    private func rangePoint(_ day: Date, _ low: Double, _ high: Double) -> HealthTrendRangeDataPoint {
+        HealthTrendRangeDataPoint(date: day, lowValue: low, highValue: high, averageValue: (low + high) / 2)
+    }
+
+    func testSpliceRangesOnFailureKeepsSeedCompletelyUnchanged() throws {
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let seed = HealthTrendRangeSeries(points: [
+            rangePoint(day(0, from: start), 50, 90),
+            rangePoint(day(4, from: start), 52, 92)
+        ])
+
+        let result = WatchDeltaSplicer.spliceRanges(seedSeries: seed, delta: .failure, from: day(3, from: start))
+
+        XCTAssertEqual(result, seed)
+    }
+
+    func testSpliceRangesOnSuccessEmptyClearsOnlyTheDeltaWindow() throws {
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let seed = HealthTrendRangeSeries(points: [
+            rangePoint(day(0, from: start), 50, 90),
+            rangePoint(day(3, from: start), 51, 91), // inside the window (>= windowStart)
+            rangePoint(day(4, from: start), 52, 92)  // inside the window
+        ])
+
+        let result = WatchDeltaSplicer.spliceRanges(seedSeries: seed, delta: .success(.empty), from: day(3, from: start))
+
+        XCTAssertEqual(result, HealthTrendRangeSeries(points: [rangePoint(day(0, from: start), 50, 90)]))
+    }
+
+    func testSpliceRangesReplacesTheWindowWholesaleAndIgnoresDeltaPointsOutsideIt() throws {
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let seed = HealthTrendRangeSeries(points: [
+            rangePoint(day(0, from: start), 50, 90),  // before window — kept
+            rangePoint(day(3, from: start), 1, 2),    // inside window — replaced
+            rangePoint(day(4, from: start), 1, 2)     // inside window — dropped, the delta has no day 4
+        ])
+        // A stray delta point BEFORE the window must never leak in, even
+        // though the fetch itself succeeded.
+        let delta = HealthTrendRangeSeries(points: [
+            rangePoint(day(1, from: start), 999, 999),
+            rangePoint(day(3, from: start), 60, 100),
+            rangePoint(day(5, from: start), 61, 101)
+        ])
+
+        let result = WatchDeltaSplicer.spliceRanges(seedSeries: seed, delta: .success(delta), from: day(3, from: start))
+
+        XCTAssertEqual(result, HealthTrendRangeSeries(points: [
+            rangePoint(day(0, from: start), 50, 90),
+            rangePoint(day(3, from: start), 60, 100),
+            rangePoint(day(5, from: start), 61, 101)
         ]))
     }
 

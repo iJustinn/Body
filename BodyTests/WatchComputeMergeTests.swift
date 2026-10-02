@@ -37,6 +37,7 @@ final class WatchComputeMergeTests: XCTestCase {
         levelMax: Double? = nil,
         tint: WatchMetricColor? = nil,
         weekly: [Double?]? = nil,
+        weeklyRanges: [WatchDayRange?]? = nil,
         statusBand: WatchStatusBand? = nil,
         weeklyCurrentValue: Double? = nil,
         liveUpdatedAt: Date? = nil,
@@ -60,6 +61,7 @@ final class WatchComputeMergeTests: XCTestCase {
             measuredAt: measuredAt,
             tint: tint,
             weekly: weekly,
+            weeklyRanges: weeklyRanges,
             statusBand: statusBand,
             weeklyCurrentValue: weeklyCurrentValue
         )
@@ -1367,6 +1369,112 @@ final class WatchComputeMergeTests: XCTestCase {
             WatchComputeMerge.merging(push, over: onWatch).sleepDebt,
             sleepDebt(3, computedAt: t2),
             "unstripped, the fresher local debt would have stayed"
+        )
+    }
+
+    // MARK: - Weekly ranges (the HR / HRV week charts' capsules)
+
+    private let phoneRanges: [WatchDayRange?] = [nil, nil, WatchDayRange(low: 50, high: 80), nil, nil, nil, WatchDayRange(low: 55, high: 82)]
+    private let watchRanges: [WatchDayRange?] = [nil, WatchDayRange(low: 50, high: 80), nil, nil, nil, WatchDayRange(low: 55, high: 82), WatchDayRange(low: 58, high: 91)]
+
+    /// The capsules are windowed with `weekly`, so an adopted compute's week
+    /// brings its own: the displayed ones would sit a day off under it.
+    func testAdoptedComputedHeartRateBringsItsWeeklyRanges() {
+        let current = snapshot(
+            metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "62", rawValue: 62, weeklyRanges: phoneRanges, computedAt: t0)],
+            generatedAt: t0,
+            lastRefreshDate: t0
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "71", rawValue: 71, weeklyRanges: watchRanges)],
+                dataAsOf: [WatchMetricKindKey.heartRate: t1]
+            ),
+            into: current
+        )
+
+        XCTAssertEqual(merged.metric(forKind: WatchMetricKindKey.heartRate)?.weeklyRanges, watchRanges)
+    }
+
+    func testChartOnlyChannelCarriesWeeklyRangesWithWeekly() {
+        let current = snapshot(
+            metrics: [
+                metric(
+                    WatchMetricKindKey.heartRateVariability,
+                    displayValue: "48", rawValue: 48,
+                    weekly: [40, 42, 44, 46, 48, 50, 52],
+                    weeklyRanges: phoneRanges,
+                    computedAt: t0
+                )
+            ],
+            generatedAt: t0,
+            lastRefreshDate: t0
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [
+                    metric(
+                        WatchMetricKindKey.heartRateVariability,
+                        displayValue: "55", rawValue: 55,
+                        weekly: [42, 44, 46, 48, 50, 52, 55],
+                        weeklyRanges: watchRanges
+                    )
+                ],
+                dataAsOf: [:],
+                chartDataAsOf: [WatchMetricKindKey.heartRateVariability: t2],
+                coverage: t2
+            ),
+            into: current
+        )
+
+        let hrv = merged.metric(forKind: WatchMetricKindKey.heartRateVariability)
+        XCTAssertEqual(hrv?.weekly?.last, 55)
+        XCTAssertEqual(hrv?.weeklyRanges, watchRanges, "a chart adoption moves the capsules with the line")
+        XCTAssertEqual(hrv?.displayValue, "48", "the headline stays the phone's")
+    }
+
+    /// The live HR/HRV read derives only the value: the push's newer week of
+    /// capsules must reach the card under it.
+    func testLiveOnlyLocalHeartRateTakesThePushsWeeklyRanges() {
+        let local = metric(
+            WatchMetricKindKey.heartRate,
+            displayValue: "71", rawValue: 71, fillFraction: 0.71,
+            weeklyRanges: phoneRanges,
+            liveUpdatedAt: t2,
+            computedAt: t0
+        )
+        let current = snapshot(metrics: [local], generatedAt: t0, lastRefreshDate: t0)
+        let push = snapshot(
+            metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "58", rawValue: 58, weeklyRanges: watchRanges, computedAt: t1)],
+            generatedAt: t1,
+            lastRefreshDate: t1
+        )
+
+        let heartRate = WatchComputeMerge.merging(push, over: current).metric(forKind: WatchMetricKindKey.heartRate)
+        XCTAssertEqual(heartRate?.rawValue, 71, "the fresher live value is kept")
+        XCTAssertEqual(heartRate?.weeklyRanges, watchRanges)
+    }
+
+    /// A watch-COMPUTED local metric keeps its whole display set over an older
+    /// push, its capsules included.
+    func testWatchComputedLocalHeartRateKeepsItsWeeklyRangesOverAnOlderPush() {
+        let local = metric(
+            WatchMetricKindKey.heartRate,
+            displayValue: "71", rawValue: 71,
+            weeklyRanges: watchRanges,
+            liveUpdatedAt: t2,
+            computedAt: t2
+        )
+        let current = snapshot(metrics: [local], generatedAt: t0, lastRefreshDate: t0)
+        let stalePush = snapshot(
+            metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "58", rawValue: 58, weeklyRanges: phoneRanges, computedAt: t1)],
+            generatedAt: t1,
+            lastRefreshDate: t1
+        )
+
+        XCTAssertEqual(
+            WatchComputeMerge.merging(stalePush, over: current).metric(forKind: WatchMetricKindKey.heartRate)?.weeklyRanges,
+            watchRanges
         )
     }
 }

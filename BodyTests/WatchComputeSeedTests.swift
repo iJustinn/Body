@@ -7,7 +7,8 @@
 //  (the schema-evolution discipline `WatchMetricsSnapshot` already follows),
 //  the sleep-history trim's equivalence with the untrimmed history for the
 //  still-relevant last-7-days window, the sleep history's wider window for
-//  the watch's Sleep Debt, the compressed payload's size budget, and the
+//  the watch's Sleep Debt, the HR / HRV range series' one week window, the
+//  compressed payload's size budget, and the
 //  whole WatchConnectivity push's budget.
 //
 
@@ -108,6 +109,18 @@ final class WatchComputeSeedTests: XCTestCase {
         return HealthTrendSeries(points: points)
     }
 
+    /// A day's min/max capsule around each of `series`' daily averages.
+    private func rangeSeriesFixture(around series: HealthTrendSeries, spread: Double) -> HealthTrendRangeSeries {
+        HealthTrendRangeSeries(points: series.points.map { point in
+            HealthTrendRangeDataPoint(
+                date: point.date,
+                lowValue: point.value - spread / 2,
+                highValue: point.value + spread / 2,
+                averageValue: point.value
+            )
+        })
+    }
+
     private func recordedReadinessFixture(dayCount: Int, anchor: Date) -> [RecordedReadinessEntry] {
         let anchorDay = calendar.startOfDay(for: anchor)
         return (0..<dayCount).compactMap { age -> RecordedReadinessEntry? in
@@ -126,6 +139,8 @@ final class WatchComputeSeedTests: XCTestCase {
         trends.heartRate = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 64, amplitude: 6)
         trends.restingHeartRate = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 58, amplitude: 3)
         trends.heartRateVariability = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 55, amplitude: 8)
+        trends.heartRateRanges = rangeSeriesFixture(around: trends.heartRate, spread: 40)
+        trends.heartRateVariabilityRanges = rangeSeriesFixture(around: trends.heartRateVariability, spread: 30)
         trends.respiratoryRate = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 14, amplitude: 1)
         trends.oxygenSaturation = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 97, amplitude: 1)
         trends.trainingLoad = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 1.0, amplitude: 0.3)
@@ -436,6 +451,32 @@ final class WatchComputeSeedTests: XCTestCase {
             XCTAssertEqual(trend.points.count, WatchComputeSeed.trendDayCount, name)
         }
         XCTAssertEqual(trimmed.recordedReadiness.count, WatchComputeSeed.trendDayCount)
+    }
+
+    // MARK: - Range series window (HR / HRV week chart capsules)
+
+    /// The capsules ride the seed for one week only: the builder reads them
+    /// through `.recentWeek`, and the delta re-reads the days after the seed.
+    func testHeartRateRangesKeepExactlyTheLastSevenDays() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        let anchorDay = calendar.startOfDay(for: anchor)
+        let full = trendsFixture(dayCount: 365, anchor: anchor)
+        let trimmed = full.watchComputeTrimmed(anchor: anchor, calendar: calendar)
+
+        let ranges: [(name: String, full: HealthTrendRangeSeries, trimmed: HealthTrendRangeSeries)] = [
+            ("heartRateRanges", full.heartRateRanges, trimmed.heartRateRanges),
+            ("heartRateVariabilityRanges", full.heartRateVariabilityRanges, trimmed.heartRateVariabilityRanges)
+        ]
+        for (name, fullSeries, trimmedSeries) in ranges {
+            XCTAssertEqual(fullSeries.points.count, 365, name)
+            XCTAssertEqual(trimmedSeries.points.count, BodyHealthTrendRange.recentWeek.dayCount, name)
+            let ages = trimmedSeries.points.map { point in
+                calendar.dateComponents([.day], from: calendar.startOfDay(for: point.date), to: anchorDay).day ?? -1
+            }
+            XCTAssertEqual(ages.min(), 0, name)
+            XCTAssertEqual(ages.max(), 6, "\(name): a day 6 days old is kept; 7 and older are dropped")
+            XCTAssertEqual(trimmedSeries, fullSeries.limited(to: .recentWeek, calendar: calendar, date: anchor), name)
+        }
     }
 
     /// The trim happens once, at `dataThrough`, and the watch computes from
