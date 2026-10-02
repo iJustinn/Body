@@ -82,6 +82,9 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
     private var dailyQuantityValues: [String: [BodyDatedQuantity]] = [:]
     private var dailyQuantityRangeValues: [String: [BodyDatedQuantityRange]] = [:]
     private var dailyQuantityRangeRequestsValue: [BodyStatisticsCollectionRequest] = []
+    private var cumulativeQuantityValues: [String: [BodyDatedQuantity]] = [:]
+    private var cumulativeQuantityRequestsValue: [BodyStatisticsCollectionRequest] = []
+    private var sampleRequestsValue: [BodySampleRequest] = []
     private var executedQueriesValue: [HKQuery] = []
     private var stoppedQueriesValue: [HKQuery] = []
     private var leafRequestsValue: [LeafRequest] = []
@@ -220,6 +223,41 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
         }
     }
 
+    func scriptCumulativeQuantities(for type: HKQuantityType, values: [BodyDatedQuantity]) {
+        lock.lock(); cumulativeQuantityValues[type.identifier] = values; lock.unlock()
+    }
+
+    private func scriptedCumulativeQuantities(_ identifier: String) -> [BodyDatedQuantity]? {
+        lock.lock(); defer { lock.unlock() }
+        return cumulativeQuantityValues[identifier]
+    }
+
+    /// Every `cumulativeQuantities` request, scripted or not, so a test can pin
+    /// the collection's options, anchor and interval.
+    var cumulativeQuantityRequests: [BodyStatisticsCollectionRequest] {
+        lock.lock(); defer { lock.unlock() }; return cumulativeQuantityRequestsValue
+    }
+
+    func cumulativeQuantities(_ request: BodyStatisticsCollectionRequest,
+        from start: Date, to end: Date
+    ) async -> BodyHealthReadOutcome<[BodyDatedQuantity]> {
+        recordCumulativeQuantityRequest(request)
+        if let values = scriptedCumulativeQuantities(request.quantityType.identifier) {
+            record(.statisticsCollection(request.quantityType.identifier))
+            return .success(values)
+        }
+        switch await statisticsCollection(request) {
+        case .failure(let error): return .failure(error)
+        case .cancelled: return .cancelled
+        case .success: return .failure(Unscripted())
+        }
+    }
+
+    /// Every `samples` request, so a test can pin a query's limit and sort.
+    var sampleRequests: [BodySampleRequest] {
+        lock.lock(); defer { lock.unlock() }; return sampleRequestsValue
+    }
+
     var executedQueries: [HKQuery] {
         lock.lock(); defer { lock.unlock() }; return executedQueriesValue
     }
@@ -240,8 +278,8 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
 
     func execute(_ query: HKQuery) {
         lock.lock(); executedQueriesValue.append(query); lock.unlock()
-        // The phone's hourly cumulative path still uses a callback collection
-        // query. Honor the same failure script as the async seam so store-level
+        // The phone's daily cumulative paths still use callback collection
+        // queries. Honor the same failure script as the async seam so store-level
         // fallback tests reach their commit boundary instead of timing out.
         if let collection = query as? HKStatisticsCollectionQuery,
            let type = collection.objectType as? HKQuantityType,
@@ -273,6 +311,7 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
     func samples(_ request: BodySampleRequest) async -> BodyHealthReadOutcome<[HKSample]> {
         let identifier = request.sampleType.identifier
         let response = predicateScript(identifier, request.predicate) ?? script(sampleScripts, identifier)
+        recordSampleRequest(request)
         record(.samples(identifier))
         return await resolve(response) { script in
             switch script {
@@ -388,6 +427,14 @@ final class FakeHealthStore: BodyHealthQuerying, @unchecked Sendable {
 
     private func record(_ request: LeafRequest) {
         lock.lock(); leafRequestsValue.append(request); lock.unlock()
+    }
+
+    private func recordSampleRequest(_ request: BodySampleRequest) {
+        lock.lock(); sampleRequestsValue.append(request); lock.unlock()
+    }
+
+    private func recordCumulativeQuantityRequest(_ request: BodyStatisticsCollectionRequest) {
+        lock.lock(); cumulativeQuantityRequestsValue.append(request); lock.unlock()
     }
 
     private func script(_ table: [String: Script], _ identifier: String) -> Script {

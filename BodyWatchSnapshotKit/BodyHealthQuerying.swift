@@ -155,6 +155,9 @@ protocol BodyHealthQuerying: AnyObject, Sendable {
     func dailyQuantityRanges(_ request: BodyStatisticsCollectionRequest,
         from start: Date, to end: Date
     ) async -> BodyHealthReadOutcome<[BodyDatedQuantityRange]>
+    func cumulativeQuantities(_ request: BodyStatisticsCollectionRequest,
+        from start: Date, to end: Date
+    ) async -> BodyHealthReadOutcome<[BodyDatedQuantity]>
 
     // Authorization, writes and characteristics: forwarded 1:1, in the exact
     // shapes the call sites use.
@@ -257,6 +260,26 @@ extension BodyHealthQuerying {
                 )
                 if range.minimum != nil || range.maximum != nil || range.average != nil {
                     values.append(range)
+                }
+            }
+            return .success(values)
+        case .failure(let error): return .failure(error)
+        case .cancelled: return .cancelled
+        }
+    }
+
+    /// Each interval's sum from a cumulative collection (the hourly intraday
+    /// series), the same value projection as `dailyQuantities` so a scripted
+    /// fake can answer it. An interval with no sum is skipped.
+    func cumulativeQuantities(_ request: BodyStatisticsCollectionRequest,
+        from start: Date, to end: Date
+    ) async -> BodyHealthReadOutcome<[BodyDatedQuantity]> {
+        switch await statisticsCollection(request) {
+        case .success(let collection):
+            var values: [BodyDatedQuantity] = []
+            collection.enumerateStatistics(from: start, to: end) { statistic, _ in
+                if let quantity = statistic.sumQuantity() {
+                    values.append(.init(date: statistic.startDate, quantity: quantity))
                 }
             }
             return .success(values)

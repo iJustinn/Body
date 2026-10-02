@@ -186,6 +186,95 @@ enum BodyHealthQuantityFetch {
         }
     }
 
+    /// Every sample of a quantity type matching `predicate`, one point per
+    /// sample dated at its `endDate`, ascending: the intraday day-sample shape
+    /// behind the Day View charts and Stress (heart rate, SDNN, Recovery HRV).
+    /// No limit, so the predicate's window is the only bound. A non-finite
+    /// value after `valueTransform` is dropped.
+    static func quantitySampleSeries(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
+
+        switch await store.samples(
+            BodySampleRequest(
+                sampleType: quantityType,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            )
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let samples):
+            let points = samples.compactMap { sample -> HealthTrendDataPoint? in
+                guard let quantitySample = sample as? HKQuantitySample else { return nil }
+                let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
+                guard value.isFinite else { return nil }
+                return HealthTrendDataPoint(date: quantitySample.endDate, value: value)
+            }
+            return .success(HealthTrendSeries(points: points))
+        }
+    }
+
+    /// One point per hour over `[start, end]`, from a one-hour cumulative-sum
+    /// collection anchored at the hour containing `start`: the intraday shape
+    /// of steps and active energy, and Stress's movement mask. Each point is
+    /// dated at its hour's start. An hour with no sum, a non-finite value or a
+    /// value at or below zero is omitted, so an idle hour reads as absent
+    /// rather than as a zero bar.
+    static func hourlyCumulativeSeries(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        start: Date,
+        end: Date,
+        calendar: Calendar,
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        var intervalComponents = DateComponents()
+        intervalComponents.hour = 1
+        let anchor = calendar.dateInterval(of: .hour, for: start)?.start ?? start
+
+        switch await store.cumulativeQuantities(
+            BodyStatisticsCollectionRequest(
+                quantityType: quantityType,
+                predicate: predicate,
+                options: .cumulativeSum,
+                anchorDate: anchor,
+                intervalComponents: intervalComponents
+            ), from: start, to: end
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let sums):
+            var points: [HealthTrendDataPoint] = []
+            for dated in sums {
+                let value = valueTransform(dated.quantity.doubleValue(for: unit))
+                guard value.isFinite, value > 0 else {
+                    continue
+                }
+
+                points.append(HealthTrendDataPoint(date: dated.date, value: value))
+            }
+
+            return .success(HealthTrendSeries(points: points))
+        }
+    }
+
     /// The latest day's value of `dailyQuantitySeries` — the summary tile for a
     /// metric whose headline is "the most recent day we have", not "the most
     /// recent sample". A window with no points at all is a genuine absence

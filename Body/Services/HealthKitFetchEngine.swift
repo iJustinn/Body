@@ -1798,50 +1798,32 @@ actor HealthKitFetchEngine {
             sourceKind: sourceKind,
             sourceOption: sourceOption
         )
-        var intervalComponents = DateComponents()
-        intervalComponents.hour = 1
-        let anchorDate = calendar.dateInterval(of: .hour, for: effectiveStart)?.start ?? effectiveStart
 
-        return await trackedHealthQuery(cancelledValue: nil) { resume in
-            let query = HKStatisticsCollectionQuery(
-                quantityType: quantityType,
-                quantitySamplePredicate: predicate,
-                options: .cumulativeSum,
-                anchorDate: anchorDate,
-                intervalComponents: intervalComponents
-            )
-
-            query.initialResultsHandler = { _, statisticsCollection, error in
-                guard let statisticsCollection else {
-                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
-                    resume(nil)
-                    return
-                }
-
-                var points: [HealthTrendDataPoint] = []
-                statisticsCollection.enumerateStatistics(from: effectiveStart, to: effectiveEnd) { statistics, _ in
-                    guard let quantity = statistics.sumQuantity() else {
-                        return
-                    }
-
-                    let value = valueTransform(quantity.doubleValue(for: unit))
-                    guard value.isFinite, value > 0 else {
-                        return
-                    }
-
-                    points.append(
-                        HealthTrendDataPoint(
-                            date: statistics.startDate,
-                            value: value
-                        )
-                    )
-                }
-
-                resume(HealthTrendSeries(points: points))
-            }
-
-            healthStore.execute(query)
-        }
+        // Same bracket as `fetchQuantitySampleSeries`: the shared collection
+        // seam stops its query on cancellation, so it is awaited directly under
+        // the pool permit. The hourly collection and its points live in the
+        // shared `BodyHealthQuantityFetch`.
+        let semaphore = HealthKitQueryPool.current.semaphore
+        guard await semaphore.acquireForCurrentTask() else { return nil }
+        defer { semaphore.release() }
+        guard BodyBackgroundLease.current?.isValid != false else { return nil }
+        guard !Task.isCancelled else { return nil }
+        BodyRefreshProfile.shared.enterQuery()
+        defer { BodyRefreshProfile.shared.exitQuery() }
+        let store = healthStore
+        let outcome = await BodyHealthQuantityFetch.hourlyCumulativeSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: predicate,
+            unit: unit,
+            start: effectiveStart,
+            end: effectiveEnd,
+            calendar: calendar,
+            valueTransform: valueTransform,
+            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+        )
+        guard case .success(let series) = outcome else { return nil }
+        return series
     }
 
     /// A scale writes its whole-day resting energy estimate at every weigh-in
@@ -2108,11 +2090,11 @@ actor HealthKitFetchEngine {
             sourceKind: sourceKind,
             sourceOption: sourceOption
         )
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
 
         // The shared samples seam stops its HKSampleQuery on cancellation.
         // Await it directly so cancellation reaches that query, while retaining
-        // the same pool permit and existing query-depth telemetry.
+        // the same pool permit and existing query-depth telemetry. The query
+        // and its points live in the shared `BodyHealthQuantityFetch`.
         let semaphore = HealthKitQueryPool.current.semaphore
         guard await semaphore.acquireForCurrentTask() else { return nil }
         defer { semaphore.release() }
@@ -2120,19 +2102,17 @@ actor HealthKitFetchEngine {
         guard !Task.isCancelled else { return nil }
         BodyRefreshProfile.shared.enterQuery()
         defer { BodyRefreshProfile.shared.exitQuery() }
-        let outcome = await healthStore.samples(.init(sampleType: quantityType, predicate: predicate,
-            limit: HKObjectQueryNoLimit, sortDescriptors: [sort]))
-        if case .failure(let error) = outcome {
-            Self.logTrendQueryFailure(identifier.rawValue, error: error)
-        }
-        guard case .success(let samples) = outcome, !Task.isCancelled else { return nil }
-        let points = samples.compactMap { sample -> HealthTrendDataPoint? in
-            guard let quantitySample = sample as? HKQuantitySample else { return nil }
-            let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
-            guard value.isFinite else { return nil }
-            return HealthTrendDataPoint(date: quantitySample.endDate, value: value)
-        }
-        return HealthTrendSeries(points: points)
+        let store = healthStore
+        let outcome = await BodyHealthQuantityFetch.quantitySampleSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: predicate,
+            unit: unit,
+            valueTransform: valueTransform,
+            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+        )
+        guard case .success(let series) = outcome, !Task.isCancelled else { return nil }
+        return series
     }
 
     /// Today's earliest past-threshold episode for one warning kind, backing the

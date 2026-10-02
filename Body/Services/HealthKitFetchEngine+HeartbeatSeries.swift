@@ -8,8 +8,10 @@
 //  sample query. Older watches write none, so each `HKHeartbeatSeriesSample`
 //  is streamed beat by beat and reduced through `StressRMSSD` (shared with the
 //  calculator's tests, so the math has exactly one implementation) instead.
-//  The scan is deliberately kept OFF the critical refresh path: it is a fan-out
-//  of streaming queries and the refresh deadline must never wait on it.
+//  The scan itself lives in the shared `BodyHeartbeatRMSSDFetch`, which the
+//  watch's Stress compute runs too. It is deliberately kept OFF the critical
+//  refresh path: it is a fan-out of streaming queries and the refresh deadline
+//  must never wait on it.
 //
 
 import Foundation
@@ -20,10 +22,7 @@ extension HealthKitFetchEngine {
     /// not exist. Every Recovery HRV read goes through this so the fetches
     /// below stay one `#available` check, not five.
     nonisolated static var recoveryHRVIdentifier: HKQuantityTypeIdentifier? {
-        if #available(iOS 27, *) {
-            return .heartRateVariabilityRMSSD
-        }
-        return nil
+        BodyHeartbeatRMSSDFetch.recoveryHRVIdentifier
     }
 
     /// Every Recovery HRV sample in the window, under the HRV metric's primary
@@ -126,18 +125,6 @@ extension HealthKitFetchEngine {
         )
     }
 
-    /// Newest-first cap on the series scan. A cap hit must starve the OLDEST
-    /// data, never the most recent day, so the sample query sorts descending.
-    nonisolated static let heartbeatSeriesFetchLimit = 120
-    /// Per-series ceiling on the beat stream, and the ceiling on the whole
-    /// fan-out. A single wedged series must not hold the fetch, and a wedged
-    /// fetch must not outlive the refresh that started it.
-    nonisolated static let heartbeatSeriesQueryTimeout: Duration = .seconds(5)
-    nonisolated static let heartbeatFetchTimeout: Duration = .seconds(20)
-    /// Concurrent beat streams. Each one is a live HealthKit query, so the
-    /// fan-out is capped rather than run over the full 120 series at once.
-    nonisolated static let heartbeatSeriesConcurrency = 4
-
     /// The Stress metric's RMSSD series for the window: Apple's Recovery HRV
     /// samples when the watch writes any, otherwise one RMSSD point per readable
     /// heartbeat series, dated on the series' `endDate` so it lines up with the
@@ -172,30 +159,22 @@ extension HealthKitFetchEngine {
             sourceKind: .heartRateVariability
         )
 
-        // Query and deadline are unstructured tasks rather than task-group
-        // children so the closures stay on this actor (same constraint as
-        // `runActivityRingDayQuery`); cancellation is forwarded by hand.
-        let fetchTask = Task { () -> HealthTrendSeries? in
-            guard let samples = await self.fetchHeartbeatSeriesSamples(predicate: predicate) else {
-                return nil
-            }
-            guard !samples.isEmpty else {
-                return .empty
-            }
-
-            return await self.heartbeatRMSSDSeries(for: samples)
+        // The scan itself (series list, beat streams, per-series and overall
+        // deadlines) is shared with the watch's Stress compute; the phone runs
+        // it under its own limits, every query it issues taking a pool permit.
+        let series: HealthTrendSeries?
+        switch await BodyHeartbeatRMSSDFetch.scan(
+            store: healthStore,
+            predicate: predicate,
+            limits: .phone,
+            admission: Self.heartbeatQueryAdmission,
+            onFailure: { Self.logTrendQueryFailure($0, error: $1) }
+        ) {
+        case .success(let scanned):
+            series = scanned
+        case .failure:
+            series = nil
         }
-        let deadlineTask = Task {
-            try? await ContinuousClock().sleep(for: Self.heartbeatFetchTimeout)
-            fetchTask.cancel()
-        }
-
-        let series = await withTaskCancellationHandler {
-            await fetchTask.value
-        } onCancel: {
-            fetchTask.cancel()
-        }
-        deadlineTask.cancel()
 
         if series == nil {
             Self.logTrendQueryFailure("heartbeatSeriesRMSSD", error: nil)
@@ -204,138 +183,22 @@ extension HealthKitFetchEngine {
         return series
     }
 
-    /// The series samples themselves — metadata only, no beats yet.
-    private func fetchHeartbeatSeriesSamples(predicate: NSPredicate?) async -> [HKHeartbeatSeriesSample]? {
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
-
+    /// Admits each query of the shared heartbeat scan the way
+    /// `runCancellableQuery` admits one: a permit from the current task's pool,
+    /// the background lease check, and the refresh profile's query depth, all
+    /// handed back when the query ends. Read at call time, so the scan's tasks
+    /// see the pool the caller bound (`withBackgroundQueryPool`).
+    nonisolated static let heartbeatQueryAdmission: BodyHeartbeatRMSSDFetch.QueryAdmission = {
         let semaphore = HealthKitQueryPool.current.semaphore
         guard await semaphore.acquireForCurrentTask() else { return nil }
-        defer { semaphore.release() }
-        guard !Task.isCancelled, BodyBackgroundLease.current?.isValid != false else { return nil }
+        guard BodyBackgroundLease.current?.isValid != false else {
+            semaphore.release()
+            return nil
+        }
         BodyRefreshProfile.shared.enterQuery()
-        defer { BodyRefreshProfile.shared.exitQuery() }
-        let outcome = await healthStore.samples(.init(sampleType: HKSeriesType.heartbeat(),
-            predicate: predicate, limit: Self.heartbeatSeriesFetchLimit, sortDescriptors: [sort]))
-        guard !Task.isCancelled else { return nil }
-        switch outcome {
-        case .success(let samples): return samples.compactMap { $0 as? HKHeartbeatSeriesSample }
-        case .failure(let error):
-            Self.logTrendQueryFailure(HKSeriesType.heartbeat().identifier, error: error)
-            return nil
-        case .cancelled: return nil
+        return {
+            BodyRefreshProfile.shared.exitQuery()
+            semaphore.release()
         }
-    }
-
-    private func heartbeatRMSSDSeries(for samples: [HKHeartbeatSeriesSample]) async -> HealthTrendSeries {
-        var points: [HealthTrendDataPoint] = []
-
-        await withTaskGroup(of: HealthTrendDataPoint?.self) { group in
-            var next = 0
-            while next < samples.count, next < Self.heartbeatSeriesConcurrency {
-                let sample = samples[next]
-                group.addTask { await self.heartbeatRMSSDPoint(for: sample) }
-                next += 1
-            }
-            while let point = await group.next() {
-                if let point {
-                    points.append(point)
-                }
-                guard next < samples.count else {
-                    continue
-                }
-                let sample = samples[next]
-                group.addTask { await self.heartbeatRMSSDPoint(for: sample) }
-                next += 1
-            }
-        }
-
-        // The series query ran newest-first; the cached day-sample series is
-        // ascending, so restore time order before handing it back.
-        return HealthTrendSeries(points: points.sorted { $0.date < $1.date })
-    }
-
-    private func heartbeatRMSSDPoint(for sample: HKHeartbeatSeriesSample) async -> HealthTrendDataPoint? {
-        let beatsTask = Task { () -> [StressRMSSD.RRInterval]? in
-            await self.heartbeatIntervals(for: sample)
-        }
-        let deadlineTask = Task {
-            try? await ContinuousClock().sleep(for: Self.heartbeatSeriesQueryTimeout)
-            beatsTask.cancel()
-        }
-
-        let intervals = await withTaskCancellationHandler {
-            await beatsTask.value
-        } onCancel: {
-            beatsTask.cancel()
-        }
-        deadlineTask.cancel()
-
-        guard let intervals,
-              let rmssd = StressRMSSD.rmssdMilliseconds(intervals: intervals),
-              rmssd.isFinite else {
-            return nil
-        }
-
-        return HealthTrendDataPoint(date: sample.endDate, value: rmssd)
-    }
-
-    /// Streams one series' beats into successive RR intervals. `nil` on a failed
-    /// or cancelled/timed-out stream so the caller drops the series rather than
-    /// computing RMSSD from a truncated prefix.
-    private func heartbeatIntervals(for sample: HKHeartbeatSeriesSample) async -> [StressRMSSD.RRInterval]? {
-        let beats = HeartbeatIntervalAccumulator()
-
-        // A streaming query keeps calling back until `done`; the coordinator
-        // resumes exactly once and drops the rest, and stops the query on
-        // cancellation. See `runCancellableQuery`.
-        return await runCancellableQuery(cancelledValue: nil) { resume in
-            HKHeartbeatSeriesQuery(heartbeatSeries: sample) { _, timeSinceSeriesStart, precededByGap, done, error in
-                guard error == nil else {
-                    Self.logTrendQueryFailure("heartbeatSeriesBeats", error: error)
-                    resume(nil)
-                    return
-                }
-
-                beats.append(timeSinceSeriesStart: timeSinceSeriesStart, precededByGap: precededByGap)
-                if done {
-                    resume(beats.intervals)
-                }
-            }
-        }
-    }
-}
-
-/// Accumulates one `HKHeartbeatSeriesQuery`'s beats into RR intervals. HealthKit
-/// delivers beats on its own queue, so every access is lock-guarded (which is
-/// what makes `@unchecked Sendable` sound here, as in `CancellableQueryCoordinator`).
-private final class HeartbeatIntervalAccumulator: @unchecked Sendable {
-    private let lock = NSLock()
-    private var previousBeatTime: TimeInterval?
-    private var collected: [StressRMSSD.RRInterval] = []
-
-    /// The first beat has no predecessor, so it only seeds the cursor.
-    /// `precededByGap` marks a beat that follows a detection gap: the interval
-    /// ENDING on it spans the gap, so the flag rides on that interval and
-    /// `StressRMSSD` drops the successive difference across it.
-    func append(timeSinceSeriesStart: TimeInterval, precededByGap: Bool) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        if let previousBeatTime {
-            collected.append(
-                StressRMSSD.RRInterval(
-                    seconds: timeSinceSeriesStart - previousBeatTime,
-                    precededByGap: precededByGap
-                )
-            )
-        }
-        previousBeatTime = timeSinceSeriesStart
-    }
-
-    var intervals: [StressRMSSD.RRInterval] {
-        lock.lock()
-        defer { lock.unlock() }
-
-        return collected
     }
 }

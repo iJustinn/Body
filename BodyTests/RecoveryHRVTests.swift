@@ -192,7 +192,7 @@ final class RecoveryHRVTests: XCTestCase {
         let heartbeat = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitFetchEngine+HeartbeatSeries.swift")
         let fetch = try XCTUnwrap(heartbeat.range(of: "func fetchHeartbeatRMSSDSamples(startDate: Date, endDate: Date)"))
         let recovery = try XCTUnwrap(heartbeat.range(of: "fetchRecoveryHRVSamples(startDate: startDate, endDate: endDate)", range: fetch.upperBound..<heartbeat.endIndex))
-        let scan = try XCTUnwrap(heartbeat.range(of: "fetchHeartbeatSeriesSamples(predicate: predicate)", range: fetch.upperBound..<heartbeat.endIndex))
+        let scan = try XCTUnwrap(heartbeat.range(of: "BodyHeartbeatRMSSDFetch.scan(", range: fetch.upperBound..<heartbeat.endIndex))
         XCTAssertLessThan(recovery.lowerBound, scan.lowerBound)
         XCTAssertTrue(heartbeat.contains("!recovery.isEmpty {"), "an empty Apple series must fall through to the scan")
 
