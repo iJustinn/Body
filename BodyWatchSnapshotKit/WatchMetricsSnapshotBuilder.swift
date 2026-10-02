@@ -44,7 +44,14 @@ enum WatchMetricsSnapshotBuilder {
         // per-kind watermarks (e.g. a workout-only refresh that only moved
         // Training Load) instead of a single stale-looking timestamp for every
         // metric. `nil` (the default) reproduces today's uniform stamping.
-        perKindDataAsOf: ((String) -> Date?)? = nil
+        perKindDataAsOf: ((String) -> Date?)? = nil,
+        // Whether to build the Sleep page's Sleep Debt (the last
+        // `SleepDebtChartModel.watchNightCount` nights of the iPhone card's
+        // 14 night debt). The phone passes its Body Pro and Summary Cards
+        // toggle; the watch's compute always builds it, since the phone's
+        // pushed flag decides visibility. `false` (the default) omits it, so
+        // a caller that doesn't show it never pays for the model.
+        includesSleepDebt: Bool = false
     ) -> WatchMetricsSnapshot {
         let tempPref = temperatureUnitPreference
 
@@ -65,6 +72,7 @@ enum WatchMetricsSnapshotBuilder {
         // complication — MAIN SESSION only, so naps stay out of the bar,
         // matching the iPhone Home Screen Sleep Stages widget.
         var sleepStages: [WatchSleepStageSegment]? = nil
+        var sleepDebt: WatchSleepDebt? = nil
 
         if permissionSelection.includes(.sleep) {
             // Guards against carrying over a stale, previously-completed night
@@ -84,6 +92,23 @@ enum WatchMetricsSnapshotBuilder {
                 idealSleepDuration: idealSleepDuration,
                 showScore: showSleepScore
             ))
+            if includesSleepDebt {
+                // The raw summary, as the iPhone card passes it: the model
+                // applies the same `asOf` guard itself, filling in today only.
+                sleepDebt = sleepDebtSnapshot(
+                    sleepHistory: trends.sleepHistory,
+                    currentDaySummary: summary.sleep,
+                    trainingLoad: trends.trainingLoad,
+                    sleepGoal: idealSleepDuration,
+                    now: now,
+                    // The information cutoff of both inputs: the sleep read
+                    // and the Training Load the needs were raised by.
+                    computedAt: [
+                        perKindDataAsOf?(WatchMetricKindKey.sleep) ?? lastRefreshDate,
+                        perKindDataAsOf?(WatchMetricKindKey.trainingLoad)
+                    ].compactMap { $0 }.max()
+                )
+            }
         }
         if permissionSelection.includes(.heart) {
             metrics.append(rangeMetric(
@@ -185,7 +210,8 @@ enum WatchMetricsSnapshotBuilder {
             lastRefreshDate: lastRefreshDate,
             metrics: stamped,
             sleepNight: sleepNight,
-            sleepStages: sleepStages
+            sleepStages: sleepStages,
+            sleepDebt: sleepDebt
         )
     }
 
@@ -300,6 +326,41 @@ enum WatchMetricsSnapshotBuilder {
             rawValue: total.map(Double.init),
             rangeMin: 0,
             rangeMax: 100
+        )
+    }
+
+    /// The last `SleepDebtChartModel.watchNightCount` nights of the iPhone
+    /// Sleep Debt card, built by the same shared model: a night reads only its
+    /// own 14 night window, the day before it, and the history behind them,
+    /// so each one carries the debt the card shows for it. Nil when the model
+    /// has no nights.
+    private static func sleepDebtSnapshot(
+        sleepHistory: SleepHistorySnapshot,
+        currentDaySummary: SleepSummary,
+        trainingLoad: HealthTrendSeries,
+        sleepGoal: TimeInterval,
+        now: Date,
+        computedAt: Date?
+    ) -> WatchSleepDebt? {
+        let nightCount = SleepDebtChartModel.watchNightCount
+        let model = SleepDebtChartModel.make(
+            entries: SleepDebtChartModel.entries(
+                sleepHistory: sleepHistory,
+                currentDaySummary: currentDaySummary,
+                trainingLoad: trainingLoad,
+                nightCount: nightCount,
+                today: now
+            ),
+            sleepGoal: sleepGoal,
+            nightCount: nightCount
+        )
+        guard !model.nights.isEmpty else { return nil }
+        return WatchSleepDebt(
+            debt: model.debt,
+            nights: model.nights.map {
+                WatchSleepDebt.Night(day: $0.day, debt: $0.debtAfterNight, isRecorded: $0.isRecorded)
+            },
+            computedAt: computedAt
         )
     }
 

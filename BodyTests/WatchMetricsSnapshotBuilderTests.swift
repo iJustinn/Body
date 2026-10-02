@@ -8,7 +8,7 @@
 //  that passing `nil` for both new parameters reproduces `makeSnapshot`'s
 //  prior output exactly (the existing iOS call sites don't pass them yet).
 //  Also covers the `sleepStages` payload the watch Sleep Stages complication
-//  draws.
+//  draws, and the Sleep page's `sleepDebt`.
 //
 
 import XCTest
@@ -262,5 +262,113 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         XCTAssertNil(snapshot.sleepStages)
         XCTAssertNil(snapshot.sleepNight)
         XCTAssertEqual(snapshot.metric(forKind: WatchMetricKindKey.sleep)?.displayValue, "--")
+    }
+
+    // MARK: - Sleep Debt (watch Sleep page)
+
+    /// 20 nights of 7h45m ending on `anchor`'s day: too few to learn a need,
+    /// so each night needs the 8 hour goal and every compared night's full
+    /// 14 night window is 3h30m short.
+    private func sleepDebtHistory(anchor: Date) -> SleepHistorySnapshot {
+        let anchorDay = calendar.startOfDay(for: anchor)
+        return SleepHistorySnapshot(days: (0..<20).map { age in
+            let day = calendar.date(byAdding: .day, value: -age, to: anchorDay)!
+            return SleepDaySummary(
+                date: day,
+                summary: SleepSummary(duration: 7.75 * 3_600, stageSnapshot: SleepStageSnapshot(date: day, segments: []))
+            )
+        })
+    }
+
+    private func sleepDebtSnapshot(
+        anchor: Date,
+        includesSleepDebt: Bool = true,
+        permissionSelection: BodyHealthPermissionSelection = .defaultValue,
+        perKindDataAsOf: ((String) -> Date?)? = nil
+    ) -> WatchMetricsSnapshot {
+        let history = sleepDebtHistory(anchor: anchor)
+        var trends = HealthTrendSnapshot.empty
+        trends.sleepHistory = history
+        var summary = HealthSummarySnapshot.placeholder
+        summary.sleep = history.days[0].summary
+        return WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary,
+            trends: trends,
+            lastRefreshDate: anchor,
+            permissionSelection: permissionSelection,
+            temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600,
+            now: anchor,
+            perKindDataAsOf: perKindDataAsOf,
+            includesSleepDebt: includesSleepDebt
+        )
+    }
+
+    func testSleepDebtIsBuiltOnlyWhenAskedForAndSleepIsPermitted() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
+
+        XCTAssertNotNil(sleepDebtSnapshot(anchor: anchor).sleepDebt)
+        XCTAssertNil(sleepDebtSnapshot(anchor: anchor, includesSleepDebt: false).sleepDebt)
+        XCTAssertNil(
+            sleepDebtSnapshot(
+                anchor: anchor,
+                permissionSelection: BodyHealthPermissionSelection.defaultValue.setting(.sleep, isEnabled: false)
+            ).sleepDebt
+        )
+        // The default leaves it out, so existing callers pay nothing for it.
+        XCTAssertNil(makeSnapshot(anchor: anchor).sleepDebt)
+    }
+
+    func testSleepDebtCarriesTheLastSevenNightsOfTheSharedModel() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
+        let history = sleepDebtHistory(anchor: anchor)
+        let nightCount = SleepDebtChartModel.watchNightCount
+        let model = SleepDebtChartModel.make(
+            entries: SleepDebtChartModel.entries(
+                sleepHistory: history,
+                currentDaySummary: history.days[0].summary,
+                trainingLoad: .empty,
+                nightCount: nightCount,
+                today: anchor,
+                calendar: calendar
+            ),
+            sleepGoal: 8 * 3_600,
+            nightCount: nightCount
+        )
+
+        let debt = try XCTUnwrap(sleepDebtSnapshot(anchor: anchor).sleepDebt)
+
+        XCTAssertEqual(debt.nights.count, nightCount)
+        XCTAssertEqual(debt.nights.map(\.day), model.nights.map(\.day))
+        XCTAssertEqual(debt.nights.map(\.debt), model.nights.map(\.debtAfterNight))
+        XCTAssertEqual(debt.nights.map(\.isRecorded), model.nights.map(\.isRecorded))
+        XCTAssertEqual(debt.debt, model.debt)
+        XCTAssertEqual(debt.nights.last?.day, calendar.startOfDay(for: anchor), "the nights end on the build day")
+        XCTAssertEqual(try XCTUnwrap(debt.debt), 3.5 * 3_600, accuracy: 0.001)
+        XCTAssertTrue(debt.hasChartableNight)
+    }
+
+    func testSleepDebtIsStampedWithTheNewerOfTheSleepAndTrainingLoadCutoffs() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
+        let earlier = anchor.addingTimeInterval(-3_600)
+        let later = anchor.addingTimeInterval(-600)
+        let afterRefresh = anchor.addingTimeInterval(600)
+        func computedAt(sleepAsOf: Date?, trainingLoadAsOf: Date?) -> Date? {
+            sleepDebtSnapshot(anchor: anchor, perKindDataAsOf: { kind in
+                switch kind {
+                case WatchMetricKindKey.sleep: return sleepAsOf
+                case WatchMetricKindKey.trainingLoad: return trainingLoadAsOf
+                default: return nil
+                }
+            }).sleepDebt?.computedAt
+        }
+
+        XCTAssertEqual(sleepDebtSnapshot(anchor: anchor).sleepDebt?.computedAt, anchor, "no per kind stamps: the refresh date")
+        XCTAssertEqual(computedAt(sleepAsOf: earlier, trainingLoadAsOf: later), later)
+        XCTAssertEqual(computedAt(sleepAsOf: later, trainingLoadAsOf: earlier), later)
+        // Sleep without its own stamp falls back to the refresh date, which a
+        // newer Training Load stamp still beats.
+        XCTAssertEqual(computedAt(sleepAsOf: nil, trainingLoadAsOf: earlier), anchor)
+        XCTAssertEqual(computedAt(sleepAsOf: nil, trainingLoadAsOf: afterRefresh), afterRefresh)
     }
 }

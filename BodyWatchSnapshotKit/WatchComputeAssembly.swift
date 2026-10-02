@@ -100,7 +100,8 @@ enum WatchComputeAssembly {
         // delta from the SPLICED history rather than fetching a second series —
         // then splice it over the seed's own window. Re-deriving it wholesale
         // would widen the series to every seeded night (the seed trims sleep
-        // STAGES, not nights), and `trends.sleep` is a readiness source series:
+        // STAGES, not nights, and keeps `sleepHistoryDayCount` nights for
+        // Sleep Debt), and `trends.sleep` is a readiness source series:
         // its oldest point sets how many days the readiness daily-series
         // recompute walks. That must stay the seed's 70-day window on a watch.
         let sleepDurationDelta: WatchFetchOutcome<HealthTrendSeries>
@@ -258,7 +259,10 @@ enum WatchComputeAssembly {
             // Union the phone's broader history into each carried range so the
             // watch's short delta window can't shrink the ring/chart bounds.
             seriesRangeOverride: { seed.seriesRanges[$0] },
-            perKindDataAsOf: { dataAsOf[$0] }
+            perKindDataAsOf: { dataAsOf[$0] },
+            // Always built: whether it shows is the phone's pushed flag
+            // (`WatchMetricsSnapshot.showsSleepDebt`), not the compute's call.
+            includesSleepDebt: true
         )
         snapshot.source = "watch"
 
@@ -278,6 +282,12 @@ enum WatchComputeAssembly {
                 delta: delta,
                 replayedTrainingLoad: trainingLoad != nil,
                 permission: permission
+            ),
+            sleepDebtAsOf: Self.sleepDebtAsOf(
+                delta: delta,
+                replayedTrainingLoad: trainingLoad != nil,
+                permission: permission,
+                now: now
             )
         )
     }
@@ -479,6 +489,31 @@ enum WatchComputeAssembly {
         // stays phone-sourced, trend recomputes on-watch" deviation would
         // silently become "nothing updates on-watch".
         return map
+    }
+
+    /// The Sleep Debt's watermark (see `WatchComputeResult.sleepDebtAsOf`),
+    /// or nil when the debt must not be adopted. Coverage semantics, like
+    /// Training Load's and Readiness's above: the debt reads the sleep history
+    /// (its durations and sleep HRV) and, when Workouts is permitted, the
+    /// Training Load series, so it is stamped with the query window's end only
+    /// when EVERY one of those was re-read this run. A failed or carried sleep
+    /// read leaves the seed's own nights in the history, and a Training Load
+    /// replay that didn't run leaves the phone's own ratios; stamping either
+    /// would launder the phone's debt as computed on the watch just now and
+    /// let it outrank the next push.
+    static func sleepDebtAsOf(
+        delta: WatchComputeDelta,
+        replayedTrainingLoad: Bool,
+        permission: BodyHealthPermissionSelection,
+        now: Date
+    ) -> Date? {
+        guard permission.includes(.sleep),
+              delta.sleepNights.isSuccess,
+              !delta.carriedKinds.contains(.sleep),
+              !permission.includes(.workouts) || replayedTrainingLoad else {
+            return nil
+        }
+        return now
     }
 
     /// The permission-eligible readiness inputs that did not succeed this run,

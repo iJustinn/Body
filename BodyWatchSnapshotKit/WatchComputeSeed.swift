@@ -191,6 +191,16 @@ struct WatchComputeSeed: Codable, Equatable {
     /// seed's `dataThrough`.
     static let trendDayCount = 70
 
+    /// Nights of sleep history carried in `trends.sleepHistory`, more than
+    /// `trendDayCount`: the watch's Sleep Debt (`SleepDebtChartModel.watchNightCount`
+    /// nights) reads each night's 14 night window, the day before them, two
+    /// days of time zone slack, and a whole 56 day HRV baseline and learned
+    /// need behind those (`SleepDebtChartModel.historyDayCount(nightCount:)`),
+    /// so the watch reads exactly the nights the phone's model does. Only the
+    /// history is widened; `trends.sleep` and every other series stay at
+    /// `trendDayCount`.
+    static let sleepHistoryDayCount = SleepDebtChartModel.historyDayCount(nightCount: SleepDebtChartModel.watchNightCount)
+
     /// Nights of FULL sleep-stage detail kept in `trends.sleepHistory`; older
     /// nights collapse to one synthesized segment (see
     /// `SleepHistorySnapshot.watchComputeTrimmed`). Must cover the 14-day
@@ -362,7 +372,8 @@ extension WatchComputeSeed {
 extension HealthTrendSnapshot {
     /// The compute-relevant slice of this snapshot for the phone→watch seed:
     /// windowed to `WatchComputeSeed.trendDayCount` most-recent days ending at
-    /// `anchor`, keeping only the series the watch's on-device recompute
+    /// `anchor` (the sleep history to `WatchComputeSeed.sleepHistoryDayCount`),
+    /// keeping only the series the watch's on-device recompute
     /// reads (readiness, HR/RHR/HRV, respiratory, SpO₂, Training Load, wrist
     /// temperature, sleep + sleep history, recorded-readiness + its context)
     /// — everything else (secondary-source series, day-sample series, Basics,
@@ -414,8 +425,9 @@ private func watchComputeWindowed(
 }
 
 extension SleepHistorySnapshot {
-    /// Keeps the same 70-day lookback as the compute trends (including the
-    /// 56-day readiness baseline), then collapses stage detail for nights `WatchComputeSeed.sleepSegmentDayCount`
+    /// Keeps a `WatchComputeSeed.sleepHistoryDayCount` (79) day lookback, the
+    /// compute trends' 70 days (including the 56-day readiness baseline)
+    /// widened to everything the watch's Sleep Debt reads, then collapses stage detail for nights `WatchComputeSeed.sleepSegmentDayCount`
     /// (or more) days before `anchor` into a single synthesized segment
     /// spanning the night's main-session interval — full per-stage detail
     /// (REM/Core/Deep/Awake) only matters for tonight's own sleep score and the
@@ -423,8 +435,8 @@ extension SleepHistorySnapshot {
     /// both of which stay inside the retained window for any anchor within
     /// `WatchComputeSeed.maxComputeAge` of `dataThrough`. `date`,
     /// `timeZoneIdentifier`, the day's `duration`, and `vitals` are untouched —
-    /// baselines and the duration/vitals score categories read those, not the
-    /// segments.
+    /// baselines, the duration/vitals score categories, and Sleep Debt (stored
+    /// duration and sleep HRV only) read those, not the segments.
     ///
     /// Deviation from a literal "unspecified sleep" stage: `SleepStage` has no
     /// such case, so `.core` stands in for the collapsed span. `.core` is one
@@ -437,7 +449,7 @@ extension SleepHistorySnapshot {
         let trimmedDays = days.compactMap { day -> SleepDaySummary? in
             let dayStart = calendar.startOfDay(for: day.date)
             let ageInDays = calendar.dateComponents([.day], from: dayStart, to: anchorDay).day ?? 0
-            guard ageInDays < WatchComputeSeed.trendDayCount else { return nil }
+            guard ageInDays < WatchComputeSeed.sleepHistoryDayCount else { return nil }
             guard ageInDays >= WatchComputeSeed.sleepSegmentDayCount else {
                 return day
             }

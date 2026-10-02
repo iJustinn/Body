@@ -62,6 +62,14 @@ struct WatchComputeResult {
     /// The readiness inputs carried from the phone's seed because this watch
     /// holds no source for them. Diagnostics only.
     let readinessCarriedInputs: [String]
+    /// The Sleep Debt's own watermark, the same anti-laundering contract as
+    /// `dataAsOf`: the compute's coverage (`now`) when every input the debt
+    /// reads was re-read this run (the sleep history, plus the Training Load
+    /// replay when Workouts is permitted), else nil and the snapshot's debt is
+    /// never adopted. Separate from `dataAsOf` because the debt is not a
+    /// metric card and moves on without the Sleep card (at midnight, or after
+    /// a night with no sleep).
+    let sleepDebtAsOf: Date?
 
     init(
         snapshot: WatchMetricsSnapshot,
@@ -71,11 +79,13 @@ struct WatchComputeResult {
         generation: UInt64,
         drainIsFresh: Bool = false,
         readinessCarriedInputs: [String] = [],
-        readinessBlockers: [String] = []
+        readinessBlockers: [String] = [],
+        sleepDebtAsOf: Date? = nil
     ) {
         self.readinessCarriedInputs = readinessCarriedInputs
         self.drainIsFresh = drainIsFresh
         self.readinessBlockers = readinessBlockers
+        self.sleepDebtAsOf = sleepDebtAsOf
         self.snapshot = snapshot
         self.dataAsOf = dataAsOf
         self.chartDataAsOf = chartDataAsOf
@@ -160,7 +170,16 @@ enum WatchComputeMerge {
     /// live HR/HRV path. Kinds in `chartDataAsOf` additionally adopt ONLY
     /// their chart fields (weekly + carried range) under the coverage compare,
     /// with no provenance claim — the Skin Temperature deviation's trend
-    /// channel. Never merges into a reset tombstone. The caller sanitizes.
+    /// channel.
+    ///
+    /// The Sleep Debt follows the same three rules on its own, untied to the
+    /// Sleep card (which isn't adopted after midnight or on a night with no
+    /// sleep, while the debt still has to move on): adopted only with a
+    /// `sleepDebtAsOf`, never blank over a displayed headline, and only when
+    /// that watermark is newer than the displayed debt's `computedAt` (a
+    /// query-time stamp on both sides). The adopted debt is stamped with it.
+    /// `showsSleepDebt` is never touched: it is the phone's display
+    /// preference. Never merges into a reset tombstone. The caller sanitizes.
     static func mergingComputed(
         _ result: WatchComputeResult,
         into current: WatchMetricsSnapshot
@@ -269,6 +288,17 @@ enum WatchComputeMerge {
             merged.sleepStages = computed.sleepStages
         }
 
+        // Sleep Debt: its own watermark, not the Sleep card's adoption (see
+        // the rules above). A blank headline is "not enough nights on this
+        // watch", never a clear of the displayed one.
+        if let asOf = result.sleepDebtAsOf,
+           var candidate = computed.sleepDebt,
+           asOf > (current.sleepDebt?.computedAt ?? .distantPast),
+           candidate.debt != nil || current.sleepDebt?.debt == nil {
+            candidate.computedAt = asOf
+            merged.sleepDebt = candidate
+        }
+
         // Readiness drain: record the watch's report from a compute that
         // STAMPED readiness, or whose workout query succeeded
         // (`drainIsFresh`): the report depends on the workout list alone, so a
@@ -331,6 +361,11 @@ enum WatchComputeMerge {
     /// rule would resurrect the OLD configuration's value behind it (and every
     /// later blank watch compute preserves a displayed value, so it would
     /// never clear).
+    ///
+    /// The Sleep Debt and its `showsSleepDebt` flag come from the push, with
+    /// one exception: while the push shows the debt, a local debt stamped
+    /// newer than the push's own (`computedAt`, else `lastRefreshDate`) is
+    /// kept, outside the settings-change mode.
     static func merging(
         _ received: WatchMetricsSnapshot,
         over current: WatchMetricsSnapshot,
@@ -415,6 +450,19 @@ enum WatchComputeMerge {
             merged.sleepStages = current.sleepStages
         }
 
+        // Sleep Debt: the push's flag and debt stand (`merged = received`),
+        // except that a debt the watch computed after the push's own cutoff is
+        // kept, so a push whose inputs predate the watch's last compute can't
+        // roll back a debt that has seen a newer night. Never in the
+        // settings-change mode, and never when the push turns the debt off.
+        // A stripped (nil) local stamp loses.
+        if !treatingBlanksAsAuthoritative,
+           received.showsSleepDebt == true,
+           let localAsOf = current.sleepDebt?.computedAt,
+           localAsOf > (received.sleepDebt?.computedAt ?? received.lastRefreshDate ?? .distantPast) {
+            merged.sleepDebt = current.sleepDebt
+        }
+
         // Readiness drain: the push's own report replaces the phone's previous
         // one, then whichever metric won above is reconciled against the other
         // side's report. This is what stops a push that has not seen a watch
@@ -453,11 +501,13 @@ enum WatchComputeMerge {
     /// announces the change was built before the watch's last compute, so its
     /// per-kind watermarks are typically OLDER and timestamp comparison alone
     /// would preserve exactly the values that must go. Display fields are left
-    /// in place; the push resolving in the same intake replaces them.
+    /// in place; the push resolving in the same intake replaces them. The
+    /// Sleep Debt's `computedAt` is cleared too, for the same reason.
     static func strippingLocalProvenance(
         from snapshot: WatchMetricsSnapshot
     ) -> WatchMetricsSnapshot {
         var stripped = snapshot
+        stripped.sleepDebt?.computedAt = nil
         stripped.metrics = snapshot.metrics.map { metric in
             var cleared = metric
             // The kept drain reports were derived under the old selection too,

@@ -3,7 +3,8 @@
 //  BodyTests
 //
 //  The on-watch realtime compute plan's core proof (Phase 5): the phone path
-//  and the watch path produce IDENTICAL metrics when they see the same data.
+//  and the watch path produce IDENTICAL metrics when they see the same data,
+//  and the same Sleep Debt the iPhone card shows for the nights the watch charts.
 //  The watch side runs the REAL `WatchComputeAssembly.assemble` — the same
 //  function `WatchComputeCoordinator` calls after its fetch — so there is no
 //  replica of the assembly order left here to drift.
@@ -51,7 +52,12 @@ final class WatchComputeParityTests: XCTestCase {
     /// and everything the phone's own dashboard recompute needs to score
     /// Readiness. `anchor` is both "today" and the instant the fixture's data
     /// extends through.
-    private func makeFixture(anchor: Date, calendar: Calendar) throws -> Fixture {
+    ///
+    /// `hardensSleepDebt` swaps in the Sleep Debt fixture instead: 111 nights
+    /// (`sleepDebtNight`), so the seed's trim really cuts the history and the
+    /// card's 30 night model learns a need for every compared night, plus one
+    /// heavier workout 5 days back so some Training Load ratios clear 1.0.
+    private func makeFixture(anchor: Date, calendar: Calendar, hardensSleepDebt: Bool = false) throws -> Fixture {
         let anchorDay = calendar.startOfDay(for: anchor)
         let idealSleepDuration: TimeInterval = 8 * 3_600
 
@@ -64,9 +70,11 @@ final class WatchComputeParityTests: XCTestCase {
         trends.wristTemperature = dailySeries(dayCount: 365, anchor: anchor, calendar: calendar, baseline: 36.2, amplitude: 0.4)
 
         var nights: [SleepDaySummary] = []
-        for offset in 0...70 {
+        for offset in 0...(hardensSleepDebt ? Self.sleepDebtNightCount - 1 : 70) {
             guard let day = calendar.date(byAdding: .day, value: -offset, to: anchorDay) else { continue }
-            nights.append(sleepNight(on: day, ageInDays: offset, calendar: calendar))
+            nights.append(hardensSleepDebt
+                ? sleepDebtNight(on: day, ageInDays: offset, calendar: calendar)
+                : sleepNight(on: day, ageInDays: offset, calendar: calendar))
         }
         trends.sleepHistory = SleepHistorySnapshot(days: nights)
         // Mirrors the phone's own invariant (documented in
@@ -75,7 +83,16 @@ final class WatchComputeParityTests: XCTestCase {
         trends.sleep = trends.sleepHistory.durationSeries
 
         let trainingLoadStartDay = try XCTUnwrap(calendar.date(byAdding: .day, value: -407, to: anchorDay))
-        let workouts = workoutsFixture(startDay: trainingLoadStartDay, anchor: anchor, calendar: calendar)
+        var workouts = workoutsFixture(startDay: trainingLoadStartDay, anchor: anchor, calendar: calendar)
+        if hardensSleepDebt {
+            let heavyDay = try XCTUnwrap(calendar.date(byAdding: .day, value: -5, to: anchorDay))
+            workouts.append(WorkoutSummary(
+                type: .running,
+                startDate: heavyDay.addingTimeInterval(17 * 3_600),
+                duration: 60 * 60,
+                effortLevel: 7
+            ))
+        }
         let dailyLoadValues = try XCTUnwrap(TrainingLoadCalculator.dailyLoadValues(
             from: workouts, startDate: trainingLoadStartDay, endDate: anchorDay, calendar: calendar
         ))
@@ -247,6 +264,54 @@ final class WatchComputeParityTests: XCTestCase {
         )
     }
 
+    /// Nights in the Sleep Debt fixture: past the seed's 79 night trim and the
+    /// 102 days the card's 30 night model reads.
+    private static let sleepDebtNightCount = 111
+
+    /// One Sleep Debt fixture night, `ageInDays` before the anchor. The main
+    /// session (22:00 to about 07:00) has an awake stretch INSIDE it, 20 to 50
+    /// minutes, so once the seed collapses a night 15 or more days old to one
+    /// segment spanning the session, a duration derived from the segments
+    /// would differ from the stored one the debt reads. Asleep time drifts
+    /// around the 8 hour goal, with one 6 hour night 3 days back, and sleep
+    /// HRV around 58 ms drops 2 to 3 spreads low on a few nights, so both the
+    /// learned need and the HRV addition move the compared nights.
+    private func sleepDebtNight(on day: Date, ageInDays age: Int, calendar: Calendar) -> SleepDaySummary {
+        let dayStart = calendar.startOfDay(for: day)
+        var asleepHours = 8.0 + 0.6 * sin(Double(age) / 4.3) + 0.25 * sin(Double(age) / 1.7)
+        if age == 3 {
+            asleepHours = 6
+        }
+        let asleep = asleepHours * 3_600
+        let leadingAwakeStart = dayStart.addingTimeInterval(-2 * 3_600)
+        let leadingAwakeEnd = leadingAwakeStart.addingTimeInterval(10 * 60)
+        let coreEnd = leadingAwakeEnd.addingTimeInterval(asleep * 0.45)
+        let interiorAwakeEnd = coreEnd.addingTimeInterval(TimeInterval(20 + (age % 4) * 10) * 60)
+        let remEnd = interiorAwakeEnd.addingTimeInterval(asleep * 0.2)
+        let deepEnd = remEnd.addingTimeInterval(asleep * 0.35)
+        let snapshot = SleepStageSnapshot(date: dayStart, segments: [
+            SleepStageSegment(stage: .awake, startDate: leadingAwakeStart, endDate: leadingAwakeEnd),
+            SleepStageSegment(stage: .core, startDate: leadingAwakeEnd, endDate: coreEnd),
+            SleepStageSegment(stage: .awake, startDate: coreEnd, endDate: interiorAwakeEnd),
+            SleepStageSegment(stage: .rem, startDate: interiorAwakeEnd, endDate: remEnd),
+            SleepStageSegment(stage: .deep, startDate: remEnd, endDate: deepEnd)
+        ])
+        var heartRateVariability = 58 + 3 * sin(Double(age) / 3.1)
+        if [2, 9, 16].contains(age) {
+            heartRateVariability = 42
+        } else if [5, 12].contains(age) {
+            heartRateVariability = 49
+        }
+        let vitals = SleepVitalsSummary(
+            heartRate: 56, heartRateVariability: heartRateVariability, respiratoryRate: 14.8,
+            oxygenSaturation: 97.2, wristTemperatureCelsius: 36.2
+        )
+        return SleepDaySummary(
+            date: dayStart,
+            summary: SleepSummary(duration: snapshot.mergedAsleepDuration, stageSnapshot: snapshot, vitals: vitals)
+        )
+    }
+
     /// A workout every third day across the full 408-day Training Load lookback,
     /// plus one inside today's wake cycle (an hour before `anchor`) so the
     /// same-day activity drain and Training Load's today-slot both have real
@@ -289,7 +354,12 @@ final class WatchComputeParityTests: XCTestCase {
     /// sequence (`Body/Services/HealthKitWorkoutStore.swift:2932-2946`):
     /// `filteredWithoutReadinessRecompute` → `recalculatingReadiness` (freezing
     /// today's morning record) → `WatchMetricsSnapshotBuilder.makeSnapshot`.
-    private func phoneSnapshot(fixture: Fixture, now: Date, calendar: Calendar) -> WatchMetricsSnapshot {
+    private func phoneSnapshot(
+        fixture: Fixture,
+        now: Date,
+        calendar: Calendar,
+        permission: BodyHealthPermissionSelection = .defaultValue
+    ) -> WatchMetricsSnapshot {
         let rawSnapshot = HealthDashboardSnapshot(summary: fixture.summary, trends: fixture.trends)
         let filtered = rawSnapshot.filteredWithoutReadinessRecompute(by: permission)
 
@@ -321,7 +391,10 @@ final class WatchComputeParityTests: XCTestCase {
             temperatureUnitPreference: .celsius,
             idealSleepDuration: fixture.idealSleepDuration,
             showSleepScore: true,
-            now: now
+            now: now,
+            // What the publisher passes while Body Pro and the Sleep Debt
+            // toggle are on.
+            includesSleepDebt: true
         )
         snapshot.source = "phone"
         return snapshot
@@ -343,13 +416,18 @@ final class WatchComputeParityTests: XCTestCase {
     /// `seedInputs(from:asOf:calendar:)`), since real `summary`/Training-Load
     /// seed inputs are captured live at publish time, not retroactively
     /// filled in from the future.
-    private func watchSnapshot(
+    ///
+    /// `mutateDelta` edits that delta before the assembly runs, for the cases
+    /// where a query failed or a kind was carried.
+    private func watchResult(
         fixture: Fixture,
         seedSummary: HealthSummarySnapshot,
         seedTrainingLoadStartDay: Date,
         seedTrainingLoadDailyLoads: [Double],
-        dataThrough: Date, now: Date, calendar: Calendar
-    ) throws -> (snapshot: WatchMetricsSnapshot, dataAsOf: [String: Date], seed: WatchComputeSeed) {
+        dataThrough: Date, now: Date, calendar: Calendar,
+        permission: BodyHealthPermissionSelection = .defaultValue,
+        mutateDelta: (inout WatchComputeDelta) -> Void = { _ in }
+    ) throws -> (result: WatchComputeResult, seed: WatchComputeSeed) {
         let seed = HealthKitWorkoutStore.makeComputeSeed(
             summary: seedSummary,
             trends: fixture.trends,
@@ -398,6 +476,7 @@ final class WatchComputeParityTests: XCTestCase {
         delta.latestNight = deltaNights.max { lhs, rhs in
             (lhs.summary.stageSnapshot.date ?? .distantPast) < (rhs.summary.stageSnapshot.date ?? .distantPast)
         }?.summary
+        mutateDelta(&delta)
 
         let result = try XCTUnwrap(WatchComputeAssembly.assemble(
             seed: seed,
@@ -408,6 +487,25 @@ final class WatchComputeParityTests: XCTestCase {
             now: now,
             calendar: calendar
         ))
+        return (result, seed)
+    }
+
+    /// `watchResult`'s snapshot and per-kind watermarks, for the cases that
+    /// compare dashboard metrics.
+    private func watchSnapshot(
+        fixture: Fixture,
+        seedSummary: HealthSummarySnapshot,
+        seedTrainingLoadStartDay: Date,
+        seedTrainingLoadDailyLoads: [Double],
+        dataThrough: Date, now: Date, calendar: Calendar
+    ) throws -> (snapshot: WatchMetricsSnapshot, dataAsOf: [String: Date], seed: WatchComputeSeed) {
+        let (result, seed) = try watchResult(
+            fixture: fixture,
+            seedSummary: seedSummary,
+            seedTrainingLoadStartDay: seedTrainingLoadStartDay,
+            seedTrainingLoadDailyLoads: seedTrainingLoadDailyLoads,
+            dataThrough: dataThrough, now: now, calendar: calendar
+        )
         return (result.snapshot, result.dataAsOf, seed)
     }
 
@@ -708,5 +806,194 @@ final class WatchComputeParityTests: XCTestCase {
         XCTAssertEqual(mergedWristTemp.weekly ?? nil, watchWristTemp.weekly ?? nil, "the freshly spliced trend must reach the merged card")
         XCTAssertEqual(mergedWristTemp.weekly?.last ?? nil, freshWristTemp)
         XCTAssertNil(mergedWristTemp.liveUpdatedAt, "chart adoption makes no provenance claim")
+    }
+
+    // MARK: - Sleep Debt: watch = phone = the iPhone card's last 7 nights
+
+    /// The iPhone Sleep Debt card's model over the inputs the phone publish
+    /// reads (the permission-filtered dashboard, as the store holds it): the
+    /// default 30 night `make`, whose last 7 nights the watch must show.
+    private func cardSleepDebt(
+        fixture: Fixture,
+        now: Date,
+        calendar: Calendar,
+        permission: BodyHealthPermissionSelection = .defaultValue
+    ) -> SleepDebtChartModel {
+        let filtered = HealthDashboardSnapshot(summary: fixture.summary, trends: fixture.trends)
+            .filteredWithoutReadinessRecompute(by: permission)
+        return SleepDebtChartModel.make(
+            entries: SleepDebtChartModel.entries(
+                sleepHistory: filtered.trends.sleepHistory,
+                currentDaySummary: filtered.summary.sleep,
+                trainingLoad: filtered.trends.trainingLoad,
+                today: now,
+                calendar: calendar
+            ),
+            sleepGoal: fixture.idealSleepDuration
+        )
+    }
+
+    /// Night for night and the headline: the phone builder's debt and the
+    /// watch compute's both equal the card's last 7 nights. `computedAt` is
+    /// provenance, which differs by design.
+    private func assertSleepDebtsMatch(
+        phone: WatchMetricsSnapshot,
+        watch: WatchMetricsSnapshot,
+        card: SleepDebtChartModel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let phoneDebt = try XCTUnwrap(phone.sleepDebt, "phone debt", file: file, line: line)
+        let watchDebt = try XCTUnwrap(watch.sleepDebt, "watch debt", file: file, line: line)
+        let cardNights = card.nights.suffix(SleepDebtChartModel.watchNightCount).map {
+            WatchSleepDebt.Night(day: $0.day, debt: $0.debtAfterNight, isRecorded: $0.isRecorded)
+        }
+
+        XCTAssertEqual(cardNights.count, SleepDebtChartModel.watchNightCount, file: file, line: line)
+        XCTAssertEqual(phoneDebt.nights, cardNights, "phone builder vs the card", file: file, line: line)
+        XCTAssertEqual(watchDebt.nights, cardNights, "watch compute vs the card", file: file, line: line)
+        XCTAssertEqual(phoneDebt.debt, card.debt, "phone headline", file: file, line: line)
+        XCTAssertEqual(watchDebt.debt, card.debt, "watch headline", file: file, line: line)
+    }
+
+    /// The watch computes Sleep Debt from the TRIMMED seed (79 nights, the
+    /// older ones collapsed) plus its own delta, the phone from its full
+    /// history, and the iPhone card from that history with 30 nights: all
+    /// three must agree on the 7 nights the watch charts.
+    func testSleepDebtMatchesThePhoneAndTheCardsLastSevenNights() throws {
+        let calendar = Calendar.bodyGregorian
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let anchorDay = calendar.startOfDay(for: anchor)
+        let fixture = try makeFixture(anchor: anchor, calendar: calendar, hardensSleepDebt: true)
+
+        let phone = phoneSnapshot(fixture: fixture, now: anchor, calendar: calendar)
+        let (result, seed) = try watchResult(
+            fixture: fixture,
+            seedSummary: fixture.summary,
+            seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
+            seedTrainingLoadDailyLoads: fixture.trainingLoadDailyLoads,
+            dataThrough: anchor, now: anchor, calendar: calendar
+        )
+        let card = cardSleepDebt(fixture: fixture, now: anchor, calendar: calendar)
+
+        try assertSleepDebtsMatch(phone: phone, watch: result.snapshot, card: card)
+        XCTAssertEqual(result.sleepDebtAsOf, anchor, "every input was re-read: the compute's coverage")
+        XCTAssertEqual(result.snapshot.sleepDebt?.nights.last?.day, anchorDay)
+
+        // The fixture makes that comparison mean something. The trim really
+        // cut the history the watch read…
+        XCTAssertEqual(seed.trends.sleepHistory.days.count, WatchComputeSeed.sleepHistoryDayCount)
+        XCTAssertLessThan(seed.trends.sleepHistory.days.count, fixture.trends.sleepHistory.days.count)
+        // …and a duration derived from a collapsed night's segments would
+        // differ from the stored one the debt reads.
+        XCTAssertTrue(seed.trends.sleepHistory.days.contains { day in
+            let age = calendar.dateComponents([.day], from: calendar.startOfDay(for: day.date), to: anchorDay).day ?? 0
+            guard age >= WatchComputeSeed.sleepSegmentDayCount, let duration = day.summary.duration else { return false }
+            return day.summary.stageSnapshot.segments.count == 1
+                && abs(day.summary.stageSnapshot.mergedAsleepDuration - duration) >= 20 * 60
+        })
+        // Every compared night learned its need, the windows behind them
+        // carry Training Load and HRV additions, and no debt sits at a clamp
+        // that could hide a different sum.
+        let compared = card.nights.suffix(SleepDebtChartModel.watchNightCount)
+        let windows = card.nights.suffix(SleepDebtChartModel.watchNightCount + SleepDebtChartModel.windowNightCount - 1)
+        XCTAssertTrue(compared.allSatisfy(\.isNeedLearned))
+        XCTAssertTrue(windows.contains { $0.trainingAdjustment > 0 })
+        XCTAssertTrue(windows.contains { $0.hrvAdjustment > 0 })
+        let debts = compared.compactMap(\.debtAfterNight)
+        XCTAssertEqual(debts.count, SleepDebtChartModel.watchNightCount)
+        XCTAssertTrue(debts.allSatisfy { $0 > 0 && $0 < SleepDebtChartModel.maximumDebt })
+        XCTAssertGreaterThan(Set(debts).count, 1)
+
+        // The wider seed history must not move a dashboard metric either. Case
+        // 1's 71 nights fit inside the trim; these 111 don't, so this is the
+        // case that would catch a readiness or sleep score reading past it.
+        assertMetricsMatch(phone, result.snapshot)
+    }
+
+    /// With Workouts off, both sides drop Training Load from the needs (the
+    /// filtered dashboard has none), and the watch doesn't wait on a replay it
+    /// can't run.
+    func testSleepDebtMatchesWithWorkoutsOff() throws {
+        let calendar = Calendar.bodyGregorian
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let fixture = try makeFixture(anchor: anchor, calendar: calendar, hardensSleepDebt: true)
+        let workoutsOff = BodyHealthPermissionSelection.defaultValue.setting(.workouts, isEnabled: false)
+
+        let phone = phoneSnapshot(fixture: fixture, now: anchor, calendar: calendar, permission: workoutsOff)
+        let (result, _) = try watchResult(
+            fixture: fixture,
+            seedSummary: fixture.summary,
+            seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
+            seedTrainingLoadDailyLoads: fixture.trainingLoadDailyLoads,
+            dataThrough: anchor, now: anchor, calendar: calendar,
+            permission: workoutsOff,
+            // The fetcher never runs the workout query without the permission.
+            mutateDelta: { $0.workouts = .failure }
+        )
+        let card = cardSleepDebt(fixture: fixture, now: anchor, calendar: calendar, permission: workoutsOff)
+
+        // Debt only: this harness's phone path drains readiness from the
+        // fixture's workouts regardless of the permission.
+        try assertSleepDebtsMatch(phone: phone, watch: result.snapshot, card: card)
+        XCTAssertEqual(result.sleepDebtAsOf, anchor)
+        XCTAssertTrue(card.nights.allSatisfy { $0.trainingAdjustment == 0 })
+        XCTAssertNotEqual(
+            card.nights.suffix(SleepDebtChartModel.watchNightCount).map(\.needDuration),
+            cardSleepDebt(fixture: fixture, now: anchor, calendar: calendar)
+                .nights.suffix(SleepDebtChartModel.watchNightCount).map(\.needDuration),
+            "the case must differ from the Workouts on one"
+        )
+    }
+
+    /// The anti-laundering rule for the debt: stamped only when every input
+    /// it reads was re-read on the watch this run.
+    func testSleepDebtIsStampedOnlyWhenEveryInputWasReRead() throws {
+        let calendar = Calendar.bodyGregorian
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let fixture = try makeFixture(anchor: anchor, calendar: calendar, hardensSleepDebt: true)
+        func sleepDebtAsOf(
+            permission: BodyHealthPermissionSelection = .defaultValue,
+            _ mutateDelta: (inout WatchComputeDelta) -> Void
+        ) throws -> Date? {
+            try watchResult(
+                fixture: fixture,
+                seedSummary: fixture.summary,
+                seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
+                seedTrainingLoadDailyLoads: fixture.trainingLoadDailyLoads,
+                dataThrough: anchor, now: anchor, calendar: calendar,
+                permission: permission,
+                mutateDelta: mutateDelta
+            ).result.sleepDebtAsOf
+        }
+
+        XCTAssertEqual(try sleepDebtAsOf { _ in }, anchor)
+        XCTAssertNil(
+            try sleepDebtAsOf { delta in
+                delta.sleepNights = .failure
+                delta.latestNight = nil
+            },
+            "the sleep query failed: the history is the seed's"
+        )
+        XCTAssertNil(
+            try sleepDebtAsOf { delta in
+                delta.sleepNights = .failure
+                delta.latestNight = nil
+                delta.carriedKinds = [.sleep]
+            },
+            "sleep carried: this watch holds no source for it"
+        )
+        XCTAssertNil(
+            try sleepDebtAsOf { $0.carriedKinds = [.sleep] },
+            "a carried kind never counts as re-read, whatever its outcome says"
+        )
+        XCTAssertNil(
+            try sleepDebtAsOf { $0.workouts = .failure },
+            "Workouts permitted but the Training Load replay didn't run: the ratios are the seed's"
+        )
+        XCTAssertNil(
+            try sleepDebtAsOf(permission: BodyHealthPermissionSelection.defaultValue.setting(.sleep, isEnabled: false)) { _ in },
+            "no Sleep permission, no debt"
+        )
     }
 }

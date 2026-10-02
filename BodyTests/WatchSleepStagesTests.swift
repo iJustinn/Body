@@ -5,7 +5,8 @@
 //  The `sleepStages` payload the watch Sleep Stages complication draws: it is
 //  dropped with the Sleep card at display time (`sanitized(asOf:)`), and it
 //  survives phone/watch version skew in both directions (an older phone omits
-//  the key; a newer one round-trips it).
+//  the key; a newer one round-trips it). The Sleep page's `sleepDebt` follows
+//  the same two rules under its own day check.
 //
 
 import XCTest
@@ -96,6 +97,85 @@ final class WatchSleepStagesTests: XCTestCase {
         let decoded = try XCTUnwrap(WatchMetricsSnapshot.decoded(from: data))
 
         XCTAssertEqual(decoded.sleepStages, original.sleepStages)
+        XCTAssertEqual(decoded, original)
+    }
+
+    // MARK: - Sleep Debt
+
+    /// Seven nights ending on `lastNight`'s day, the oldest still too short of
+    /// recorded nights for a debt.
+    private func sleepDebt(lastNight: Int) -> WatchSleepDebt {
+        let lastDay = calendar.startOfDay(for: moment(day: lastNight, hour: 12))
+        return WatchSleepDebt(
+            debt: 2.5 * 3_600,
+            nights: (0..<7).map { offset in
+                WatchSleepDebt.Night(
+                    day: calendar.date(byAdding: .day, value: offset - 6, to: lastDay)!,
+                    debt: offset == 0 ? nil : Double(offset) * 1_800,
+                    isRecorded: offset != 3
+                )
+            },
+            computedAt: moment(day: lastNight, hour: 7)
+        )
+    }
+
+    func testSanitizeDropsASleepDebtWhoseNightsEndBeforeToday() {
+        var cached = snapshot(night: 4)
+        cached.sleepDebt = sleepDebt(lastNight: 4)
+        cached.showsSleepDebt = true
+
+        let sanitized = cached.sanitized(asOf: moment(day: 5, hour: 9))
+
+        XCTAssertNil(sanitized.sleepDebt, "yesterday's seven nights must not be labeled as ending today")
+        XCTAssertEqual(sanitized.showsSleepDebt, true, "the phone's flag isn't a reading and stays")
+    }
+
+    func testSanitizeKeepsASleepDebtEndingToday() {
+        var built = snapshot(night: 4)
+        built.sleepDebt = sleepDebt(lastNight: 4)
+
+        XCTAssertEqual(built.sanitized(asOf: moment(day: 4, hour: 23)).sleepDebt, built.sleepDebt)
+        XCTAssertEqual(built.sanitized(asOf: moment(day: 4, hour: 23)), built)
+    }
+
+    func testSanitizeDropsAStaleSleepDebtEvenWithoutASleepCard() {
+        // The debt has its own rule: a snapshot with no Sleep card to clear
+        // (and so no other reason to copy) still loses an outdated debt.
+        var cached = WatchMetricsSnapshot(generatedAt: moment(day: 4, hour: 7), lastRefreshDate: nil, metrics: [])
+        cached.sleepDebt = sleepDebt(lastNight: 4)
+
+        XCTAssertNil(cached.sanitized(asOf: moment(day: 5, hour: 0)).sleepDebt)
+
+        // A debt with no nights can't be dated, so it goes too.
+        cached.sleepDebt = WatchSleepDebt(debt: nil, nights: [], computedAt: nil)
+        XCTAssertNil(cached.sanitized(asOf: moment(day: 4, hour: 9)).sleepDebt)
+    }
+
+    func testSnapshotWithoutTheSleepDebtKeysStillDecodes() throws {
+        // What an older phone publishes: no `sleepDebt`, no `showsSleepDebt`.
+        let json = """
+        {
+          "generatedAt": "2026-06-04T07:00:00Z",
+          "metrics": []
+        }
+        """
+
+        let decoded = try XCTUnwrap(WatchMetricsSnapshot.decoded(from: Data(json.utf8)))
+
+        XCTAssertNil(decoded.sleepDebt)
+        XCTAssertNil(decoded.showsSleepDebt)
+    }
+
+    func testEncodeDecodeRoundTripsSleepDebt() throws {
+        var original = snapshot(night: 4)
+        original.sleepDebt = sleepDebt(lastNight: 4)
+        original.showsSleepDebt = true
+        let data = try XCTUnwrap(original.encoded())
+
+        let decoded = try XCTUnwrap(WatchMetricsSnapshot.decoded(from: data))
+
+        XCTAssertEqual(decoded.sleepDebt, original.sleepDebt)
+        XCTAssertEqual(decoded.showsSleepDebt, true)
         XCTAssertEqual(decoded, original)
     }
 

@@ -322,6 +322,37 @@ struct WatchSleepStageSegment: Codable, Equatable {
     var endDate: Date
 }
 
+/// The Sleep page's Sleep Debt for the last `SleepDebtChartModel.watchNightCount`
+/// wake days: the same 14 night debt the iPhone's Sleep Debt card shows for
+/// each of those nights, built by the shared snapshot builder on either device.
+/// Plain values so this file stays free of BodyMetricsKit.
+struct WatchSleepDebt: Codable, Equatable {
+    struct Night: Codable, Equatable {
+        /// Start of the wake day.
+        var day: Date
+        /// `SleepDebtNight.debtAfterNight`: nil while fewer than 5 of the
+        /// window's nights were recorded, and for today until its night arrives.
+        var debt: TimeInterval?
+        /// Whether any sleep was recorded for the day.
+        var isRecorded: Bool
+    }
+
+    /// The headline, `SleepDebtChartModel.debt`: today's debt once today's
+    /// night is recorded, otherwise yesterday's.
+    var debt: TimeInterval?
+    /// Oldest first, ending on the day the debt was built.
+    var nights: [Night]
+    /// The information cutoff behind the debt, compared by the merge: the
+    /// phone's refresh time for a pushed debt, the compute's coverage for one
+    /// the watch built. Nil once a permission change stripped local provenance.
+    var computedAt: Date?
+
+    /// Whether any night has a debt to plot.
+    var hasChartableNight: Bool {
+        nights.contains { $0.debt != nil }
+    }
+}
+
 /// One workout for the watch Day Ring hero. `type` is the `BodyWorkoutType` raw
 /// value as a string so this file stays free of BodyMetricsKit; `colorHex` is
 /// the phone's resolved palette color, custom workout colors included.
@@ -363,6 +394,18 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// is unknown or carries no segments. Optional so snapshots from before
     /// this field decode.
     var sleepStages: [WatchSleepStageSegment]? = nil
+    /// The Sleep page's Sleep Debt. Unlike `sleepStages` it does not move with
+    /// the Sleep metric: it has its own provenance (`WatchSleepDebt.computedAt`)
+    /// and merge rule, since the debt moves on at midnight and on a night with
+    /// no sleep, when the Sleep card is not adopted. Optional so snapshots from
+    /// before this field decode.
+    var sleepDebt: WatchSleepDebt? = nil
+    /// Whether the phone shows Sleep Debt: Body Pro unlocked and the Summary
+    /// Cards toggle on. A display preference, so it rides the display payload
+    /// and only a phone push sets it; the watch computes the debt either way
+    /// and shows it only while this is true. Nil (an older phone, which never
+    /// shipped a debt) reads as off.
+    var showsSleepDebt: Bool? = nil
 
     /// The phone's Settings ▸ Home Hero ▸ Readiness Level switch: whether the
     /// readiness hero names today's level under the score. A display
@@ -510,15 +553,26 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// out of the daily trend window is cleared too, so the watch and its
     /// complications never headline a value the phone's charts can no longer
     /// show. See `isOutOfTrendWindow`.
+    ///
+    /// Third, independent rule: `sleepDebt` is dropped once its last night
+    /// isn't `now`'s day (or it has none), since its nights are labeled as
+    /// ending today. Unlike the Sleep card it doesn't wait for a night: the
+    /// next watch compute or phone push rebuilds it for the new day.
     func sanitized(asOf now: Date = Date()) -> WatchMetricsSnapshot {
         let clearsSleep = metric(forKind: WatchMetricKindKey.sleep) != nil
             && !isSleepNightCurrent(asOf: now)
         let windowStart = Self.recentTrendWindowStart(asOf: now)
         let clearsStale = metrics.contains { isOutOfTrendWindow($0, windowStart: windowStart) }
-        guard clearsSleep || clearsStale else { return self }
+        let clearsSleepDebt = sleepDebt.map { debt -> Bool in
+            // Same day-boundary convention as `isSleepNightCurrent`.
+            guard let lastDay = debt.nights.last?.day else { return true }
+            return !Calendar(identifier: .gregorian).isDate(lastDay, inSameDayAs: now)
+        } ?? false
+        guard clearsSleep || clearsStale || clearsSleepDebt else { return self }
 
         var copy = self
         if clearsSleep { copy.sleepStages = nil }
+        if clearsSleepDebt { copy.sleepDebt = nil }
         copy.metrics = metrics.map { metric in
             if clearsSleep, metric.kind == WatchMetricKindKey.sleep { return metric.cleared() }
             return isOutOfTrendWindow(metric, windowStart: windowStart) ? metric.cleared() : metric

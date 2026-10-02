@@ -71,6 +71,8 @@ final class WatchComputeMergeTests: XCTestCase {
         lastRefreshDate: Date?,
         sleepNight: Date? = nil,
         sleepStages: [WatchSleepStageSegment]? = nil,
+        sleepDebt: WatchSleepDebt? = nil,
+        showsSleepDebt: Bool? = nil,
         isReset: Bool? = nil
     ) -> WatchMetricsSnapshot {
         WatchMetricsSnapshot(
@@ -80,6 +82,8 @@ final class WatchComputeMergeTests: XCTestCase {
             source: "phone",
             sleepNight: sleepNight,
             sleepStages: sleepStages,
+            sleepDebt: sleepDebt,
+            showsSleepDebt: showsSleepDebt,
             publisherEpoch: "epoch-A",
             revision: 7,
             isReset: isReset
@@ -98,6 +102,8 @@ final class WatchComputeMergeTests: XCTestCase {
         chartDataAsOf: [String: Date] = [:],
         sleepNight: Date? = nil,
         sleepStages: [WatchSleepStageSegment]? = nil,
+        sleepDebt: WatchSleepDebt? = nil,
+        sleepDebtAsOf: Date? = nil,
         coverage: Date? = nil,
         generation: UInt64 = 3
     ) -> WatchComputeResult {
@@ -106,7 +112,8 @@ final class WatchComputeMergeTests: XCTestCase {
             lastRefreshDate: t2,
             metrics: metrics,
             sleepNight: sleepNight,
-            sleepStages: sleepStages
+            sleepStages: sleepStages,
+            sleepDebt: sleepDebt
         )
         computed.source = "watch"
         // Default coverage `t2`: "the compute's queries ran at t2" — the
@@ -116,7 +123,17 @@ final class WatchComputeMergeTests: XCTestCase {
             dataAsOf: dataAsOf,
             chartDataAsOf: chartDataAsOf,
             coverage: coverage ?? t2,
-            generation: generation
+            generation: generation,
+            sleepDebtAsOf: sleepDebtAsOf
+        )
+    }
+
+    /// A one-night Sleep Debt with the headline `hours` (nil: too few nights).
+    private func sleepDebt(_ hours: Double?, computedAt: Date?) -> WatchSleepDebt {
+        WatchSleepDebt(
+            debt: hours.map { $0 * 3_600 },
+            nights: [WatchSleepDebt.Night(day: t0, debt: hours.map { $0 * 3_600 }, isRecorded: true)],
+            computedAt: computedAt
         )
     }
 
@@ -917,12 +934,15 @@ final class WatchComputeMergeTests: XCTestCase {
         let merged = WatchComputeMerge.mergingComputed(
             result(
                 metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "71", rawValue: 71)],
-                dataAsOf: [WatchMetricKindKey.heartRate: t2]
+                dataAsOf: [WatchMetricKindKey.heartRate: t2],
+                sleepDebt: sleepDebt(3, computedAt: nil),
+                sleepDebtAsOf: t2
             ),
             into: tombstone
         )
 
         XCTAssertTrue(merged.metrics.isEmpty)
+        XCTAssertNil(merged.sleepDebt)
         XCTAssertEqual(merged.isReset, true)
     }
 
@@ -1110,6 +1130,243 @@ final class WatchComputeMergeTests: XCTestCase {
         XCTAssertNil(
             WatchComputeMerge.merging(push, over: current, treatingBlanksAsAuthoritative: true)
                 .metric(forKind: WatchMetricKindKey.heartRate)?.rawValue
+        )
+    }
+
+    // MARK: - Sleep Debt
+
+    func testComputedSleepDebtIsAdoptedOnlyWithItsOwnWatermark() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(2, computedAt: t0),
+            showsSleepDebt: true
+        )
+
+        // No watermark: some input was carried from the seed, so the debt it
+        // produced must not be presented as computed on the watch just now.
+        let unstamped = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [:], sleepDebt: sleepDebt(3, computedAt: t1)),
+            into: current
+        )
+        XCTAssertEqual(unstamped.sleepDebt, sleepDebt(2, computedAt: t0))
+
+        let stamped = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [:], sleepDebt: sleepDebt(3, computedAt: t1), sleepDebtAsOf: t2),
+            into: current
+        )
+        XCTAssertEqual(
+            stamped.sleepDebt,
+            sleepDebt(3, computedAt: t2),
+            "adopted and stamped with its own watermark, not the builder's stamp"
+        )
+    }
+
+    func testComputedSleepDebtOlderThanTheDisplayedOneIsSkipped() {
+        // A phone push stamped after the compute's coverage landed mid-compute.
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t3,
+            sleepDebt: sleepDebt(2, computedAt: t3),
+            showsSleepDebt: true
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [:], sleepDebt: sleepDebt(3, computedAt: nil), sleepDebtAsOf: t2),
+            into: current
+        )
+
+        XCTAssertEqual(merged.sleepDebt, sleepDebt(2, computedAt: t3))
+    }
+
+    func testBlankComputedSleepDebtNeverReplacesAValue() {
+        // Too few nights on this watch is not an authoritative clear.
+        let blank = result(metrics: [], dataAsOf: [:], sleepDebt: sleepDebt(nil, computedAt: nil), sleepDebtAsOf: t2)
+        let current = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0, sleepDebt: sleepDebt(2, computedAt: t0))
+        XCTAssertEqual(WatchComputeMerge.mergingComputed(blank, into: current).sleepDebt, sleepDebt(2, computedAt: t0))
+
+        // Over a blank headline, or no debt at all, the nights still move on.
+        let blankCurrent = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0, sleepDebt: sleepDebt(nil, computedAt: t0))
+        XCTAssertEqual(WatchComputeMerge.mergingComputed(blank, into: blankCurrent).sleepDebt, sleepDebt(nil, computedAt: t2))
+        let noDebt = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0)
+        XCTAssertEqual(WatchComputeMerge.mergingComputed(blank, into: noDebt).sleepDebt, sleepDebt(nil, computedAt: t2))
+    }
+
+    func testComputedSleepDebtIsAdoptedEvenWhenTheSleepMetricIsNot() {
+        // The Sleep card isn't adopted (the displayed one is stamped after the
+        // compute's coverage, as after midnight or a night with no sleep), but
+        // the debt's window still has to move on.
+        let current = snapshot(
+            metrics: [metric(WatchMetricKindKey.sleep, displayValue: "7h 32m", rawValue: 85, computedAt: t3)],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepNight: t0,
+            sleepDebt: sleepDebt(2, computedAt: t0),
+            showsSleepDebt: true
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [metric(WatchMetricKindKey.sleep, displayValue: "6h 02m", rawValue: 70)],
+                dataAsOf: [WatchMetricKindKey.sleep: t1],
+                sleepNight: t2,
+                sleepDebt: sleepDebt(3, computedAt: nil),
+                sleepDebtAsOf: t2
+            ),
+            into: current
+        )
+
+        XCTAssertEqual(merged.metric(forKind: WatchMetricKindKey.sleep)?.rawValue, 85, "the Sleep card stays")
+        XCTAssertEqual(merged.sleepNight, t0)
+        XCTAssertEqual(merged.sleepDebt, sleepDebt(3, computedAt: t2))
+    }
+
+    func testComputeNeverChangesTheSleepDebtFlag() {
+        // The flag is the phone's display preference: the watch computes the
+        // debt either way, and its own snapshot never carries a flag.
+        for shows in [true, false] {
+            let current = snapshot(
+                metrics: [],
+                generatedAt: t0,
+                lastRefreshDate: t0,
+                sleepDebt: sleepDebt(2, computedAt: t0),
+                showsSleepDebt: shows
+            )
+            let merged = WatchComputeMerge.mergingComputed(
+                result(metrics: [], dataAsOf: [:], sleepDebt: sleepDebt(3, computedAt: nil), sleepDebtAsOf: t2),
+                into: current
+            )
+
+            XCTAssertEqual(merged.showsSleepDebt, shows)
+            XCTAssertEqual(merged.sleepDebt?.debt, 3 * 3_600)
+        }
+    }
+
+    func testPushKeepsAFresherLocalSleepDebt() {
+        // The watch computed at t2, after a night the phone's t1 refresh hadn't seen.
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(3, computedAt: t2),
+            showsSleepDebt: true
+        )
+        let push = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t1,
+            sleepDebt: sleepDebt(2, computedAt: t1),
+            showsSleepDebt: true
+        )
+
+        let merged = WatchComputeMerge.merging(push, over: current)
+
+        XCTAssertEqual(merged.sleepDebt, sleepDebt(3, computedAt: t2))
+        XCTAssertEqual(merged.showsSleepDebt, true)
+    }
+
+    func testNewerPushReplacesTheLocalSleepDebt() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(3, computedAt: t2),
+            showsSleepDebt: true
+        )
+        let push = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t3,
+            sleepDebt: sleepDebt(2, computedAt: t3),
+            showsSleepDebt: true
+        )
+        XCTAssertEqual(WatchComputeMerge.merging(push, over: current).sleepDebt, sleepDebt(2, computedAt: t3))
+
+        // A pushed debt without its own stamp is judged by the push's refresh date.
+        let unstampedNewer = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t3,
+            sleepDebt: sleepDebt(2, computedAt: nil),
+            showsSleepDebt: true
+        )
+        XCTAssertEqual(WatchComputeMerge.merging(unstampedNewer, over: current).sleepDebt?.debt, 2 * 3_600)
+        let unstampedOlder = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t1,
+            sleepDebt: sleepDebt(2, computedAt: nil),
+            showsSleepDebt: true
+        )
+        XCTAssertEqual(WatchComputeMerge.merging(unstampedOlder, over: current).sleepDebt?.debt, 3 * 3_600)
+    }
+
+    func testPushThatHidesSleepDebtAlwaysWins() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(3, computedAt: t2),
+            showsSleepDebt: true
+        )
+        // Body Pro lapsed or the toggle went off (false), or an older phone
+        // that never shipped a debt (nil): no debt is pushed, and none stays.
+        for shows in [false, nil] as [Bool?] {
+            let push = snapshot(metrics: [], generatedAt: t3, lastRefreshDate: t1, showsSleepDebt: shows)
+
+            let merged = WatchComputeMerge.merging(push, over: current)
+
+            XCTAssertNil(merged.sleepDebt)
+            XCTAssertEqual(merged.showsSleepDebt, shows)
+        }
+    }
+
+    func testSettingsChangePushAlwaysWinsTheSleepDebt() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(3, computedAt: t2),
+            showsSleepDebt: true
+        )
+        let push = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t1,
+            sleepDebt: sleepDebt(2, computedAt: t1),
+            showsSleepDebt: true
+        )
+
+        XCTAssertEqual(
+            WatchComputeMerge.merging(push, over: current, treatingBlanksAsAuthoritative: true).sleepDebt,
+            sleepDebt(2, computedAt: t1)
+        )
+    }
+
+    func testStrippingLocalProvenanceClearsTheSleepDebtStamp() {
+        let onWatch = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(3, computedAt: t2),
+            showsSleepDebt: true
+        )
+        let stripped = WatchComputeMerge.strippingLocalProvenance(from: onWatch)
+        XCTAssertEqual(stripped.sleepDebt, sleepDebt(3, computedAt: nil), "the value stays until the push replaces it")
+
+        // So the push announcing a permission change wins, though its inputs are older.
+        let push = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t1,
+            sleepDebt: sleepDebt(2, computedAt: t1),
+            showsSleepDebt: true
+        )
+        XCTAssertEqual(WatchComputeMerge.merging(push, over: stripped).sleepDebt, sleepDebt(2, computedAt: t1))
+        XCTAssertEqual(
+            WatchComputeMerge.merging(push, over: onWatch).sleepDebt,
+            sleepDebt(3, computedAt: t2),
+            "unstripped, the fresher local debt would have stayed"
         )
     }
 }
