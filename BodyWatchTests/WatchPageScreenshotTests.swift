@@ -3,9 +3,9 @@
 //  BodyWatchTests
 //
 //  Opt-in writer for `watch-pages-screenshots/`: one full page render each
-//  for the Heart Rate and HRV detail pages at this simulator's screen size,
-//  the first screen (the 7-day chart with its daily ranges) with the "Last 8
-//  hours" chart below it. It touches the worktree, so it skips unless
+//  for the Heart Rate, HRV and Stress detail pages at this simulator's screen
+//  size, the first screen (the 7-day chart with its daily ranges) with the
+//  "Last 8 hours" chart below it. It touches the worktree, so it skips unless
 //  `BODY_WATCH_PAGE_SCREENSHOTS=1` is in the environment. Not a snapshot
 //  test.
 //
@@ -44,31 +44,49 @@ final class WatchPageScreenshotTests: XCTestCase {
             ("02-hrv", hrv)
         ]
 
-        let device = WKInterfaceDevice.current()
-        let screen = device.screenBounds.size
         for item in cases {
-            let page = VStack(spacing: 0) {
-                WatchMetricDetailView(metric: item.metric, generatedAt: now, referenceDate: now)
-                    .frame(width: screen.width, height: screen.height)
+            try writePage(item.name, metric: item.metric, now: now, to: directory) {
                 WatchIntradayChartView(
                     chart: .preview(kind: item.metric.kind, now: now),
                     kind: item.metric.kind,
                     tint: Color(WatchMetricKindKey.tint(forKind: item.metric.kind))
                 )
+            }
+        }
+
+        try writePage("03-stress", metric: stress(now: now), now: now, to: directory) {
+            WatchStressChartView(timeline: .preview(now: now), now: now, palette: .builtIn)
+        }
+    }
+
+    /// Stacks the page's first screen over `chart`, framed and padded as
+    /// `WatchMetricDetailView` lays a chart section out, and writes the PNG.
+    private func writePage<Chart: View>(
+        _ name: String,
+        metric: WatchMetric,
+        now: Date,
+        to directory: URL,
+        @ViewBuilder chart: () -> Chart
+    ) throws {
+        let device = WKInterfaceDevice.current()
+        let screen = device.screenBounds.size
+        let page = VStack(spacing: 0) {
+            WatchMetricDetailView(metric: metric, generatedAt: now, referenceDate: now)
+                .frame(width: screen.width, height: screen.height)
+            chart()
                 .frame(height: 86)
                 .padding(.top, 10)
                 .padding(.bottom, 12)
                 .padding(.horizontal, 8)
                 .frame(width: screen.width)
-            }
-            .background(Color.black)
-
-            let renderer = ImageRenderer(content: page)
-            renderer.scale = device.screenScale
-            let image = try XCTUnwrap(renderer.uiImage, item.name)
-            let data = try XCTUnwrap(image.pngData(), item.name)
-            try data.write(to: directory.appendingPathComponent("\(item.name).png"))
         }
+        .background(Color.black)
+
+        let renderer = ImageRenderer(content: page)
+        renderer.scale = device.screenScale
+        let image = try XCTUnwrap(renderer.uiImage, name)
+        let data = try XCTUnwrap(image.pngData(), name)
+        try data.write(to: directory.appendingPathComponent("\(name).png"))
     }
 
     private var heartRate: WatchMetric {
@@ -106,6 +124,32 @@ final class WatchPageScreenshotTests: XCTestCase {
                 .init(low: 24, high: 66), .init(low: 29, high: 78), .init(low: 22, high: 61), nil,
                 .init(low: 31, high: 84), .init(low: 27, high: 70), .init(low: 25, high: 62)
             ]
+        )
+    }
+
+    /// Today's average in the Relaxed band, the status word beside it, and a
+    /// week with each day's low to high range.
+    private func stress(now: Date) -> WatchMetric {
+        WatchMetric(
+            kind: WatchMetricKindKey.stress,
+            title: "Stress",
+            displayValue: "42",
+            unit: "",
+            score: 42,
+            fillFraction: 0.42,
+            rawValue: 42,
+            rangeMin: 0,
+            rangeMax: 100,
+            levelMin: 25.5,
+            levelMax: 50.5,
+            tint: WatchMetricColor(red: 0.20, green: 0.80, blue: 0.45),
+            weekly: [38, 51, 44, nil, 35, 47, 42],
+            weeklyAsOf: now,
+            weeklyRanges: [
+                .init(low: 9, high: 78), .init(low: 12, high: 86), .init(low: 10, high: 74), nil,
+                .init(low: 8, high: 69), .init(low: 11, high: 81), .init(low: 9, high: 82)
+            ],
+            statusBand: WatchStatusBand(min: 25.5, max: 50.5, label: "Relaxed")
         )
     }
 }

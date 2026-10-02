@@ -6,11 +6,12 @@
 //  metric's fixed kind color washes the whole screen (the status-band color
 //  appears only on the band highlight and the status label, matching the iOS
 //  detail page), the title sits top-right, the recent-
-//  week chart sits below it (on Heart Rate and HRV with each day's low to
-//  high range under the line), and the current value reads large at the
-//  bottom-left — followed, for Readiness and Training Load, by the status level
-//  beside it ("85 · HIGH"), and on Sleep by the night's duration under the same
-//  dot ("85 pts · 7h 32m"). On the Sleep page, whenever the snapshot carries
+//  week chart sits below it (on Heart Rate, HRV and Stress with each day's low
+//  to high range under the line), and the current value reads large at the
+//  bottom-left — followed, for Readiness, Training Load and Stress, by the
+//  status level beside it ("85 · HIGH"), and on Sleep by the night's duration
+//  under the same dot ("85 pts · 7h 32m"). On the Sleep page, whenever the
+//  snapshot carries
 //  the night's stages or a Sleep Debt to chart, that first screen scrolls: the
 //  week chart stays exactly where it is and the night's stages hypnogram
 //  (`WatchSleepStagesChartView`) is added below the value row, reached by
@@ -20,14 +21,17 @@
 //  complication's bar chart (`WatchExerciseWeekChartView`) below its value row.
 //  The Heart Rate and HRV pages scroll the same way whenever the watch has
 //  readings from the last 8 hours, adding the "Last 8 hours" chart
-//  (`WatchIntradayChartView`) below their value row.
+//  (`WatchIntradayChartView`) below their value row. The Stress page scrolls
+//  the same way whenever the snapshot's Stress timeline has a window in the
+//  last 8 hours, adding its own "Last 8 hours" chart (`WatchStressChartView`)
+//  below its value row.
 //  The
 //  tint fill is the page's own background so it slides with the vertical
 //  pager, giving a smooth color transition between metrics. Display-only: it
 //  reads the `weekly` series and its daily ranges, `statusBand`, sleep score, sleep stages, and
 //  workout minutes the iPhone baked into the pushed snapshot, the Sleep Debt
-//  the phone pushes or the watch recomputes, and the last 8 hours the watch
-//  reads itself (nothing is computed here).
+//  the phone pushes or the watch recomputes, the Stress timeline likewise,
+//  and the last 8 hours the watch reads itself (nothing is computed here).
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -61,6 +65,13 @@ struct WatchMetricDetailView: View {
     /// `WatchIntradayChartStore`), drawn below the Heart Rate or HRV page's
     /// info (the week chart stays). Ignored on every other page.
     var intradayChart: WatchIntradayChart? = nil
+    /// The snapshot's `stressTimeline` (the recent 15 minute Stress windows),
+    /// drawn below the Stress page's info (the week chart stays). Ignored on
+    /// every other page.
+    var stressTimeline: WatchStressTimeline? = nil
+    /// The snapshot's `workoutColorOverrides`, already resolved for Body Pro
+    /// by the phone, for the workout shading on the Stress chart.
+    var workoutColorOverrides: String? = nil
 
     /// The page theme (title, background wash, chart line): the metric's static
     /// kind color, matching the iOS detail page — never the status-band color.
@@ -163,6 +174,21 @@ struct WatchMetricDetailView: View {
         Self.intradayChart(intradayChart, kind: metric.kind)
     }
 
+    /// The Stress page's timeline, added below the page's info and making the
+    /// page scroll, or nil (the page reads exactly like every other metric's)
+    /// on any other page or when no scored or movement window falls in the
+    /// last 8 hours before `now` (a timeline that stopped advancing ages out
+    /// here, so it needs no sanitize rule).
+    static func stressTimeline(_ timeline: WatchStressTimeline?, kind: String, now: Date, calendar: Calendar = .current) -> WatchStressTimeline? {
+        guard kind == WatchMetricKindKey.stress, let timeline,
+              WatchStressChartView.hasVisibleMarks(timeline, endingAt: now, calendar: calendar) else { return nil }
+        return timeline
+    }
+
+    private var visibleStressTimeline: WatchStressTimeline? {
+        Self.stressTimeline(stressTimeline, kind: metric.kind, now: referenceDate)
+    }
+
     private var trailingLabel: String? {
         guard sleepScore == nil else { return metric.displayValue }
         guard let label = metric.statusBand?.label else { return nil }
@@ -174,7 +200,8 @@ struct WatchMetricDetailView: View {
             backgroundGradient
                 .ignoresSafeArea()
 
-            if sleepStageSegments != nil || sleepDebtSection != nil || exerciseWeekly != nil || visibleIntradayChart != nil {
+            if sleepStageSegments != nil || sleepDebtSection != nil || exerciseWeekly != nil || visibleIntradayChart != nil
+                || visibleStressTimeline != nil {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
                         pageContent
@@ -206,6 +233,17 @@ struct WatchMetricDetailView: View {
                                 .frame(height: 86)
                                 .padding(.top, 10)
                                 .padding(.bottom, 12)
+                        }
+
+                        if let visibleStressTimeline {
+                            WatchStressChartView(
+                                timeline: visibleStressTimeline,
+                                now: referenceDate,
+                                palette: BodyWorkoutColorPalette(rawOverrides: workoutColorOverrides ?? "", isProUnlocked: true)
+                            )
+                            .frame(height: 86)
+                            .padding(.top, 10)
+                            .padding(.bottom, 12)
                         }
                     }
                     .padding(.horizontal, 8)
@@ -398,5 +436,30 @@ struct WatchMetricDetailView: View {
                 .init(low: 31, high: 84), .init(low: 27, high: 70), .init(low: 25, high: 68)
             ]
         ), intradayChart: .preview(kind: WatchMetricKindKey.heartRateVariability))
+    }
+}
+
+#Preview("Stress") {
+    NavigationStack {
+        WatchMetricDetailView(metric: WatchMetric(
+            kind: WatchMetricKindKey.stress,
+            title: "Stress",
+            displayValue: "42",
+            unit: "",
+            score: 42,
+            fillFraction: 0.42,
+            rawValue: 42,
+            rangeMin: 0,
+            rangeMax: 100,
+            levelMin: 25.5,
+            levelMax: 50.5,
+            tint: WatchMetricColor(red: 0.20, green: 0.80, blue: 0.45),
+            weekly: [38, 51, 44, nil, 35, 47, 42],
+            weeklyRanges: [
+                .init(low: 9, high: 78), .init(low: 12, high: 86), .init(low: 10, high: 74), nil,
+                .init(low: 8, high: 69), .init(low: 11, high: 81), .init(low: 9, high: 82)
+            ],
+            statusBand: WatchStatusBand(min: 25.5, max: 50.5, label: "Relaxed")
+        ), stressTimeline: .preview())
     }
 }

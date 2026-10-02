@@ -8,7 +8,9 @@
 //  position). Entered from a dashboard card or a complication tap, it opens
 //  positioned on the chosen metric — the order doesn't change. While the
 //  Heart Rate or HRV page is the visible one, it keeps that page's "Last 8
-//  hours" chart fresh (`WatchIntradayChartStore`).
+//  hours" chart fresh (`WatchIntradayChartStore`). The Stress page's "Last 8
+//  hours" chart rides the snapshot instead (the compute builds it alongside
+//  the Stress value), so it is not read here.
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -63,7 +65,9 @@ struct WatchMetricDetailPager: View {
                         sleepStages: model.snapshot.sleepStages,
                         sleepDebt: model.snapshot.showsSleepDebt == true ? model.snapshot.sleepDebt : nil,
                         exerciseWeekMetric: WatchComplicationTimeline.exerciseWeekMetric(in: model.snapshot),
-                        intradayChart: intradayCharts.charts[metric.kind]
+                        intradayChart: intradayCharts.charts[metric.kind],
+                        stressTimeline: model.snapshot.stressTimeline,
+                        workoutColorOverrides: model.snapshot.workoutColorOverrides
                     )
                         .tag(metric.kind as String?)
                 }

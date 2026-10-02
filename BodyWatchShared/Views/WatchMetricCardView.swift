@@ -14,7 +14,16 @@ import SwiftUI
 struct WatchMetricCardView: View {
     let metric: WatchMetric
 
-    private var color: Color { Color(metric.resolvedTint) }
+    private var color: Color { Color(Self.symbolTint(for: metric)) }
+
+    /// The symbol bubble's color: the carried status color, except Stress,
+    /// whose iPhone card keeps the fixed Stress pink whatever the band (the
+    /// band color stays on its detail page's status label).
+    static func symbolTint(for metric: WatchMetric) -> WatchMetricColor {
+        metric.kind == WatchMetricKindKey.stress
+            ? WatchMetricKindKey.tint(forKind: metric.kind)
+            : metric.resolvedTint
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
