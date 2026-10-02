@@ -237,23 +237,6 @@
         }
       }
     },
-    "Last 12 hours" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Last 12 hours"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最近 12 小时"
-          }
-        }
-      }
-    },
     "Last 8 hours" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -267,6 +250,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最近 8 小时"
+          }
+        }
+      }
+    },
+    "Last 12 hours" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last 12 hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近 12 小时"
           }
         }
       }
@@ -555,6 +555,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "今日已过占比"
+          }
+        }
+      }
+    },
+    "Total" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总计"
           }
         }
       }
