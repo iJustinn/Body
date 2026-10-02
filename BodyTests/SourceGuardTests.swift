@@ -3549,7 +3549,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.5 (build 2)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.5 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.5 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.5 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.3 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.3 (build 7)**"))
@@ -3711,6 +3712,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.5 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.5 build 3."))
         XCTAssertTrue(versionHistory.contains("## 1.1.5 (build 2)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.5 build 2."))
         XCTAssertTrue(versionHistory.contains("## 1.1.5 (build 1)"))
@@ -5348,6 +5351,58 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertLessThan(sleepStagesIndex, readinessIndex)
     }
 
+    func testDailyTotalWeekComplicationsArePinnedToAccessoryRectangular() throws {
+        let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/DailyTotalWeekComplications.swift")
+        let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
+        // The gallery placeholder is generated at `.distantPast`, so rewinding
+        // its week onto today would shift every sample bar out and preview the
+        // empty state; the view draws that snapshot's week as is.
+        XCTAssertTrue(source.contains("entry.snapshot.generatedAt == .distantPast"))
+        // Comment lines are dropped for the negative checks below, so prose
+        // that names what the header avoids can't fail them.
+        let code = source
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+
+        // Rectangular-slot only, like Weekly Workout Time: a header over seven
+        // bars has nowhere to lay out in a circular or corner slot. The file
+        // holds three widgets (Steps, Active Energy, Resting Energy), each
+        // pinned once.
+        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryRectangular])"), 3)
+
+        // Free, like the other bar complications: no Body Pro gate.
+        XCTAssertFalse(source.contains("BodyProEntitlement"))
+
+        // A face stores the widget kind, so renaming one silently drops the
+        // complication from every face it is on.
+        for kind in ["\"BodyWatchStepsWeek\"", "\"BodyWatchActiveEnergyWeek\"", "\"BodyWatchRestingEnergyWeek\""] {
+            XCTAssertTrue(source.contains(kind), kind)
+        }
+
+        // Tapping opens that metric's own detail page, and the bars are the
+        // shared view the detail pages draw.
+        XCTAssertTrue(source.contains("WatchMetricDeepLink.url(forKind:"))
+        XCTAssertTrue(source.contains("WatchWeekBarsView("))
+
+        // The energy header picks KCAL or KJ from `usesKilojoules`, never from
+        // the metric's unit string, which the midnight clear blanks.
+        XCTAssertTrue(source.contains("usesKilojoules"))
+        XCTAssertFalse(code.contains("metric.unit"))
+        XCTAssertFalse(code.contains("metric?.unit"))
+
+        // A widget type that is never registered in its bundle compiles and
+        // ships, but never appears in the gallery. The picker lists the three
+        // after Resting HR, in the watch's card order.
+        let restingHeartRateIndex = try XCTUnwrap(watchBundle.range(of: "RestingHeartRateComplication()")?.lowerBound)
+        let stepsIndex = try XCTUnwrap(watchBundle.range(of: "StepsWeekComplication()")?.lowerBound)
+        let activeEnergyIndex = try XCTUnwrap(watchBundle.range(of: "ActiveEnergyWeekComplication()")?.lowerBound)
+        let restingEnergyIndex = try XCTUnwrap(watchBundle.range(of: "RestingEnergyWeekComplication()")?.lowerBound)
+        XCTAssertLessThan(restingHeartRateIndex, stepsIndex)
+        XCTAssertLessThan(stepsIndex, activeEnergyIndex)
+        XCTAssertLessThan(activeEnergyIndex, restingEnergyIndex)
+    }
+
     func testReadinessComplicationDrawsTheHeroArc() throws {
         let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
         let complicationSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/ReadinessComplicationView.swift")
@@ -5387,7 +5442,7 @@ final class SourceGuardTests: XCTestCase {
 
     func testRectangularWatchComplicationRowsLeadWithTheReading() throws {
         // No drawn border: the system owns a rectangular slot's outline.
-        for file in ["WatchComplicationView", "ReadinessComplicationView", "ExerciseWeekComplication", "SleepStagesComplication"] {
+        for file in ["WatchComplicationView", "ReadinessComplicationView", "ExerciseWeekComplication", "SleepStagesComplication", "DailyTotalWeekComplications"] {
             let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/\(file).swift")
             XCTAssertFalse(source.contains("strokeBorder"), file)
         }

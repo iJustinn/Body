@@ -7,7 +7,8 @@
 //  appears only on the band highlight and the status label, matching the iOS
 //  detail page), the title sits top-right, the recent-
 //  week chart sits below it (on Heart Rate, HRV and Stress with each day's low
-//  to high range under the line), and the current value reads large at the
+//  to high range under the line; on Steps, Active Energy and Resting Energy as
+//  daily total bars, `WatchWeekBarsView`), and the current value reads large at the
 //  bottom-left — followed, for Readiness, Training Load and Stress, by the
 //  status level beside it ("85 · HIGH"; Readiness and Training Load also
 //  highlight that level's band behind the week chart, Stress doesn't), and on
@@ -119,6 +120,13 @@ struct WatchMetricDetailView: View {
     /// week as the daily averages and their ranges alone, so it has none.
     static func sparklineBand(for metric: WatchMetric) -> WatchStatusBand? {
         metric.kind == WatchMetricKindKey.stress ? nil : metric.statusBand
+    }
+
+    /// Steps, Active Energy and Resting Energy are daily totals, so their week
+    /// draws as bars (`WatchWeekBarsView`, the same chart as their
+    /// complications) instead of the line every other metric gets.
+    static func drawsWeekBars(forKind kind: String) -> Bool {
+        WatchMetricKindKey.dailyTotalKinds.contains(kind)
     }
 
     /// The night's 0–100 sleep score, as the iPhone baked it into the Sleep
@@ -273,7 +281,11 @@ struct WatchMetricDetailView: View {
         VStack(alignment: .leading, spacing: 0) {
             titleRow
 
-            if let weekly {
+            if let weekly, Self.drawsWeekBars(forKind: metric.kind) {
+                WatchWeekBarsView(weekly: weekly, today: referenceDate, tint: pageTint, labelColor: .white.opacity(0.7))
+                    .frame(height: 86)
+                    .padding(.top, 4)
+            } else if let weekly {
                 WatchSparklineView(
                     values: weekly,
                     tint: pageTint,

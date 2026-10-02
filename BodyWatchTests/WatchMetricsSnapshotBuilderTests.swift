@@ -375,3 +375,73 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         XCTAssertNil(snapshot.metric(forKind: WatchMetricKindKey.sleep)?.usesFahrenheit)
     }
 }
+
+// MARK: - The day's running totals: midnight clear (`sanitized`)
+
+extension WatchMetricsSnapshotBuilderTests {
+    private func totalMetric(_ kind: String, weeklyAsOf: Date?, usesKilojoules: Bool? = nil) -> WatchMetric {
+        WatchMetric(
+            kind: kind,
+            title: kind,
+            displayValue: "8,432",
+            unit: kind == WatchMetricKindKey.steps ? "" : "kcal",
+            score: nil,
+            fillFraction: 0.7,
+            rawValue: 8_432,
+            rangeMin: 0,
+            rangeMax: 11_020,
+            weekly: [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 8_432],
+            weeklyAsOf: weeklyAsOf,
+            usesKilojoules: usesKilojoules
+        )
+    }
+
+    func testSanitizeClearsADailyTotalBuiltOnAnEarlierDayButKeepsItsWeek() throws {
+        let built = WatchMetricsSnapshot(
+            generatedAt: day(3), lastRefreshDate: day(3),
+            metrics: [
+                totalMetric(WatchMetricKindKey.steps, weeklyAsOf: day(3)),
+                totalMetric(WatchMetricKindKey.activeEnergy, weeklyAsOf: day(3), usesKilojoules: true),
+                totalMetric(WatchMetricKindKey.restingEnergy, weeklyAsOf: nil)
+            ]
+        )
+        let sanitized = built.sanitized(asOf: day(4))
+
+        for kind in WatchMetricKindKey.dailyTotalKinds {
+            let metric = try XCTUnwrap(sanitized.metric(forKind: kind), kind)
+            XCTAssertEqual(metric.displayValue, "--", kind)
+            XCTAssertEqual(metric.unit, "", kind)
+            XCTAssertNil(metric.rawValue, kind)
+            XCTAssertEqual(metric.fillFraction, 0, kind)
+            XCTAssertEqual(metric.weekly, [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 8_432], kind)
+        }
+        XCTAssertEqual(
+            sanitized.metric(forKind: WatchMetricKindKey.activeEnergy)?.usesKilojoules, true,
+            "the complication header still names the week's unit after the clear"
+        )
+    }
+
+    func testSanitizeKeepsADailyTotalBuiltToday() {
+        let built = WatchMetricsSnapshot(
+            generatedAt: day(4), lastRefreshDate: day(4),
+            metrics: [totalMetric(WatchMetricKindKey.steps, weeklyAsOf: day(4).addingTimeInterval(-6 * 3_600))]
+        )
+        XCTAssertEqual(built.sanitized(asOf: day(4).addingTimeInterval(10 * 3_600)), built)
+    }
+
+    func testSanitizeLeavesABlankDailyTotalAlone() {
+        var blank = totalMetric(WatchMetricKindKey.restingEnergy, weeklyAsOf: nil)
+        blank = blank.cleared()
+        let built = WatchMetricsSnapshot(generatedAt: day(3), lastRefreshDate: day(3), metrics: [blank])
+        XCTAssertEqual(built.sanitized(asOf: day(4)), built)
+    }
+
+    /// The detail page blanks today's bar under a cleared headline, so a
+    /// total cleared at midnight never shows yesterday's bar as today's.
+    func testSparklineWeeklyBlanksTodayUnderAClearedDailyTotal() {
+        let cleared = totalMetric(WatchMetricKindKey.steps, weeklyAsOf: day(4)).cleared()
+        let weekly = WatchMetricDetailView.sparklineWeekly(metric: cleared, generatedAt: day(4), today: day(4), calendar: calendar)
+        XCTAssertEqual(weekly?.last ?? nil, nil)
+        XCTAssertEqual(weekly?.compactMap { $0 }.count, 6)
+    }
+}

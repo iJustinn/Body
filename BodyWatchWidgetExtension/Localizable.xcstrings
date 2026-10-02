@@ -1,6 +1,57 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ KCAL THIS WEEK" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ KCAL THIS WEEK"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周 %@ 千卡"
+          }
+        }
+      }
+    },
+    "%@ KJ THIS WEEK" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ KJ THIS WEEK"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周 %@ 千焦"
+          }
+        }
+      }
+    },
+    "%@ STEPS THIS WEEK" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ STEPS THIS WEEK"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周 %@ 步"
+          }
+        }
+      }
+    },
     "%lld MIN THIS WEEK" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31,6 +82,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "睡眠 %1$lld 小时 %2$lld 分"
+          }
+        }
+      }
+    },
+    "Active Energy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active Energy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "活动能量"
           }
         }
       }
@@ -137,6 +205,23 @@
         }
       }
     },
+    "Resting Energy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resting Energy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "静息能量"
+          }
+        }
+      }
+    },
     "Resting HR" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -201,6 +286,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "睡眠阶段"
+          }
+        }
+      }
+    },
+    "Steps" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Steps"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步数"
+          }
+        }
+      }
+    },
+    "This week's daily active energy." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This week's daily active energy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周每日活动能量。"
+          }
+        }
+      }
+    },
+    "This week's daily resting energy." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This week's daily resting energy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周每日静息能量。"
+          }
+        }
+      }
+    },
+    "This week's daily steps." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This week's daily steps."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周每日步数。"
           }
         }
       }

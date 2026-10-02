@@ -115,6 +115,29 @@ final class WatchComputeStaleGateTests: XCTestCase {
         XCTAssertFalse(isStale(metrics: [stress], lastComputeAttemptDate: nil, lastComputeDate: now))
     }
 
+    /// The day's running totals are stamped by a compute (a successful week
+    /// read, coverage semantics), so they are scanned like Stress: fresh right
+    /// after a compute, stale once their stamp ages past the window, never a
+    /// permanently-true gate.
+    func testFreshDailyTotalsAreNotStaleAndAgedOnesAre() {
+        var steps = WatchMetric(
+            kind: WatchMetricKindKey.steps,
+            title: "Steps",
+            displayValue: "8,432",
+            unit: "",
+            score: nil,
+            fillFraction: 0.7,
+            rawValue: 8_432
+        )
+        steps.computedAt = now
+        steps.liveUpdatedAt = now
+        XCTAssertFalse(isStale(metrics: [steps], lastComputeAttemptDate: nil, lastComputeDate: now))
+
+        steps.computedAt = now.addingTimeInterval(-staleInterval - 60)
+        steps.liveUpdatedAt = steps.computedAt
+        XCTAssertTrue(isStale(metrics: [steps], lastComputeAttemptDate: nil, lastComputeDate: now))
+    }
+
     /// A hidden metric is not on screen, so its staleness must not drive the
     /// gate (the visibility closure is the model's own `isMetricVisible`).
     func testHiddenMetricsAreNotScanned() {

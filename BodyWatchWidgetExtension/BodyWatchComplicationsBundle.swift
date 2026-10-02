@@ -6,8 +6,10 @@
 //  BodyWidgetExtensionBundle's static-per-widget pattern), each supporting
 //  the circular ring, the rectangular row, and the corner gauge, plus two
 //  rectangular-only bar complications (weekly Exercise minutes, last night's
-//  Sleep stages) that lead the list. Readiness draws the home hero's
-//  segmented bands instead of the single ring (`ReadinessComplicationView`).
+//  Sleep stages) that lead the list, and three more (this week's daily Steps,
+//  Active Energy and Resting Energy) listed right after Resting HR, in the
+//  watch's card order. Readiness draws the home hero's segmented bands
+//  instead of the single ring (`ReadinessComplicationView`).
 //
 //  Note: full magenta renders in the Smart Stack and full-color faces; in
 //  tinted watch-face accessory slots the system recolors the ring (or bars)
@@ -27,6 +29,9 @@ struct BodyWatchComplicationsBundle: WidgetBundle {
         HeartRateComplication()
         HRVComplication()
         RestingHeartRateComplication()
+        StepsWeekComplication()
+        ActiveEnergyWeekComplication()
+        RestingEnergyWeekComplication()
         TrainingLoadComplication()
         SkinTemperatureComplication()
     }
