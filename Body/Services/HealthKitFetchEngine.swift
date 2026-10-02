@@ -1890,54 +1890,22 @@ actor HealthKitFetchEngine {
         let days: [Date: DayEstimates]
     }
 
-    struct DayEstimates: Equatable {
-        /// What the day's large samples add to the sum of its small ones.
-        var total = 0.0
-        /// The estimates behind an averaged day, by time, for the chart
-        /// callout. Empty when no source repeated an estimate.
-        var records: [HealthTrendDataPoint] = []
-    }
+    // The fold itself lives in the shared kit (`BodyRestingEnergyEstimates`)
+    // so the watch's week of daily resting energy totals counts a scale's
+    // estimates exactly as this engine does. These names forward to it, so
+    // the queries above and the estimate tests read unchanged.
+    typealias DayEstimates = BodyRestingEnergyEstimates.Day
+    typealias DailyEstimateSample = BodyRestingEnergyEstimates.Sample
 
-    struct DailyEstimateSample: Hashable {
-        let start: Date
-        let end: Date
-        let source: String
-        let value: Double
-    }
+    nonisolated static let dailyEstimateMinimumKilocalories = BodyRestingEnergyEstimates.minimumKilocalories
 
-    nonisolated static let dailyEstimateMinimumKilocalories = 500.0
-
-    /// A large sample logged over under an hour is a whole-day estimate, not
-    /// energy burned in that time: per source and day, exact duplicates
-    /// collapse and the rest count once, at their average. A large sample
-    /// logged over longer is ordinary energy and counts in full.
+    /// `BodyRestingEnergyEstimates.fold(samples:calendar:)`, under the
+    /// engine's own name.
     nonisolated static func dailyEstimates(
         samples: [DailyEstimateSample],
         calendar: Calendar
     ) -> [Date: DayEstimates] {
-        struct Key: Hashable {
-            let day: Date
-            let source: String
-        }
-        var days: [Date: DayEstimates] = [:]
-        var estimates: [DailyEstimateSample] = []
-        for sample in samples {
-            if sample.end.timeIntervalSince(sample.start) < 3600 {
-                estimates.append(sample)
-            } else {
-                days[calendar.startOfDay(for: sample.start), default: .init()].total += sample.value
-            }
-        }
-        let groups = Dictionary(grouping: Set(estimates)) { Key(day: calendar.startOfDay(for: $0.start), source: $0.source) }
-        for (key, group) in groups {
-            days[key.day, default: .init()].total += group.reduce(0) { $0 + $1.value } / Double(group.count)
-            if group.count > 1 {
-                days[key.day, default: .init()].records += group.map { HealthTrendDataPoint(date: $0.start, value: $0.value) }
-            }
-        }
-        return days.mapValues { day in
-            DayEstimates(total: day.total, records: day.records.sorted { ($0.date, $0.value) < ($1.date, $1.value) })
-        }
+        BodyRestingEnergyEstimates.fold(samples: samples, calendar: calendar)
     }
 
     func fetchDailyCumulativeQuantitySeries(

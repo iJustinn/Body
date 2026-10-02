@@ -275,6 +275,159 @@ enum BodyHealthQuantityFetch {
         }
     }
 
+    /// One point per calendar day over `[start, end]`, from a one-day
+    /// cumulative-sum collection anchored at the window's `startOfDay`: the
+    /// daily-total shape of steps, active energy and resting energy, read on
+    /// the watch for the week behind their cards and 7 day bars. Each point is
+    /// dated at its day's start. A day with no sum or a non-finite value is
+    /// omitted and a finite zero is kept, exactly as the phone's
+    /// `fetchDailyCumulativeQuantitySeries` does, so the watch's week and
+    /// today's total read the same as the iPhone's for the same samples
+    /// (unlike `hourlyCumulativeSeries`, whose idle hours are absent by
+    /// design).
+    ///
+    /// Resting energy (`.basalEnergyBurned`) applies that engine's
+    /// scale-estimate rule: the samples of
+    /// `BodyRestingEnergyEstimates.minimumKilocalories` or more under the
+    /// caller's predicate are read on their own and folded per source and day
+    /// (`BodyRestingEnergyEstimates.fold`), the collection sums only the
+    /// smaller ones, and each day's estimate total is added back before
+    /// `valueTransform`, so a day holding only an estimate still gets a point
+    /// (carrying the repeated estimates as `records`, like the phone's). When
+    /// that sample read fails the plain sum is used, as on the phone.
+    static func dailyCumulativeSeries(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        start: Date,
+        end: Date,
+        calendar: Calendar,
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        let anchor = calendar.startOfDay(for: start)
+        var intervalComponents = DateComponents()
+        intervalComponents.day = 1
+
+        var estimates: RestingEnergyEstimates?
+        if quantityType.identifier == HKQuantityTypeIdentifier.basalEnergyBurned.rawValue {
+            switch await restingEnergyEstimates(
+                store: store,
+                quantityType: quantityType,
+                predicate: predicate,
+                unit: unit,
+                calendar: calendar
+            ) {
+            case .cancelled:
+                // The run is being torn down: the collection below would only
+                // be cancelled too.
+                return .failure
+            case .failed:
+                estimates = nil
+            case .read(let read):
+                estimates = read
+            }
+        }
+
+        switch await store.cumulativeQuantities(
+            BodyStatisticsCollectionRequest(
+                quantityType: quantityType,
+                predicate: estimates?.sumPredicate ?? predicate,
+                options: .cumulativeSum,
+                anchorDate: anchor,
+                intervalComponents: intervalComponents
+            ), from: start, to: end
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let sums):
+            var sumsByDay: [Date: Double] = [:]
+            for dated in sums {
+                sumsByDay[calendar.startOfDay(for: dated.date)] = dated.quantity.doubleValue(for: unit)
+            }
+
+            // A day holding only an estimate has no sum to enumerate.
+            let days = Set(sumsByDay.keys).union(estimates?.days.keys.map { $0 } ?? [])
+            let points = days.sorted().compactMap { day -> HealthTrendDataPoint? in
+                let estimate = estimates?.days[day]
+                let value = valueTransform((sumsByDay[day] ?? 0) + (estimate?.total ?? 0))
+                guard value.isFinite else {
+                    return nil
+                }
+                let records = estimate?.records ?? []
+                return HealthTrendDataPoint(date: day, value: value, records: records.isEmpty ? nil : records)
+            }
+
+            return .success(HealthTrendSeries(points: points))
+        }
+    }
+
+    /// The large resting energy samples `dailyCumulativeSeries` adds back per
+    /// day, and the predicate its collection sums the rest under.
+    private struct RestingEnergyEstimates {
+        /// The caller's predicate AND below the estimate threshold: everything
+        /// but the large samples `days` accounts for.
+        let sumPredicate: NSPredicate
+        let days: [Date: BodyRestingEnergyEstimates.Day]
+    }
+
+    private enum RestingEnergyEstimatesRead {
+        case read(RestingEnergyEstimates)
+        case failed
+        case cancelled
+    }
+
+    /// The phone engine's `dailyEstimates(for:...)` query through the store
+    /// seam: the samples at or above the threshold under the caller's
+    /// predicate (window and source), folded by the shared
+    /// `BodyRestingEnergyEstimates.fold`.
+    private static func restingEnergyEstimates(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        calendar: Calendar
+    ) async -> RestingEnergyEstimatesRead {
+        let threshold = HKQuantity(unit: .kilocalorie(), doubleValue: BodyRestingEnergyEstimates.minimumKilocalories)
+        func bounded(_ comparison: NSComparisonPredicate.Operator) -> NSPredicate {
+            NSCompoundPredicate(andPredicateWithSubpredicates: [
+                predicate, HKQuery.predicateForQuantitySamples(with: comparison, quantity: threshold)
+            ].compactMap { $0 })
+        }
+
+        switch await store.samples(
+            BodySampleRequest(
+                sampleType: quantityType,
+                predicate: bounded(.greaterThanOrEqualTo),
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: []
+            )
+        ) {
+        case .failure:
+            return .failed
+        case .cancelled:
+            return .cancelled
+        case .success(let samples):
+            let estimateSamples = samples.compactMap { sample -> BodyRestingEnergyEstimates.Sample? in
+                guard let quantitySample = sample as? HKQuantitySample else { return nil }
+                return BodyRestingEnergyEstimates.Sample(
+                    start: quantitySample.startDate,
+                    end: quantitySample.endDate,
+                    source: quantitySample.sourceRevision.source.bundleIdentifier,
+                    value: quantitySample.quantity.doubleValue(for: unit)
+                )
+            }
+            return .read(RestingEnergyEstimates(
+                sumPredicate: bounded(.lessThan),
+                days: BodyRestingEnergyEstimates.fold(samples: estimateSamples, calendar: calendar)
+            ))
+        }
+    }
+
     /// The latest day's value of `dailyQuantitySeries` — the summary tile for a
     /// metric whose headline is "the most recent day we have", not "the most
     /// recent sample". A window with no points at all is a genuine absence
