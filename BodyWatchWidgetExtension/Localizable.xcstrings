@@ -307,6 +307,23 @@
         }
       }
     },
+    "Stress" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stress"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压力"
+          }
+        }
+      }
+    },
     "This week's daily workout minutes." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -439,6 +456,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "心率变异性圆环。"
+          }
+        }
+      }
+    },
+    "Your latest stress reading." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your latest stress reading."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最新压力读数。"
           }
         }
       }

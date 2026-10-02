@@ -9,7 +9,10 @@
 //  Sleep stages) that lead the list, and three more (this week's daily Steps,
 //  Active Energy and Resting Energy) listed right after Resting HR, in the
 //  watch's card order. Readiness draws the home hero's segmented bands
-//  instead of the single ring (`ReadinessComplicationView`).
+//  instead of the single ring (`ReadinessComplicationView`). Stress, after
+//  Training Load as on the dashboard, has its own circular and rectangular
+//  complication (`StressComplication`): it shows the latest reading rather
+//  than the card's daily average.
 //
 //  Note: full magenta renders in the Smart Stack and full-color faces; in
 //  tinted watch-face accessory slots the system recolors the ring (or bars)
@@ -33,6 +36,7 @@ struct BodyWatchComplicationsBundle: WidgetBundle {
         ActiveEnergyWeekComplication()
         RestingEnergyWeekComplication()
         TrainingLoadComplication()
+        StressComplication()
         SkinTemperatureComplication()
     }
 }

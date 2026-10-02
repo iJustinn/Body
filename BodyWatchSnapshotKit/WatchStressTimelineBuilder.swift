@@ -77,7 +77,7 @@ enum WatchStressTimelineBuilder {
         }
         guard slots.contains(where: { $0 != nil }) else { return nil }
 
-        return WatchStressTimeline(
+        var timeline = WatchStressTimeline(
             start: start,
             end: now,
             slots: slots,
@@ -90,6 +90,13 @@ enum WatchStressTimelineBuilder {
             ),
             computedAt: computedAt
         )
+        // The Stress complication's band name, for the widget extension that
+        // has no `StressBand`.
+        if let latest = timeline.latestScoredWindow {
+            let band = StressBand.band(for: latest.score)
+            timeline.latestBand = WatchStatusBand(min: band.lowerBound, max: band.upperBound, label: band.title)
+        }
+        return timeline
     }
 
     /// The shading behind the windows, the same context the iPhone's Stress

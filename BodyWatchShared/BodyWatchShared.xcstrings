@@ -103,6 +103,23 @@
         }
       }
     },
+    "Relaxed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relaxed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放松"
+          }
+        }
+      }
+    },
     "Resting Energy": {
       "extractionState": "manual",
       "localizations": {
@@ -184,6 +201,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "步数"
+          }
+        }
+      }
+    },
+    "Stress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stress"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压力"
           }
         }
       }

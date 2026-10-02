@@ -5414,6 +5414,44 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertLessThan(activeEnergyIndex, restingEnergyIndex)
     }
 
+    func testStressComplicationShowsTheLatestReading() throws {
+        let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/StressComplication.swift")
+        let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
+        // Comment lines are dropped for the negative checks below, so prose
+        // that names the daily average can't fail them.
+        let code = source
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+
+        // A face stores the widget kind, so renaming it silently drops the
+        // complication from every face it is on.
+        XCTAssertTrue(source.contains("kind: \"BodyWatchStress\""))
+        // The circle and the rectangle only: the shared corner gauge would
+        // show the card's daily average.
+        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryCircular, .accessoryRectangular])"), 1)
+
+        // The latest window of the Stress page's chart, aged like the chart,
+        // named with the band the builder stamped on it and drawn in the
+        // Stress page's pink; never the card's average or the card's band.
+        XCTAssertTrue(code.contains("timeline?.latestReading(asOf: entry.date)"))
+        XCTAssertTrue(code.contains("timeline?.latestBand?.label"))
+        XCTAssertTrue(code.contains("private let tint = WatchMetricKindKey.tint(forKind: WatchMetricKindKey.stress)"))
+        XCTAssertFalse(code.contains("metric.score"))
+        XCTAssertFalse(code.contains("metric.displayValue"))
+        XCTAssertFalse(code.contains("statusBand"))
+        XCTAssertFalse(code.contains("resolvedTint"))
+
+        // Free, and a tap opens the Stress page.
+        XCTAssertFalse(source.contains("BodyProEntitlement"))
+        XCTAssertTrue(source.contains(".widgetURL(WatchMetricDeepLink.url(forKind: WatchMetricKindKey.stress))"))
+
+        // Registered, after Training Load as on the dashboard.
+        let trainingLoadIndex = try XCTUnwrap(watchBundle.range(of: "TrainingLoadComplication()")?.lowerBound)
+        let stressIndex = try XCTUnwrap(watchBundle.range(of: "StressComplication()")?.lowerBound)
+        XCTAssertLessThan(trainingLoadIndex, stressIndex)
+    }
+
     func testReadinessComplicationDrawsTheHeroArc() throws {
         let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
         let complicationSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/ReadinessComplicationView.swift")
@@ -5453,7 +5491,7 @@ final class SourceGuardTests: XCTestCase {
 
     func testRectangularWatchComplicationRowsLeadWithTheReading() throws {
         // No drawn border: the system owns a rectangular slot's outline.
-        for file in ["WatchComplicationView", "ReadinessComplicationView", "ExerciseWeekComplication", "SleepStagesComplication", "DailyTotalWeekComplications"] {
+        for file in ["WatchComplicationView", "ReadinessComplicationView", "ExerciseWeekComplication", "SleepStagesComplication", "DailyTotalWeekComplications", "StressComplication"] {
             let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/\(file).swift")
             XCTAssertFalse(source.contains("strokeBorder"), file)
         }

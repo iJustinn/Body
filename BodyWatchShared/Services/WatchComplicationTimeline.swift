@@ -19,8 +19,10 @@ enum WatchComplicationTimeline {
 
     /// Entries at `now` and at the next local midnight (snapshot re-sanitized
     /// for that instant so a sleep night that ends at midnight clears, and
-    /// `weeklyRewound` consumers shift, without an app launch), plus the
-    /// fallback reload date. Real refreshes still come from the app's
+    /// `weeklyRewound` consumers shift, without an app launch), plus one at
+    /// the instant the Stress complication's reading ages out
+    /// (`WatchStressTimeline.latestReading(asOf:)`), so it blanks on time, and
+    /// the fallback reload date. Real refreshes still come from the app's
     /// `reloadTimelines` after a persisted change.
     static func entries(
         snapshot: WatchMetricsSnapshot,
@@ -32,10 +34,16 @@ enum WatchComplicationTimeline {
         // window by one day, so a reading exactly at the 365-day edge clears
         // one day early in that entry; harmless.
         let midnight = calendar.date(byAdding: .day, value: 1, to: todayStart) ?? now.addingTimeInterval(24 * 60 * 60)
+        let stressExpiry = snapshot.stressTimeline?.latestScoredWindow
+            .map { $0.end.addingTimeInterval(WatchStressTimeline.readingMaxAge) }
 
+        var dates = [midnight]
+        if let stressExpiry, stressExpiry != midnight {
+            dates.append(stressExpiry)
+        }
         var entries: [(date: Date, snapshot: WatchMetricsSnapshot)] = [(now, snapshot.sanitized(asOf: now))]
-        if midnight > now {
-            entries.append((midnight, snapshot.sanitized(asOf: midnight)))
+        for date in dates.sorted() where date > now {
+            entries.append((date, snapshot.sanitized(asOf: date)))
         }
         return (entries, now.addingTimeInterval(refreshInterval))
     }

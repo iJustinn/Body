@@ -229,6 +229,22 @@ final class WatchStressChartTests: XCTestCase {
         XCTAssertEqual(WatchMetricCardView.symbolTint(for: trainingLoad), relaxedGreen)
     }
 
+    // MARK: - Complication reading
+
+    /// The Stress complication shows the newest window this chart draws: the
+    /// latest scored one, past the activity after it, until it is 12 hours old.
+    func testTheComplicationReadingIsTheLatestScoredWindowForTwelveHours() {
+        XCTAssertEqual(WatchStressTimeline.readingMaxAge, WatchStressChartView.windowLength)
+        let stress = timeline(start: date(13, 0), slots: [30, 44, nil, WatchStressTimeline.activityMarker], end: date(13, 52))
+
+        let reading = stress.latestReading(asOf: now)
+        XCTAssertEqual(reading?.score, 44)
+        XCTAssertEqual(reading?.end, date(13, 30), "the window's whole 15 minutes")
+        XCTAssertEqual(stress.latestReading(asOf: date(day: 31, 1, 29))?.score, 44, "11h59m old")
+        XCTAssertNil(stress.latestReading(asOf: date(day: 31, 1, 30)), "12 hours old")
+        XCTAssertNil(timeline(start: date(13, 0), slots: [nil, WatchStressTimeline.activityMarker]).latestReading(asOf: now), "nothing scored")
+    }
+
     /// The Stress week chart draws no band highlight, though the band still
     /// names the value ("42 · RELAXED"); Training Load keeps its highlight.
     func testOnlyTheStressWeekChartDropsTheBandHighlight() {

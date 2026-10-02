@@ -249,6 +249,42 @@ final class WatchStressTimelineBuilderTests: XCTestCase {
         ), "nothing in the last 13 hours")
     }
 
+    // MARK: - Complication band
+
+    /// The Stress complication's band comes stamped on the timeline, since the
+    /// widget extension has no `StressBand`: the latest scored window's, past
+    /// the activity windows after it, named as `StressBand` does.
+    func testTheLatestScoredWindowsBandIsStamped() throws {
+        let day = try date(2025, 3, 20)
+        let now = try date(2025, 3, 20, 12, 50)
+        // 06:00 to 12:45, with a run from 12:00 masking every window after 11:45.
+        let heartRate = heartRateSamples(from: day, windows: 24..<51, value: 70)
+        let workoutStart = day.addingTimeInterval(12 * 3_600)
+        let workout = WorkoutSummary(
+            type: .running, startDate: workoutStart, duration: 30 * 60,
+            endDate: workoutStart.addingTimeInterval(30 * 60)
+        )
+
+        let timeline = try XCTUnwrap(WatchStressTimelineBuilder.make(
+            dashboard: dashboard(heartRate: heartRate, baselinesBefore: day),
+            workouts: [workout], now: now, calendar: calendar, computedAt: nil
+        ))
+
+        XCTAssertEqual(timeline.slots.last, WatchStressTimeline.activityMarker, "the run is the latest window")
+        let latest = try XCTUnwrap(timeline.latestScoredWindow)
+        XCTAssertEqual(latest.end, workoutStart, "11:45's window, the last one before the run")
+        let band = StressBand.band(for: latest.score)
+        XCTAssertEqual(timeline.latestBand, WatchStatusBand(min: band.lowerBound, max: band.upperBound, label: band.title))
+    }
+
+    /// A payload from a build before the band field still decodes, with no band.
+    func testATimelineWithoutTheBandFieldDecodes() throws {
+        let json = Data(#"{"start":0,"end":900,"slots":[42],"context":[]}"#.utf8)
+        let timeline = try JSONDecoder().decode(WatchStressTimeline.self, from: json)
+        XCTAssertEqual(timeline.latestScoredWindow?.score, 42)
+        XCTAssertNil(timeline.latestBand)
+    }
+
     // MARK: - Context
 
     /// The night's main session, a nap and a workout, clipped to the span and

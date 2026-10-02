@@ -457,6 +457,16 @@ struct WatchStressTimeline: Codable, Equatable {
     /// timeline, the compute's coverage for one the watch built. Nil once a
     /// permission change stripped local provenance.
     var computedAt: Date?
+    /// The latest scored window's band, named where the timeline was built:
+    /// the Stress complication names it beside that window's score, and the
+    /// widget extension has no `StressBand` to work it out. Nil when no window
+    /// is scored, or from a build before this field.
+    var latestBand: WatchStatusBand? = nil
+
+    /// How long the latest scored window stays the Stress complication's
+    /// reading: the Stress page chart's 12 hours, so the complication shows the
+    /// newest window that chart draws.
+    static let readingMaxAge: TimeInterval = 12 * 60 * 60
 
     func slot(at index: Int) -> Slot {
         guard slots.indices.contains(index), let value = slots[index] else { return .none }
@@ -474,6 +484,26 @@ struct WatchStressTimeline: Codable, Equatable {
     /// Whether any window is drawn (scored or activity).
     var hasMarks: Bool {
         slots.contains { $0 != nil }
+    }
+
+    /// The latest scored window: its score and the end of its whole 15
+    /// minutes, the end the phone's current score is aged by. Activity windows
+    /// are skipped, as the phone's current score skips them.
+    var latestScoredWindow: (score: Int, end: Date)? {
+        for index in slots.indices.reversed() {
+            if case let .scored(score) = slot(at: index) {
+                return (score, start.addingTimeInterval(Double(index + 1) * Self.slotLength))
+            }
+        }
+        return nil
+    }
+
+    /// The Stress complication's reading at `now`: the latest scored window
+    /// until it is `readingMaxAge` old, then nil.
+    func latestReading(asOf now: Date) -> (score: Int, end: Date)? {
+        guard let latest = latestScoredWindow,
+              now.timeIntervalSince(latest.end) < Self.readingMaxAge else { return nil }
+        return latest
     }
 }
 
@@ -549,7 +579,9 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// (`WatchStressTimeline.computedAt`) and merge rule, since the windows
     /// keep coming after midnight while the new day's average is still blank.
     /// No sanitize rule: the page draws only the windows inside its own last
-    /// 12 hours. Optional so snapshots from before this field decode.
+    /// 12 hours, and the Stress complication ages its reading the same way
+    /// (`latestReading(asOf:)`). Optional so snapshots from before this field
+    /// decode.
     var stressTimeline: WatchStressTimeline? = nil
     /// The phone's custom workout colors (`BodyWorkoutColorOverrides` raw
     /// form, empty without Body Pro), for the workout shading on the Stress
@@ -629,6 +661,7 @@ struct WatchMetricsSnapshot: Codable, Equatable {
             WatchMetric(kind: WatchMetricKindKey.activeEnergy, title: String(localized: "Active Energy", table: "BodyWatchShared"), displayValue: "512", unit: "kcal", score: nil, fillFraction: 512.0 / 720.0, rawValue: 512, rangeMin: 0, rangeMax: 720, weekly: [430, 610, 380, 720, 290, 540, 512], usesKilojoules: false),
             WatchMetric(kind: WatchMetricKindKey.restingEnergy, title: String(localized: "Resting Energy", table: "BodyWatchShared"), displayValue: "1,640", unit: "kcal", score: nil, fillFraction: 1640.0 / 1668.0, rawValue: 1640, rangeMin: 0, rangeMax: 1668, weekly: [1610, 1655, 1590, 1632, 1601, 1668, 1640], usesKilojoules: false),
             WatchMetric(kind: WatchMetricKindKey.trainingLoad, title: String(localized: "Training Load", table: "BodyWatchShared"), displayValue: "1.05", unit: "", score: nil, fillFraction: 0.53, rawValue: 1.05, rangeMin: 0, rangeMax: 2, levelMin: 0.8, levelMax: 1.3, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
+            WatchMetric(kind: WatchMetricKindKey.stress, title: String(localized: "Stress", table: "BodyWatchShared"), displayValue: "34", unit: "", score: 34, fillFraction: 0.34, rawValue: 34, rangeMin: 0, rangeMax: 100, levelMin: 26, levelMax: 50, tint: WatchMetricColor(red: 0.20, green: 0.80, blue: 0.45), statusBand: WatchStatusBand(min: 25.5, max: 50.5, label: String(localized: "Relaxed", table: "BodyWatchShared"))),
             WatchMetric(kind: WatchMetricKindKey.wristTemperature, title: String(localized: "Skin Temp", table: "BodyWatchShared"), displayValue: "93.4", unit: "°F", score: nil, fillFraction: 0.50, rawValue: 34.1, rangeMin: 33.8, rangeMax: 34.4),
             // The weekly workout time complication draws only `weekly`, so the
             // gallery preview needs a sample week (oldest → today) rather than
@@ -638,8 +671,27 @@ struct WatchMetricsSnapshot: Codable, Equatable {
         ],
         // The Sleep Stages complication draws only `sleepStages`, so the
         // gallery preview needs a sample night rather than an empty bar.
-        sleepStages: placeholderSleepStages
+        sleepStages: placeholderSleepStages,
+        // The Stress complication draws the timeline's latest scored window.
+        stressTimeline: placeholderStressTimeline
     )
+
+    /// The placeholder's Stress windows: an hour and three quarters of desk
+    /// time with a walk, ending on a Relaxed 42. Anchored to a FIXED instant
+    /// like the night below; the complication skips its age check for the
+    /// placeholder, whose `generatedAt` is `.distantPast`.
+    private static let placeholderStressTimeline: WatchStressTimeline = {
+        let start = Date(timeIntervalSinceReferenceDate: 802_278_000)
+        let slots: [Int?] = [28, 31, 35, WatchStressTimeline.activityMarker, WatchStressTimeline.activityMarker, 40, 42]
+        return WatchStressTimeline(
+            start: start,
+            end: start.addingTimeInterval(Double(slots.count) * WatchStressTimeline.slotLength),
+            slots: slots,
+            context: [],
+            computedAt: nil,
+            latestBand: WatchStatusBand(min: 25.5, max: 50.5, label: String(localized: "Relaxed", table: "BodyWatchShared"))
+        )
+    }()
 
     /// The placeholder's night: a main session from 23:10 to 06:42 (7h 32m,
     /// matching the sample Sleep metric above), cycling through the stages with
