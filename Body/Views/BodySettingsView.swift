@@ -21,6 +21,8 @@ struct BodySettingsView: View {
     // Observed here (its toggle lives in a sub-view sharing this key) so a change
     // re-publishes the phone-owned watch prefs immediately.
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    // Same: toggled in the Summary Cards sheet, mirrored by the watch Sleep page.
+    @AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true
     // Same: toggled in the Home Hero sheet, mirrored by the watch hero.
     @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
     @AppStorage(BodyAppearancePreference.dayRingShowsCaptionKey) private var dayRingShowsCaption = true
@@ -157,6 +159,7 @@ struct BodySettingsView: View {
             .onChange(of: selectedTemperatureUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: followsSystemUnits) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: showSleepScore) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: showSleepDebt) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: readinessHeroShowsLevel) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: dayRingShowsCaption) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedEnergyUnitRawValue) { workoutStore.republishCompanionSnapshots() }

@@ -8312,6 +8312,11 @@ final class HealthKitWorkoutStore {
             readinessHeroShowsLevel: UserDefaults.standard.object(
                 forKey: BodyAppearancePreference.readinessHeroShowsLevelKey
             ) as? Bool ?? true,
+            // The watch Sleep page shows Sleep Debt only where the phone's Sleep
+            // page does: Body Pro unlocked and the Summary Cards toggle on.
+            showsSleepDebt: isProUnlocked && (UserDefaults.standard.object(
+                forKey: BodyAppearancePreference.showSleepDebtKey
+            ) as? Bool ?? true),
             // The watch mirrors the hero the phone actually shows, so a free user's
             // stored Day Ring is clamped here too.
             homeHeroRaw: (BodyStarMetric.proGated(

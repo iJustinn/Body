@@ -50,6 +50,7 @@ final class BodyCompanionPublisherTests: XCTestCase {
             showsSubMinuteAwakeStages: false,
             showsLeadingTrailingAwakeStages: false,
             readinessHeroShowsLevel: true,
+            showsSleepDebt: false,
             homeHeroRaw: homeHeroRaw,
             dayRingShowsCaption: false,
             workoutColorPalette: .builtIn,

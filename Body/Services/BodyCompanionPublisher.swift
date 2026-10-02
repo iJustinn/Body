@@ -64,6 +64,9 @@ struct BodyCompanionPublishInput: Sendable {
     let showsSubMinuteAwakeStages: Bool
     let showsLeadingTrailingAwakeStages: Bool
     let readinessHeroShowsLevel: Bool
+    /// Body Pro unlocked and the Summary Cards Sleep Debt toggle on: the watch
+    /// Sleep page shows the debt only while this is true.
+    let showsSleepDebt: Bool
     let homeHeroRaw: String
     let dayRingShowsCaption: Bool
     let workoutColorPalette: BodyWorkoutColorPalette
@@ -239,10 +242,12 @@ final class BodyCompanionPublisher {
                             .compactMap { $0 }
                             .max()
                     }
-                }
+                },
+                includesSleepDebt: input.showsSleepDebt
             )
             snapshot.source = "phone"
             snapshot.readinessHeroShowsLevel = input.readinessHeroShowsLevel
+            snapshot.showsSleepDebt = input.showsSleepDebt
             snapshot.homeHero = input.homeHeroRaw
             snapshot.dayRingShowsCaption = input.dayRingShowsCaption
             if input.homeHeroRaw == BodyStarMetric.dayRing.rawValue {
@@ -341,7 +346,8 @@ final class BodyCompanionPublisher {
 
     /// Size budget for the compute seed alone (before the display snapshot and
     /// permission key are added on top) — the `WatchComputeSeedTests` size test
-    /// pins a realistic 70-day fixture comfortably under this. Separate from
+    /// pins a realistic fixture (70 days of trends, 79 nights of sleep history)
+    /// comfortably under this. Separate from
     /// `WatchConnectivityPublisher`'s whole-context budget, which accounts for
     /// the other context keys too.
     nonisolated private static let computeSeedSizeBudgetBytes = 50_000
