@@ -1245,11 +1245,29 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         calendar: Calendar = .bodyGregorian,
         now: Date = Date()
     ) -> [StressWindow] {
+        stressWindows(forDays: [day], workouts: workouts, calendar: calendar, now: now)[calendar.startOfDay(for: day)] ?? []
+    }
+
+    /// `stressWindows(for:)` for several days at once, keyed by each day's
+    /// start. The scan and the baseline context are built once for all of
+    /// them, which is what lets the watch's "Last 8 hours" (one or two days)
+    /// cost one scan instead of one per day. A day with no heart rate coverage
+    /// is absent from the result.
+    func stressWindows(
+        forDays days: [Date],
+        workouts: [WorkoutSummary] = [],
+        calendar: Calendar = .bodyGregorian,
+        now: Date = Date()
+    ) -> [Date: [StressWindow]] {
         let scoreDay = calendar.startOfDay(for: now)
         let inputs = stressDayInputs(through: scoreDay, workouts: workouts, calendar: calendar)
         let analyses = inputs.map { StressDayAnalysis(input: $0, calendar: calendar, now: now) }
-        guard let analysis = analyses.first(where: { calendar.isDate($0.date, inSameDayAs: day) }) else {
-            return []
+        let requested = days.map { calendar.startOfDay(for: $0) }
+        let requestedAnalyses = analyses.filter { analysis in
+            requested.contains { calendar.isDate(analysis.date, inSameDayAs: $0) }
+        }
+        guard !requestedAnalyses.isEmpty else {
+            return [:]
         }
 
         let context = StressDailySeriesContext(
@@ -1267,7 +1285,12 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             calendar: calendar
         )
 
-        return analysis.windows(baselines: context.baselines(for: day))
+        var windowsByDay: [Date: [StressWindow]] = [:]
+        for analysis in requestedAnalyses {
+            let day = calendar.startOfDay(for: analysis.date)
+            windowsByDay[day] = analysis.windows(baselines: context.baselines(for: day))
+        }
+        return windowsByDay
     }
 
     /// One quiet-HR median per distinct day. Recorded days carry the history

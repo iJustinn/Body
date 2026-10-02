@@ -1122,6 +1122,41 @@ final class StressIntegrationTests: XCTestCase {
         XCTAssertEqual(half.tracks[1].opacity, 0.5, accuracy: 0.0001)
     }
 
+    // MARK: - Several days at once
+
+    /// The watch's "Last 8 hours" scores one or two days in one call: each day
+    /// must come out exactly as the one-day call scores it, and a day with no
+    /// heart rate coverage is absent rather than empty.
+    func testStressWindowsForDaysMatchesTheOneDayCallForEachDay() throws {
+        let fixture = goldenFixture()
+        let recomputed = fixture.snapshot.recalculatingStress(
+            on: fixture.scoringDay,
+            workouts: fixture.workouts,
+            calendar: calendar,
+            now: fixture.now
+        )
+        let days = try [0, 1, 6, 17].map { offset in
+            try XCTUnwrap(calendar.date(byAdding: .day, value: -offset, to: fixture.scoringDay))
+        }
+        let uncovered = try XCTUnwrap(calendar.date(byAdding: .day, value: -30, to: fixture.scoringDay))
+
+        let byDay = recomputed.stressWindows(
+            forDays: days + [uncovered],
+            workouts: fixture.workouts,
+            calendar: calendar,
+            now: fixture.now
+        )
+
+        XCTAssertEqual(Set(byDay.keys), Set(days.map { calendar.startOfDay(for: $0) }))
+        XCTAssertNil(byDay[calendar.startOfDay(for: uncovered)])
+        for day in days {
+            let single = recomputed.stressWindows(for: day, workouts: fixture.workouts, calendar: calendar, now: fixture.now)
+            XCTAssertFalse(single.isEmpty)
+            XCTAssertEqual(byDay[calendar.startOfDay(for: day)], single, "\(day)")
+        }
+        XCTAssertTrue(recomputed.stressWindows(forDays: [], calendar: calendar, now: fixture.now).isEmpty)
+    }
+
     // MARK: - Golden oracle
 
     /// A fixed multi-day fixture: 18 days of intraday heart rate inside the

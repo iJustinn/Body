@@ -32,21 +32,13 @@ enum BodyStressBandPresentation {
     /// The same palette as literal components, so the day-switch morph can blend
     /// one band's colour into the next instead of stacking two translucent draws.
     static func rgb(for band: StressBand) -> BodyStressRGB {
-        switch band {
-        case .rest:
-            return BodyStressRGB(red: 0.20, green: 0.70, blue: 0.95)
-        case .low:
-            return BodyStressRGB(red: 0.20, green: 0.80, blue: 0.45)
-        case .medium:
-            return BodyStressRGB(red: 1.00, green: 0.72, blue: 0.15)
-        case .high:
-            return BodyStressRGB(red: 1.00, green: 0.30, blue: 0.20)
-        }
+        let components = band.rgbComponents
+        return BodyStressRGB(red: components.red, green: components.green, blue: components.blue)
     }
 
     /// Masked movement time is not a band, so it gets one neutral gray shared by the
     /// intraday plot's floor stubs and the day breakdown's Activity row.
-    static let activityColor = Color.secondary.opacity(0.45)
+    static let activityColor = Color.secondary.opacity(StressChartStyle.activityOpacity)
 
     /// The Activity row/callout label. Dotted key: a bare "Activity" would inherit
     /// the Fitness-ring translation this display category does not mean.
@@ -204,7 +196,7 @@ struct BodyStressPlotSide: Equatable {
                 xStart: BodyStressIntradayPlot.fraction(for: interval.startDate, in: dayInterval),
                 xEnd: BodyStressIntradayPlot.fraction(for: interval.endDate, in: dayInterval),
                 color: interval.color,
-                fillOpacity: interval.kind == .sleep ? 0.14 : 0.10,
+                fillOpacity: interval.kind == .sleep ? StressChartStyle.sleepFillOpacity : StressChartStyle.workoutFillOpacity,
                 symbolName: interval.symbolName
             )
         }
@@ -431,9 +423,9 @@ struct BodyStressIntradayPlot: View {
 
     fileprivate static let xAxisLabelOffset: CGFloat = 18
     fileprivate static let timeMarkLabelHorizontalInset: CGFloat = 24
-    fileprivate static let gridFractions: [Double] = [0, 0.25, 0.5, 0.75, 1]
-    fileprivate static let activityStubHeight: CGFloat = 6
-    fileprivate static let capsuleMinimumHeight: CGFloat = 6
+    fileprivate static let gridFractions: [Double] = StressChartStyle.gridFractions
+    fileprivate static let activityStubHeight = CGFloat(StressChartStyle.activityStubHeight)
+    fileprivate static let capsuleMinimumHeight = CGFloat(StressChartStyle.capsuleHeight)
 
     /// One drawable/scrubbable window. `.unscored` windows produce no mark at all —
     /// a literal gap, the way the pace plot drops a bucket with no samples.
@@ -860,8 +852,11 @@ private struct BodyStressIntradayRenderPlot: View, Animatable {
         // carry the scale and the plot spans the card's full width.
         context.stroke(
             grid,
-            with: .color(Color.secondary.opacity(0.26)),
-            style: StrokeStyle(lineWidth: 1, dash: [4, 4])
+            with: .color(Color.secondary.opacity(StressChartStyle.gridOpacity)),
+            style: StrokeStyle(
+                lineWidth: CGFloat(StressChartStyle.gridLineWidth),
+                dash: StressChartStyle.gridDash.map { CGFloat($0) }
+            )
         )
     }
 
@@ -871,9 +866,10 @@ private struct BodyStressIntradayRenderPlot: View, Animatable {
         context: inout GraphicsContext
     ) {
         for track in tracks where track.opacity > 0.001 {
-            let leading = plotRect.minX + plotRect.width * CGFloat(track.xStart) + 1
-            let trailing = plotRect.minX + plotRect.width * CGFloat(track.xEnd) - 1
-            let width = max(2, trailing - leading)
+            let inset = CGFloat(StressChartStyle.markHorizontalInset)
+            let leading = plotRect.minX + plotRect.width * CGFloat(track.xStart) + inset
+            let trailing = plotRect.minX + plotRect.width * CGFloat(track.xEnd) - inset
+            let width = max(CGFloat(StressChartStyle.markMinimumWidth), trailing - leading)
 
             if track.isActivity {
                 let stub = CGRect(
@@ -900,9 +896,9 @@ private struct BodyStressIntradayRenderPlot: View, Animatable {
                         width: width,
                         height: max(0, plotRect.maxY - valueY)
                     ),
-                    cornerRadius: min(2, width / 2)
+                    cornerRadius: min(CGFloat(StressChartStyle.columnCornerRadius), width / 2)
                 ),
-                with: .color(color.opacity(0.10 * track.opacity))
+                with: .color(color.opacity(StressChartStyle.columnOpacity * track.opacity))
             )
 
             // A window carries one score, not a range, so every capsule uses the
