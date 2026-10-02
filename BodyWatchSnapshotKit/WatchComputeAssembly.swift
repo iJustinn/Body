@@ -243,10 +243,58 @@ enum WatchComputeAssembly {
                 // * `recordedReadinessContext: nil` — passing a context the
                 //   watch can't reproduce byte-for-byte would drop every seeded
                 //   record on the first compute; nil means "don't re-key them".
+                // Stress below makes the same `recordedStressContext: nil`
+                // call, and one more documented deviation of its own:
+                // * "Yesterday": when the last 8 hours cross midnight the
+                //   watch reads all of yesterday, so its recompute replaces
+                //   the seeded record for yesterday (fresh wins) and the
+                //   adopted week shows the watch's score for it. Local only;
+                //   the next seed brings the phone's record back.
                 now: now,
                 freezesRecordedReadiness: false,
                 recordedReadinessContext: nil
             )
+
+        // Stress: the phone's `recalculatingStress` over the seed's recorded
+        // days (the baselines and the week) plus this run's intraday reads,
+        // then the "Last 8 hours" timeline over the same inputs. Only the
+        // Stress fields are taken from it, so everything the builder reads
+        // for the other cards is exactly `recomputed`. With no reads at all
+        // it rebuilds the week from the seeded records alone.
+        var display = recomputed
+        var stressTimeline: WatchStressTimeline?
+        if permission.includes(.heart) {
+            var stressInputs = recomputed
+            stressInputs.trends.heartRateDaySamples = Self.daySamples(delta.stressHeartRateSamples)
+            stressInputs.trends.heartRateVariabilityDaySamples = Self.daySamples(delta.stressSDNNSamples)
+            stressInputs.trends.heartbeatRMSSDDaySamples = Self.daySamples(delta.stressRMSSDSamples)
+            // The movement mask reads only what the phone's permission filter
+            // leaves it.
+            stressInputs.trends.stepsDaySamples = permission.includes(.steps)
+                ? Self.daySamples(delta.stressHourlySteps)
+                : .empty
+            stressInputs.trends.activeEnergyDaySamples = permission.includes(.energy)
+                ? Self.daySamples(delta.stressHourlyActiveEnergy)
+                : .empty
+            let stressed = stressInputs.recalculatingStress(
+                on: now,
+                workouts: fetchedWorkouts,
+                calendar: calendar,
+                now: now,
+                recordedStressContext: nil
+            )
+            display.summary.stress = stressed.summary.stress
+            display.summary.stressCurrentScore = stressed.summary.stressCurrentScore
+            display.trends.stress = stressed.trends.stress
+            display.trends.stressRanges = stressed.trends.stressRanges
+            stressTimeline = WatchStressTimelineBuilder.make(
+                dashboard: stressed,
+                workouts: fetchedWorkouts,
+                now: now,
+                calendar: calendar,
+                computedAt: now
+            )
+        }
 
         let dataAsOf = Self.dataAsOf(
             delta: delta,
@@ -259,8 +307,8 @@ enum WatchComputeAssembly {
         )
 
         var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
-            summary: recomputed.summary,
-            trends: recomputed.trends,
+            summary: display.summary,
+            trends: display.trends,
             lastRefreshDate: seed.lastVitalsRefreshDate,
             permissionSelection: permission,
             temperatureUnitPreference: Self.temperatureUnitPreference(for: seed.settings),
@@ -274,7 +322,10 @@ enum WatchComputeAssembly {
             perKindDataAsOf: { dataAsOf[$0] },
             // Always built: whether it shows is the phone's pushed flag
             // (`WatchMetricsSnapshot.showsSleepDebt`), not the compute's call.
-            includesSleepDebt: true
+            includesSleepDebt: true,
+            // No `workoutColorOverrides`: a display preference only the
+            // phone's push carries.
+            stressTimeline: stressTimeline
         )
         snapshot.source = "watch"
 
@@ -493,6 +544,11 @@ enum WatchComputeAssembly {
         if readinessInputsFresh {
             map[WatchMetricKindKey.readiness] = now
         }
+        // Stress: coverage semantics again, under its own all-inputs rule
+        // (`stressAsOf`).
+        if let stressAsOf = Self.stressAsOf(delta: delta, permission: permission, now: now) {
+            map[WatchMetricKindKey.stress] = stressAsOf
+        }
         // Skin temperature is deliberately absent from THIS map: its headline
         // is the seeded daily summary (phone-sourced by design), so there is
         // no measurement watermark to claim. Its freshly-spliced TREND still
@@ -526,6 +582,45 @@ enum WatchComputeAssembly {
             return nil
         }
         return now
+    }
+
+    /// Stress's watermark in `dataAsOf`, which also covers the "Last 8 hours"
+    /// timeline (`WatchComputeMerge.mergingComputed`), or nil when neither
+    /// may be adopted. Coverage semantics, like Sleep Debt's: Stress scores
+    /// today's intraday heart rate, SDNN and RMSSD, masks movement with the
+    /// hourly steps and active energy and the workouts, and reads the main
+    /// sleep session as rest context, so it is stamped with the query window's
+    /// end only when every one of those that is permitted was re-read this
+    /// run. A carried heart kind (no source on this watch) was not re-read,
+    /// whatever its outcome says. Anything less leaves the phone's Stress
+    /// standing; an uncalibrated baseline still stamps, and its blank card is
+    /// never adopted over a value.
+    static func stressAsOf(
+        delta: WatchComputeDelta,
+        permission: BodyHealthPermissionSelection,
+        now: Date
+    ) -> Date? {
+        guard permission.includes(.heart),
+              delta.stressHeartRateSamples.isSuccess,
+              delta.stressSDNNSamples.isSuccess,
+              delta.stressRMSSDSamples.isSuccess,
+              !delta.carriedKinds.contains(.heartRate),
+              !delta.carriedKinds.contains(.heartRateVariability),
+              !permission.includes(.steps) || delta.stressHourlySteps.isSuccess,
+              !permission.includes(.energy) || delta.stressHourlyActiveEnergy.isSuccess,
+              !permission.includes(.sleep) || (delta.sleepNights.isSuccess && !delta.carriedKinds.contains(.sleep)),
+              !permission.includes(.workouts) || delta.workouts.isSuccess else {
+            return nil
+        }
+        return now
+    }
+
+    /// A Stress intraday read's series, empty when it didn't succeed.
+    private static func daySamples(_ outcome: WatchFetchOutcome<HealthTrendSeries>) -> HealthTrendSeries {
+        if case .success(let series) = outcome {
+            return series
+        }
+        return .empty
     }
 
     /// The permission-eligible readiness inputs that did not succeed this run,

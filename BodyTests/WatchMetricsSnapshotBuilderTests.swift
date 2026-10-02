@@ -450,3 +450,198 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(computedAt(sleepAsOf: nil, trainingLoadAsOf: afterRefresh), afterRefresh)
     }
 }
+
+// MARK: - Stress (watch Stress page)
+
+extension WatchMetricsSnapshotBuilderTests {
+    private func stressSnapshot(
+        anchor: Date,
+        stress: StressDaySummary?,
+        currentScore: Int? = nil,
+        stressSeries: HealthTrendSeries = .empty,
+        stressRanges: HealthTrendRangeSeries = .empty,
+        permission: BodyHealthPermissionSelection = .init(enabledPermissions: [.heart]),
+        stressTimeline: WatchStressTimeline? = nil,
+        workoutColorOverrides: String? = nil
+    ) -> WatchMetricsSnapshot {
+        let (baseSummary, baseTrends) = fixture(anchor: anchor)
+        var summary = baseSummary
+        summary.stress = stress
+        summary.stressCurrentScore = currentScore
+        var trends = baseTrends
+        trends.stress = stressSeries
+        trends.stressRanges = stressRanges
+        return WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary, trends: trends, lastRefreshDate: anchor,
+            permissionSelection: permission, temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600, now: anchor,
+            stressTimeline: stressTimeline,
+            workoutColorOverrides: workoutColorOverrides
+        )
+    }
+
+    /// The headline is today's average, the iPhone card's number; the band
+    /// follows the latest reading while it is current.
+    func testStressShowsTodaysAverageWithTheCurrentReadingsBand() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 15)))
+        let today = StressDaySummary(date: calendar.startOfDay(for: anchor), averageScore: 42)
+
+        let snapshot = stressSnapshot(anchor: anchor, stress: today, currentScore: 80)
+
+        let stress = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertEqual(stress.title, String(localized: "Stress", table: "BodyWatchSnapshotKit"))
+        XCTAssertEqual(stress.displayValue, "42")
+        XCTAssertEqual(stress.unit, "")
+        XCTAssertEqual(stress.score, 42)
+        XCTAssertEqual(stress.rawValue, 42)
+        XCTAssertEqual(stress.fillFraction, 0.42, accuracy: 1e-9)
+        XCTAssertEqual(stress.rangeMin, 0)
+        XCTAssertEqual(stress.rangeMax, 100)
+        XCTAssertEqual(stress.levelMin, 76)
+        XCTAssertEqual(stress.levelMax, 100)
+        XCTAssertEqual(stress.tint, StressBand.high.watchTintComponents)
+        XCTAssertEqual(stress.statusBand, WatchStatusBand(min: 75.5, max: nil, label: StressBand.high.title))
+        XCTAssertNil(stress.measuredAt, "a computed metric: computedAt is its stamp")
+        XCTAssertEqual(stress.computedAt, anchor)
+
+        // No current reading (an hour without one, or a decoded summary): the
+        // band is the average's.
+        let averaged = try XCTUnwrap(stressSnapshot(anchor: anchor, stress: today).metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertEqual(averaged.displayValue, "42")
+        XCTAssertEqual(averaged.levelMin, 26)
+        XCTAssertEqual(averaged.levelMax, 50)
+        XCTAssertEqual(averaged.tint, StressBand.low.watchTintComponents)
+        XCTAssertEqual(averaged.statusBand, WatchStatusBand(min: 25.5, max: 50.5, label: StressBand.low.title))
+    }
+
+    /// A rollup that isn't today's (the summary outlived midnight) and no
+    /// rollup at all both read "--" with no band, and the week still ships,
+    /// stamped with the day it was built on.
+    func testStressIsBlankUnlessTheRollupIsTodays() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 0, minute: 20)))
+        let yesterday = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: anchor)))
+
+        for (name, rollup) in [
+            ("yesterday's", StressDaySummary(date: yesterday, averageScore: 55)),
+            ("none", nil),
+            ("unscored today", StressDaySummary(date: calendar.startOfDay(for: anchor)))
+        ] as [(String, StressDaySummary?)] {
+            let snapshot = stressSnapshot(
+                anchor: anchor, stress: rollup, currentScore: 60,
+                stressSeries: series([40, 55], endingAt: yesterday)
+            )
+            let stress = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.stress), name)
+            XCTAssertEqual(stress.displayValue, "--", name)
+            XCTAssertFalse(stress.hasValue, name)
+            XCTAssertNil(stress.score, name)
+            XCTAssertEqual(stress.fillFraction, 0, name)
+            XCTAssertNil(stress.levelMin, name)
+            XCTAssertNil(stress.levelMax, name)
+            XCTAssertNil(stress.tint, name)
+            XCTAssertNil(stress.statusBand, name)
+            XCTAssertEqual(stress.weekly, [nil, nil, nil, nil, 40, 55, nil], name)
+            XCTAssertEqual(stress.weeklyAsOf, anchor, "\(name): the sanitize rule reads it")
+        }
+    }
+
+    func testStressRidesTheHeartPermission() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 15)))
+        let today = StressDaySummary(date: calendar.startOfDay(for: anchor), averageScore: 42)
+
+        XCTAssertNotNil(stressSnapshot(anchor: anchor, stress: today, permission: .defaultValue).metric(forKind: WatchMetricKindKey.stress))
+        let withoutHeart = stressSnapshot(
+            anchor: anchor, stress: today,
+            permission: BodyHealthPermissionSelection.defaultValue.setting(.heart, isEnabled: false)
+        )
+        XCTAssertNil(withoutHeart.metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertNil(withoutHeart.metric(forKind: WatchMetricKindKey.heartRate))
+    }
+
+    /// The week chart: the daily averages and, under them, each day's min to
+    /// max range, windowed alike.
+    func testStressCarriesItsWeekAndDailyRanges() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 15)))
+        let today = StressDaySummary(date: calendar.startOfDay(for: anchor), averageScore: 42)
+
+        let snapshot = stressSnapshot(
+            anchor: anchor, stress: today,
+            stressSeries: series([70, 30, 35, 40, 45, 50, 55, 42], endingAt: anchor),
+            stressRanges: ranges([-7: (5, 95), -1: (20, 70), 0: (10, 90)], endingAt: anchor)
+        )
+
+        let stress = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertEqual(stress.weekly, [30, 35, 40, 45, 50, 55, 42])
+        XCTAssertEqual(stress.weeklyRanges, [
+            nil, nil, nil, nil, nil,
+            WatchDayRange(low: 20, high: 70),
+            WatchDayRange(low: 10, high: 90)
+        ])
+        XCTAssertEqual(stress.weeklyAsOf, anchor)
+    }
+
+    func testStressTimelineAndWorkoutColorsAreStampedAsPassed() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 15)))
+        let timeline = WatchStressTimeline(
+            start: anchor.addingTimeInterval(-3_600),
+            end: anchor,
+            slots: [20, nil, WatchStressTimeline.activityMarker, 64],
+            context: [WatchStressContextBand(kind: WatchStressContextBand.workoutKind, start: anchor.addingTimeInterval(-1_800), end: anchor.addingTimeInterval(-900), workoutType: "running")],
+            computedAt: anchor
+        )
+
+        let snapshot = stressSnapshot(anchor: anchor, stress: nil, stressTimeline: timeline, workoutColorOverrides: "running:335BB0")
+        XCTAssertEqual(snapshot.stressTimeline, timeline)
+        XCTAssertEqual(snapshot.workoutColorOverrides, "running:335BB0")
+
+        let omitted = stressSnapshot(anchor: anchor, stress: nil)
+        XCTAssertNil(omitted.stressTimeline)
+        XCTAssertNil(omitted.workoutColorOverrides)
+    }
+
+    // MARK: Display-time midnight guard
+
+    /// A cached snapshot that outlives midnight must not headline yesterday's
+    /// average as today's: `sanitized` clears it to the blank card the builder
+    /// would emit, keeping the week, and leaves a same-day snapshot alone.
+    func testSanitizeClearsAStressAverageBuiltOnAnEarlierDay() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 22)))
+        let sameDay = anchor.addingTimeInterval(3_600)
+        let afterMidnight = anchor.addingTimeInterval(2.5 * 3_600)
+        let snapshot = stressSnapshot(
+            anchor: anchor,
+            stress: StressDaySummary(date: calendar.startOfDay(for: anchor), averageScore: 42),
+            stressSeries: series([40, 42], endingAt: anchor)
+        )
+        let built = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertTrue(built.hasValue)
+
+        XCTAssertEqual(snapshot.sanitized(asOf: sameDay), snapshot, "still today: untouched")
+
+        let sanitized = snapshot.sanitized(asOf: afterMidnight)
+        let stress = try XCTUnwrap(sanitized.metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertEqual(stress.displayValue, "--")
+        XCTAssertFalse(stress.hasValue)
+        XCTAssertNil(stress.score)
+        XCTAssertNil(stress.statusBand)
+        XCTAssertNil(stress.tint)
+        XCTAssertNil(stress.levelMin)
+        XCTAssertNil(stress.levelMax)
+        XCTAssertEqual(stress.weekly, built.weekly, "the week stays for the chart")
+        XCTAssertEqual(stress.weeklyAsOf, built.weeklyAsOf)
+        XCTAssertEqual(
+            sanitized.metric(forKind: WatchMetricKindKey.heartRate),
+            snapshot.metric(forKind: WatchMetricKindKey.heartRate),
+            "an independent rule: no other card moves"
+        )
+        XCTAssertEqual(sanitized.sanitized(asOf: afterMidnight), sanitized, "idempotent")
+
+        // An unknown day reads as not today, like `sleepNight`.
+        var unknownDay = snapshot
+        unknownDay.metrics = snapshot.metrics.map { metric in
+            var copy = metric
+            if metric.kind == WatchMetricKindKey.stress { copy.weeklyAsOf = nil }
+            return copy
+        }
+        XCTAssertEqual(unknownDay.sanitized(asOf: sameDay).metric(forKind: WatchMetricKindKey.stress)?.displayValue, "--")
+    }
+}

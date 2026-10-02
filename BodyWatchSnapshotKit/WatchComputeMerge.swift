@@ -182,7 +182,18 @@ enum WatchComputeMerge {
     /// that watermark is newer than the displayed debt's `computedAt` (a
     /// query-time stamp on both sides). The adopted debt is stamped with it.
     /// `showsSleepDebt` is never touched: it is the phone's display
-    /// preference. Never merges into a reset tombstone. The caller sanitizes.
+    /// preference.
+    ///
+    /// The Stress card takes the ordinary per-metric path above. Its "Last 8
+    /// hours" timeline follows the Sleep Debt rules, on the Stress watermark
+    /// (`dataAsOf[stress]`) rather than the card's adoption, since the windows
+    /// keep coming after midnight while the new day's blank average is never
+    /// adopted over yesterday's value: adopted only with that watermark, never
+    /// empty over a displayed timeline with marks, and only when the watermark
+    /// is newer than the displayed timeline's `computedAt`. The adopted
+    /// timeline is stamped with it. `workoutColorOverrides` is never touched,
+    /// like `showsSleepDebt`. Never merges into a reset tombstone. The caller
+    /// sanitizes.
     static func mergingComputed(
         _ result: WatchComputeResult,
         into current: WatchMetricsSnapshot
@@ -303,6 +314,17 @@ enum WatchComputeMerge {
             merged.sleepDebt = candidate
         }
 
+        // Stress timeline: the Stress watermark, not the card's adoption (see
+        // the rules above). A timeline without marks is "nothing scored on
+        // this watch", never a clear of the displayed one.
+        if let asOf = result.dataAsOf[WatchMetricKindKey.stress],
+           var candidate = computed.stressTimeline,
+           asOf > (current.stressTimeline?.computedAt ?? .distantPast),
+           candidate.hasMarks || current.stressTimeline?.hasMarks != true {
+            candidate.computedAt = asOf
+            merged.stressTimeline = candidate
+        }
+
         // Readiness drain: record the watch's report from a compute that
         // STAMPED readiness, or whose workout query succeeded
         // (`drainIsFresh`): the report depends on the workout list alone, so a
@@ -370,6 +392,9 @@ enum WatchComputeMerge {
     /// one exception: while the push shows the debt, a local debt stamped
     /// newer than the push's own (`computedAt`, else `lastRefreshDate`) is
     /// kept, outside the settings-change mode.
+    ///
+    /// The Stress timeline comes from the push under the same exception (it
+    /// has no display flag), and `workoutColorOverrides` always does.
     static func merging(
         _ received: WatchMetricsSnapshot,
         over current: WatchMetricsSnapshot,
@@ -467,6 +492,27 @@ enum WatchComputeMerge {
             merged.sleepDebt = current.sleepDebt
         }
 
+        // Stress timeline: the push's stands, except that a timeline the
+        // watch computed after the push's own cutoff is kept, so a push whose
+        // reads predate the watch's last compute can't roll the chart back.
+        // Never in the settings-change mode; a stripped (nil) local stamp
+        // loses. `workoutColorOverrides` is the push's display preference and
+        // always comes with it (`merged = received`).
+        // A push without windows never erases a local chart that has some,
+        // the card's blank-preserve rule: the phone publishes before its Stress
+        // inputs have loaded, and hours without readings are as empty on the
+        // watch anyway. A push without the Stress card (Heart turned off)
+        // lets the empty chart win.
+        let receivedHasNoMarks = received.stressTimeline?.hasMarks != true
+            && received.metric(forKind: WatchMetricKindKey.stress) != nil
+        if !treatingBlanksAsAuthoritative,
+           let local = current.stressTimeline,
+           let localAsOf = local.computedAt,
+           localAsOf > (received.stressTimeline?.computedAt ?? received.lastRefreshDate ?? .distantPast)
+            || (receivedHasNoMarks && local.hasMarks) {
+            merged.stressTimeline = local
+        }
+
         // Readiness drain: the push's own report replaces the phone's previous
         // one, then whichever metric won above is reconciled against the other
         // side's report. This is what stops a push that has not seen a watch
@@ -506,12 +552,14 @@ enum WatchComputeMerge {
     /// per-kind watermarks are typically OLDER and timestamp comparison alone
     /// would preserve exactly the values that must go. Display fields are left
     /// in place; the push resolving in the same intake replaces them. The
-    /// Sleep Debt's `computedAt` is cleared too, for the same reason.
+    /// Sleep Debt's and the Stress timeline's `computedAt` are cleared too,
+    /// for the same reason.
     static func strippingLocalProvenance(
         from snapshot: WatchMetricsSnapshot
     ) -> WatchMetricsSnapshot {
         var stripped = snapshot
         stripped.sleepDebt?.computedAt = nil
+        stripped.stressTimeline?.computedAt = nil
         stripped.metrics = snapshot.metrics.map { metric in
             var cleared = metric
             // The kept drain reports were derived under the old selection too,

@@ -6,11 +6,11 @@
 //  phone's seeded history. Deliberately a THIN SHIM: every query and every
 //  transformation below is a call into the shared `BodyWatchSnapshotKit` leaves
 //  the iOS `HealthKitFetchEngine` also calls (`BodyHealthSourceResolver`,
-//  `BodyHealthQuantityFetch`, `BodySleepFetch`, `BodyWorkoutFetch`,
-//  `BodyWorkoutEffortFetcher`). It owns no query logic of its own — a
-//  hand-forked watch fetch layer drifted from the phone within a day in the
-//  June 2026 standalone-compute attempt (a 26-hour night), and this file exists
-//  precisely so there is nothing left to drift.
+//  `BodyHealthQuantityFetch`, `BodyHeartbeatRMSSDFetch`, `BodySleepFetch`,
+//  `BodyWorkoutFetch`, `BodyWorkoutEffortFetcher`). It owns no query logic of
+//  its own — a hand-forked watch fetch layer drifted from the phone within a
+//  day in the June 2026 standalone-compute attempt (a 26-hour night), and this
+//  file exists precisely so there is nothing left to drift.
 //
 //  Two rules run through everything here:
 //  * Source parity — every source-selectable read resolves the PHONE's synced
@@ -131,6 +131,31 @@ actor WatchDeltaFetcher {
         async let workouts = workoutDelta(
             permission: permission, windowStart: windowStart, now: now, calendar: calendar
         )
+        // Stress's intraday inputs, in the shapes the phone's
+        // `fetchIntradayDaySamples` and heartbeat scan read. WHOLE days only:
+        // the window opens at the midnight before the last 9 hours (the 8 hour
+        // chart's reach plus slack), so once those hours cross midnight
+        // yesterday is read whole. The assembly recomputes each day these series
+        // touch, and a partial yesterday would replace its seeded record with a
+        // short day.
+        let stressStart = calendar.startOfDay(for: now.addingTimeInterval(-9 * 60 * 60))
+        async let stressHeartRateSamples = sampleSeries(
+            .heartRate, reads: reads, start: stressStart, end: now
+        )
+        async let stressSDNNSamples = sampleSeries(
+            .heartRateVariability, reads: reads, start: stressStart, end: now
+        )
+        async let stressRMSSDSamples = rmssdSamples(
+            reads: reads, start: stressStart, end: now
+        )
+        async let stressHourlySteps = hourlySeries(
+            .steps, selection: selection, customGroups: customGroups, permission: permission,
+            start: stressStart, end: now, calendar: calendar
+        )
+        async let stressHourlyActiveEnergy = hourlySeries(
+            .activeEnergy, selection: selection, customGroups: customGroups, permission: permission,
+            start: stressStart, end: now, calendar: calendar
+        )
 
         delta.heartRateSeries = await heartRateSeries
         delta.restingHeartRateSeries = await restingHeartRateSeries
@@ -149,6 +174,12 @@ actor WatchDeltaFetcher {
         delta.latestNight = resolvedSleep.latestNight
 
         delta.workouts = await workouts
+
+        delta.stressHeartRateSamples = await stressHeartRateSamples
+        delta.stressSDNNSamples = await stressSDNNSamples
+        delta.stressRMSSDSamples = await stressRMSSDSamples
+        delta.stressHourlySteps = await stressHourlySteps
+        delta.stressHourlyActiveEnergy = await stressHourlyActiveEnergy
 
         return delta
     }
@@ -281,6 +312,114 @@ actor WatchDeltaFetcher {
         let value = sample.quantity.doubleValue(for: unit)
         guard value.isFinite else { return nil }
         return WatchDeltaSample(value: value, measuredAt: sample.endDate)
+    }
+
+    // MARK: - Stress
+
+    /// Raw samples for a Stress input (heart rate, SDNN): the descriptor's
+    /// intraday `.sampleSeries` row under the kind's resolved source, so the
+    /// watch scores the same points the phone's day-sample series holds. The
+    /// `.heart` permission gate rides `reads`, which resolves `.skip` for a
+    /// hidden category; any read that can't run leaves `.failure`.
+    private func sampleSeries(
+        _ kind: HealthMetricKind,
+        reads: [HealthMetricKind: WatchSourceRead],
+        start: Date,
+        end: Date
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              descriptor.intradayDaySamples == .sampleSeries,
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType),
+              case .run(let resolvedSourcePredicate) = reads[descriptor.sourceKind] else {
+            return .failure
+        }
+
+        return await BodyHealthQuantityFetch.quantitySampleSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: BodyHealthSourceResolver.combinedPredicate(
+                startDate: start,
+                endDate: end,
+                sourcePredicate: resolvedSourcePredicate
+            ),
+            unit: descriptor.unit,
+            valueTransform: descriptor.valueTransform
+        )
+    }
+
+    /// Stress's RMSSD: Recovery HRV, else the beat-to-beat scan under the
+    /// watch's capped limits. An HRV input, so it runs under the HRV source,
+    /// exactly as on the phone.
+    private func rmssdSamples(
+        reads: [HealthMetricKind: WatchSourceRead],
+        start: Date,
+        end: Date
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        guard case .run(let resolvedSourcePredicate) = reads[.heartRateVariability] else {
+            return .failure
+        }
+
+        return await BodyHeartbeatRMSSDFetch.rmssdSamples(
+            store: store,
+            predicate: BodyHealthSourceResolver.combinedPredicate(
+                startDate: start,
+                endDate: end,
+                sourcePredicate: resolvedSourcePredicate
+            ),
+            limits: .watch
+        )
+    }
+
+    /// Hourly sums for Stress's movement mask (steps, active energy): the
+    /// descriptor's intraday `.hourlyCumulative` row. A permission that is off
+    /// resolves `.skip` and leaves `.failure`.
+    ///
+    /// A deliberate deviation from the source parity rule above: these kinds
+    /// resolve WITHOUT the phone's expected source universe
+    /// (`expectedSourceIDsByKind: nil`), so a pinned or custom selection stays
+    /// strict but All Sources reads the sources this watch can see. The
+    /// iPhone's pedometer is almost always a phone source the watch never
+    /// sees, so the universe check would skip these reads, and with them
+    /// Stress, for nearly everyone. The mask is a coarse threshold (200 steps
+    /// or 25 kcal in an hour) that only matters where the wrist is producing
+    /// the heart rate being scored, and the watch sees its own movement.
+    private func hourlySeries(
+        _ kind: HealthMetricKind,
+        selection: BodyHealthDataSourceSelection,
+        customGroups: [BodyCustomHealthSourceGroup],
+        permission: BodyHealthPermissionSelection,
+        start: Date,
+        end: Date,
+        calendar: Calendar
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              descriptor.intradayDaySamples == .hourlyCumulative,
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType),
+              case .run(let resolvedSourcePredicate) = await WatchSourceResolver.read(
+                  for: descriptor.sourceKind,
+                  selection: selection,
+                  expectedSourceIDsByKind: nil,
+                  customGroups: customGroups,
+                  permission: permission,
+                  store: store
+              ) else {
+            return .failure
+        }
+
+        return await BodyHealthQuantityFetch.hourlyCumulativeSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: BodyHealthSourceResolver.combinedPredicate(
+                startDate: start,
+                endDate: end,
+                sourcePredicate: resolvedSourcePredicate
+            ),
+            unit: descriptor.unit,
+            start: start,
+            end: end,
+            calendar: calendar,
+            valueTransform: descriptor.valueTransform
+        )
     }
 
     // MARK: - Sleep

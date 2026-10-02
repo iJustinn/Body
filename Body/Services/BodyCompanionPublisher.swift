@@ -203,6 +203,57 @@ final class BodyCompanionPublisher {
                 now: input.now,
                 calendar: input.workoutCalendar
             )
+            // Readiness and Training Load carry their own watermarks: a
+            // workout-only refresh re-drains readiness (only) while
+            // `lastRefreshDate` (the VITALS watermark) deliberately stands
+            // still. Stamping uniformly would present genuinely fresh
+            // readiness as stale — or, joint-stamping both, present a NOT
+            // recomputed Training Load as fresh. Either way the watch's
+            // per-metric compare then picks the wrong side. Every other
+            // kind (and a never-recomputed Training Load) falls through to
+            // the uniform vitals date.
+            func dataAsOf(forKind kind: String) -> Date? {
+                switch kind {
+                case WatchMetricKindKey.readiness:
+                    return input.readinessComputeDate
+                case WatchMetricKindKey.trainingLoad:
+                    return input.trainingLoadComputeDate
+                case WatchMetricKindKey.workoutMinutes,
+                     // The legacy compatibility copy carries the same week,
+                     // so it ships under the same watermark.
+                     WatchMetricKindKey.exerciseMinutes:
+                    return input.workoutMinutesDataAsOf
+                default:
+                    // A single-metric detail pull refreshes one vitals kind
+                    // without advancing the full-refresh date — take the
+                    // newer of the two so the pulled value doesn't ship
+                    // under a stale stamp.
+                    return [input.lastRefreshDate, input.metricPullDates[kind]]
+                        .compactMap { $0 }
+                        .max()
+                }
+            }
+            // The Stress page's "Last 8 hours", built here off the main actor
+            // because it rescans the stress window. Over the store's LIVE
+            // summary and trends: only they still carry the intraday day
+            // samples, which the persisted dashboard and the seed both strip.
+            // The workouts are the store's whole stress window, the same mask
+            // its Day View and recompute score with, since every scanned day's
+            // quiet heart rate feeds today's baseline. Stamped with the Stress
+            // card's own watermark, so the watch merges the two consistently.
+            let stressTimeline: WatchStressTimeline? = input.permissionSelection.includes(.heart)
+                ? WatchStressTimelineBuilder.make(
+                    dashboard: HealthDashboardSnapshot(summary: input.shared.summary, trends: input.shared.trends),
+                    workouts: HealthKitWorkoutStore.stressWindowWorkouts(
+                        in: input.monthSnapshots,
+                        through: input.now,
+                        calendar: .bodyGregorian
+                    ),
+                    now: input.now,
+                    calendar: .bodyGregorian,
+                    computedAt: dataAsOf(forKind: WatchMetricKindKey.stress) ?? input.lastRefreshDate
+                )
+                : nil
             var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
                 summary: input.shared.summary,
                 trends: input.shared.trends,
@@ -213,37 +264,12 @@ final class BodyCompanionPublisher {
                 showSleepScore: input.shared.showSleepScore,
                 now: input.now,
                 workoutWeeklyMinutes: workoutWeeklyMinutes,
-                // Readiness and Training Load carry their own watermarks: a
-                // workout-only refresh re-drains readiness (only) while
-                // `lastRefreshDate` (the VITALS watermark) deliberately stands
-                // still. Stamping uniformly would present genuinely fresh
-                // readiness as stale — or, joint-stamping both, present a NOT
-                // recomputed Training Load as fresh. Either way the watch's
-                // per-metric compare then picks the wrong side. Every other
-                // kind (and a never-recomputed Training Load) falls through to
-                // the uniform vitals date.
-                perKindDataAsOf: { kind in
-                    switch kind {
-                    case WatchMetricKindKey.readiness:
-                        return input.readinessComputeDate
-                    case WatchMetricKindKey.trainingLoad:
-                        return input.trainingLoadComputeDate
-                    case WatchMetricKindKey.workoutMinutes,
-                         // The legacy compatibility copy carries the same week,
-                         // so it ships under the same watermark.
-                         WatchMetricKindKey.exerciseMinutes:
-                        return input.workoutMinutesDataAsOf
-                    default:
-                        // A single-metric detail pull refreshes one vitals kind
-                        // without advancing the full-refresh date — take the
-                        // newer of the two so the pulled value doesn't ship
-                        // under a stale stamp.
-                        return [input.lastRefreshDate, input.metricPullDates[kind]]
-                            .compactMap { $0 }
-                            .max()
-                    }
-                },
-                includesSleepDebt: input.showsSleepDebt
+                perKindDataAsOf: dataAsOf(forKind:),
+                includesSleepDebt: input.showsSleepDebt,
+                stressTimeline: stressTimeline,
+                // The palette resolved for Body Pro: empty without it, so the
+                // watch draws the built-in colors the phone does.
+                workoutColorOverrides: BodyWorkoutColorOverrides.rawValue(from: input.workoutColorPalette.overrides)
             )
             snapshot.source = "phone"
             snapshot.readinessHeroShowsLevel = input.readinessHeroShowsLevel

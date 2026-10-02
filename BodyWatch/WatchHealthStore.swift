@@ -34,7 +34,8 @@ actor WatchHealthStore {
 
     /// Authorizes the broader read set the on-device compute needs (workouts +
     /// effort, the three heart types, respiratory, blood oxygen, sleep, wrist
-    /// temperature), filtered by the phone's synced permission selection so a
+    /// temperature, and for Stress the heartbeat series, Recovery HRV, steps
+    /// and active energy), filtered by the phone's synced permission selection so a
     /// category the user hid is never requested. Requested lazily, on the first
     /// compute after the selection changes.
     func requestComputeAuthorization(for selection: BodyHealthPermissionSelection) async {

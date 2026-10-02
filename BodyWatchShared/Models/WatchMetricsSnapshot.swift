@@ -53,6 +53,10 @@ enum WatchMetricKindKey {
     static let restingHeartRate = "restingHeartRate"
     static let trainingLoad = "trainingLoad"
     static let wristTemperature = "wristTemperature"
+    /// Stress, the third card. Unlike the other kinds it has no iPhone widget
+    /// (`HealthWidgetMetric`), so `ProjectConfigurationTests` pins its look
+    /// against the iPhone's `HealthMetricPresentation` row instead.
+    static let stress = "stress"
     /// Legacy activity-ring exercise minutes. No longer published: the weekly
     /// workout complication reads `workoutMinutes` below and only falls back to
     /// this kind when it finds a cached snapshot from an older phone build.
@@ -68,10 +72,10 @@ enum WatchMetricKindKey {
     static let workoutMinutes = "workoutMinutes"
 
     /// Dashboard ordering — Readiness leads (drawn as the home screen's hero
-    /// rather than a card), then Sleep and Training Load. The watch
+    /// rather than a card), then Sleep, Training Load and Stress. The watch
     /// complications are independent widgets and don't read this.
     static let displayOrder: [String] = [
-        readiness, sleep, trainingLoad, heartRate,
+        readiness, sleep, trainingLoad, stress, heartRate,
         heartRateVariability, restingHeartRate, wristTemperature
     ]
 
@@ -84,6 +88,7 @@ enum WatchMetricKindKey {
             return WatchMetricColor(red: 1.00, green: 0.25, blue: 0.45)
         case trainingLoad: return WatchMetricColor(red: 1.00, green: 0.38, blue: 0.12)
         case wristTemperature: return WatchMetricColor(red: 0.00, green: 0.75, blue: 0.85)
+        case stress: return WatchMetricColor(red: 0.90, green: 0.35, blue: 0.75)
         default: return WatchMetricColor(red: 0.55, green: 0.55, blue: 0.60)
         }
     }
@@ -97,6 +102,7 @@ enum WatchMetricKindKey {
         case heartRateVariability: return "waveform.path.ecg"
         case trainingLoad: return "figure.strengthtraining.traditional"
         case wristTemperature: return "thermometer.medium"
+        case stress: return "brain.head.profile.fill"
         default: return "heart.text.square"
         }
     }
@@ -383,6 +389,77 @@ struct WatchSleepDebt: Codable, Equatable {
     }
 }
 
+/// The Stress page's "Last 8 hours" chart: the recent 15 minute Stress windows,
+/// built by the shared `WatchStressTimelineBuilder` on either device. Compact
+/// on purpose, since it rides every push: one entry per window from `start`
+/// instead of a pair of dates each. Plain values so this file stays free of
+/// BodyMetricsKit.
+struct WatchStressTimeline: Codable, Equatable {
+    /// The length of one window, `StressScoreCalculator.windowDuration`.
+    static let slotLength: TimeInterval = 15 * 60
+    /// The marker in `slots` for a window masked as movement.
+    static let activityMarker = -1
+
+    /// What one window shows.
+    enum Slot: Equatable {
+        /// A scored window, rounded. `StressBand`'s bounds sit on .5, so the
+        /// rounded score always falls in the same band as the exact one.
+        case scored(Int)
+        /// Masked as movement (a workout or a busy hour): a stub, no score.
+        case activity
+        /// No score (too few readings): a gap.
+        case none
+    }
+
+    /// The first window's start. Windows run back to back from here, on the
+    /// stress grid (local midnight plus whole 15 minute steps).
+    var start: Date
+    /// When the timeline was built: the latest window is drawn only up to here.
+    var end: Date
+    /// One entry per window from `start`: a score 0...100, `activityMarker`,
+    /// or nil for an unscored window. Read through `slot(at:)`.
+    var slots: [Int?]
+    /// Sleep and workout shading behind the windows, oldest first.
+    var context: [WatchStressContextBand]
+    /// The information cutoff behind the windows, compared by the merge like
+    /// `WatchSleepDebt.computedAt`: the phone's refresh time for a pushed
+    /// timeline, the compute's coverage for one the watch built. Nil once a
+    /// permission change stripped local provenance.
+    var computedAt: Date?
+
+    func slot(at index: Int) -> Slot {
+        guard slots.indices.contains(index), let value = slots[index] else { return .none }
+        return value == Self.activityMarker ? .activity : .scored(value)
+    }
+
+    /// The window `index` covers: 15 minutes from its start, the latest one
+    /// cut at `end`.
+    func interval(at index: Int) -> DateInterval {
+        let slotStart = start.addingTimeInterval(Double(index) * Self.slotLength)
+        let slotEnd = min(slotStart.addingTimeInterval(Self.slotLength), max(end, slotStart))
+        return DateInterval(start: slotStart, end: slotEnd)
+    }
+
+    /// Whether any window is drawn (scored or activity).
+    var hasMarks: Bool {
+        slots.contains { $0 != nil }
+    }
+}
+
+/// One shaded stretch behind the Stress windows. `kind` is "sleep" (the main
+/// session), "nap" or "workout"; `workoutType` is the `BodyWorkoutType` raw
+/// value for a workout, so this file stays free of BodyMetricsKit.
+struct WatchStressContextBand: Codable, Equatable {
+    static let sleepKind = "sleep"
+    static let napKind = "nap"
+    static let workoutKind = "workout"
+
+    var kind: String
+    var start: Date
+    var end: Date
+    var workoutType: String? = nil
+}
+
 /// One workout for the watch Day Ring hero. `type` is the `BodyWorkoutType` raw
 /// value as a string so this file stays free of BodyMetricsKit; `colorHex` is
 /// the phone's resolved palette color, custom workout colors included.
@@ -436,6 +513,18 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// and shows it only while this is true. Nil (an older phone, which never
     /// shipped a debt) reads as off.
     var showsSleepDebt: Bool? = nil
+    /// The Stress page's "Last 8 hours" chart. Like `sleepDebt` it does not
+    /// move with its card: it has its own provenance
+    /// (`WatchStressTimeline.computedAt`) and merge rule, since the windows
+    /// keep coming after midnight while the new day's average is still blank.
+    /// No sanitize rule: the page draws only the windows inside its own last
+    /// 8 hours. Optional so snapshots from before this field decode.
+    var stressTimeline: WatchStressTimeline? = nil
+    /// The phone's custom workout colors (`BodyWorkoutColorOverrides` raw
+    /// form, empty without Body Pro), for the workout shading on the Stress
+    /// chart. A display preference, so only a phone push sets it; nil (an
+    /// older phone) reads as the built-in colors.
+    var workoutColorOverrides: String? = nil
 
     /// The phone's Settings ▸ Home Hero ▸ Readiness Level switch: whether the
     /// readiness hero names today's level under the score. A display
@@ -588,6 +677,13 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// isn't `now`'s day (or it has none), since its nights are labeled as
     /// ending today. Unlike the Sleep card it doesn't wait for a night: the
     /// next watch compute or phone push rebuilds it for the new day.
+    ///
+    /// Fourth, independent rule: the Stress card is today's average, so once
+    /// the day it was built on (`weeklyAsOf`, the builder's `now`; it travels
+    /// with the value through every merge) isn't `now`'s day, or is unknown
+    /// (nil reads as not today, like `sleepNight`), it is cleared to the
+    /// builder's blank Stress card: no value and no status band, since today's
+    /// band went with today's average. Its week stays for the chart.
     func sanitized(asOf now: Date = Date()) -> WatchMetricsSnapshot {
         let clearsSleep = metric(forKind: WatchMetricKindKey.sleep) != nil
             && !isSleepNightCurrent(asOf: now)
@@ -598,13 +694,27 @@ struct WatchMetricsSnapshot: Codable, Equatable {
             guard let lastDay = debt.nights.last?.day else { return true }
             return !Calendar(identifier: .gregorian).isDate(lastDay, inSameDayAs: now)
         } ?? false
-        guard clearsSleep || clearsStale || clearsSleepDebt else { return self }
+        let clearsStress = metric(forKind: WatchMetricKindKey.stress).map { stress -> Bool in
+            // Same day-boundary convention as `isSleepNightCurrent`.
+            guard stress.hasValue else { return false }
+            guard let builtOn = stress.weeklyAsOf else { return true }
+            return !Calendar(identifier: .gregorian).isDate(builtOn, inSameDayAs: now)
+        } ?? false
+        guard clearsSleep || clearsStale || clearsSleepDebt || clearsStress else { return self }
 
         var copy = self
         if clearsSleep { copy.sleepStages = nil }
         if clearsSleepDebt { copy.sleepDebt = nil }
         copy.metrics = metrics.map { metric in
             if clearsSleep, metric.kind == WatchMetricKindKey.sleep { return metric.cleared() }
+            if clearsStress, metric.kind == WatchMetricKindKey.stress {
+                var cleared = metric.cleared()
+                cleared.levelMin = nil
+                cleared.levelMax = nil
+                cleared.tint = nil
+                cleared.statusBand = nil
+                return cleared
+            }
             return isOutOfTrendWindow(metric, windowStart: windowStart) ? metric.cleared() : metric
         }
         return copy

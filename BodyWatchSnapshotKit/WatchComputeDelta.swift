@@ -36,6 +36,18 @@ struct WatchComputeDelta {
     var sleepNights: WatchFetchOutcome<[SleepDaySummary]> = .failure
     var workouts: WatchFetchOutcome<[WorkoutSummary]> = .failure
 
+    /// Stress's intraday inputs over whole days (`WatchDeltaFetcher`'s Stress
+    /// window: today, plus yesterday when the last 8 hours reach into it), in
+    /// the shape of the phone's day-sample series: raw heart rate and SDNN
+    /// samples, RMSSD points (Recovery HRV, or one per heartbeat series), and
+    /// hourly step and active energy sums. Stress is stamped only when every
+    /// permitted one succeeded (`WatchComputeAssembly.dataAsOf`).
+    var stressHeartRateSamples: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var stressSDNNSamples: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var stressRMSSDSamples: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var stressHourlySteps: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var stressHourlyActiveEnergy: WatchFetchOutcome<HealthTrendSeries> = .failure
+
     /// Source kinds this watch holds no HealthKit source for at all
     /// (`WatchSourceRead.unavailable`). Their series stay `.failure`, so the
     /// seed is preserved, but they do not block Readiness.

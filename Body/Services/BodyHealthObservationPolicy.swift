@@ -47,9 +47,14 @@ enum BodyHealthObservationPolicy {
         let readable = BodyHealthReadTypes.readObjectTypes(for: permissions)
         // The app maintains the shared widget snapshot and watch payload even
         // when a metric's phone card is hidden. Reuse their canonical mappings.
+        // Except Stress: the phone computes it only for its own card
+        // (`startStressInputLoadIfNeeded` is card gated), so a companion
+        // registration would enqueue an obligation the refresh can never
+        // complete, the same rule as the sleep readable guard below.
         let companionKinds: Set<HealthMetricKind> = includesCompanionConsumers
             ? Set(HealthWidgetMetric.allCases.map(\.healthMetricKind))
                 .union(WatchMetricKindKey.displayOrder.compactMap(HealthMetricKind.init(rawValue:)))
+                .subtracting([.stress])
             : []
         // Notification-only consumers require a wake, not dashboard history
         // repair. Their current-day inputs are read by the transient evaluator.

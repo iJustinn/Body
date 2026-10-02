@@ -75,6 +75,8 @@ final class WatchComputeMergeTests: XCTestCase {
         sleepStages: [WatchSleepStageSegment]? = nil,
         sleepDebt: WatchSleepDebt? = nil,
         showsSleepDebt: Bool? = nil,
+        stressTimeline: WatchStressTimeline? = nil,
+        workoutColorOverrides: String? = nil,
         isReset: Bool? = nil
     ) -> WatchMetricsSnapshot {
         WatchMetricsSnapshot(
@@ -86,6 +88,8 @@ final class WatchComputeMergeTests: XCTestCase {
             sleepStages: sleepStages,
             sleepDebt: sleepDebt,
             showsSleepDebt: showsSleepDebt,
+            stressTimeline: stressTimeline,
+            workoutColorOverrides: workoutColorOverrides,
             publisherEpoch: "epoch-A",
             revision: 7,
             isReset: isReset
@@ -106,6 +110,7 @@ final class WatchComputeMergeTests: XCTestCase {
         sleepStages: [WatchSleepStageSegment]? = nil,
         sleepDebt: WatchSleepDebt? = nil,
         sleepDebtAsOf: Date? = nil,
+        stressTimeline: WatchStressTimeline? = nil,
         coverage: Date? = nil,
         generation: UInt64 = 3
     ) -> WatchComputeResult {
@@ -115,7 +120,8 @@ final class WatchComputeMergeTests: XCTestCase {
             metrics: metrics,
             sleepNight: sleepNight,
             sleepStages: sleepStages,
-            sleepDebt: sleepDebt
+            sleepDebt: sleepDebt,
+            stressTimeline: stressTimeline
         )
         computed.source = "watch"
         // Default coverage `t2`: "the compute's queries ran at t2" — the
@@ -1476,5 +1482,261 @@ final class WatchComputeMergeTests: XCTestCase {
             WatchComputeMerge.merging(stalePush, over: current).metric(forKind: WatchMetricKindKey.heartRate)?.weeklyRanges,
             watchRanges
         )
+    }
+
+    // MARK: - Stress ("Last 8 hours" timeline and the card's day)
+
+    /// A timeline with marks whose first slot's score tells the assertions
+    /// which side it came from.
+    private func stressTimeline(_ firstSlot: Int, computedAt: Date?) -> WatchStressTimeline {
+        WatchStressTimeline(
+            start: t0,
+            end: t1,
+            slots: [firstSlot, nil, WatchStressTimeline.activityMarker],
+            context: [],
+            computedAt: computedAt
+        )
+    }
+
+    private func stressCard(_ displayValue: String, weeklyAsOf: Date?, liveUpdatedAt: Date? = nil, computedAt: Date?) -> WatchMetric {
+        var card = metric(
+            WatchMetricKindKey.stress,
+            displayValue: displayValue,
+            rawValue: Double(displayValue),
+            score: Int(displayValue),
+            weekly: [30, 35, 40, 45, 50, 55, Double(displayValue)],
+            liveUpdatedAt: liveUpdatedAt,
+            computedAt: computedAt
+        )
+        card.weeklyAsOf = weeklyAsOf
+        return card
+    }
+
+    /// After midnight the new day's average is still blank, so the card is
+    /// not adopted over yesterday's value, but the windows keep coming: the
+    /// timeline moves on its own (the Stress) watermark and is stamped with it.
+    func testComputedStressTimelineIsAdoptedOnItsOwnWatermarkWhileTheCardStaysBlank() {
+        let current = snapshot(
+            metrics: [stressCard("42", weeklyAsOf: t0, computedAt: t0)],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(42, computedAt: t0)
+        )
+        let computed = result(
+            metrics: [stressCard("--", weeklyAsOf: t2, computedAt: nil)],
+            dataAsOf: [WatchMetricKindKey.stress: t2],
+            stressTimeline: stressTimeline(60, computedAt: nil)
+        )
+
+        let merged = WatchComputeMerge.mergingComputed(computed, into: current)
+
+        XCTAssertEqual(merged.metric(forKind: WatchMetricKindKey.stress)?.displayValue, "42", "a blank never replaces a value")
+        XCTAssertEqual(merged.stressTimeline, stressTimeline(60, computedAt: t2))
+
+        // No Stress watermark (an input wasn't re-read): neither moves.
+        let unstamped = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [:], stressTimeline: stressTimeline(60, computedAt: nil)),
+            into: current
+        )
+        XCTAssertEqual(unstamped.stressTimeline, current.stressTimeline)
+    }
+
+    func testComputedStressTimelineOlderThanTheDisplayedOneIsSkipped() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(42, computedAt: t3)
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [WatchMetricKindKey.stress: t2], stressTimeline: stressTimeline(60, computedAt: nil)),
+            into: current
+        )
+        XCTAssertEqual(merged.stressTimeline, current.stressTimeline)
+    }
+
+    /// "Nothing scored on this watch" is never a clear of a drawn timeline.
+    func testEmptyComputedStressTimelineNeverReplacesOneWithMarks() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(42, computedAt: t0)
+        )
+        let empty = WatchStressTimeline(start: t1, end: t2, slots: [nil], context: [], computedAt: nil)
+        XCTAssertFalse(empty.hasMarks)
+
+        for candidate in [nil, empty] as [WatchStressTimeline?] {
+            let merged = WatchComputeMerge.mergingComputed(
+                result(metrics: [], dataAsOf: [WatchMetricKindKey.stress: t2], stressTimeline: candidate),
+                into: current
+            )
+            XCTAssertEqual(merged.stressTimeline, current.stressTimeline)
+        }
+
+        // Over nothing at all, a timeline with marks is adopted.
+        let bare = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0)
+        XCTAssertEqual(
+            WatchComputeMerge.mergingComputed(
+                result(metrics: [], dataAsOf: [WatchMetricKindKey.stress: t2], stressTimeline: stressTimeline(60, computedAt: nil)),
+                into: bare
+            ).stressTimeline,
+            stressTimeline(60, computedAt: t2)
+        )
+    }
+
+    func testComputeNeverRepopulatesAResetTombstonesStressTimeline() {
+        let tombstone = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0, isReset: true)
+        let merged = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [WatchMetricKindKey.stress: t2], stressTimeline: stressTimeline(60, computedAt: nil)),
+            into: tombstone
+        )
+        XCTAssertNil(merged.stressTimeline)
+    }
+
+    /// A push whose reads predate the watch's last compute keeps the local
+    /// timeline; a newer one, or one without a timeline but with a newer
+    /// refresh, replaces it.
+    func testPushKeepsANewerLocalStressTimeline() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(60, computedAt: t2)
+        )
+        func merged(timeline: WatchStressTimeline?, lastRefreshDate: Date) -> WatchStressTimeline? {
+            WatchComputeMerge.merging(
+                snapshot(metrics: [], generatedAt: t3, lastRefreshDate: lastRefreshDate, stressTimeline: timeline),
+                over: current
+            ).stressTimeline
+        }
+
+        XCTAssertEqual(merged(timeline: stressTimeline(42, computedAt: t1), lastRefreshDate: t1), current.stressTimeline)
+        XCTAssertEqual(merged(timeline: stressTimeline(42, computedAt: t3), lastRefreshDate: t1), stressTimeline(42, computedAt: t3))
+        // An unstamped push timeline is judged by the push's refresh date.
+        XCTAssertEqual(merged(timeline: stressTimeline(42, computedAt: nil), lastRefreshDate: t1), current.stressTimeline)
+        XCTAssertEqual(merged(timeline: stressTimeline(42, computedAt: nil), lastRefreshDate: t3), stressTimeline(42, computedAt: nil))
+        XCTAssertEqual(merged(timeline: nil, lastRefreshDate: t1), current.stressTimeline)
+        XCTAssertNil(merged(timeline: nil, lastRefreshDate: t3))
+
+        // The settings-change push always wins.
+        XCTAssertEqual(
+            WatchComputeMerge.merging(
+                snapshot(metrics: [], generatedAt: t3, lastRefreshDate: t1, stressTimeline: stressTimeline(42, computedAt: t1)),
+                over: current,
+                treatingBlanksAsAuthoritative: true
+            ).stressTimeline,
+            stressTimeline(42, computedAt: t1)
+        )
+    }
+
+    /// A push that carries the Stress card but no windows (the phone published
+    /// before its Stress inputs loaded) never erases a local chart that has
+    /// some, however new its refresh: the card's blank-preserve rule. Windows
+    /// in the push, or a stripped local stamp, still let the push win.
+    func testPushWithoutWindowsKeepsALocalStressTimelineWithMarks() {
+        let current = snapshot(
+            metrics: [stressCard("42", weeklyAsOf: t0, computedAt: t0)],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(60, computedAt: t2)
+        )
+        let empty = WatchStressTimeline(start: t1, end: t3, slots: [nil], context: [], computedAt: t3)
+        for pushed in [nil, empty] as [WatchStressTimeline?] {
+            let push = snapshot(
+                metrics: [stressCard("42", weeklyAsOf: t3, computedAt: t3)],
+                generatedAt: t3,
+                lastRefreshDate: t3,
+                stressTimeline: pushed
+            )
+            XCTAssertEqual(WatchComputeMerge.merging(push, over: current).stressTimeline, current.stressTimeline)
+            XCTAssertEqual(
+                WatchComputeMerge.merging(push, over: WatchComputeMerge.strippingLocalProvenance(from: current)).stressTimeline,
+                pushed,
+                "a local chart from before a permission change is not kept"
+            )
+        }
+
+        let withWindows = snapshot(
+            metrics: [stressCard("42", weeklyAsOf: t3, computedAt: t3)],
+            generatedAt: t3,
+            lastRefreshDate: t3,
+            stressTimeline: stressTimeline(42, computedAt: t3)
+        )
+        XCTAssertEqual(WatchComputeMerge.merging(withWindows, over: current).stressTimeline, stressTimeline(42, computedAt: t3))
+    }
+
+    func testStrippingLocalProvenanceClearsTheStressTimelineStamp() {
+        let onWatch = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(60, computedAt: t2)
+        )
+        let stripped = WatchComputeMerge.strippingLocalProvenance(from: onWatch)
+        XCTAssertEqual(stripped.stressTimeline, stressTimeline(60, computedAt: nil), "the windows stay until the push replaces them")
+
+        let push = snapshot(metrics: [], generatedAt: t3, lastRefreshDate: t1, stressTimeline: stressTimeline(42, computedAt: t1))
+        XCTAssertEqual(WatchComputeMerge.merging(push, over: stripped).stressTimeline, stressTimeline(42, computedAt: t1))
+        XCTAssertEqual(
+            WatchComputeMerge.merging(push, over: onWatch).stressTimeline,
+            stressTimeline(60, computedAt: t2),
+            "unstripped, the fresher local timeline would have stayed"
+        )
+    }
+
+    /// The custom workout colors are the phone's display preference: every
+    /// push brings its own, and a compute never touches them.
+    func testWorkoutColorOverridesComeOnlyFromThePush() {
+        let current = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0, workoutColorOverrides: "running:335BB0")
+
+        let computed = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [WatchMetricKindKey.stress: t2], stressTimeline: stressTimeline(60, computedAt: nil)),
+            into: current
+        )
+        XCTAssertEqual(computed.workoutColorOverrides, "running:335BB0")
+
+        let push = snapshot(metrics: [], generatedAt: t1, lastRefreshDate: t1, workoutColorOverrides: "")
+        XCTAssertEqual(WatchComputeMerge.merging(push, over: current).workoutColorOverrides, "")
+    }
+
+    /// `weeklyAsOf` is the day the Stress card was built on, which the
+    /// display-time midnight guard reads, so it must travel with the value
+    /// whichever side's value wins.
+    func testStressCardsDayTravelsWithItsValueThroughEveryMerge() {
+        let twoDaysEarlier = t2.addingTimeInterval(-2 * 86_400)
+        let current = snapshot(
+            metrics: [stressCard("42", weeklyAsOf: twoDaysEarlier, computedAt: t0)],
+            generatedAt: t0,
+            lastRefreshDate: t0
+        )
+
+        // A compute adopted over the phone's card brings its own day…
+        let adopted = WatchComputeMerge.mergingComputed(
+            result(metrics: [stressCard("55", weeklyAsOf: t2, computedAt: nil)], dataAsOf: [WatchMetricKindKey.stress: t2]),
+            into: current
+        )
+        XCTAssertEqual(adopted.metric(forKind: WatchMetricKindKey.stress)?.displayValue, "55")
+        XCTAssertEqual(adopted.metric(forKind: WatchMetricKindKey.stress)?.weeklyAsOf, t2)
+        XCTAssertEqual(adopted.sanitized(asOf: t2).metric(forKind: WatchMetricKindKey.stress)?.displayValue, "55")
+        XCTAssertEqual(current.sanitized(asOf: t2).metric(forKind: WatchMetricKindKey.stress)?.displayValue, "--")
+
+        // …a blank push keeps the local value with its day, so the guard
+        // still catches it…
+        let blankPush = snapshot(metrics: [stressCard("--", weeklyAsOf: t3, computedAt: t3)], generatedAt: t3, lastRefreshDate: t3)
+        let preserved = WatchComputeMerge.merging(blankPush, over: current)
+        XCTAssertEqual(preserved.metric(forKind: WatchMetricKindKey.stress)?.displayValue, "42")
+        XCTAssertEqual(preserved.metric(forKind: WatchMetricKindKey.stress)?.weeklyAsOf, twoDaysEarlier)
+
+        // …and an older push keeps a watch-computed card's whole display set.
+        let onWatch = snapshot(
+            metrics: [stressCard("55", weeklyAsOf: t2, liveUpdatedAt: t2, computedAt: t2)],
+            generatedAt: t0,
+            lastRefreshDate: t0
+        )
+        let olderPush = snapshot(metrics: [stressCard("42", weeklyAsOf: twoDaysEarlier, computedAt: t1)], generatedAt: t3, lastRefreshDate: t1)
+        let kept = WatchComputeMerge.merging(olderPush, over: onWatch).metric(forKind: WatchMetricKindKey.stress)
+        XCTAssertEqual(kept?.displayValue, "55")
+        XCTAssertEqual(kept?.weeklyAsOf, t2)
     }
 }

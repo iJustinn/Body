@@ -95,6 +95,26 @@ final class WatchComputeStaleGateTests: XCTestCase {
         )
     }
 
+    /// Stress is computed like Readiness and Training Load (no live reading),
+    /// so it is scanned like them: stale once its `computedAt` ages past the
+    /// snapshot's stale window, fresh right after a compute stamped it.
+    func testStaleStressMetricComputesLikeOtherComputedKinds() {
+        var stress = WatchMetric(
+            kind: WatchMetricKindKey.stress,
+            title: "Stress",
+            displayValue: "42",
+            unit: "",
+            score: 42,
+            fillFraction: 0.42,
+            rawValue: 42
+        )
+        stress.computedAt = now.addingTimeInterval(-24 * 60 * 60)
+        XCTAssertTrue(isStale(metrics: [stress], lastComputeAttemptDate: nil, lastComputeDate: now))
+
+        stress.computedAt = now
+        XCTAssertFalse(isStale(metrics: [stress], lastComputeAttemptDate: nil, lastComputeDate: now))
+    }
+
     /// A hidden metric is not on screen, so its staleness must not drive the
     /// gate (the visibility closure is the model's own `isMetricVisible`).
     func testHiddenMetricsAreNotScanned() {

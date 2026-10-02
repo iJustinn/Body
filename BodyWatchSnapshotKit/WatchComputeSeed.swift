@@ -209,6 +209,14 @@ struct WatchComputeSeed: Codable, Equatable {
     /// still-relevant score — 15 covers "today" plus the full 14-day lookback.
     static let sleepSegmentDayCount = 15
 
+    /// Days of `trends.recordedStressDays` carried, whole records, ending at
+    /// `dataThrough`. The watch keeps only about a week of HealthKit, so these
+    /// records are where its Stress baselines come from: each scored day reads
+    /// the quiet heart rate and RMSSD medians of the 56 days before it
+    /// (`ReadinessScoreCalculator.baselineDayCount`), plus a few days of slack
+    /// at the calendar edges. They also draw the 7 day chart and its ranges.
+    static let stressRecordDayCount = 60
+
     /// The watch's assumed HealthKit retention: the compute's ENTIRE delta
     /// window (which opens two calendar days before `dataThrough` for the
     /// re-fetch overlap — `WatchDeltaSplicer.deltaStart`) must fit inside this,
@@ -376,7 +384,8 @@ extension HealthTrendSnapshot {
     /// keeping only the series the watch's on-device recompute
     /// reads (readiness, HR/RHR/HRV, the HR/HRV daily ranges for one week,
     /// respiratory, SpO₂, Training Load, wrist temperature, sleep + sleep
-    /// history, recorded-readiness + its context)
+    /// history, recorded-readiness + its context, the recorded Stress days for
+    /// `WatchComputeSeed.stressRecordDayCount` days + their context)
     /// — everything else (secondary-source series, day-sample series, Basics,
     /// Activity Rings inputs, …) collapses to `.empty` since the watch never
     /// computes those.
@@ -413,6 +422,18 @@ extension HealthTrendSnapshot {
             return day >= oldestKeptDay && day <= anchorDay
         }
         trimmed.recordedReadinessContext = recordedReadinessContext
+
+        // Stress's baselines and week, same day bounds as the records above.
+        let oldestStressDay = calendar.date(
+            byAdding: .day,
+            value: -(WatchComputeSeed.stressRecordDayCount - 1),
+            to: anchorDay
+        ) ?? anchorDay
+        trimmed.recordedStressDays = recordedStressDays.filter { entry in
+            let day = calendar.startOfDay(for: entry.date)
+            return day >= oldestStressDay && day <= anchorDay
+        }
+        trimmed.recordedStressContext = recordedStressContext
 
         return trimmed
     }

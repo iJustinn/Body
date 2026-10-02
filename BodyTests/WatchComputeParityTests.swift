@@ -42,6 +42,7 @@ final class WatchComputeParityTests: XCTestCase {
         var settings: WatchComputeSettings
         var idealSleepDuration: TimeInterval
         var recordedReadinessContext: String
+        var recordedStressContext: String
     }
 
     /// 365 days of vitals trends, ~70 nights of sleep history (multi-segment
@@ -70,6 +71,9 @@ final class WatchComputeParityTests: XCTestCase {
         trends.wristTemperature = dailySeries(dayCount: 365, anchor: anchor, calendar: calendar, baseline: 36.2, amplitude: 0.4)
         trends.heartRateRanges = rangeSeries(around: trends.heartRate, spread: 18, anchor: anchor, calendar: calendar)
         trends.heartRateVariabilityRanges = rangeSeries(around: trends.heartRateVariability, spread: 25, anchor: anchor, calendar: calendar)
+        let recordedStressContext = "fixture-stress-context"
+        stressFixture(into: &trends, anchor: anchor, calendar: calendar)
+        trends.recordedStressContext = recordedStressContext
 
         var nights: [SleepDaySummary] = []
         for offset in 0...(hardensSleepDebt ? Self.sleepDebtNightCount - 1 : 70) {
@@ -173,8 +177,61 @@ final class WatchComputeParityTests: XCTestCase {
             trainingLoadDailyLoads: dailyLoadValues.loads,
             settings: settings,
             idealSleepDuration: idealSleepDuration,
-            recordedReadinessContext: recordedContext
+            recordedReadinessContext: recordedContext,
+            recordedStressContext: recordedStressContext
         )
+    }
+
+    /// Stress's inputs: 80 recorded days behind today (past the seed's 60 day
+    /// trim, so the trim is really exercised) carrying the quiet heart rate
+    /// and RMSSD baselines and the week's ranges, plus today's intraday reads
+    /// up to `anchor`: heart rate in every window from midnight, a few SDNN
+    /// and RMSSD readings, and an hour each of steps and active energy over
+    /// the movement thresholds. The fixture's workout an hour before `anchor`
+    /// masks its windows too.
+    private func stressFixture(into trends: inout HealthTrendSnapshot, anchor: Date, calendar: Calendar) {
+        let anchorDay = calendar.startOfDay(for: anchor)
+        trends.recordedStressDays = (1...80).compactMap { age -> StressDaySummary? in
+            guard let day = calendar.date(byAdding: .day, value: -age, to: anchorDay) else { return nil }
+            let average = 30 + (age * 7) % 40
+            return StressDaySummary(
+                date: day,
+                averageScore: average,
+                minutesByBand: [.low: 240, .medium: 120],
+                scoredWindowCount: 40,
+                hrvCoveredWindowCount: 12,
+                quietHRMedian: 60 + Double(age % 5),
+                rmssdDailyMedian: 34 + Double(age % 4),
+                minScore: max(average - 20, 0),
+                maxScore: min(average + 30, 100),
+                activityMinutes: 30
+            )
+        }
+        .sorted { $0.date < $1.date }
+
+        // Absolute 15 minute steps from midnight, the stress grid's own rule,
+        // so a DST day lines up too.
+        let elapsedWindows = Int(anchor.timeIntervalSince(anchorDay) / 900)
+        trends.heartRateDaySamples = HealthTrendSeries(points: (0..<elapsedWindows).flatMap { index -> [HealthTrendDataPoint] in
+            let windowStart = anchorDay.addingTimeInterval(Double(index) * 900)
+            let value = 58 + Double(index % 9) * 3
+            return [
+                HealthTrendDataPoint(date: windowStart.addingTimeInterval(60), value: value),
+                HealthTrendDataPoint(date: windowStart.addingTimeInterval(420), value: value + 2)
+            ]
+        })
+        trends.heartRateVariabilityDaySamples = HealthTrendSeries(points: [2.0, 5.0, 8.0].map {
+            HealthTrendDataPoint(date: anchorDay.addingTimeInterval($0 * 3_600), value: 40 + $0)
+        })
+        trends.heartbeatRMSSDDaySamples = HealthTrendSeries(points: [3.0, 6.0].map {
+            HealthTrendDataPoint(date: anchorDay.addingTimeInterval($0 * 3_600 + 600), value: 30 + $0)
+        })
+        trends.stepsDaySamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: anchorDay.addingTimeInterval(7 * 3_600), value: 900)
+        ])
+        trends.activeEnergyDaySamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: anchorDay.addingTimeInterval(6 * 3_600), value: 40)
+        ])
     }
 
     /// Age (days before `anchor`) of a single planted extreme value in every
@@ -399,7 +456,7 @@ final class WatchComputeParityTests: XCTestCase {
             from: fixture.workouts, now: now, sleepEnd: sleepEnd, calendar: calendar
         )
 
-        let recomputed = filtered.recalculatingReadiness(
+        var recomputed = filtered.recalculatingReadiness(
             on: now,
             idealSleepDuration: fixture.idealSleepDuration,
             calendar: calendar,
@@ -410,6 +467,27 @@ final class WatchComputeParityTests: XCTestCase {
             freezesRecordedReadiness: true,
             recordedReadinessContext: fixture.recordedReadinessContext
         )
+
+        // Then Stress, as the refresh runs it after readiness (with the
+        // records' own context and the whole stress window's workouts), and
+        // the "Last 8 hours" `BodyCompanionPublisher` builds over the result.
+        var stressTimeline: WatchStressTimeline?
+        if permission.includes(.heart) {
+            recomputed = recomputed.recalculatingStress(
+                on: now,
+                workouts: fixture.workouts,
+                calendar: calendar,
+                now: now,
+                recordedStressContext: fixture.recordedStressContext
+            )
+            stressTimeline = WatchStressTimelineBuilder.make(
+                dashboard: recomputed,
+                workouts: fixture.workouts,
+                now: now,
+                calendar: calendar,
+                computedAt: now
+            )
+        }
 
         var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
             summary: recomputed.summary,
@@ -422,7 +500,8 @@ final class WatchComputeParityTests: XCTestCase {
             now: now,
             // What the publisher passes while Body Pro and the Sleep Debt
             // toggle are on.
-            includesSleepDebt: true
+            includesSleepDebt: true,
+            stressTimeline: stressTimeline
         )
         snapshot.source = "phone"
         return snapshot
@@ -509,6 +588,17 @@ final class WatchComputeParityTests: XCTestCase {
         delta.latestNight = deltaNights.max { lhs, rhs in
             (lhs.summary.stageSnapshot.date ?? .distantPast) < (rhs.summary.stageSnapshot.date ?? .distantPast)
         }?.summary
+        // Stress's intraday reads cover whole days from the one `now - 9h`
+        // falls on (`WatchDeltaFetcher`'s Stress window).
+        let stressWindowStart = calendar.startOfDay(for: now.addingTimeInterval(-9 * 3_600))
+        func stressSlice(_ series: HealthTrendSeries) -> WatchFetchOutcome<HealthTrendSeries> {
+            .success(HealthTrendSeries(points: series.points.filter { $0.date >= stressWindowStart && $0.date <= now }))
+        }
+        delta.stressHeartRateSamples = stressSlice(fixture.trends.heartRateDaySamples)
+        delta.stressSDNNSamples = stressSlice(fixture.trends.heartRateVariabilityDaySamples)
+        delta.stressRMSSDSamples = stressSlice(fixture.trends.heartbeatRMSSDDaySamples)
+        delta.stressHourlySteps = stressSlice(fixture.trends.stepsDaySamples)
+        delta.stressHourlyActiveEnergy = stressSlice(fixture.trends.activeEnergyDaySamples)
         mutateDelta(&delta)
 
         let result = try XCTUnwrap(WatchComputeAssembly.assemble(
@@ -651,6 +741,11 @@ final class WatchComputeParityTests: XCTestCase {
             XCTAssertEqual(phoneMetric.levelMin, watchMetric.levelMin, "\(kind).levelMin", file: file, line: line)
             XCTAssertEqual(phoneMetric.levelMax, watchMetric.levelMax, "\(kind).levelMax", file: file, line: line)
         }
+        // The Stress page's "Last 8 hours" is the same windows on both sides
+        // (both paths stamp it with `now` here).
+        if !excluding.contains(WatchMetricKindKey.stress) {
+            XCTAssertEqual(phone.stressTimeline, watch.stressTimeline, "stressTimeline", file: file, line: line)
+        }
     }
 
     // MARK: - Case 1: exact parity (folds in trimmed-sleep equivalence)
@@ -698,6 +793,21 @@ final class WatchComputeParityTests: XCTestCase {
         let phoneWristTemp = try XCTUnwrap(phone.metric(forKind: WatchMetricKindKey.wristTemperature))
         let watchWristTemp = try XCTUnwrap(watch.metric(forKind: WatchMetricKindKey.wristTemperature))
         XCTAssertEqual(phoneWristTemp.weekly, watchWristTemp.weekly)
+
+        // Stress was compared for real: a scored average over a week with
+        // ranges, and a timeline with scored and masked windows under sleep
+        // and workout shading.
+        let phoneStress = try XCTUnwrap(phone.metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertTrue(phoneStress.hasValue)
+        XCTAssertNotNil(phoneStress.statusBand)
+        XCTAssertNotNil(phoneStress.weeklyRanges)
+        let timeline = try XCTUnwrap(watch.stressTimeline)
+        XCTAssertTrue(timeline.slots.contains { ($0 ?? -1) >= 0 })
+        XCTAssertTrue(timeline.slots.contains(WatchStressTimeline.activityMarker))
+        XCTAssertEqual(
+            Set(timeline.context.map(\.kind)),
+            [WatchStressContextBand.sleepKind, WatchStressContextBand.workoutKind]
+        )
     }
 
     // MARK: - Case 3: DST transition inside the delta window
@@ -751,7 +861,16 @@ final class WatchComputeParityTests: XCTestCase {
         // `.rawValue`/`.weekly` differ at the 9th significant digit — nothing
         // else does). A 1e-6 tolerance is ~5000× tighter than the 2-decimal
         // display rounding, so it still catches any real divergence.
-        assertMetricsMatch(phone, watch, excluding: [WatchMetricKindKey.wristTemperature], accuracy: 1e-6)
+        //
+        // Stress is excluded for the stale seed itself: the seed's records
+        // end at `dataThrough`, and the watch reads only the last 8 hours'
+        // days, so the day between has no record on the watch (a gap in its
+        // week and one less baseline day) until the next seed brings it.
+        assertMetricsMatch(
+            phone, watch,
+            excluding: [WatchMetricKindKey.wristTemperature, WatchMetricKindKey.stress],
+            accuracy: 1e-6
+        )
     }
 
     // MARK: - Case 4: delta newer than the seed
@@ -939,6 +1058,144 @@ final class WatchComputeParityTests: XCTestCase {
             XCTAssertNotNil(watchMetric.weekly?[6] ?? nil, "\(kind): the average was re-read")
         }
         XCTAssertEqual(result.readinessBlockers, [])
+    }
+
+    // MARK: - Stress
+
+    /// Coverage semantics: Stress (and its timeline, which rides the same
+    /// watermark) is stamped only when every permitted input it scores with
+    /// was re-read on the watch this run.
+    func testStressIsStampedOnlyWhenEveryPermittedInputWasReRead() throws {
+        let calendar = Calendar.bodyGregorian
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let fixture = try makeFixture(anchor: anchor, calendar: calendar)
+        func result(
+            permission: BodyHealthPermissionSelection = .defaultValue,
+            _ mutateDelta: (inout WatchComputeDelta) -> Void
+        ) throws -> WatchComputeResult {
+            try watchResult(
+                fixture: fixture,
+                seedSummary: fixture.summary,
+                seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
+                seedTrainingLoadDailyLoads: fixture.trainingLoadDailyLoads,
+                dataThrough: anchor, now: anchor, calendar: calendar,
+                permission: permission,
+                mutateDelta: mutateDelta
+            ).result
+        }
+        func stressAsOf(
+            permission: BodyHealthPermissionSelection = .defaultValue,
+            _ mutateDelta: (inout WatchComputeDelta) -> Void
+        ) throws -> Date? {
+            try result(permission: permission, mutateDelta).dataAsOf[WatchMetricKindKey.stress]
+        }
+
+        XCTAssertEqual(try stressAsOf { _ in }, anchor)
+        XCTAssertNil(try stressAsOf { $0.stressHeartRateSamples = .failure }, "the heart rate read failed")
+        XCTAssertNil(try stressAsOf { $0.carriedKinds = [.heartRate] }, "heart rate carried: no source on this watch")
+        XCTAssertNil(try stressAsOf { $0.stressSDNNSamples = .failure })
+        XCTAssertNil(try stressAsOf { $0.carriedKinds = [.heartRateVariability] })
+        XCTAssertNil(try stressAsOf { $0.stressRMSSDSamples = .failure }, "the beat to beat read failed or timed out")
+        XCTAssertNil(try stressAsOf { $0.stressHourlySteps = .failure }, "steps permitted but not read")
+        XCTAssertNil(try stressAsOf { $0.stressHourlyActiveEnergy = .failure }, "energy permitted but not read")
+        XCTAssertNil(
+            try stressAsOf { delta in
+                delta.sleepNights = .failure
+                delta.latestNight = nil
+            },
+            "the sleep read failed: the rest context is the seed's"
+        )
+        XCTAssertNil(try stressAsOf { $0.carriedKinds = [.sleep] }, "sleep carried")
+        XCTAssertNil(try stressAsOf { $0.workouts = .failure }, "the workout mask is missing")
+
+        // A permission that's off is not an input: the phone scores without it too.
+        let maskOff = BodyHealthPermissionSelection.defaultValue
+            .setting(.steps, isEnabled: false)
+            .setting(.energy, isEnabled: false)
+        XCTAssertEqual(
+            try stressAsOf(permission: maskOff) { delta in
+                delta.stressHourlySteps = .failure
+                delta.stressHourlyActiveEnergy = .failure
+            },
+            anchor
+        )
+        XCTAssertEqual(
+            try stressAsOf(permission: BodyHealthPermissionSelection.defaultValue.setting(.sleep, isEnabled: false)) { delta in
+                delta.sleepNights = .failure
+                delta.latestNight = nil
+            },
+            anchor
+        )
+
+        // No Heart: no Stress at all, and nothing to stamp.
+        let heartOff = try result(permission: BodyHealthPermissionSelection.defaultValue.setting(.heart, isEnabled: false)) { _ in }
+        XCTAssertNil(heartOff.dataAsOf[WatchMetricKindKey.stress])
+        XCTAssertNil(heartOff.snapshot.metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertNil(heartOff.snapshot.stressTimeline)
+    }
+
+    /// Without steps and active energy the movement mask is the workouts
+    /// alone, on both sides: the phone's permission filter drops the series,
+    /// and the watch never reads them.
+    func testStressMatchesThePhoneWithTheMovementPermissionsOff() throws {
+        let calendar = Calendar.bodyGregorian
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let fixture = try makeFixture(anchor: anchor, calendar: calendar)
+        let maskOff = BodyHealthPermissionSelection.defaultValue
+            .setting(.steps, isEnabled: false)
+            .setting(.energy, isEnabled: false)
+
+        let phone = phoneSnapshot(fixture: fixture, now: anchor, calendar: calendar, permission: maskOff)
+        let (result, _) = try watchResult(
+            fixture: fixture,
+            seedSummary: fixture.summary,
+            seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
+            seedTrainingLoadDailyLoads: fixture.trainingLoadDailyLoads,
+            dataThrough: anchor, now: anchor, calendar: calendar,
+            permission: maskOff,
+            mutateDelta: { delta in
+                delta.stressHourlySteps = .failure
+                delta.stressHourlyActiveEnergy = .failure
+            }
+        )
+
+        assertMetricsMatch(phone, result.snapshot)
+        XCTAssertNotEqual(
+            result.snapshot.stressTimeline?.slots,
+            phoneSnapshot(fixture: fixture, now: anchor, calendar: calendar).stressTimeline?.slots,
+            "the case must differ from the one with the movement hours masked"
+        )
+    }
+
+    /// An uncalibrated baseline (no recorded days to learn quiet heart rate
+    /// from) scores nothing: the watch stamps that honestly, and the blank card
+    /// is still never adopted over the phone's value.
+    func testUncalibratedStressIsStampedButBlankAndNeverReplacesAValue() throws {
+        let calendar = Calendar.bodyGregorian
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let calibrated = try makeFixture(anchor: anchor, calendar: calendar)
+        var fixture = calibrated
+        fixture.trends.recordedStressDays = []
+
+        let (result, _) = try watchResult(
+            fixture: fixture,
+            seedSummary: fixture.summary,
+            seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
+            seedTrainingLoadDailyLoads: fixture.trainingLoadDailyLoads,
+            dataThrough: anchor, now: anchor, calendar: calendar
+        )
+
+        XCTAssertEqual(result.dataAsOf[WatchMetricKindKey.stress], anchor)
+        let stress = try XCTUnwrap(result.snapshot.metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertFalse(stress.hasValue)
+        XCTAssertNil(stress.statusBand)
+        XCTAssertNil(result.snapshot.stressTimeline, "every uncalibrated window is a gap")
+
+        let phone = phoneSnapshot(fixture: calibrated, now: anchor.addingTimeInterval(-1_800), calendar: calendar)
+        let merged = WatchComputeMerge.mergingComputed(result, into: phone)
+        XCTAssertEqual(merged.metric(forKind: WatchMetricKindKey.stress), phone.metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertTrue(merged.metric(forKind: WatchMetricKindKey.stress)?.hasValue == true)
+        XCTAssertEqual(merged.stressTimeline, phone.stressTimeline)
     }
 
     // MARK: - Sleep Debt: watch = phone = the iPhone card's last 7 nights

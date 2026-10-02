@@ -335,19 +335,32 @@ final class ProjectConfigurationTests: XCTestCase {
             (WatchMetricKindKey.wristTemperature, .wristTemperature)
         ]
 
-        XCTAssertEqual(pairs.map(\.kind), WatchMetricKindKey.displayOrder)
+        // Stress has no iPhone widget, so it is pinned separately below.
+        XCTAssertEqual(pairs.map(\.kind), WatchMetricKindKey.displayOrder.filter { $0 != WatchMetricKindKey.stress })
 
-        for (kind, widgetMetric) in pairs {
-            XCTAssertEqual(kind, widgetMetric.rawValue)
-            XCTAssertEqual(WatchMetricKindKey.symbolName(forKind: kind), widgetMetric.symbolName, kind)
-
+        func assertTint(_ color: Color, matches kind: String) {
             let tint = WatchMetricKindKey.tint(forKind: kind)
-            let components = UIColor(widgetMetric.tintColor).cgColor.components ?? []
+            let components = UIColor(color).cgColor.components ?? []
             XCTAssertGreaterThanOrEqual(components.count, 3, kind)
+            guard components.count >= 3 else { return }
             XCTAssertEqual(Double(components[0]), tint.red, accuracy: 0.001, kind)
             XCTAssertEqual(Double(components[1]), tint.green, accuracy: 0.001, kind)
             XCTAssertEqual(Double(components[2]), tint.blue, accuracy: 0.001, kind)
         }
+
+        for (kind, widgetMetric) in pairs {
+            XCTAssertEqual(kind, widgetMetric.rawValue)
+            XCTAssertEqual(WatchMetricKindKey.symbolName(forKind: kind), widgetMetric.symbolName, kind)
+            assertTint(widgetMetric.tintColor, matches: kind)
+        }
+
+        // Stress is the third card, after Sleep and Training Load, and looks
+        // like the iPhone's Stress row.
+        XCTAssertEqual(WatchMetricKindKey.displayOrder.firstIndex(of: WatchMetricKindKey.stress), 3)
+        XCTAssertEqual(WatchMetricKindKey.stress, HealthMetricKind.stress.rawValue)
+        let stressPresentation = try XCTUnwrap(HealthMetricPresentation.presentation(for: .stress))
+        XCTAssertEqual(WatchMetricKindKey.symbolName(forKind: WatchMetricKindKey.stress), stressPresentation.symbolName)
+        assertTint(stressPresentation.tint, matches: WatchMetricKindKey.stress)
 
         // Exercise Minutes rides the watch snapshot for the rectangular
         // complication only: it has no dashboard card, no detail page and no

@@ -129,6 +129,29 @@ final class WatchComputeSeedTests: XCTestCase {
         }
     }
 
+    /// A day's Stress record as the phone persists it: every field set, with
+    /// the medians at full double precision like real ones.
+    private func recordedStressFixture(dayCount: Int, anchor: Date) -> [StressDaySummary] {
+        let anchorDay = calendar.startOfDay(for: anchor)
+        return (0..<dayCount).compactMap { age -> StressDaySummary? in
+            guard let day = calendar.date(byAdding: .day, value: -age, to: anchorDay) else { return nil }
+            let average = 25 + (age * 13) % 50
+            return StressDaySummary(
+                date: day,
+                averageScore: average,
+                minutesByBand: [.rest: 120 + age % 7 * 15, .low: 300 - age % 5 * 15, .medium: 90 + age % 3 * 15, .high: age % 4 * 15],
+                scoredWindowCount: 52 + age % 11,
+                hrvCoveredWindowCount: 14 + age % 9,
+                quietHRMedian: Double(58 + age % 6) + (age % 2 == 0 ? 0.5 : 0),
+                rmssdDailyMedian: 36 + 7 * sin(Double(age) / 3.7),
+                minScore: max(average - 22 - age % 5, 0),
+                maxScore: min(average + 31 + age % 7, 100),
+                activityMinutes: 30 + age % 4 * 15
+            )
+        }
+        .sorted { $0.date < $1.date }
+    }
+
     /// A realistic multi-week `HealthTrendSnapshot`: populated vitals/training
     /// load series plus a multi-segment, vitals-hydrated sleep history — used
     /// both for the trim-equivalence check and (once trimmed) the size test.
@@ -148,6 +171,8 @@ final class WatchComputeSeedTests: XCTestCase {
         trends.sleepHistory = sleepHistoryFixture(nightCount: dayCount, anchor: anchor)
         trends.recordedReadiness = recordedReadinessFixture(dayCount: dayCount, anchor: anchor)
         trends.recordedReadinessContext = "fixture-context"
+        trends.recordedStressDays = recordedStressFixture(dayCount: dayCount, anchor: anchor)
+        trends.recordedStressContext = "fixture-stress-context"
         return trends
     }
 
@@ -453,6 +478,41 @@ final class WatchComputeSeedTests: XCTestCase {
         XCTAssertEqual(trimmed.recordedReadiness.count, WatchComputeSeed.trendDayCount)
     }
 
+    // MARK: - Recorded Stress days (the watch's Stress baselines)
+
+    /// The watch holds about a week of HealthKit, so its Stress baselines (the
+    /// 56 days before each scored day) and week come from these records: whole,
+    /// for the last 60 days ending at the anchor, with their context.
+    func testRecordedStressDaysKeepSixtyWholeDaysEndingAtTheAnchor() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        let anchorDay = calendar.startOfDay(for: anchor)
+        var full = trendsFixture(dayCount: 365, anchor: anchor)
+        // A record past the anchor isn't the seed's: the seed is as of `dataThrough`.
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: anchorDay))
+        full.recordedStressDays.append(StressDaySummary(date: tomorrow, averageScore: 50))
+
+        let trimmed = full.watchComputeTrimmed(anchor: anchor, calendar: calendar)
+
+        XCTAssertEqual(WatchComputeSeed.stressRecordDayCount, 60)
+        XCTAssertGreaterThan(WatchComputeSeed.stressRecordDayCount, ReadinessScoreCalculator.baselineDayCount)
+        XCTAssertEqual(trimmed.recordedStressDays.count, WatchComputeSeed.stressRecordDayCount)
+        let ages = trimmed.recordedStressDays.map { entry in
+            calendar.dateComponents([.day], from: calendar.startOfDay(for: entry.date), to: anchorDay).day ?? -1
+        }
+        XCTAssertEqual(ages.min(), 0)
+        XCTAssertEqual(ages.max(), 59, "a day 59 days old is kept; 60 and older are dropped")
+        XCTAssertEqual(
+            trimmed.recordedStressDays,
+            Array(full.recordedStressDays.filter { $0.date <= anchorDay }.suffix(WatchComputeSeed.stressRecordDayCount)),
+            "whole records, not slimmed"
+        )
+        XCTAssertEqual(trimmed.recordedStressContext, "fixture-stress-context")
+        // The series are rebuilt from the records on the watch, never shipped.
+        XCTAssertTrue(trimmed.stress.points.isEmpty)
+        XCTAssertTrue(trimmed.stressRanges.points.isEmpty)
+        XCTAssertTrue(trimmed.heartRateDaySamples.points.isEmpty)
+    }
+
     // MARK: - Range series window (HR / HRV week chart capsules)
 
     /// The capsules ride the seed for one week only: the builder reads them
@@ -540,9 +600,41 @@ final class WatchComputeSeedTests: XCTestCase {
         let seed = makeSeed(anchor: anchor, dayCount: 365)
         let seedSize = try XCTUnwrap(seed.encodedCompressed()).count
 
-        let trends = trendsFixture(dayCount: 365, anchor: anchor)
+        var trends = trendsFixture(dayCount: 365, anchor: anchor)
         var summary = HealthSummarySnapshot.placeholder
         summary.sleep = try XCTUnwrap(trends.sleepHistory.summary(on: anchor, calendar: calendar)).summary
+        // Stress with its week and daily ranges, and a full "Last 8 hours".
+        summary.stress = trends.recordedStressDays.last
+        summary.stressCurrentScore = 64
+        trends.stress = HealthTrendSeries(points: trends.recordedStressDays.compactMap { entry in
+            entry.averageScore.map { HealthTrendDataPoint(date: entry.date, value: Double($0)) }
+        })
+        trends.stressRanges = HealthTrendRangeSeries(points: trends.recordedStressDays.compactMap { entry in
+            guard let low = entry.minScore, let high = entry.maxScore else { return nil }
+            return HealthTrendRangeDataPoint(
+                date: entry.date, lowValue: Double(low), highValue: Double(high),
+                averageValue: entry.averageScore.map(Double.init)
+            )
+        })
+        let timelineSlotCount = Int(WatchStressTimelineBuilder.span / WatchStressTimeline.slotLength) + 1
+        let timelineStart = anchor.addingTimeInterval(-WatchStressTimelineBuilder.span)
+        let stressTimeline = WatchStressTimeline(
+            start: timelineStart,
+            end: anchor,
+            slots: (0..<timelineSlotCount).map { index -> Int? in
+                switch index % 12 {
+                case 5: return nil
+                case 9, 10: return WatchStressTimeline.activityMarker
+                default: return 12 + (index * 17) % 85
+                }
+            },
+            context: [
+                WatchStressContextBand(kind: WatchStressContextBand.sleepKind, start: timelineStart, end: timelineStart.addingTimeInterval(3 * 3_600)),
+                WatchStressContextBand(kind: WatchStressContextBand.workoutKind, start: anchor.addingTimeInterval(-4 * 3_600), end: anchor.addingTimeInterval(-3 * 3_600), workoutType: "running"),
+                WatchStressContextBand(kind: WatchStressContextBand.napKind, start: anchor.addingTimeInterval(-3_600), end: anchor.addingTimeInterval(-1_800))
+            ],
+            computedAt: anchor
+        )
         var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
             summary: summary,
             trends: trends,
@@ -553,7 +645,9 @@ final class WatchComputeSeedTests: XCTestCase {
             now: anchor,
             workoutWeeklyMinutes: [30, 0, 45, 22, 0, 38, 15],
             seriesRangeOverride: { seed.seriesRanges[$0] },
-            includesSleepDebt: true
+            includesSleepDebt: true,
+            stressTimeline: stressTimeline,
+            workoutColorOverrides: "cycling:EE9D58,hiking:2E8B57,running:335BB0,swimming:1E90FF,yoga:9370DB"
         )
         snapshot.source = "phone"
         snapshot.showsSleepDebt = true
@@ -575,6 +669,12 @@ final class WatchComputeSeedTests: XCTestCase {
         snapshot.revision = 12_345
         XCTAssertEqual(snapshot.sleepStages?.count, 15)
         XCTAssertEqual(snapshot.sleepDebt?.nights.count, SleepDebtChartModel.watchNightCount)
+        let stress = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertTrue(stress.hasValue)
+        XCTAssertNotNil(stress.statusBand)
+        XCTAssertEqual(stress.weeklyRanges?.compactMap { $0 }.count, 7)
+        XCTAssertEqual(snapshot.stressTimeline?.slots.count, 37)
+        XCTAssertEqual(seed.trends.recordedStressDays.count, WatchComputeSeed.stressRecordDayCount)
 
         let snapshotSize = try XCTUnwrap(snapshot.encoded()).count
         let permissionSize = BodyHealthPermissionSelection.defaultRawValue.utf8.count

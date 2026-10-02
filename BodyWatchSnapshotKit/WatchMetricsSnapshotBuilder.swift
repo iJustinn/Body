@@ -51,7 +51,14 @@ enum WatchMetricsSnapshotBuilder {
         // toggle; the watch's compute always builds it, since the phone's
         // pushed flag decides visibility. `false` (the default) omits it, so
         // a caller that doesn't show it never pays for the model.
-        includesSleepDebt: Bool = false
+        includesSleepDebt: Bool = false,
+        // The Stress page's "Last 8 hours" chart, built by the caller with
+        // `WatchStressTimelineBuilder` (it needs the intraday day samples and
+        // the workouts, which this builder never reads). Stamped as passed.
+        stressTimeline: WatchStressTimeline? = nil,
+        // The phone's custom workout colors for that chart's shading, a
+        // display preference only the phone's publish passes.
+        workoutColorOverrides: String? = nil
     ) -> WatchMetricsSnapshot {
         let tempPref = temperatureUnitPreference
 
@@ -129,6 +136,8 @@ enum WatchMetricsSnapshotBuilder {
                 seriesValues: values(trends.restingHeartRate), invert: true,
                 overrideRange: seriesRangeOverride?(WatchMetricKindKey.restingHeartRate)
             ))
+            // Stress is heart-derived end to end, so it rides Heart too.
+            metrics.append(stressMetric(summary: summary, now: now))
         }
         if permissionSelection.includes(.workouts) {
             metrics.append(trainingLoadMetric(summary.trainingLoad.value))
@@ -170,6 +179,7 @@ enum WatchMetricsSnapshotBuilder {
             case WatchMetricKindKey.heartRateVariability: return weekly(trends.heartRateVariability, now: now)
             case WatchMetricKindKey.restingHeartRate: return weekly(trends.restingHeartRate, now: now)
             case WatchMetricKindKey.trainingLoad: return weekly(trends.trainingLoad, now: now)
+            case WatchMetricKindKey.stress: return weekly(trends.stress, now: now)
             case WatchMetricKindKey.workoutMinutes: return workoutWeeklyMinutes
             // The legacy compatibility copy carries the same week (see the
             // version-skew comment where both metrics are appended).
@@ -183,13 +193,15 @@ enum WatchMetricsSnapshotBuilder {
             }
         }
 
-        // Each day's min/max under the Heart Rate and HRV week charts (the
-        // iPhone week chart's capsules), windowed exactly like `weekly` above,
-        // so slot i is the same day in both. nil for every other kind.
+        // Each day's min/max under the Heart Rate, HRV and Stress week charts
+        // (the iPhone trend charts' range bars), windowed exactly like
+        // `weekly` above, so slot i is the same day in both. nil for every
+        // other kind.
         func weeklyRangeValues(forKind kind: String) -> [WatchDayRange?]? {
             switch kind {
             case WatchMetricKindKey.heartRate: return weeklyRanges(trends.heartRateRanges, now: now)
             case WatchMetricKindKey.heartRateVariability: return weeklyRanges(trends.heartRateVariabilityRanges, now: now)
+            case WatchMetricKindKey.stress: return weeklyRanges(trends.stressRanges, now: now)
             default: return nil
             }
         }
@@ -223,7 +235,9 @@ enum WatchMetricsSnapshotBuilder {
             metrics: stamped,
             sleepNight: sleepNight,
             sleepStages: sleepStages,
-            sleepDebt: sleepDebt
+            sleepDebt: sleepDebt,
+            stressTimeline: stressTimeline,
+            workoutColorOverrides: workoutColorOverrides
         )
     }
 
@@ -424,6 +438,37 @@ enum WatchMetricsSnapshotBuilder {
                 WatchStatusBand(
                     min: $0.lowerBound, max: $0.upperBound,
                     label: $0.title)
+            }
+        )
+    }
+
+    /// Today's Stress, the same number the iPhone card shows: the day's
+    /// average score, published only when the rollup is dated `now`'s day (a
+    /// summary that outlived midnight reads "--", and `weeklyAsOf` lets the
+    /// watch re-check the day at display time). The status band, gauge bounds
+    /// and tint follow the latest reading when it is still current
+    /// (`stressCurrentScore`), otherwise the average, as on the iPhone card.
+    /// A blank card carries no band, like an unavailable Readiness.
+    private static func stressMetric(summary: HealthSummarySnapshot, now: Date) -> WatchMetric {
+        let average = summary.stress.flatMap { stress in
+            Calendar.bodyGregorian.isDate(stress.date, inSameDayAs: now) ? stress.averageScore : nil
+        }
+        let band = average.map { StressBand.band(for: summary.stressCurrentScore ?? $0) }
+        return WatchMetric(
+            kind: WatchMetricKindKey.stress,
+            title: String(localized: "Stress", table: "BodyWatchSnapshotKit"),
+            displayValue: average.map { "\($0)" } ?? "--",
+            unit: "",
+            score: average,
+            fillFraction: average.map { min(max(Double($0) / 100, 0), 1) } ?? 0,
+            rawValue: average.map(Double.init),
+            rangeMin: 0,
+            rangeMax: 100,
+            levelMin: band?.scoreBounds.min,
+            levelMax: band?.scoreBounds.max,
+            tint: band?.watchTintComponents,
+            statusBand: band.map {
+                WatchStatusBand(min: $0.lowerBound, max: $0.upperBound, label: $0.title)
             }
         )
     }

@@ -201,6 +201,27 @@ final class BodyHealthObservationTests: XCTestCase {
         XCTAssertTrue(admitted)
     }
 
+    /// Stress is a watch card, but the phone computes it only for its own
+    /// card, so the watch payload must not make a hidden Stress card observe
+    /// its inputs: the obligation could never complete.
+    func testWatchStressCardDoesNotObserveStressInputsWhileThePhoneCardIsHidden() throws {
+        XCTAssertTrue(WatchMetricKindKey.displayOrder.contains(WatchMetricKindKey.stress))
+        let hidden = BodyDashboardFetchSelection(summaryCards: .init(selectedCards: []),
+                                                 trendCards: .init(selectedCards: []))
+        let registrations = BodyHealthObservationPolicy.registrations(
+            permissions: .init(enabledPermissions: [.heart]), selection: hidden,
+            includesCompanionConsumers: true, includesNotificationConsumers: false)
+
+        XCTAssertNil(registrations.first { $0.type == HKSeriesType.heartbeat() }, "heartbeat only feeds Stress")
+        if #available(iOS 27, *) {
+            let rmssd = try XCTUnwrap(registrations.first {
+                $0.type == HKObjectType.quantityType(forIdentifier: .heartRateVariabilityRMSSD)
+            })
+            XCTAssertEqual(rmssd.metrics, [.heartRateVariability], "still observed for the HRV card the watch shows")
+        }
+        XCTAssertFalse(registrations.contains { $0.metrics.contains(.stress) })
+    }
+
     func testHiddenPhoneMetricRemainsObservedForCompanionPayload() {
         let hidden = BodyDashboardFetchSelection(summaryCards: .init(selectedCards: []),
                                                  trendCards: .init(selectedCards: []))

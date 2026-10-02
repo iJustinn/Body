@@ -7577,6 +7577,17 @@ final class HealthKitWorkoutStore {
     /// A day wider than the scan so a session that started before its first
     /// midnight still masks that day's opening windows.
     private func stressWindowWorkouts(through date: Date, calendar: Calendar) -> [WorkoutSummary] {
+        Self.stressWindowWorkouts(in: monthSnapshots, through: date, calendar: calendar)
+    }
+
+    /// `stressWindowWorkouts(through:calendar:)` over captured month snapshots,
+    /// so the watch publish can build the Stress timeline off the main actor
+    /// with the same activity mask the store scores with.
+    nonisolated static func stressWindowWorkouts(
+        in monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot],
+        through date: Date,
+        calendar: Calendar
+    ) -> [WorkoutSummary] {
         let scoreDay = calendar.startOfDay(for: date)
         let start = calendar.date(byAdding: .day, value: -35, to: scoreDay) ?? scoreDay
         return monthSnapshots.values
