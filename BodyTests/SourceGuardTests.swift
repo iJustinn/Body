@@ -5351,7 +5351,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertLessThan(sleepStagesIndex, readinessIndex)
     }
 
-    func testDailyTotalWeekComplicationsArePinnedToAccessoryRectangular() throws {
+    func testDailyTotalWeekComplicationsArePinnedToCircularAndRectangular() throws {
         let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/DailyTotalWeekComplications.swift")
         let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
         // The gallery placeholder is generated at `.distantPast`, so rewinding
@@ -5365,11 +5365,22 @@ final class SourceGuardTests: XCTestCase {
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
 
-        // Rectangular-slot only, like Weekly Workout Time: a header over seven
-        // bars has nowhere to lay out in a circular or corner slot. The file
+        // Rectangular (the week's bars) and circular (today's total in the
+        // metric ring); no corner, which has no gauge range to offer. The file
         // holds three widgets (Steps, Active Energy, Resting Energy), each
         // pinned once.
-        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryRectangular])"), 3)
+        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryCircular, .accessoryRectangular])"), 3)
+        XCTAssertFalse(code.contains(".accessoryCorner"))
+
+        // The circular family is the shared metric ring on the system
+        // background, today's total inside with the ring font step down, the
+        // card's fill (today against the week's best day) and no unit text.
+        XCTAssertTrue(source.contains("case .accessoryCircular:\n            circular"))
+        XCTAssertTrue(source.contains("AccessoryWidgetBackground()"))
+        XCTAssertTrue(source.contains("fillFraction: metric.fillFraction,"))
+        XCTAssertTrue(source.contains("value: metric.displayValue,"))
+        XCTAssertTrue(source.contains("showsUnit: false,"))
+        XCTAssertTrue(source.contains("valueFontScale: complicationRingFontScale(for: metric.displayValue, base: ComplicationRingFontScale.circular.base, compact: ComplicationRingFontScale.circular.compact)"))
 
         // Free, like the other bar complications: no Body Pro gate.
         XCTAssertFalse(source.contains("BodyProEntitlement"))

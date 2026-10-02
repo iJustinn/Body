@@ -2,11 +2,15 @@
 //  DailyTotalWeekComplications.swift
 //  BodyWatchWidgetExtension
 //
-//  Watch complications (accessoryRectangular only) for Steps, Active Energy
-//  and Resting Energy, in the style of Weekly Workout Time: a header with the
-//  week's total plus seven bars of daily totals, today rightmost. The bars are
-//  `WatchWeekBarsView`, the same chart these metrics' detail pages draw. Free
-//  (not Pro-gated), like the other bar complications. Reuses the existing
+//  Watch complications for Steps, Active Energy and Resting Energy. The
+//  rectangular family is the Weekly Workout Time style: a header with the
+//  week's total plus seven bars of daily totals, today rightmost, drawn by
+//  `WatchWeekBarsView`, the same chart these metrics' detail pages draw. The
+//  circular family is the metric ring the other complications draw
+//  (`WatchMetricRingView`): today's total inside, filled against the week's
+//  best day as the card is, the metric's symbol in the gap, and "--" with an
+//  empty ring once the midnight clear blanks the total. Free (not Pro-gated),
+//  like the other bar complications. Reuses the existing
 //  `WatchMetricProvider`/`WatchMetricEntry`, which already carries the whole
 //  snapshot.
 //
@@ -22,8 +26,8 @@ struct StepsWeekComplication: Widget {
                 .widgetURL(WatchMetricDeepLink.url(forKind: WatchMetricKindKey.steps))
         }
         .configurationDisplayName(String(localized: "Steps"))
-        .description(String(localized: "This week's daily steps."))
-        .supportedFamilies([.accessoryRectangular])
+        .description(String(localized: "Today's steps, or this week's daily steps."))
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
 }
 
@@ -35,8 +39,8 @@ struct ActiveEnergyWeekComplication: Widget {
                 .widgetURL(WatchMetricDeepLink.url(forKind: WatchMetricKindKey.activeEnergy))
         }
         .configurationDisplayName(String(localized: "Active Energy"))
-        .description(String(localized: "This week's daily active energy."))
-        .supportedFamilies([.accessoryRectangular])
+        .description(String(localized: "Today's active energy, or this week's daily active energy."))
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
 }
 
@@ -48,12 +52,13 @@ struct RestingEnergyWeekComplication: Widget {
                 .widgetURL(WatchMetricDeepLink.url(forKind: WatchMetricKindKey.restingEnergy))
         }
         .configurationDisplayName(String(localized: "Resting Energy"))
-        .description(String(localized: "This week's daily resting energy."))
-        .supportedFamilies([.accessoryRectangular])
+        .description(String(localized: "Today's resting energy, or this week's daily resting energy."))
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
 }
 
 private struct DailyTotalWeekComplicationView: View {
+    @Environment(\.widgetFamily) private var family
     let metricKind: String
     let entry: WatchMetricEntry
 
@@ -74,6 +79,42 @@ private struct DailyTotalWeekComplicationView: View {
     }
 
     var body: some View {
+        switch family {
+        case .accessoryCircular:
+            circular
+        default:
+            rectangular
+        }
+    }
+
+    /// Today's total in the ring, in the card's display unit (steps, kcal or
+    /// kJ), with no unit text: the slot is too small for one and the symbol
+    /// in the gap names the metric. The fill is the card's, today against the
+    /// week's best day; a cleared card reads "--" over an empty ring.
+    private var circular: some View {
+        ZStack {
+            AccessoryWidgetBackground()
+            if let metric {
+                WatchMetricRingView(
+                    fillFraction: metric.fillFraction,
+                    value: metric.displayValue,
+                    unit: "",
+                    symbolName: WatchMetricKindKey.symbolName(forKind: metricKind),
+                    tint: WatchMetricKindKey.tint(forKind: metricKind),
+                    showsUnit: false,
+                    showsGlyph: true,
+                    valueFontScale: complicationRingFontScale(for: metric.displayValue, base: ComplicationRingFontScale.circular.base, compact: ComplicationRingFontScale.circular.compact)
+                )
+                .padding(1)
+            } else {
+                Image(systemName: "applewatch")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .containerBackground(.clear, for: .widget)
+    }
+
+    private var rectangular: some View {
         Group {
             if let metric, weekly.contains(where: { $0 != nil }) {
                 WatchWeekBarsView(
@@ -105,4 +146,17 @@ private struct DailyTotalWeekComplicationView: View {
             ? String(localized: "\(totalText) KJ THIS WEEK")
             : String(localized: "\(totalText) KCAL THIS WEEK")
     }
+}
+
+#Preview("Steps circular", as: .accessoryCircular) {
+    StepsWeekComplication()
+} timeline: {
+    WatchMetricEntry(date: .now, snapshot: .placeholder)
+    WatchMetricEntry(date: .now, snapshot: .empty)
+}
+
+#Preview("Resting Energy circular", as: .accessoryCircular) {
+    RestingEnergyWeekComplication()
+} timeline: {
+    WatchMetricEntry(date: .now, snapshot: .placeholder)
 }

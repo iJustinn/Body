@@ -103,23 +103,6 @@
         }
       }
     },
-    "Heart Rate" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Heart Rate"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "心率"
-          }
-        }
-      }
-    },
     "HRV" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -133,6 +116,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "心率变异性"
+          }
+        }
+      }
+    },
+    "Heart Rate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率"
           }
         }
       }
@@ -307,57 +307,6 @@
         }
       }
     },
-    "This week's daily active energy." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This week's daily active energy."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本周每日活动能量。"
-          }
-        }
-      }
-    },
-    "This week's daily resting energy." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This week's daily resting energy."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本周每日静息能量。"
-          }
-        }
-      }
-    },
-    "This week's daily steps." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This week's daily steps."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本周每日步数。"
-          }
-        }
-      }
-    },
     "This week's daily workout minutes." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -371,6 +320,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本周每日运动时长。"
+          }
+        }
+      }
+    },
+    "Today's active energy, or this week's daily active energy." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's active energy, or this week's daily active energy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的活动能量，或本周每日活动能量。"
+          }
+        }
+      }
+    },
+    "Today's resting energy, or this week's daily resting energy." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's resting energy, or this week's daily resting energy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的静息能量，或本周每日静息能量。"
+          }
+        }
+      }
+    },
+    "Today's steps, or this week's daily steps." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's steps, or this week's daily steps."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的步数，或本周每日步数。"
           }
         }
       }
