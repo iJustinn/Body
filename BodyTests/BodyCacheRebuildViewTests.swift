@@ -2,7 +2,7 @@
 //  BodyCacheRebuildViewTests.swift
 //  BodyTests
 //
-//  Snapshots both entries of `BodyCacheRebuildView` in English and Simplified
+//  Snapshots every entry of `BodyCacheRebuildView` in English and Simplified
 //  Chinese from a hosted window: proves the page renders at all, and, with BODY_RENDER_OUTPUT_DIR
 //  set, writes the PNGs so the layout can be reviewed by eye (the copy is long
 //  enough that a zh-Hans overflow would not show up in any other assertion).
@@ -46,8 +46,12 @@ final class BodyCacheRebuildViewTests: XCTestCase {
         return image
     }
 
-    func testBothEntriesRenderInEnglishAndSimplifiedChinese() throws {
-        let entries: [(BodyCacheRebuildView.Entry, String)] = [(.update, "update"), (.settings, "settings")]
+    func testEveryEntryRendersInEnglishAndSimplifiedChinese() throws {
+        let entries: [(BodyCacheRebuildView.Entry, String)] = [
+            (.update, "update"),
+            (.settings, "settings"),
+            (.stressUpdate, "stressUpdate")
+        ]
         let locales = ["en", "zh-Hans"]
 
         for (entry, entryName) in entries {

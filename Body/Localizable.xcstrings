@@ -16668,6 +16668,125 @@
         }
       }
     },
+    "stressUpdate.feature.recovery.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A walk or yoga gets a short recovery before Stress scores again, harder training a longer one."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步行或瑜伽之后只需短暂恢复，压力就会重新评分；强度更高的训练之后，恢复期会更长。"
+          }
+        }
+      }
+    },
+    "stressUpdate.feature.recovery.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recovery after workouts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "锻炼后的恢复"
+          }
+        }
+      }
+    },
+    "stressUpdate.feature.windows.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only the windows you actually moved in are set aside as Activity, not the whole hour around them."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有你真正在活动的时段才会归为活动，不再连带前后整个小时。"
+          }
+        }
+      }
+    },
+    "stressUpdate.feature.windows.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More of your day scored"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一天中更多时段有评分"
+          }
+        }
+      }
+    },
+    "stressUpdate.load" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Load Now"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即载入"
+          }
+        }
+      }
+    },
+    "stressUpdate.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stress now judges each 15 minute window by its own movement, so more of your day gets a level. Body reloads your data from Apple Health once and rescores your recent Stress before you continue. It takes a moment. Nothing in Apple Health changes, and older Stress history keeps filling in in the background."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压力现在会按每个 15 分钟时段各自的活动来判断，一天中会有更多时段得到压力等级。Body 需要从 Apple 健康重新载入一次数据，并在你继续之前重新计算近期的压力。这会花一点时间。Apple 健康中的内容不会有任何改变，更早的压力记录会在后台继续补齐。"
+          }
+        }
+      }
+    },
+    "stressUpdate.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stress Updated"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压力已更新"
+          }
+        }
+      }
+    },
     "Strong is built daily." : {
       "localizations" : {
         "en" : {

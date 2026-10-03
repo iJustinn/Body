@@ -641,7 +641,8 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         // BodyCacheRebuildView: the update-onboarding entry and the Settings ›
         // Data › Cache › Rebuild Cache entry share every row and reuse the
         // catalog's existing "Try Again", "Loading data...", and
-        // "onboarding.close" keys.
+        // "onboarding.close" keys; the Stress update entry adds its own title,
+        // subtitle, feature rows, and button.
         let keys = [
             "updateOnboarding.title",
             "updateOnboarding.subtitle",
@@ -653,6 +654,13 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "updateOnboarding.getStarted",
             "updateOnboarding.done",
             "updateOnboarding.keepOpen",
+            "stressUpdate.title",
+            "stressUpdate.subtitle",
+            "stressUpdate.feature.windows.title",
+            "stressUpdate.feature.windows.subtitle",
+            "stressUpdate.feature.recovery.title",
+            "stressUpdate.feature.recovery.subtitle",
+            "stressUpdate.load",
             "onboarding.close",
             "Loading data...",
             "Try Again"

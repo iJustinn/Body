@@ -39,25 +39,59 @@ final class SourceGuardTests: XCTestCase {
             BodyOnboardingGate.currentAppVersionAndBuild(),
             "\(BodyOnboardingGate.currentAppVersion()).\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0")"
         )
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: nil, updateCompletedVersion: nil))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "", updateCompletedVersion: nil))
-        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: nil))
-        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: ""))
-        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: "1.0.9"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: nil, updateCompletedVersion: nil, includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "", updateCompletedVersion: nil, includesStress: false))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: nil, includesStress: false))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: "", includesStress: false))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.0.3", updateCompletedVersion: "1.0.9", includesStress: false))
         // 1.1.0 builds before 9 (TestFlight) qualify too; the stored marketing
         // version alone is "1.1.0" for them, so only the update stamp decides.
-        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: nil))
-        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.0.7"))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.0.9"))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.0.10"))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.1.1"))
-        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.10.0", updateCompletedVersion: nil))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "0.9.12", updateCompletedVersion: nil))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: nil, includesStress: false))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.0.7", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.0.9", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.0.10", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.1.1", includesStress: false))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.10.0", updateCompletedVersion: nil, includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "0.9.12", updateCompletedVersion: nil, includesStress: false))
+
+        // The Stress update page: the same stamp, a later version, and only for
+        // installs that show Stress (with Heart readable). The cache rebuild
+        // wins when both are due, since its full load brings the new Stress too.
+        XCTAssertEqual(BodyOnboardingGate.stressUpdateVersion, "1.1.5.5")
+        XCTAssertEqual(
+            BodyOnboardingGate.dueUpdatePage(completedVersion: "1.1.0", updateCompletedVersion: "1.1.5.4", includesStress: true),
+            .stressUpdate
+        )
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.5.4", includesStress: true))
+        XCTAssertNil(BodyOnboardingGate.dueUpdatePage(completedVersion: "1.1.0", updateCompletedVersion: "1.1.5.4", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentUpdate(completedVersion: "1.1.0", updateCompletedVersion: "1.1.5.4", includesStress: false))
+        XCTAssertEqual(
+            BodyOnboardingGate.dueUpdatePage(completedVersion: "1.0.3", updateCompletedVersion: "1.1.0.7", includesStress: true),
+            .cacheRebuild
+        )
+        XCTAssertEqual(
+            BodyOnboardingGate.dueUpdatePage(completedVersion: "1.0.3", updateCompletedVersion: nil, includesStress: false),
+            .cacheRebuild
+        )
+        XCTAssertNil(BodyOnboardingGate.dueUpdatePage(completedVersion: "1.1.0", updateCompletedVersion: "1.1.5.5", includesStress: true))
+        XCTAssertNil(BodyOnboardingGate.dueUpdatePage(completedVersion: "1.1.0", updateCompletedVersion: "1.1.5.10", includesStress: true))
+        XCTAssertNil(BodyOnboardingGate.dueUpdatePage(completedVersion: nil, updateCompletedVersion: nil, includesStress: true))
+        XCTAssertNil(BodyOnboardingGate.dueUpdatePage(completedVersion: "", updateCompletedVersion: "1.1.5.4", includesStress: true))
+        // Launch settles the Stress page without showing it only for an install
+        // that has nothing to rescore, so turning Stress on later never pops it.
+        XCTAssertTrue(BodyOnboardingGate.settlesStressUpdateSilently(completedVersion: "1.1.0", updateCompletedVersion: "1.1.5.4", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.settlesStressUpdateSilently(completedVersion: "1.1.0", updateCompletedVersion: "1.1.5.4", includesStress: true))
+        XCTAssertFalse(BodyOnboardingGate.settlesStressUpdateSilently(completedVersion: "1.1.0", updateCompletedVersion: "1.1.5.5", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.settlesStressUpdateSilently(completedVersion: "1.0.3", updateCompletedVersion: "1.1.0.7", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.settlesStressUpdateSilently(completedVersion: nil, updateCompletedVersion: nil, includesStress: false))
 
         let mainTabView = try BodyTestSupport.sourceText(at: "Body/Views/MainTabView.swift")
         XCTAssertTrue(mainTabView.contains("fullScreenCover"))
         XCTAssertTrue(mainTabView.contains("BodyOnboardingView(mode: .firstRun)"))
         XCTAssertTrue(mainTabView.contains("BodyCacheRebuildView(entry: .update)"))
+        XCTAssertTrue(mainTabView.contains("BodyCacheRebuildView(entry: .stressUpdate)"))
+        XCTAssertTrue(mainTabView.contains("BodyOnboardingGate.dueUpdatePage("))
+        XCTAssertTrue(mainTabView.contains("BodyDashboardFetchSelection.load().includes(.stress) && workoutStore.permissionSelection.includes(.heart)"))
 
         let settingsView = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
         XCTAssertTrue(settingsView.contains("BodyOnboardingView(mode: .revisit)"))
@@ -72,6 +106,21 @@ final class SourceGuardTests: XCTestCase {
         // permissions fail a leaf on every refresh, and the page has no exit.
         XCTAssertTrue(cacheRebuildView.contains("workoutStore.fullRefreshCompletionCount > completionCount"))
         XCTAssertFalse(cacheRebuildView.contains("syncBadgeSuccessCount"))
+        // The Stress page also waits for the rescore, but it has no exit either:
+        // after its refresh lands, a second failed rescore lets the user in
+        // instead of looping on Try Again.
+        XCTAssertTrue(cacheRebuildView.contains("succeeded = await workoutStore.completeStressUpdateLoad()"))
+        XCTAssertTrue(cacheRebuildView.contains("succeeded = failedStressRescores >= 2"))
+        // Its load re-reads the hourly Day View series beside the 15 minute ones,
+        // so a stale hourly cache (Steps revoked in iOS Settings) can never keep
+        // the upgrade guard waiting.
+        let workoutStoreSource = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        XCTAssertTrue(workoutStoreSource.contains(
+            "let hourly: HealthDaySampleSeries = series.kind == .steps ? .stepsDaySamples : .activeEnergyDaySamples"
+        ))
+        XCTAssertTrue(workoutStoreSource.contains(
+            "guard let hourlySamples = await engine.fetchIntradayDaySamples(for: series.kind, calendar: calendar) else {"
+        ))
 
         XCTAssertNil(BodySettingsAboutTab.onboarding.sheet)
         XCTAssertEqual(BodySettingsAboutTab.onboarding.title, "Onboarding")
@@ -5289,12 +5338,15 @@ final class SourceGuardTests: XCTestCase {
 
         // Due only for an install that finished onboarding (a fresh install gets the
         // paywall at the end of onboarding instead), after the update page, and once.
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: nil, updateCompletedVersion: nil))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "", updateCompletedVersion: nil))
-        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8"))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: true, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8"))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.0.3", updateCompletedVersion: nil))
-        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.0.3", updateCompletedVersion: "1.1.3.3"))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: nil, updateCompletedVersion: nil, includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "", updateCompletedVersion: nil, includesStress: false))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: true, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.0.3", updateCompletedVersion: nil, includesStress: false))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.0.3", updateCompletedVersion: "1.1.3.3", includesStress: false))
+        // A due Stress update page holds the paywall back too, until it is done.
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: true))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.1.2", updateCompletedVersion: "1.1.5.5", includesStress: true))
 
         // Onboarding: Get Started and Skip both lead to the paywall on the first run,
         // and only its Continue for Free (or a purchase) finishes the flow, which also

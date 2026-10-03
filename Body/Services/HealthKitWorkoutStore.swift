@@ -3562,6 +3562,77 @@ final class HealthKitWorkoutStore {
         }
     }
 
+    /// The "Stress Updated" page's load, run after its full refresh: Stress
+    /// rescored under the current record context before the page lets anyone in.
+    /// Deterministic rather than leaning on the input loader, whose early returns
+    /// (a refresh or source change mid fetch, nothing new to publish) can skip its
+    /// recompute: it joins a load already running, then, while the context is
+    /// still the old one, fetches the two 15 minute movement series and their
+    /// hourly Day View counterparts over the whole window itself and rescores.
+    /// True once the recorded days carry the current context, and the watch then
+    /// gets them at once (application context, newest wins). A failed fetch or a
+    /// stand down returns false: the page offers Try Again once, then lets the
+    /// user in on the old records, which later refreshes rescore.
+    func completeStressUpdateLoad() async -> Bool {
+        if let stressInputLoadTask {
+            await stressInputLoadTask.value
+        }
+
+        if healthTrends.recordedStressContext != currentStressRecordContextSignature {
+            let epoch = cacheEpoch
+            let calendar = Calendar.bodyGregorian
+            let interval = HealthKitFetchEngine.intradayDaySampleInterval(calendar: calendar, anchor: nil)
+            let capturedDaySampleSignatures = currentDaySampleSignatures()
+            let capturedDaySampleRevisions = daySampleRevisions
+            var trends = healthTrends
+            var successfulSeries: Set<HealthDaySampleSeries> = []
+            for series in Self.stressIntradaySampleSeries
+            where series.isStressMovementMask
+                && permissionSelection.includes(HealthKitFetchEngine.healthPermission(forMetric: series.kind)) {
+                // The whole window from its midnight start: an authoritative copy,
+                // not an incremental merge.
+                guard let samples = await engine.fetchStressMovementSamples(
+                    for: series.kind,
+                    calendar: calendar,
+                    startDate: interval.start,
+                    endDate: interval.end
+                ) else {
+                    return false
+                }
+                trends[keyPath: series.trendKeyPath] = samples
+                successfulSeries.insert(series)
+                // The hourly Day View series beside it, re-read whole too: the
+                // upgrade guard compares the two, and a stale hourly cache beside
+                // an empty 15 minute read (Steps revoked in iOS Settings after the
+                // cache filled) would otherwise keep it waiting for good.
+                let hourly: HealthDaySampleSeries = series.kind == .steps ? .stepsDaySamples : .activeEnergyDaySamples
+                guard let hourlySamples = await engine.fetchIntradayDaySamples(for: series.kind, calendar: calendar) else {
+                    return false
+                }
+                trends[keyPath: hourly.trendKeyPath] = hourlySamples
+                successfulSeries.insert(hourly)
+            }
+
+            guard !Task.isCancelled, !isRefreshing,
+                  Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+                  currentDaySampleSignatures() == capturedDaySampleSignatures else {
+                return false
+            }
+            if !publishDaySamples(from: trends, successfulSeries: successfulSeries,
+                                  capturedRevisions: capturedDaySampleRevisions).isEmpty {
+                persistDaySampleSidecar()
+            }
+            await recomputeStress(on: Date(), calendar: calendar)
+        }
+
+        guard healthTrends.recordedStressContext == currentStressRecordContextSignature else {
+            return false
+        }
+        publishWatchSnapshot()
+        scheduleStressBackfillIfNeeded()
+        return true
+    }
+
     /// Fetches the intraday inputs Stress scores from — HR/HRV day samples, the
     /// 15 minute steps/active-energy movement mask, and the beat-to-beat RMSSD
     /// series — then recomputes. Every fetch is incremental against the cached

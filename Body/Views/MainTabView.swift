@@ -57,6 +57,10 @@ struct MainTabView: View {
     @AppStorage(BodyAppearancePreference.updateOnboardingCompletedVersionKey) private var updateOnboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.proIntroPaywallShownKey) private var proIntroPaywallShown = false
     @State private var isProIntroPresented = false
+    /// The page the update cover shows, kept once it has been due: stamping the
+    /// completion on dismissal turns `dueUpdatePage` nil while the cover is
+    /// still animating away, and the page must not swap underneath it.
+    @State private var presentedUpdatePage: BodyOnboardingGate.UpdatePage?
 
     /// Shown until onboarding has been completed on 1.0.0 or later
     /// (`BodyOnboardingGate`); pre-release installs recorded nothing, so they
@@ -80,15 +84,29 @@ struct MainTabView: View {
         }
     }
 
-    /// Shown once to installs that finished onboarding before 1.1.0 build 9,
-    /// including earlier 1.1.0 builds; fresh installs stamp the running
-    /// version and build at first run, so they never see it
-    /// (`BodyOnboardingGate`).
-    private var showsUpdateOnboarding: Bool {
-        BodyOnboardingGate.shouldPresentUpdate(
+    /// The update page due on this launch (`BodyOnboardingGate.dueUpdatePage`):
+    /// the cache rebuild once for installs that finished onboarding before
+    /// 1.1.0 build 9, including earlier 1.1.0 builds, otherwise the Stress
+    /// update once for installs before 1.1.5 build 5 that show Stress. Fresh
+    /// installs stamp the running version and build at first run, so they
+    /// never see either.
+    private var dueUpdatePage: BodyOnboardingGate.UpdatePage? {
+        BodyOnboardingGate.dueUpdatePage(
             completedVersion: onboardingCompletedVersion,
-            updateCompletedVersion: updateOnboardingCompletedVersion
+            updateCompletedVersion: updateOnboardingCompletedVersion,
+            includesStress: updateIncludesStress
         )
+    }
+
+    /// Who the Stress update is for: the Stress card on, by the rule the
+    /// Stress input load itself uses, and Heart readable, without which there
+    /// is nothing to load. Both are settled synchronously at launch.
+    private var updateIncludesStress: Bool {
+        BodyDashboardFetchSelection.load().includes(.stress) && workoutStore.permissionSelection.includes(.heart)
+    }
+
+    private var showsUpdateOnboarding: Bool {
+        dueUpdatePage != nil
     }
 
     /// Same shape as `isOnboardingPresented`: dismissing the cover records the
@@ -113,7 +131,8 @@ struct MainTabView: View {
             && BodyOnboardingGate.shouldPresentProIntro(
                 shown: proIntroPaywallShown,
                 completedVersion: onboardingCompletedVersion,
-                updateCompletedVersion: updateOnboardingCompletedVersion
+                updateCompletedVersion: updateOnboardingCompletedVersion,
+                includesStress: updateIncludesStress
             )
     }
 
@@ -184,7 +203,27 @@ struct MainTabView: View {
                 BodyOnboardingView(mode: .firstRun)
             }
             .fullScreenCover(isPresented: isUpdateOnboardingPresented) {
-                BodyCacheRebuildView(entry: .update)
+                switch presentedUpdatePage ?? dueUpdatePage {
+                case .stressUpdate:
+                    BodyCacheRebuildView(entry: .stressUpdate)
+                case .cacheRebuild, nil:
+                    BodyCacheRebuildView(entry: .update)
+                }
+            }
+            // Decided once at launch, with the stamps and the Stress inputs all
+            // read synchronously: a due page is kept for the cover, and an
+            // install that has nothing to rescore settles the Stress page now,
+            // so turning Stress on later never pops it.
+            .onChange(of: dueUpdatePage, initial: true) { _, page in
+                if let page {
+                    presentedUpdatePage = page
+                } else if BodyOnboardingGate.settlesStressUpdateSilently(
+                    completedVersion: onboardingCompletedVersion,
+                    updateCompletedVersion: updateOnboardingCompletedVersion,
+                    includesStress: updateIncludesStress
+                ) {
+                    updateOnboardingCompletedVersion = BodyOnboardingGate.currentAppVersionAndBuild()
+                }
             }
             .task(id: proIntroReady) {
                 guard proIntroReady else { return }

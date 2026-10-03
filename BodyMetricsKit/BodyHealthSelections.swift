@@ -70,8 +70,9 @@ enum BodyAppearancePreference {
     /// Marketing version the user last completed (or skipped) onboarding on;
     /// empty until then. See `BodyOnboardingGate`.
     static let onboardingCompletedVersionKey = "onboardingCompletedVersion"
-    /// Marketing version the user last completed the update page (the cache
-    /// rebuild explainer) on; empty until then. See `BodyOnboardingGate`.
+    /// Marketing version plus build the user last completed an update page (the
+    /// cache rebuild explainer or the Stress update) on; empty until then. See
+    /// `BodyOnboardingGate`.
     static let updateOnboardingCompletedVersionKey = "updateOnboardingCompletedVersion"
     /// Set once the Body Pro paywall has been shown as part of a flow: at the end
     /// of first-run onboarding, or once to installs that were set up before the
@@ -927,30 +928,98 @@ enum BodyOnboardingGate {
     /// or build, including 1.1.0 builds before 9, sees the update page once.
     static let updateOnboardingVersion = "1.1.0.9"
 
-    /// Whether the one-time update page (the cache rebuild explainer) is due.
-    /// Only for installs that already finished first-run onboarding, and only
-    /// until the page (or first-run onboarding itself, which stamps the same
-    /// key) has been completed on `updateOnboardingVersion` or later. The
-    /// stored marketing version alone cannot tell a 1.1.0 build 7 upgrader
-    /// from a build 9 fresh install, which is why the stamp carries the build.
-    /// This is deliberately not a bump of `minimumCompletedVersion`, which
-    /// would replay the whole first-run flow.
-    static func shouldPresentUpdate(completedVersion: String?, updateCompletedVersion: String?) -> Bool {
+    /// Marketing version plus build ("1.1.5.5") from which Stress scores each
+    /// 15 minute window by its own movement and rescores its history. An
+    /// install that finished onboarding on an earlier version or build sees the
+    /// Stress update page once, if it shows Stress.
+    static let stressUpdateVersion = "1.1.5.5"
+
+    /// The one-time update pages, both stamped on the same key. The cache
+    /// rebuild comes first: its full load brings the current Stress too, so an
+    /// install due both sees only it.
+    enum UpdatePage: Equatable {
+        /// The 1.1.0 cache rebuild explainer.
+        case cacheRebuild
+        /// Stress's rescore under the 15 minute movement mask.
+        case stressUpdate
+    }
+
+    /// Which one-time update page is due, if any. Only for installs that
+    /// already finished first-run onboarding, and only until a page (or
+    /// first-run onboarding itself, which stamps the same key) has been
+    /// completed on that page's version or later. The stored marketing version
+    /// alone cannot tell a 1.1.0 build 7 upgrader from a build 9 fresh install,
+    /// which is why the stamp carries the build. `includesStress` (the Stress
+    /// card on, with Heart readable) gates only the Stress page: without it
+    /// there is nothing to rescore. This is deliberately not a bump of
+    /// `minimumCompletedVersion`, which would replay the whole first-run flow.
+    static func dueUpdatePage(
+        completedVersion: String?,
+        updateCompletedVersion: String?,
+        includesStress: Bool
+    ) -> UpdatePage? {
         guard !shouldPresent(completedVersion: completedVersion), let completedVersion, !completedVersion.isEmpty else {
+            return nil
+        }
+
+        let stamp = updateCompletedVersion ?? ""
+        if stamp.compare(updateOnboardingVersion, options: .numeric) == .orderedAscending {
+            return .cacheRebuild
+        }
+        if includesStress, stamp.compare(stressUpdateVersion, options: .numeric) == .orderedAscending {
+            return .stressUpdate
+        }
+        return nil
+    }
+
+    /// Whether a one-time update page is due (`dueUpdatePage`).
+    static func shouldPresentUpdate(completedVersion: String?, updateCompletedVersion: String?, includesStress: Bool) -> Bool {
+        dueUpdatePage(
+            completedVersion: completedVersion,
+            updateCompletedVersion: updateCompletedVersion,
+            includesStress: includesStress
+        ) != nil
+    }
+
+    /// Whether launch settles the Stress update page without showing it: an
+    /// install past the cache rebuild but stamped below `stressUpdateVersion`
+    /// with no page due, so one that does not show Stress or cannot read Heart.
+    /// Stamping it then means turning Stress on later never pops the page;
+    /// that Stress is scored under the current rules from the start.
+    static func settlesStressUpdateSilently(
+        completedVersion: String?,
+        updateCompletedVersion: String?,
+        includesStress: Bool
+    ) -> Bool {
+        guard !shouldPresent(completedVersion: completedVersion),
+              dueUpdatePage(
+                completedVersion: completedVersion,
+                updateCompletedVersion: updateCompletedVersion,
+                includesStress: includesStress
+              ) == nil else {
             return false
         }
-        return (updateCompletedVersion ?? "").compare(updateOnboardingVersion, options: .numeric) == .orderedAscending
+        return (updateCompletedVersion ?? "").compare(stressUpdateVersion, options: .numeric) == .orderedAscending
     }
 
     /// Whether the one-time Body Pro paywall is due on launch: an install that
     /// finished onboarding before the subscriptions existed (first-run onboarding
-    /// now ends on the paywall and sets the flag itself), once the update page is
+    /// now ends on the paywall and sets the flag itself), once any update page is
     /// out of the way, and only until it has been shown. Whether the customer
     /// already owns Pro is the caller's check, once the entitlement resolves.
-    static func shouldPresentProIntro(shown: Bool, completedVersion: String?, updateCompletedVersion: String?) -> Bool {
+    static func shouldPresentProIntro(
+        shown: Bool,
+        completedVersion: String?,
+        updateCompletedVersion: String?,
+        includesStress: Bool
+    ) -> Bool {
         !shown
             && !shouldPresent(completedVersion: completedVersion)
-            && !shouldPresentUpdate(completedVersion: completedVersion, updateCompletedVersion: updateCompletedVersion)
+            && !shouldPresentUpdate(
+                completedVersion: completedVersion,
+                updateCompletedVersion: updateCompletedVersion,
+                includesStress: includesStress
+            )
     }
 
     /// What the update page records on completion: marketing version plus
