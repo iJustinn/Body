@@ -18,6 +18,11 @@ struct BodyHealthSourceLegendItem: Identifiable {
 struct BodyHealthSourceLegend: View {
     let items: [BodyHealthSourceLegendItem]
     let valueFormatter: (Double) -> String
+    /// The averages' window, named inside each source's row in short ("W
+    /// Avg"), so two sources stay two lines, or before a single source's
+    /// average, in full unless `compact` (a small screen).
+    let average: BodyHealthStatFormat.Stat
+    let compact: Bool
 
     private var isMultiSource: Bool {
         items.count > 1
@@ -32,7 +37,7 @@ struct BodyHealthSourceLegend: View {
                             .fill(item.color)
                             .frame(width: 9, height: 9)
 
-                        Text("\(item.sourceName) Avg \(averageText(for: item.averageValue))")
+                        Text(verbatim: "\(item.sourceName) \(average.label(short: true)) \(averageText(for: item.averageValue))")
                             .font(.system(.subheadline, design: .rounded))
                             .fontWeight(.semibold)
                             .foregroundColor(.secondary)
@@ -47,7 +52,7 @@ struct BodyHealthSourceLegend: View {
                 dimensions[.lastTextBaseline]
             }
         } else if let item = items.first {
-            Text("Avg \(averageText(for: item.averageValue))")
+            Text(verbatim: "\(average.label(short: compact)) \(averageText(for: item.averageValue))")
                 .font(.system(.subheadline, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)

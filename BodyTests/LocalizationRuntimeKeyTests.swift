@@ -440,6 +440,33 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         XCTAssertEqual(try value(of: "chart.legendRange", language: "zh-Hans", in: catalog), "范围")
     }
 
+    /// The detail pages' window labels, full ("Weekly Avg") and the short form
+    /// two source rows and small screens read ("W Avg"), so none falls back
+    /// to its key.
+    func testDetailStatWindowLabelsResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+        let expected: [(key: String, english: String, chinese: String)] = [
+            ("detail.weeklyAvgPrefix", "Weekly Avg", "周平均"),
+            ("detail.weeklyRangePrefix", "Weekly Range", "周范围"),
+            ("detail.dailyAvgPrefix", "Daily Avg", "日平均"),
+            ("detail.dailyRangePrefix", "Daily Range", "日范围"),
+            ("detail.dailyTotalPrefix", "Daily Total", "日总计"),
+            ("detail.hourlyAvgPrefix", "Hourly Avg", "每小时平均"),
+            ("detail.weeklyAvgShortPrefix", "W Avg", "周均"),
+            ("detail.weeklyRangeShortPrefix", "W Range", "周范围"),
+            ("detail.dailyAvgShortPrefix", "D Avg", "日均"),
+            ("detail.dailyRangeShortPrefix", "D Range", "日范围"),
+            ("detail.dailyTotalShortPrefix", "D Total", "日总计"),
+            ("detail.hourlyAvgShortPrefix", "H Avg", "时均")
+        ]
+
+        try assertKeysTranslated(expected.map(\.key), in: catalog)
+        for entry in expected {
+            XCTAssertEqual(try value(of: entry.key, language: "en", in: catalog), entry.english, entry.key)
+            XCTAssertEqual(try value(of: entry.key, language: "zh-Hans", in: catalog), entry.chinese, entry.key)
+        }
+    }
+
     func testBucketedSeriesElevationAndHeartRateKeysResolveInBodyMetricsKitCatalog() throws {
         let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
 

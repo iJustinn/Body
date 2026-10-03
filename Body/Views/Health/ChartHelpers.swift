@@ -149,8 +149,10 @@ struct BodyBasicsTrendLegend: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
 
+            // The window named in the row, as the two source legend names it,
+            // so the legend stays two lines.
             if let valueText {
-                Text("Avg \(valueText)")
+                Text(verbatim: "\(BodyHealthStatFormat.Stat.weeklyAverage.label(short: true)) \(valueText)")
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)

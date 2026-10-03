@@ -444,6 +444,9 @@ struct BodyHealthMetricDetailView: View {
     @State private var showsBasicsRangeExplanation = false
     /// The Difference Range tiles' row width, which decides one row or two.
     @State private var basicsRangeRowWidth: CGFloat = 0
+    /// The page's width, measured on the hero, for the stat labels' short
+    /// form on a small screen (`BodyHealthStatFormat.usesShortLabels`).
+    @State private var statLabelsScreenWidth: CGFloat = 0
     /// Scrubbed trend value, in an observable box rather than three `@State`
     /// properties: only the small reader around the About card reads it, so a
     /// scrub frame no longer re-evaluates the whole page body.
@@ -1696,7 +1699,16 @@ struct BodyHealthMetricDetailView: View {
                 metricTrendChart(immersive: true)
             }
 
-            metricHeroValueRow
+            // Skin Temperature's Baseline legend gets its own line under the
+            // value row's two, so the big number keeps its place against the
+            // chart instead of dropping to a third line's baseline.
+            VStack(alignment: .trailing, spacing: 4) {
+                metricHeroValueRow
+
+                if wristTemperatureTrendBaseline != nil {
+                    BodyChartBaselineLegend()
+                }
+            }
 
             if sleepDataUnavailableForToday {
                 Text("No sleep data yet")
@@ -1711,6 +1723,9 @@ struct BodyHealthMetricDetailView: View {
         .padding(.top, 12)
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            statLabelsScreenWidth = width
+        }
     }
 
     private var sleepDataUnavailableForToday: Bool {
@@ -1828,6 +1843,11 @@ struct BodyHealthMetricDetailView: View {
         } else if isBodyRadarDetail {
             // A verdict, not a number: the same word treatment Vitals uses.
             BodyMetricStatusValueText(text: model.value, fontSize: 40)
+        } else if let latestStressScore = todaysLatestStressScore {
+            // The latest reading, as the watch page shows it, even once it is
+            // too old to count as current; the Home card falls back to the
+            // average then, since it has none beside it.
+            heroBigValue("\(latestStressScore)", unit: model.unit)
         } else if !model.value.isEmpty {
             heroBigValue(model.value, unit: model.unit)
         } else if let firstMetric = model.headerMetrics.first {
@@ -1835,26 +1855,6 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
-    private func heroBigValue(_ value: String, unit: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            BodyAnimatedMetricValueText(
-                value: value,
-                fontSize: 44,
-                color: .primary,
-                minimumScaleFactor: 0.5
-            )
-        } else if let latestStressScore = todaysLatestStressScore {
-            // The latest reading, as the watch page shows it, even once it is
-            // too old to count as current; the Home card falls back to the
-            // average then, since it has none beside it.
-            heroBigValue("\(latestStressScore)", unit: model.unit)
-
-            if !unit.isEmpty {
-                Text(unit)
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundColor(.secondary)
-            }
-        }
     /// Today's latest scored Stress window, the Stress page's big number
     /// whatever its age, since the day's average reads beside it. nil off the
     /// Stress page and before today's first scored window.
@@ -1866,6 +1866,21 @@ struct BodyHealthMetricDetailView: View {
         return BodyStressBandPresentation.latestScore(in: workoutStore.stressWindows(for: Date()))
     }
 
+    private func heroBigValue(_ value: String, unit: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            BodyAnimatedMetricValueText(
+                value: value,
+                fontSize: 44,
+                color: .primary,
+                minimumScaleFactor: 0.5
+            )
+
+            if !unit.isEmpty {
+                Text(unit)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+        }
     }
 
     // Metric-specific legend or average, relocated from the old trend-card header to
@@ -1894,30 +1909,59 @@ struct BodyHealthMetricDetailView: View {
                 bodyFatAverageText: basicsBodyFatAverageText
             )
         } else if let sourceComparisonTrend = model.sourceComparisonTrend {
+            // With a second source picked, the sources are compared by their
+            // averages alone, each row naming the week ("W Avg"); a single
+            // source reads its range too, below. Never more than two lines.
             BodyHealthSourceLegend(
                 items: comparisonLegendItems(for: sourceComparisonTrend),
-                valueFormatter: model.valueFormatter
+                valueFormatter: model.valueFormatter,
+                average: .weeklyAverage,
+                compact: usesShortStatLabels
             )
         } else if let sourceRangeComparisonTrend = model.sourceRangeComparisonTrend {
             BodyHealthSourceLegend(
                 items: rangeComparisonLegendItems(for: sourceRangeComparisonTrend),
-                valueFormatter: model.valueFormatter
+                valueFormatter: model.valueFormatter,
+                average: .weeklyAverage,
+                compact: usesShortStatLabels
             )
         } else if let sourceLineComparisonTrend = model.sourceLineComparisonTrend {
             BodyHealthSourceLegend(
                 items: comparisonLegendItems(for: sourceLineComparisonTrend),
-                valueFormatter: model.valueFormatter
+                valueFormatter: model.valueFormatter,
+                average: .weeklyAverage,
+                compact: usesShortStatLabels
             )
-        } else if usesRangeTrendChart, let metricRangeHeaderText {
-            averageHeaderText(
-                metricRangeHeaderText,
-                prefix: String(localized: "chart.legendRange", defaultValue: "Range")
-            )
-        } else if let averageTrendText {
+        } else if model.kind == .stress, weeklyAverageText != nil || todaysStress?.averageScore != nil {
+            // Stress leads with its latest reading, so today's figures read
+            // beside the week's, side by side.
+            HStack(alignment: .lastTextBaseline, spacing: 14) {
+                twoLineStatColumn(
+                    top: todaysStress?.averageScore.map { "\($0)" },
+                    topPrefix: statLabel(.dailyAverage),
+                    bottom: stressRangeText(todaysStress),
+                    bottomPrefix: statLabel(.dailyRange)
+                )
+                twoLineStatColumn(
+                    top: weeklyAverageText,
+                    topPrefix: statLabel(.weeklyAverage),
+                    bottom: weeklyRangeText,
+                    bottomPrefix: statLabel(.weeklyRange)
+                )
+            }
+            .alignmentGuide(.firstTextBaseline) { dimensions in
+                dimensions[.lastTextBaseline]
+            }
+        } else if weeklyAverageText != nil || weeklyRangeText != nil {
+            // The last 7 days whatever range the chart shows, named as such,
+            // in two lines at most (Skin Temperature's Baseline legend sits
+            // under the row, in `metricHero`).
             VStack(alignment: .trailing, spacing: 4) {
-                averageHeaderText(averageTrendText)
-                if wristTemperatureTrendBaseline != nil {
-                    BodyChartBaselineLegend()
+                if let weeklyAverageText {
+                    averageHeaderText(weeklyAverageText, prefix: statLabel(.weeklyAverage))
+                }
+                if let weeklyRangeText {
+                    averageHeaderText(weeklyRangeText, prefix: statLabel(.weeklyRange))
                 }
             }
             .alignmentGuide(.firstTextBaseline) { dimensions in
@@ -2292,8 +2336,19 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
-                if let bodyMassIndexAverageText {
-                    averageHeaderText(bodyMassIndexAverageText)
+                // The hero's window, like the readouts above the Basics chart.
+                if bodyMassIndexAverageText != nil || bodyMassIndexRangeText != nil {
+                    VStack(alignment: .trailing, spacing: 4) {
+                        if let bodyMassIndexAverageText {
+                            averageHeaderText(bodyMassIndexAverageText, prefix: statLabel(.weeklyAverage))
+                        }
+                        if let bodyMassIndexRangeText {
+                            averageHeaderText(bodyMassIndexRangeText, prefix: statLabel(.weeklyRange))
+                        }
+                    }
+                    .alignmentGuide(.firstTextBaseline) { dimensions in
+                        dimensions[.lastTextBaseline]
+                    }
                 }
             }
 
@@ -2482,25 +2537,45 @@ struct BodyHealthMetricDetailView: View {
 
                 Spacer(minLength: 12)
 
-                // Stress folds its old separate "Time by Band" card into this one, so
-                // the day's average heads the card the breakdown rows belong to —
-                // styled like `BodyHealthSourceLegend`'s single-source "Avg" line so
-                // every Day View header reads the same.
+                // The selected day's figures, named as such. Stress folds its old
+                // separate "Time by Band" card into this one, so the day's average
+                // and range head the card the breakdown rows belong to.
                 if model.kind == .stress, let averageScore = selectedStressDaySummary?.averageScore {
-                    Text("Avg \("\(averageScore)")")
-                        .font(.system(.subheadline, design: .rounded))
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .bodyLegendNumberFlip(value: "\(averageScore)")
-                }
-
-                if !dayComparisonLegendItems.isEmpty {
-                    BodyHealthSourceLegend(
-                        items: dayComparisonLegendItems,
-                        valueFormatter: model.valueFormatter
+                    twoLineStatColumn(
+                        top: "\(averageScore)",
+                        topPrefix: statLabel(.dailyAverage),
+                        bottom: stressRangeText(selectedStressDaySummary),
+                        bottomPrefix: statLabel(.dailyRange)
                     )
+                } else if hasComparedSecondaryDaySource {
+                    // With a second source picked, the sources are compared by
+                    // their averages alone, whichever has readings that day.
+                    if !dayComparisonLegendItems.isEmpty {
+                        BodyHealthSourceLegend(
+                            items: dayComparisonLegendItems,
+                            valueFormatter: model.valueFormatter,
+                            average: BodyHealthStatFormat.isDailyTotal(model.kind) ? .hourlyAverage : .dailyAverage,
+                            compact: usesShortStatLabels
+                        )
+                    }
+                } else if model.kind != .readiness, !selectedMetricDaySeries.isEmpty {
+                    if BodyHealthStatFormat.isDailyTotal(model.kind) {
+                        // An hourly total's day reads as the day's total, over
+                        // the average of the hours with any.
+                        twoLineStatColumn(
+                            top: selectedMetricDayTotalText,
+                            topPrefix: statLabel(.dailyTotal),
+                            bottom: selectedMetricDayHourlyAverageText,
+                            bottomPrefix: statLabel(.hourlyAverage)
+                        )
+                    } else {
+                        twoLineStatColumn(
+                            top: selectedMetricDayHourlyAverageText,
+                            topPrefix: statLabel(.dailyAverage),
+                            bottom: selectedMetricDayRangeText,
+                            bottomPrefix: statLabel(.dailyRange)
+                        )
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -3794,16 +3869,8 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
-    private var visibleSeries: HealthTrendSeries {
-        model.series.limited(to: selectedTrendRange)
-    }
-
     private var visibleBasicsTrend: BasicsTrendSummary? {
         model.basicsTrend?.limited(to: selectedTrendRange)
-    }
-
-    private var visibleMetricRangeSeries: HealthTrendRangeSeries? {
-        model.rangeSeries?.limited(to: selectedTrendRange)
     }
 
     private var usesRangeTrendChart: Bool {
@@ -3821,13 +3888,8 @@ struct BodyHealthMetricDetailView: View {
         }
     }
 
-    private var visibleBodyMassIndexTrend: HealthTrendSeries {
-        visibleBasicsTrend?.bodyMassIndex ?? .empty
-    }
-
     /// The untrimmed BMI history the chart itself needs to keep every range's
-    /// marks resident; the range-limited series above still backs the average
-    /// readout above the chart.
+    /// marks resident; the readouts above the chart read the hero's window.
     private var bodyMassIndexTrend: HealthTrendSeries {
         model.basicsTrend?.bodyMassIndex ?? .empty
     }
@@ -3893,13 +3955,13 @@ struct BodyHealthMetricDetailView: View {
             BodyHealthSourceLegendItem(
                 role: .primary,
                 sourceName: comparison.primary.sourceName,
-                averageValue: comparison.primary.averageValue(in: selectedTrendRange),
+                averageValue: comparison.primary.averageValue(in: BodyHealthStatFormat.heroWindow),
                 color: model.symbolColor
             ),
             BodyHealthSourceLegendItem(
                 role: .secondary,
                 sourceName: comparison.secondary.sourceName,
-                averageValue: comparison.secondary.averageValue(in: selectedTrendRange),
+                averageValue: comparison.secondary.averageValue(in: BodyHealthStatFormat.heroWindow),
                 color: sourceComparisonSecondaryColor
             )
         ]
@@ -3912,13 +3974,13 @@ struct BodyHealthMetricDetailView: View {
             BodyHealthSourceLegendItem(
                 role: .primary,
                 sourceName: comparison.primary.sourceName,
-                averageValue: comparison.primary.averageValue(in: selectedTrendRange),
+                averageValue: comparison.primary.averageValue(in: BodyHealthStatFormat.heroWindow),
                 color: model.symbolColor
             ),
             BodyHealthSourceLegendItem(
                 role: .secondary,
                 sourceName: comparison.secondary.sourceName,
-                averageValue: comparison.secondary.averageValue(in: selectedTrendRange),
+                averageValue: comparison.secondary.averageValue(in: BodyHealthStatFormat.heroWindow),
                 color: sourceComparisonSecondaryColor
             )
         ]
@@ -3955,43 +4017,135 @@ struct BodyHealthMetricDetailView: View {
         return items
     }
 
-    private var averageTrendText: String? {
-        guard let averageValue = visibleSeries.averageValue else {
-            return nil
-        }
-
-        if model.kind == .sleep {
-            return BodyValueFormat.sleepDurationText(for: averageValue * 60 * 60)
-        }
-
-        return model.valueFormatter(averageValue)
+    /// The Basics page's trends over the hero's window.
+    private var weeklyBasicsTrend: BasicsTrendSummary? {
+        model.basicsTrend?.limited(to: BodyHealthStatFormat.heroWindow)
     }
 
-    private var metricRangeHeaderText: String? {
-        guard let range = visibleMetricRangeSeries?.valueRange else {
-            return nil
-        }
-
-        let lower = BodyValueFormat.numberText(range.lowerBound, decimals: 0)
-        let upper = BodyValueFormat.numberText(range.upperBound, decimals: 0)
-        let suffix = model.unit.isEmpty ? "" : " \(model.unit)"
-        return "\(lower)-\(upper)\(suffix)"
+    private var weeklyBodyMassIndexValues: [Double] {
+        (weeklyBasicsTrend?.bodyMassIndex ?? .empty).points.map(\.value)
     }
 
     private var bodyMassIndexAverageText: String? {
-        visibleBodyMassIndexTrend.averageValue.map {
-            BodyValueFormat.numberText($0, decimals: 1)
+        (weeklyBasicsTrend?.bodyMassIndex ?? .empty).averageValue.map(Self.bodyMassIndexText)
+    }
+
+    private var bodyMassIndexRangeText: String? {
+        BodyHealthStatFormat.valueRange(weeklyBodyMassIndexValues).map {
+            BodyHealthStatFormat.rangeText($0, formatter: Self.bodyMassIndexText)
         }
+    }
+
+    private static func bodyMassIndexText(_ value: Double) -> String {
+        BodyValueFormat.numberText(value, decimals: 1)
     }
 
     private var basicsWeightAverageText: String? {
-        visibleBasicsTrend?.weightAverage.map(model.valueFormatter)
+        weeklyBasicsTrend?.weightAverage.map(model.valueFormatter)
     }
 
     private var basicsBodyFatAverageText: String? {
-        visibleBasicsTrend?.bodyFatAverage.map {
+        weeklyBasicsTrend?.bodyFatAverage.map {
             (model.secondaryValueFormatter ?? { BodyValueFormat.numberText($0, decimals: 1) + "%" })($0)
         }
+    }
+
+    /// Every stat label reads its short form ("W Avg") on a small screen.
+    private var usesShortStatLabels: Bool {
+        BodyHealthStatFormat.usesShortLabels(forScreenWidth: statLabelsScreenWidth)
+    }
+
+    private func statLabel(_ stat: BodyHealthStatFormat.Stat) -> String {
+        stat.label(short: usesShortStatLabels)
+    }
+
+    /// One trailing column of two lines, "--" for either without a reading,
+    /// anchored on its bottom line like the source legend: the Stress hero's
+    /// two, and the Day View header's.
+    private func twoLineStatColumn(
+        top: String?,
+        topPrefix: String,
+        bottom: String?,
+        bottomPrefix: String
+    ) -> some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            averageHeaderText(top ?? "--", prefix: topPrefix)
+            averageHeaderText(bottom ?? "--", prefix: bottomPrefix)
+        }
+        .alignmentGuide(.firstTextBaseline) { dimensions in
+            dimensions[.lastTextBaseline]
+        }
+    }
+
+    /// The selected day's average, every hour weighing the same
+    /// (`hourlyAverage`), as the Day View has always read it.
+    private var selectedMetricDayHourlyAverageText: String? {
+        selectedMetricDaySeries.hourlyAverage(on: selectedMetricDay).map(model.valueFormatter)
+    }
+
+    /// The selected day's lowest to highest reading, the ends of the hourly
+    /// range bars.
+    private var selectedMetricDayRangeText: String? {
+        BodyHealthStatFormat.valueRange(selectedMetricDaySeries.points.map(\.value)).map {
+            BodyHealthStatFormat.rangeText($0, formatter: model.valueFormatter)
+        }
+    }
+
+    /// The selected day's total: the trend's daily total for that day, the
+    /// number the Home card and the week chart show, else the sum of the
+    /// day's hourly totals.
+    private var selectedMetricDayTotalText: String? {
+        let calendar = Calendar.bodyGregorian
+        let dailyTotal = model.series.points.last {
+            calendar.isDate($0.date, inSameDayAs: selectedMetricDay) && $0.value.isFinite
+        }?.value
+        let values = selectedMetricDaySeries.points.map(\.value).filter(\.isFinite)
+        let total = dailyTotal ?? (values.isEmpty ? nil : values.reduce(0, +))
+        return total.map(model.valueFormatter)
+    }
+
+    /// The trend over the hero's window (`BodyHealthStatFormat.heroWindow`),
+    /// whatever range the chart shows.
+    private var weeklySeries: HealthTrendSeries {
+        model.series.limited(to: BodyHealthStatFormat.heroWindow)
+    }
+
+    private var weeklyAverageText: String? {
+        weeklySeries.averageValue.map(model.valueFormatter)
+    }
+
+    /// The week's lowest to highest: the range charts' (Stress's included)
+    /// from each day's lowest and highest reading, every other kind's from
+    /// its daily values. A running daily total leaves today out, since its
+    /// partial total would read as the week's low until the day ends.
+    private var weeklyRangeText: String? {
+        let range: ClosedRange<Double>?
+        if usesRangeTrendChart {
+            range = model.rangeSeries?.limited(to: BodyHealthStatFormat.heroWindow).valueRange
+        } else {
+            var points = weeklySeries.points
+            if BodyHealthStatFormat.isDailyTotal(model.kind) {
+                points.removeAll { Calendar.bodyGregorian.isDateInToday($0.date) }
+            }
+            range = BodyHealthStatFormat.valueRange(points.map(\.value))
+        }
+        return range.map { BodyHealthStatFormat.rangeText($0, formatter: model.valueFormatter) }
+    }
+
+    /// The Stress rollup when it is today's: one that outlived midnight is
+    /// yesterday's, not the day the hero names.
+    private var todaysStress: StressDaySummary? {
+        model.stress.flatMap { Calendar.bodyGregorian.isDateInToday($0.date) ? $0 : nil }
+    }
+
+    /// A Stress day's lowest to highest window score, from the same rollup as
+    /// its average.
+    private func stressRangeText(_ summary: StressDaySummary?) -> String? {
+        guard let low = summary?.minScore, let high = summary?.maxScore else {
+            return nil
+        }
+
+        return BodyHealthStatFormat.rangeText(Double(low)...Double(high), formatter: model.valueFormatter)
     }
 
     private func averageHeaderText(
