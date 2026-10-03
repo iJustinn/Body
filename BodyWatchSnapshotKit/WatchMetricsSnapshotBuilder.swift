@@ -512,26 +512,30 @@ enum WatchMetricsSnapshotBuilder {
         )
     }
 
-    /// Today's Stress, the same number the iPhone card shows: the day's
-    /// average score, published only when the rollup is dated `now`'s day (a
-    /// summary that outlived midnight reads "--", and `weeklyAsOf` lets the
-    /// watch re-check the day at display time). The status band, gauge bounds
-    /// and tint follow the latest reading when it is still current
-    /// (`stressCurrentScore`), otherwise the average, as on the iPhone card.
-    /// A blank card carries no band, like an unavailable Readiness.
+    /// Today's Stress, the same number the iPhone card shows: the latest
+    /// reading while it is current (`stressCurrentScore`), otherwise the
+    /// day's average, with the status band, gauge bounds and tint of that same
+    /// score, so the number and the band beside it always agree. Published
+    /// only when the day's rollup is dated `now`'s day (a summary that
+    /// outlived midnight reads "--", and `weeklyAsOf` lets the watch re-check
+    /// the day at display time), so a reading from before midnight never
+    /// heads a day with no average. A blank card carries no band, like an
+    /// unavailable Readiness. The week's today slot stays the average.
     private static func stressMetric(summary: HealthSummarySnapshot, now: Date) -> WatchMetric {
         let average = summary.stress.flatMap { stress in
             Calendar.bodyGregorian.isDate(stress.date, inSameDayAs: now) ? stress.averageScore : nil
         }
-        let band = average.map { StressBand.band(for: summary.stressCurrentScore ?? $0) }
+        let current = average.flatMap { _ in summary.stressCurrentScore }
+        let score = current ?? average
+        let band = score.map { StressBand.band(for: $0) }
         return WatchMetric(
             kind: WatchMetricKindKey.stress,
             title: String(localized: "Stress", table: "BodyWatchSnapshotKit"),
-            displayValue: average.map { "\($0)" } ?? "--",
+            displayValue: score.map { "\($0)" } ?? "--",
             unit: "",
-            score: average,
-            fillFraction: average.map { min(max(Double($0) / 100, 0), 1) } ?? 0,
-            rawValue: average.map(Double.init),
+            score: score,
+            fillFraction: score.map { min(max(Double($0) / 100, 0), 1) } ?? 0,
+            rawValue: score.map(Double.init),
             rangeMin: 0,
             rangeMax: 100,
             levelMin: band?.scoreBounds.min,

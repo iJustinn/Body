@@ -1759,11 +1759,13 @@ struct BodyHomeView: View {
         chartPreview: HealthTrendSeries,
         previewDayCount: Int
     ) -> BodyHealthMetricCard.Model {
-        let scoreText = summary?.averageScore.map { "\($0)" } ?? "--"
-        // Band follows the CURRENT stress reading when one is fresh (see
-        // `stressCurrentScore`'s staleness guard), falling back to the day
-        // average so the card still shows a band once any score exists.
+        // The CURRENT stress reading when one is fresh (see
+        // `stressCurrentScore`'s staleness guard), like Readiness's live
+        // score, falling back to the day average so the card still reads once
+        // any score exists. The number and the band come from the same score,
+        // so they always agree; the day average stays on the detail page.
         let bandScore = currentScore ?? summary?.averageScore
+        let scoreText = bandScore.map { "\($0)" } ?? "--"
         // Always a prominent row, "--" until a band exists, the way the Sleep
         // card holds its score slot: dropping the row swaps the card between
         // its regular and prominent layouts, which rebuilds the preview (so it
@@ -2768,8 +2770,11 @@ struct BodyHomeView: View {
                 dataSourceText: kind.detailDataSourceText
             )
         case .stress:
+            // The current reading while it is fresh, else the day average, as
+            // on the Home card; the hero's trailing slot reads the average.
+            let stressScore = summary.stressCurrentScore ?? summary.stress?.averageScore
             let statusText: String
-            if let band = summary.stress?.band {
+            if let band = stressScore.map({ StressBand.band(for: $0) }) {
                 statusText = band.title
             } else if workoutStore.permissionSelection.includes(.heart), summary.heartRate.value != nil {
                 // A quiet-HR baseline takes several days of heart data to
@@ -2784,7 +2789,7 @@ struct BodyHomeView: View {
             return BodyHealthMetricDetailModel(
                 kind: kind,
                 title: "Stress",
-                value: summary.stress?.averageScore.map { "\($0)" } ?? "--",
+                value: stressScore.map { "\($0)" } ?? "--",
                 unit: "",
                 symbolName: "brain.head.profile.fill",
                 symbolColor: Color(red: 0.90, green: 0.35, blue: 0.75),
@@ -2798,7 +2803,7 @@ struct BodyHomeView: View {
                 sleepHistory: trends.sleepHistory,
                 chartStyle: .line,
                 highlightedRange: BodyStressBandPresentation.make(
-                    for: summary.stress?.averageScore.map(Double.init)
+                    for: stressScore.map(Double.init)
                 ),
                 highlightedRangeResolver: BodyStressBandPresentation.make(for:),
                 valueFormatter: { BodyValueFormat.numberText($0, decimals: 0) },
@@ -2807,7 +2812,7 @@ struct BodyHomeView: View {
                 headerMetrics: [
                     BodyMetricDisplayValue(
                         title: "Stress",
-                        value: summary.stress?.averageScore.map { "\($0)" } ?? "--",
+                        value: stressScore.map { "\($0)" } ?? "--",
                         unit: ""
                     ),
                     BodyMetricDisplayValue(

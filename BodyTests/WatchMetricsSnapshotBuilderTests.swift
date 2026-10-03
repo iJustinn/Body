@@ -514,9 +514,12 @@ extension WatchMetricsSnapshotBuilderTests {
         )
     }
 
-    /// The headline is today's average, the iPhone card's number; the band
-    /// follows the latest reading while it is current.
-    func testStressShowsTodaysAverageWithTheCurrentReadingsBand() throws {
+    /// The headline is the latest reading while it is current, the iPhone
+    /// card's number, and the band beside it is that same reading's, so the
+    /// two always agree; the day's average stays today's week slot, with no
+    /// faded current dot (that is Readiness's drain alone). With no current
+    /// reading both fall back to the average.
+    func testStressShowsTheCurrentReadingWithItsBandOverTodaysAverage() throws {
         let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 15)))
         let today = StressDaySummary(date: calendar.startOfDay(for: anchor), averageScore: 42)
 
@@ -524,24 +527,27 @@ extension WatchMetricsSnapshotBuilderTests {
 
         let stress = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.stress))
         XCTAssertEqual(stress.title, String(localized: "Stress", table: "BodyWatchSnapshotKit"))
-        XCTAssertEqual(stress.displayValue, "42")
+        XCTAssertEqual(stress.displayValue, "80")
         XCTAssertEqual(stress.unit, "")
-        XCTAssertEqual(stress.score, 42)
-        XCTAssertEqual(stress.rawValue, 42)
-        XCTAssertEqual(stress.fillFraction, 0.42, accuracy: 1e-9)
+        XCTAssertEqual(stress.score, 80)
+        XCTAssertEqual(stress.rawValue, 80)
+        XCTAssertEqual(stress.fillFraction, 0.80, accuracy: 1e-9)
         XCTAssertEqual(stress.rangeMin, 0)
         XCTAssertEqual(stress.rangeMax, 100)
         XCTAssertEqual(stress.levelMin, 76)
         XCTAssertEqual(stress.levelMax, 100)
         XCTAssertEqual(stress.tint, StressBand.high.watchTintComponents)
         XCTAssertEqual(stress.statusBand, WatchStatusBand(min: 75.5, max: nil, label: StressBand.high.title))
+        XCTAssertNil(stress.weeklyCurrentValue, "no current dot for Stress")
         XCTAssertNil(stress.measuredAt, "a computed metric: computedAt is its stamp")
         XCTAssertEqual(stress.computedAt, anchor)
 
         // No current reading (an hour without one, or a decoded summary): the
-        // band is the average's.
+        // number and the band are the average's.
         let averaged = try XCTUnwrap(stressSnapshot(anchor: anchor, stress: today).metric(forKind: WatchMetricKindKey.stress))
         XCTAssertEqual(averaged.displayValue, "42")
+        XCTAssertEqual(averaged.score, 42)
+        XCTAssertEqual(averaged.fillFraction, 0.42, accuracy: 1e-9)
         XCTAssertEqual(averaged.levelMin, 26)
         XCTAssertEqual(averaged.levelMax, 50)
         XCTAssertEqual(averaged.tint, StressBand.low.watchTintComponents)

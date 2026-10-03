@@ -5435,7 +5435,7 @@ final class SourceGuardTests: XCTestCase {
         // complication from every face it is on.
         XCTAssertTrue(source.contains("kind: \"BodyWatchStress\""))
         // The circle and the rectangle only: the shared corner gauge would
-        // show the card's daily average.
+        // show the card's value, which falls back to the day's average.
         XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryCircular, .accessoryRectangular])"), 1)
 
         // The latest window of the Stress page's chart, aged like the chart,

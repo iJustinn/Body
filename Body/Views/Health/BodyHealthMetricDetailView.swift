@@ -1843,6 +1843,11 @@ struct BodyHealthMetricDetailView: View {
                 color: .primary,
                 minimumScaleFactor: 0.5
             )
+        } else if let latestStressScore = todaysLatestStressScore {
+            // The latest reading, as the watch page shows it, even once it is
+            // too old to count as current; the Home card falls back to the
+            // average then, since it has none beside it.
+            heroBigValue("\(latestStressScore)", unit: model.unit)
 
             if !unit.isEmpty {
                 Text(unit)
@@ -1850,6 +1855,17 @@ struct BodyHealthMetricDetailView: View {
                     .foregroundColor(.secondary)
             }
         }
+    /// Today's latest scored Stress window, the Stress page's big number
+    /// whatever its age, since the day's average reads beside it. nil off the
+    /// Stress page and before today's first scored window.
+    private var todaysLatestStressScore: Int? {
+        guard model.kind == .stress else {
+            return nil
+        }
+
+        return BodyStressBandPresentation.latestScore(in: workoutStore.stressWindows(for: Date()))
+    }
+
     }
 
     // Metric-specific legend or average, relocated from the old trend-card header to

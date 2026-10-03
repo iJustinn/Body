@@ -36,6 +36,13 @@ enum BodyStressBandPresentation {
         return BodyStressRGB(red: components.red, green: components.green, blue: components.blue)
     }
 
+    /// The latest scored window's rounded score, whatever its age, or nil
+    /// with none: the Stress page's big number. Movement and unscored windows
+    /// are skipped, as for `stressCurrentScore`.
+    static func latestScore(in windows: [StressWindow]) -> Int? {
+        windows.last(where: \.isScored)?.score.map { Int($0.rounded()) }
+    }
+
     /// Masked movement time is not a band, so it gets one neutral gray shared by the
     /// intraday plot's floor stubs and the day breakdown's Activity row.
     static let activityColor = Color.secondary.opacity(StressChartStyle.activityOpacity)

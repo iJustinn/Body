@@ -11,7 +11,8 @@
 //  daily total bars, `WatchWeekBarsView`), and the current value reads large at the
 //  bottom-left — followed, for Readiness, Training Load and Stress, by the
 //  status level beside it ("85 · HIGH"; Readiness and Training Load also
-//  highlight that level's band behind the week chart, Stress doesn't), and on
+//  highlight that level's band behind the week chart, Stress doesn't; the
+//  Readiness and Stress values are the live ones), and on
 //  Sleep by the night's duration under the same dot ("85 pts · 7h 32m"). On the Sleep page, whenever the
 //  snapshot carries
 //  the night's stages or a Sleep Debt to chart, that first screen scrolls: the
@@ -490,17 +491,17 @@ struct WatchMetricDetailView: View {
         WatchMetricDetailView(metric: WatchMetric(
             kind: WatchMetricKindKey.stress,
             title: "Stress",
-            displayValue: "42",
+            displayValue: "37",
             unit: "",
-            score: 42,
-            fillFraction: 0.42,
-            rawValue: 42,
+            score: 37,
+            fillFraction: 0.37,
+            rawValue: 37,
             rangeMin: 0,
             rangeMax: 100,
             levelMin: 25.5,
             levelMax: 50.5,
             tint: WatchMetricColor(red: 0.20, green: 0.80, blue: 0.45),
-            weekly: [38, 51, 44, nil, 35, 47, 42],
+            weekly: [38, 51, 44, nil, 35, 47, 52],
             weeklyRanges: [
                 .init(low: 9, high: 78), .init(low: 12, high: 86), .init(low: 10, high: 74), nil,
                 .init(low: 8, high: 69), .init(low: 11, high: 81), .init(low: 9, high: 82)

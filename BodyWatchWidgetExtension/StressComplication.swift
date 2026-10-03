@@ -2,8 +2,9 @@
 //  StressComplication.swift
 //  BodyWatchWidgetExtension
 //
-//  The Stress complication: the latest Stress reading, not the card's daily
-//  average. It draws the circular ring and the rectangular row of the other
+//  The Stress complication: the latest Stress reading for up to 12 hours,
+//  where the card falls back to the day's average once its current reading
+//  is an hour old. It draws the circular ring and the rectangular row of the other
 //  metric complications (`WatchComplicationView`), filled to the score out of
 //  100 in the Stress pink of the Stress page, and the row names the reading's
 //  band over the title. The reading is the latest scored window of the Stress

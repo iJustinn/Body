@@ -173,23 +173,24 @@ final class WatchPageScreenshotTests: XCTestCase {
         ]
     }
 
-    /// Today's average in the Relaxed band, the status word beside it, and a
-    /// week with each day's low to high range.
+    /// The current reading (the preview timeline's latest window) in the
+    /// Relaxed band with the status word beside it, and a week of daily
+    /// averages with each day's low to high range.
     private func stress(now: Date) -> WatchMetric {
         WatchMetric(
             kind: WatchMetricKindKey.stress,
             title: "Stress",
-            displayValue: "42",
+            displayValue: "37",
             unit: "",
-            score: 42,
-            fillFraction: 0.42,
-            rawValue: 42,
+            score: 37,
+            fillFraction: 0.37,
+            rawValue: 37,
             rangeMin: 0,
             rangeMax: 100,
             levelMin: 25.5,
             levelMax: 50.5,
             tint: WatchMetricColor(red: 0.20, green: 0.80, blue: 0.45),
-            weekly: [38, 51, 44, nil, 35, 47, 42],
+            weekly: [38, 51, 44, nil, 35, 47, 52],
             weeklyAsOf: now,
             weeklyRanges: [
                 .init(low: 9, high: 78), .init(low: 12, high: 86), .init(low: 10, high: 74), nil,
