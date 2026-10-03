@@ -60,6 +60,9 @@ struct BodyCompanionPublishInput: Sendable {
     let trainingLoadStartDay: Date?
     let trainingLoadDailyLoads: [Double]?
     let trainingLoadDataThrough: Date?
+    /// The iPhone's ratings for the recent workouts, keyed by workout UUID
+    /// (`WatchComputeSeed.trainingLoadEffortHints`).
+    let trainingLoadEffortHints: [String: Double]?
     let expectedSourceIDsByKind: [String: [String]]
     let followsSystemUnits: Bool
     let selectedTemperatureUnitRaw: String
@@ -334,6 +337,7 @@ final class BodyCompanionPublisher {
                     trainingLoadStartDay: input.trainingLoadStartDay,
                     trainingLoadDailyLoads: input.trainingLoadDailyLoads,
                     trainingLoadDataThrough: input.trainingLoadDataThrough,
+                    trainingLoadEffortHints: input.trainingLoadEffortHints,
                     expectedSourceIDsByKind: input.expectedSourceIDsByKind.isEmpty ? nil : input.expectedSourceIDsByKind,
                     settings: settings,
                     publishedAt: input.now

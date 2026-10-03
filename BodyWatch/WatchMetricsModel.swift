@@ -274,26 +274,37 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         // context is a value dictionary of `Data`/`String` payloads that nobody
         // mutates after delivery, so reading it on the intake queue is sound.
         nonisolated(unsafe) let receivedContext = context
-        let (resolution, seedChanged, settingsChanged) = await withCheckedContinuation { continuation in
+        let (resolution, seedChanged, settingsChanged, effortHintsChanged) = await withCheckedContinuation { continuation in
             Self.contextIntakeQueue.async {
                 let resolution = Self.resolution(for: receivedContext, over: current)
-                // Read the PRIOR stored signature before `persist` overwrites
-                // it: a changed compute-settings signature (source selection,
-                // sleep goal, display flags, …) means everything the watch
-                // derived locally was derived under a superseded configuration
-                // — `finishReceivedContext` must strip that provenance, exactly
-                // as the permission-change path does.
-                let priorSignature = WatchComputeSeedStore.load()?.settingsSignature
+                // Read the PRIOR stored seed before `persist` overwrites it: a
+                // changed compute-settings signature (source selection, sleep
+                // goal, display flags, …) means everything the watch derived
+                // locally was derived under a superseded configuration —
+                // `finishReceivedContext` must strip that provenance, exactly as
+                // the permission-change path does. Its effort hints tell whether
+                // this push brings an iPhone rating the last compute lacked.
+                let priorSeed = WatchComputeSeedStore.load()
                 let seedChanged = Self.persist(resolution.seedIntake)
                 let settingsChanged = Self.settingsChanged(
                     intake: resolution.seedIntake,
-                    priorSignature: priorSignature,
+                    priorSignature: priorSeed?.settingsSignature,
                     seedChanged: seedChanged
                 )
-                continuation.resume(returning: (resolution, seedChanged, settingsChanged))
+                let effortHintsChanged = Self.effortHintsChanged(
+                    intake: resolution.seedIntake,
+                    priorHints: priorSeed?.trainingLoadEffortHints,
+                    seedChanged: seedChanged
+                )
+                continuation.resume(returning: (resolution, seedChanged, settingsChanged, effortHintsChanged))
             }
         }
-        finishReceivedContext(resolution, seedChanged: seedChanged, settingsChanged: settingsChanged)
+        finishReceivedContext(
+            resolution,
+            seedChanged: seedChanged,
+            settingsChanged: settingsChanged,
+            effortHintsChanged: effortHintsChanged
+        )
         // A push is an execution opportunity: run a compute now, against the
         // seed this push just delivered, for a detected workout change or a
         // stale display (same gates as any background trigger). NOT awaited,
@@ -336,6 +347,22 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         }
     }
 
+    /// Whether this intake brought the iPhone's rating for a recent workout
+    /// that the stored seed lacked, or carried with another value
+    /// (`WatchComputeSeed.trainingLoadEffortHints`): the watch's last compute
+    /// counted that workout without it. A hint that only dropped out of the
+    /// seed's span doesn't count, and nothing counts unless the persist really
+    /// replaced the stored bytes. Pure over its inputs, like `settingsChanged`.
+    nonisolated static func effortHintsChanged(
+        intake: WatchComputeSeedIntake,
+        priorHints: [String: Double]?,
+        seedChanged: Bool
+    ) -> Bool {
+        guard seedChanged, case .replace(_, let seed) = intake,
+              let hints = seed.trainingLoadEffortHints else { return false }
+        return hints.contains { id, effort in priorHints?[id] != effort }
+    }
+
     /// Off the main actor so the seed decode + file I/O never blocks the UI
     /// (see `applyReceivedContext`). Receive order is guaranteed upstream by the
     /// single-consumer intake stream, not by this queue.
@@ -348,13 +375,23 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     private func finishReceivedContext(
         _ resolution: ReceivedContextResolution,
         seedChanged: Bool,
-        settingsChanged: Bool
+        settingsChanged: Bool,
+        effortHintsChanged: Bool
     ) {
         // Bump on a real byte change or a clear: a compute already in flight
         // holds its own decoded copy of the seed, and the generation is the only
         // thing that stops its result landing on top of what just replaced it.
         if seedChanged {
             bumpComputeGeneration()
+        }
+        // A new iPhone rating for a recent workout is a detected change, like
+        // one the change tracker finds: this push's own compute then runs now,
+        // inside the pending-work attempt budget, instead of leaving the
+        // default-effort number on screen for the rest of the 30 minute
+        // throttle, beside the iPhone's corrected one. Only the fast path: the
+        // next ordinary compute reads the stored hint either way.
+        if effortHintsChanged, environment.loadPermission().includes(.workouts) {
+            pendingWork = WatchPendingRecomputePolicy.detecting(pendingWork, at: environment.now())
         }
         // The charts were read behind the old source selection, which the
         // settings signature covers. Not tied to `seedChanged`: the seed's

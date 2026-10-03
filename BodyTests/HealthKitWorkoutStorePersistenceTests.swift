@@ -86,13 +86,24 @@ final class HealthKitWorkoutStorePersistenceTests: XCTestCase {
         let startDay = Date(timeIntervalSince1970: 1_700_000_000)
         let through = Date(timeIntervalSince1970: 1_700_500_000)
         let loads: [Double] = [0, 12.5, 0, 88.25]
+        let effortHints = [UUID().uuidString: 7.0]
         HealthDashboardSnapshotStore.saveWatchTrainingLoadSeed(
-            startDay: startDay, loads: loads, through: through, defaults: defaults
+            startDay: startDay, loads: loads, through: through, effortHints: effortHints, defaults: defaults
         )
         let restored = try XCTUnwrap(HealthDashboardSnapshotStore.loadWatchTrainingLoadSeed(defaults: defaults))
         XCTAssertEqual(restored.startDay, startDay)
         XCTAssertEqual(restored.loads, loads)
         XCTAssertEqual(restored.through, through)
+        XCTAssertEqual(restored.effortHints, effortHints)
+
+        // A payload saved before effort hints existed still restores, with none.
+        defaults.set(
+            ["startDay": startDay, "loads": loads, "through": through] as [String: Any],
+            forKey: HealthDashboardSnapshotStore.watchTrainingLoadSeedKey
+        )
+        let legacy = try XCTUnwrap(HealthDashboardSnapshotStore.loadWatchTrainingLoadSeed(defaults: defaults))
+        XCTAssertEqual(legacy.loads, loads)
+        XCTAssertEqual(legacy.effortHints, [:])
 
         HealthDashboardSnapshotStore.clearWatchTrainingLoadSeed(defaults: defaults)
         XCTAssertNil(HealthDashboardSnapshotStore.loadWatchTrainingLoadSeed(defaults: defaults))

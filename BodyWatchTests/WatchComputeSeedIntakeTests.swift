@@ -332,6 +332,44 @@ final class WatchComputeSeedIntakeTests: XCTestCase {
         XCTAssertFalse(WatchMetricsModel.settingsChanged(intake: .keepPrior, priorSignature: "sig-OLD", seedChanged: false))
     }
 
+    // MARK: - Effort hint change detection (recompute on the push that brings a rating)
+
+    func testEffortHintsChangedOnlyForAnAddedOrChangedRatingOnAReplacedSeed() throws {
+        let rated = UUID().uuidString
+        let other = UUID().uuidString
+        var newSeed = seed()
+        newSeed.trainingLoadEffortHints = [rated: 7, other: 4]
+        let seedData = try XCTUnwrap(newSeed.encodedCompressed())
+        let intake = WatchMetricsModel.WatchComputeSeedIntake.replace(seedData, newSeed)
+
+        // A rating the stored seed lacked (Auto-Apply wrote it since the last
+        // push), or carried with another value (re-rated).
+        XCTAssertTrue(WatchMetricsModel.effortHintsChanged(intake: intake, priorHints: [other: 4], seedChanged: true))
+        XCTAssertTrue(WatchMetricsModel.effortHintsChanged(intake: intake, priorHints: [rated: 5, other: 4], seedChanged: true))
+        // No stored seed, or one from a phone build without hints.
+        XCTAssertTrue(WatchMetricsModel.effortHintsChanged(intake: intake, priorHints: nil, seedChanged: true))
+        // The same ratings, or only one more in the stored seed (it aged out of
+        // the span): nothing the last compute lacked.
+        XCTAssertFalse(WatchMetricsModel.effortHintsChanged(intake: intake, priorHints: [rated: 7, other: 4], seedChanged: true))
+        XCTAssertFalse(WatchMetricsModel.effortHintsChanged(
+            intake: intake, priorHints: [rated: 7, other: 4, UUID().uuidString: 6], seedChanged: true
+        ))
+        // The persist didn't replace the stored bytes, so nothing changed.
+        XCTAssertFalse(WatchMetricsModel.effortHintsChanged(intake: intake, priorHints: [:], seedChanged: false))
+        // A seed without hints, and the intakes that carry no seed.
+        var hintless = seed()
+        hintless.trainingLoadEffortHints = nil
+        let hintlessData = try XCTUnwrap(hintless.encodedCompressed())
+        XCTAssertFalse(WatchMetricsModel.effortHintsChanged(
+            intake: .replace(hintlessData, hintless), priorHints: [rated: 7], seedChanged: true
+        ))
+        XCTAssertFalse(WatchMetricsModel.effortHintsChanged(intake: .clear, priorHints: [rated: 7], seedChanged: true))
+        XCTAssertFalse(WatchMetricsModel.effortHintsChanged(intake: .keepPrior, priorHints: nil, seedChanged: false))
+        XCTAssertFalse(WatchMetricsModel.effortHintsChanged(
+            intake: .clearIfSettingsMismatch("sig"), priorHints: [rated: 7], seedChanged: true
+        ))
+    }
+
     func testStoredSeedIsNotInTheAppGroupContainer() throws {
         // Complications never compute, so the seed must not bloat the App Group
         // the widget timeline passes read on every refresh. `XCTSkipIf` (not a

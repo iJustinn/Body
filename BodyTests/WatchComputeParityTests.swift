@@ -540,6 +540,7 @@ final class WatchComputeParityTests: XCTestCase {
         seedSummary: HealthSummarySnapshot,
         seedTrainingLoadStartDay: Date,
         seedTrainingLoadDailyLoads: [Double],
+        seedEffortHints: [String: Double]? = nil,
         dataThrough: Date, now: Date, calendar: Calendar,
         permission: BodyHealthPermissionSelection = .defaultValue,
         mutateDelta: (inout WatchComputeDelta) -> Void = { _ in }
@@ -552,6 +553,7 @@ final class WatchComputeParityTests: XCTestCase {
             trainingLoadStartDay: seedTrainingLoadStartDay,
             trainingLoadDailyLoads: seedTrainingLoadDailyLoads,
             trainingLoadDataThrough: dataThrough,
+            trainingLoadEffortHints: seedEffortHints,
             expectedSourceIDsByKind: nil,
             settings: fixture.settings,
             publishedAt: dataThrough
@@ -830,6 +832,78 @@ final class WatchComputeParityTests: XCTestCase {
             Set(timeline.context.map(\.kind)),
             [WatchStressContextBand.sleepKind, WatchStressContextBand.workoutKind]
         )
+    }
+
+    // MARK: - A rating the watch hasn't seen yet (the seed's effort hints)
+
+    /// The iPhone has a rating for a workout the watch reads as unrated (made
+    /// on the iPhone, by hand or by Auto-Apply, and not replicated yet). With
+    /// the seed's effort hints the watch counts the iPhone's rating, so every
+    /// metric and the drain report match the iPhone exactly; without them it
+    /// counts the default effort and Training Load differs, the mismatch the
+    /// hints exist to close. Built on case 1's fresh seed (`dataThrough ==
+    /// now`): the watch never freezes readiness records, so a stale seed would
+    /// drift Readiness for reasons that have nothing to do with the hints.
+    func testSeedEffortHintsCountARatingTheWatchHasNotSeen() throws {
+        let calendar = Calendar.bodyGregorian
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)))
+        let fixture = try makeFixture(anchor: anchor, calendar: calendar)
+        // Today's wake cycle workout: it feeds Training Load's today slot and
+        // the same-day drain.
+        let rated = try XCTUnwrap(fixture.workouts.max { $0.startDate < $1.startDate })
+        let ratedEffort = try XCTUnwrap(rated.effortLevel)
+        XCTAssertNotEqual(ratedEffort, TrainingLoadCalculator.defaultEffortLevel)
+        let readAsUnrated: (inout WatchComputeDelta) -> Void = { delta in
+            guard case .success(let workouts) = delta.workouts else { return }
+            delta.workouts = .success(workouts.map { $0.id == rated.id ? $0.replacingEffortLevel(nil) : $0 })
+        }
+        let phone = phoneSnapshot(fixture: fixture, now: anchor, calendar: calendar)
+
+        let hinted = try watchResult(
+            fixture: fixture,
+            seedSummary: fixture.summary,
+            seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
+            seedTrainingLoadDailyLoads: fixture.trainingLoadDailyLoads,
+            seedEffortHints: [rated.id.uuidString: ratedEffort],
+            dataThrough: anchor, now: anchor, calendar: calendar,
+            mutateDelta: readAsUnrated
+        ).result.snapshot
+        assertMetricsMatch(phone, hinted)
+        XCTAssertEqual(
+            try XCTUnwrap(phone.metric(forKind: WatchMetricKindKey.readiness)?.drain),
+            try XCTUnwrap(hinted.metric(forKind: WatchMetricKindKey.readiness)?.drain)
+        )
+
+        let unhinted = try watchResult(
+            fixture: fixture,
+            seedSummary: fixture.summary,
+            seedTrainingLoadStartDay: fixture.trainingLoadStartDay,
+            seedTrainingLoadDailyLoads: fixture.trainingLoadDailyLoads,
+            dataThrough: anchor, now: anchor, calendar: calendar,
+            mutateDelta: readAsUnrated
+        ).result.snapshot
+        XCTAssertNotEqual(
+            try XCTUnwrap(phone.metric(forKind: WatchMetricKindKey.trainingLoad)?.rawValue),
+            try XCTUnwrap(unhinted.metric(forKind: WatchMetricKindKey.trainingLoad)?.rawValue)
+        )
+    }
+
+    /// A rating the watch read itself beats a conflicting hint (it is the live
+    /// read of the store holding the sample), and a hint only fills a workout
+    /// the watch read as unrated.
+    func testApplyingEffortHintsFillsOnlyUnratedWorkouts() {
+        let start = Date(timeIntervalSince1970: 1_780_000_000)
+        let unrated = WorkoutSummary(type: .running, startDate: start, duration: 1_800)
+        let rated = WorkoutSummary(type: .running, startDate: start.addingTimeInterval(3_600), duration: 1_800, effortLevel: 8)
+        let unhinted = WorkoutSummary(type: .cycling, startDate: start.addingTimeInterval(7_200), duration: 1_800)
+        let hints = [unrated.id.uuidString: 6.0, rated.id.uuidString: 3.0]
+
+        let applied = WatchComputeAssembly.applyingEffortHints([unrated, rated, unhinted], hints: hints)
+
+        XCTAssertEqual(applied.map(\.effortLevel), [6, 8, nil])
+        XCTAssertEqual(applied.map(\.id), [unrated.id, rated.id, unhinted.id])
+        XCTAssertEqual(applied[0], unrated.replacingEffortLevel(6))
+        XCTAssertEqual(WatchComputeAssembly.applyingEffortHints([unrated], hints: nil), [unrated])
     }
 
     // MARK: - The day's running totals (Steps, Active Energy, Resting Energy)

@@ -544,17 +544,27 @@ final class HealthKitWorkoutStore {
     /// load rebuild (cost gate). The watch refuses to replay loads whose
     /// coverage no longer reaches its delta window — otherwise the uncovered
     /// days would be silently zero-filled as fabricated rest days.
+    ///
+    /// `effortHints` carries the same fetch's ratings for the recent workouts
+    /// (`WatchComputeSeed.trainingLoadEffortHints`).
     @ObservationIgnored
-    private var cachedComputeTrainingLoadSeed: (startDay: Date, loads: [Double], through: Date)?
+    private var cachedComputeTrainingLoadSeed: (startDay: Date, loads: [Double], through: Date, effortHints: [String: Double])?
 
     /// Sole writer of a POPULATED `cachedComputeTrainingLoadSeed`: persists the
     /// same value (`HealthDashboardSnapshotStore`) so a relaunch — whose
     /// restored `dataThrough` lets a workout-only publish ship a seed before
     /// any full Training Load refresh has run — carries the loads forward
     /// instead of replacing the watch's complete seed with one missing them.
-    private func setCachedComputeTrainingLoadSeed(startDay: Date, loads: [Double], through: Date) {
-        cachedComputeTrainingLoadSeed = (startDay: startDay, loads: loads, through: through)
-        HealthDashboardSnapshotStore.saveWatchTrainingLoadSeed(startDay: startDay, loads: loads, through: through)
+    private func setCachedComputeTrainingLoadSeed(
+        startDay: Date,
+        loads: [Double],
+        through: Date,
+        effortHints: [String: Double]
+    ) {
+        cachedComputeTrainingLoadSeed = (startDay: startDay, loads: loads, through: through, effortHints: effortHints)
+        HealthDashboardSnapshotStore.saveWatchTrainingLoadSeed(
+            startDay: startDay, loads: loads, through: through, effortHints: effortHints
+        )
     }
     private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
     @ObservationIgnored private var monthFetchRevisions: [BodyWorkoutMonthKey: Int] = [:]
@@ -1720,8 +1730,13 @@ final class HealthKitWorkoutStore {
     ) async -> Bool {
         guard mayApplyRefreshResults, !Task.isCancelled else { return false }
         if kind == .trainingLoad {
+            // The compute seed's Training Load piece is NOT cleared here: every
+            // later publish would ship a seed without its daily loads, and the
+            // watch, which replaces its seed wholesale, could no longer replay
+            // Training Load (or stamp Readiness) until the next full refresh.
+            // A successful read rebuilds it (`applyHealthMetricRefresh`), and a
+            // failed one keeps the last seed, as the iPhone keeps its last value.
             if observed {
-                cachedComputeTrainingLoadSeed = nil
                 await engine.setHealthTrendAnchorDate(nil)
                 guard mayApplyRefreshResults, !Task.isCancelled else { return false }
             }
@@ -1867,6 +1882,19 @@ final class HealthKitWorkoutStore {
         ) else { return false }
         guard mayApplyRefreshResults else { return false }
         if observed {
+            // Rebuilt from the fetch this read just memoized, ahead of the stamp
+            // and the save below (as the explicit pull rebuilds ahead of its own
+            // save), so a fence lost across this await persists nothing. No
+            // `lastTrainingLoadComputeDate`: a repair pass never mints a newer
+            // watch watermark, so one that ran before a watch workout reached
+            // the iPhone can't override the watch's newer value. The seed's
+            // effort hints make the watch's own compute agree instead.
+            if kind == .trainingLoad, let seed = await engine.trainingLoadDailyLoadSeed(calendar: calendar) {
+                guard mayApplyRefreshResults, !Task.isCancelled else { return false }
+                setCachedComputeTrainingLoadSeed(
+                    startDay: seed.startDay, loads: seed.loads, through: date, effortHints: seed.effortHints
+                )
+            }
             #if DEBUG
             observedStage = "payloadOrFence"
             #endif
@@ -1917,7 +1945,9 @@ final class HealthKitWorkoutStore {
                 // post-edit efforts instead of the pre-edit array.
                 if let seed = await engine.trainingLoadDailyLoadSeed(calendar: calendar) {
                     guard mayApplyRefreshResults else { return false }
-                    setCachedComputeTrainingLoadSeed(startDay: seed.startDay, loads: seed.loads, through: date)
+                    setCachedComputeTrainingLoadSeed(
+                        startDay: seed.startDay, loads: seed.loads, through: date, effortHints: seed.effortHints
+                    )
                 }
             }
         }
@@ -8308,7 +8338,9 @@ final class HealthKitWorkoutStore {
             return
         }
         guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { return }
-        setCachedComputeTrainingLoadSeed(startDay: seed.startDay, loads: seed.loads, through: date)
+        setCachedComputeTrainingLoadSeed(
+            startDay: seed.startDay, loads: seed.loads, through: date, effortHints: seed.effortHints
+        )
     }
 
     /// Rebuilds and republishes both companion snapshots (iOS widget + watch)
@@ -8532,6 +8564,7 @@ final class HealthKitWorkoutStore {
             trainingLoadStartDay: trainingLoadSeed?.startDay,
             trainingLoadDailyLoads: trainingLoadSeed?.loads,
             trainingLoadDataThrough: trainingLoadSeed?.through,
+            trainingLoadEffortHints: trainingLoadSeed?.effortHints,
             expectedSourceIDsByKind: cachedExpectedSourceIDsByKind,
             followsSystemUnits: UserDefaults.standard.object(
                 forKey: BodyAppearancePreference.followsSystemUnitsKey
@@ -8598,6 +8631,7 @@ final class HealthKitWorkoutStore {
         trainingLoadStartDay: Date?,
         trainingLoadDailyLoads: [Double]?,
         trainingLoadDataThrough: Date?,
+        trainingLoadEffortHints: [String: Double]? = nil,
         expectedSourceIDsByKind: [String: [String]]?,
         settings: WatchComputeSettings,
         publishedAt: Date
@@ -8613,6 +8647,7 @@ final class HealthKitWorkoutStore {
             trainingLoadStartDay: trainingLoadStartDay,
             trainingLoadDailyLoads: trainingLoadDailyLoads,
             trainingLoadDataThrough: trainingLoadDataThrough,
+            trainingLoadEffortHints: trainingLoadEffortHints,
             expectedSourceIDsByKind: expectedSourceIDsByKind,
             settings: settings,
             settingsSignature: Self.computeSettingsSignature(settings)

@@ -128,18 +128,40 @@ extension HealthKitFetchEngine {
     /// a second workout fetch. `nil` on a query failure — same keep-stale
     /// convention as `fetchTrainingLoadSeries` — so the caller preserves its
     /// previously-cached seed instead of publishing a blanked one.
-    func trainingLoadDailyLoadSeed(calendar: Calendar) async -> (startDay: Date, loads: [Double])? {
+    ///
+    /// `effortHints` are this fetch's ratings for the recent workouts, keyed
+    /// by workout UUID (identical on both devices), for the watch to count a
+    /// rating made on the iPhone before it reaches the watch's own store
+    /// (`WatchComputeAssembly.applyingEffortHints`). Only workouts from the
+    /// start of the day `maxComputeAge` before `end`: the watch computes only
+    /// while its delta window starts within `maxComputeAge` of its own clock
+    /// (`WatchComputeAssembly.windowDecision`), which is never behind `end` by
+    /// more than the 30 minute skew it tolerates, so no workout the watch
+    /// re-reads started earlier, and the day floor covers the skew. No
+    /// `effortUnresolved` filter: this fetch requires validated effort and
+    /// throws before an unresolved summary can exist.
+    func trainingLoadDailyLoadSeed(calendar: Calendar) async -> (startDay: Date, loads: [Double], effortHints: [String: Double])? {
         let end = anchorDate ?? Date()
         let window = trainingLoadWorkoutsWindow(calendar: calendar)
 
         do {
             let workouts = try await sharedTrainingLoadWorkouts(window: window)
-            return TrainingLoadCalculator.dailyLoadValues(
+            guard let seed = TrainingLoadCalculator.dailyLoadValues(
                 from: workouts,
                 startDate: window.start,
                 endDate: end,
                 calendar: calendar
-            )
+            ) else {
+                return nil
+            }
+            let hintStart = calendar.startOfDay(for: end.addingTimeInterval(-WatchComputeSeed.maxComputeAge))
+            var effortHints: [String: Double] = [:]
+            for workout in workouts where workout.startDate >= hintStart {
+                if let effortLevel = workout.effortLevel {
+                    effortHints[workout.id.uuidString] = effortLevel
+                }
+            }
+            return (startDay: seed.startDay, loads: seed.loads, effortHints: effortHints)
         } catch {
             Self.logTrendQueryFailure("trainingLoad", error: error)
             return nil

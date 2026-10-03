@@ -374,6 +374,40 @@ struct WorkoutSummary: Codable, Equatable, Hashable, Identifiable {
         )
     }
 
+    /// A copy carrying `effortLevel` instead — used by the watch compute to count
+    /// the iPhone's rating for a workout whose rating hasn't reached the watch's
+    /// own store yet (`WatchComputeAssembly.applyingEffortHints`). Everything
+    /// else, `effortUnresolved` included, is preserved.
+    func replacingEffortLevel(_ effortLevel: Double?) -> WorkoutSummary {
+        WorkoutSummary(
+            id: id,
+            type: type,
+            startDate: startDate,
+            duration: duration,
+            activeEnergyKilocalories: activeEnergyKilocalories,
+            totalEnergyKilocalories: totalEnergyKilocalories,
+            distanceMeters: distanceMeters,
+            averageHeartRateBeatsPerMinute: averageHeartRateBeatsPerMinute,
+            maximumHeartRateBeatsPerMinute: maximumHeartRateBeatsPerMinute,
+            effortLevel: effortLevel,
+            effortUnresolved: effortUnresolved,
+            heartRateSamples: heartRateSamples,
+            elevationAscendedMeters: elevationAscendedMeters,
+            averagePowerWatts: averagePowerWatts,
+            averageStepCadenceSPM: averageStepCadenceSPM,
+            averageCyclingCadenceRPM: averageCyclingCadenceRPM,
+            swimmingStrokeCount: swimmingStrokeCount,
+            cardioFitnessVO2Max: cardioFitnessVO2Max,
+            sourceName: sourceName,
+            endDate: endDate,
+            weatherTemperatureCelsius: weatherTemperatureCelsius,
+            weatherHumidityPercent: weatherHumidityPercent,
+            weatherCondition: weatherCondition,
+            averageMETs: averageMETs,
+            heartRateRecoveryBPM: heartRateRecoveryBPM
+        )
+    }
+
     /// Normalizes a device-local user rename: trims surrounding whitespace and
     /// newlines and caps the result at 60 characters. Returns nil when nothing
     /// is left, which means "no custom name" — fall back to the workout type.

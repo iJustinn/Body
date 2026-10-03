@@ -54,6 +54,7 @@ final class BodyCompanionPublisherTests: XCTestCase {
             trainingLoadStartDay: nil,
             trainingLoadDailyLoads: nil,
             trainingLoadDataThrough: nil,
+            trainingLoadEffortHints: nil,
             expectedSourceIDsByKind: [:],
             followsSystemUnits: true,
             selectedTemperatureUnitRaw: BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue,

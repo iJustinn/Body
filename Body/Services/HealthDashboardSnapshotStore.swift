@@ -117,24 +117,34 @@ enum HealthDashboardSnapshotStore {
     /// hidden on the phone, no later full refresh ever rebuilds them.
     /// `through` is stored alongside so the honesty gate (the watch refuses
     /// loads whose coverage doesn't reach its delta window) keeps working on
-    /// the restored copy.
+    /// the restored copy. So are the recent workouts' effort hints, which a
+    /// payload saved before they existed simply lacks.
     static let watchTrainingLoadSeedKey = "lastHealthDashboardWatchTrainingLoadSeed"
 
-    static func saveWatchTrainingLoadSeed(startDay: Date, loads: [Double], through: Date, defaults: UserDefaults = .standard) {
+    static func saveWatchTrainingLoadSeed(
+        startDay: Date,
+        loads: [Double],
+        through: Date,
+        effortHints: [String: Double],
+        defaults: UserDefaults = .standard
+    ) {
         defaults.set(
-            ["startDay": startDay, "loads": loads, "through": through] as [String: Any],
+            ["startDay": startDay, "loads": loads, "through": through, "effortHints": effortHints] as [String: Any],
             forKey: watchTrainingLoadSeedKey
         )
     }
 
-    static func loadWatchTrainingLoadSeed(defaults: UserDefaults = .standard) -> (startDay: Date, loads: [Double], through: Date)? {
+    static func loadWatchTrainingLoadSeed(
+        defaults: UserDefaults = .standard
+    ) -> (startDay: Date, loads: [Double], through: Date, effortHints: [String: Double])? {
         guard let stored = defaults.dictionary(forKey: watchTrainingLoadSeedKey),
               let startDay = stored["startDay"] as? Date,
               let loads = stored["loads"] as? [Double],
               let through = stored["through"] as? Date else {
             return nil
         }
-        return (startDay: startDay, loads: loads, through: through)
+        let effortHints = stored["effortHints"] as? [String: Double] ?? [:]
+        return (startDay: startDay, loads: loads, through: through, effortHints: effortHints)
     }
 
     static func clearWatchTrainingLoadSeed(defaults: UserDefaults = .standard) {

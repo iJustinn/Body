@@ -73,6 +73,13 @@ enum WatchComputeAssembly {
         now: Date,
         calendar: Calendar
     ) -> WatchComputeResult? {
+        // The iPhone's ratings for workouts this watch read as unrated, filled in
+        // before anything reads the workouts, so Training Load, the Readiness
+        // drain and Stress all count the same efforts (see `applyingEffortHints`).
+        var delta = delta
+        if case .success(let workouts) = delta.workouts {
+            delta.workouts = .success(Self.applyingEffortHints(workouts, hints: seed.trainingLoadEffortHints))
+        }
         var trends = seed.trends
         trends.heartRate = WatchDeltaSplicer.splice(
             seedSeries: trends.heartRate, delta: delta.heartRateSeries, from: windowStart, calendar: calendar
@@ -404,9 +411,16 @@ enum WatchComputeAssembly {
         guard let startDay = seed.trainingLoadStartDay,
               let loads = seed.trainingLoadDailyLoads,
               !loads.isEmpty,
-              let loadsThrough = seed.trainingLoadDataThrough,
-              calendar.startOfDay(for: loadsThrough) >= calendar.startOfDay(for: windowStart),
-              case .success(let deltaWorkouts) = workouts else {
+              let loadsThrough = seed.trainingLoadDataThrough else {
+            logger.info("Training Load not replayed: the seed carries no daily loads.")
+            return nil
+        }
+        guard calendar.startOfDay(for: loadsThrough) >= calendar.startOfDay(for: windowStart) else {
+            logger.info("Training Load not replayed: the seed's loads stop before the delta window.")
+            return nil
+        }
+        guard case .success(let deltaWorkouts) = workouts else {
+            logger.info("Training Load not replayed: no workout read this run.")
             return nil
         }
 
@@ -437,6 +451,20 @@ enum WatchComputeAssembly {
         }
 
         return TrainingLoadCalculator.series(fromDailyLoads: dailyLoads)
+    }
+
+    /// `workouts` with the iPhone's rating (`WatchComputeSeed.trainingLoadEffortHints`)
+    /// filled in for each one this watch read as unrated: a rating made on the
+    /// iPhone can take hours to reach the watch's own store, or never arrive,
+    /// and until then the watch would count the workout at the default effort
+    /// while the iPhone counts the rating. A rating the watch read itself always
+    /// wins, being the live read of the store that holds the sample.
+    static func applyingEffortHints(_ workouts: [WorkoutSummary], hints: [String: Double]?) -> [WorkoutSummary] {
+        guard let hints, !hints.isEmpty else { return workouts }
+        return workouts.map { workout in
+            guard workout.effortLevel == nil, let hint = hints[workout.id.uuidString] else { return workout }
+            return workout.replacingEffortLevel(hint)
+        }
     }
 
     /// The trailing week's daily workout minutes, oldest → today, matching the

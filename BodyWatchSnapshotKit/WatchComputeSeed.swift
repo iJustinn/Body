@@ -179,6 +179,17 @@ struct WatchComputeSeed: Codable, Equatable {
     /// reaches its delta window — otherwise the uncovered days between the two
     /// watermarks would be silently zero-filled as fabricated rest days.
     var trainingLoadDataThrough: Date?
+    /// The iPhone's effort ratings for the recent workouts (the last
+    /// `maxComputeAge` days), keyed by workout UUID, which is identical on
+    /// both devices. The watch overwrites every day of its delta window with
+    /// its own workout reads, so without these a rating made on the iPhone
+    /// (Fitness, the Effort card, Auto-Apply) counts at the default effort
+    /// until it replicates to the watch's own store, and the watch's newer
+    /// compute then outranks the iPhone's corrected number in the merge.
+    /// `WatchComputeAssembly.applyingEffortHints` fills only workouts the
+    /// watch read as unrated; a rating the watch read itself wins. `nil` from
+    /// a phone build that predates them.
+    var trainingLoadEffortHints: [String: Double]?
 
     /// The phone's own discovered source universe per compute kind (keyed by
     /// `HealthMetricKind.rawValue`, values = sorted disambiguated identity
@@ -262,6 +273,7 @@ struct WatchComputeSeed: Codable, Equatable {
         case trainingLoadStartDay
         case trainingLoadDailyLoads
         case trainingLoadDataThrough
+        case trainingLoadEffortHints
         case expectedSourceIDsByKind
         case settings
         case settingsSignature
@@ -278,6 +290,7 @@ struct WatchComputeSeed: Codable, Equatable {
         trainingLoadStartDay: Date? = nil,
         trainingLoadDailyLoads: [Double]? = nil,
         trainingLoadDataThrough: Date? = nil,
+        trainingLoadEffortHints: [String: Double]? = nil,
         expectedSourceIDsByKind: [String: [String]]? = nil,
         settings: WatchComputeSettings,
         settingsSignature: String
@@ -292,6 +305,7 @@ struct WatchComputeSeed: Codable, Equatable {
         self.trainingLoadStartDay = trainingLoadStartDay
         self.trainingLoadDailyLoads = trainingLoadDailyLoads
         self.trainingLoadDataThrough = trainingLoadDataThrough
+        self.trainingLoadEffortHints = trainingLoadEffortHints
         self.expectedSourceIDsByKind = expectedSourceIDsByKind
         self.settings = settings
         self.settingsSignature = settingsSignature
@@ -314,6 +328,7 @@ struct WatchComputeSeed: Codable, Equatable {
         trainingLoadStartDay = try container.decodeIfPresent(Date.self, forKey: .trainingLoadStartDay)
         trainingLoadDailyLoads = try container.decodeIfPresent([Double].self, forKey: .trainingLoadDailyLoads)
         trainingLoadDataThrough = try container.decodeIfPresent(Date.self, forKey: .trainingLoadDataThrough)
+        trainingLoadEffortHints = try container.decodeIfPresent([String: Double].self, forKey: .trainingLoadEffortHints)
         expectedSourceIDsByKind = try container.decodeIfPresent([String: [String]].self, forKey: .expectedSourceIDsByKind)
         settings = try container.decodeIfPresent(WatchComputeSettings.self, forKey: .settings) ?? WatchComputeSeed.fallbackSettings
         settingsSignature = try container.decodeIfPresent(String.self, forKey: .settingsSignature) ?? ""
@@ -338,6 +353,7 @@ struct WatchComputeSeed: Codable, Equatable {
         try container.encodeIfPresent(trainingLoadStartDay, forKey: .trainingLoadStartDay)
         try container.encodeIfPresent(trainingLoadDailyLoads, forKey: .trainingLoadDailyLoads)
         try container.encodeIfPresent(trainingLoadDataThrough, forKey: .trainingLoadDataThrough)
+        try container.encodeIfPresent(trainingLoadEffortHints, forKey: .trainingLoadEffortHints)
         try container.encodeIfPresent(expectedSourceIDsByKind, forKey: .expectedSourceIDsByKind)
         try container.encode(settings, forKey: .settings)
         try container.encode(settingsSignature, forKey: .settingsSignature)

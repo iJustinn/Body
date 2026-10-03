@@ -258,6 +258,19 @@ final class WatchComputeSeedTests: XCTestCase {
         XCTAssertEqual(decoded, expected)
     }
 
+    /// The iPhone's ratings for the recent workouts travel exactly, keyed by
+    /// workout UUID string, and leave the rest of the seed untouched.
+    func testEffortHintsRoundTrip() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        var seed = makeSeed(anchor: anchor)
+        seed.trainingLoadEffortHints = [UUID().uuidString: 7, UUID().uuidString: 3.5]
+
+        let decoded = try XCTUnwrap(WatchComputeSeed.decoded(from: try XCTUnwrap(seed.encodedCompressed())))
+
+        XCTAssertEqual(decoded.trainingLoadEffortHints, seed.trainingLoadEffortHints)
+        XCTAssertEqual(decoded.trainingLoadDailyLoads, seed.trainingLoadDailyLoads)
+    }
+
     // MARK: - Lenient decode (schema evolution)
 
     func testDecodingAPayloadMissingNewerFieldsFallsBackToSafeDefaults() throws {
@@ -278,6 +291,7 @@ final class WatchComputeSeedTests: XCTestCase {
         XCTAssertTrue(decoded.seriesRanges.isEmpty)
         XCTAssertNil(decoded.trainingLoadStartDay)
         XCTAssertNil(decoded.trainingLoadDailyLoads)
+        XCTAssertNil(decoded.trainingLoadEffortHints)
         XCTAssertEqual(decoded.settingsSignature, "")
         // Settings fall back to sane defaults rather than throwing.
         XCTAssertEqual(decoded.settings.idealSleepDurationMinutes, BodySleepDurationGoal.defaultMinutes)
