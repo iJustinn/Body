@@ -14,6 +14,7 @@
   - **Legends:** the dots before the two source, Basics and Time of Day legend rows are a little smaller (7 pt, the Time of Day one 6 pt); the chart callouts keep theirs. The Time of Day legend's names ("Body Fat", "Weight") read in secondary like their units.
   - **Small screens:** on an iPhone 375 pt wide or narrower (an SE or mini) every label reads its short form to save space: W Avg, W Range, D Avg, D Range, D Total, H Avg.
   - **Second source:** with a Body Pro comparison source picked, both places keep comparing the sources' averages alone, with no range, in two rows that each name the window in short: "Apple Watch W Avg 72 bpm" on the top row, **D Avg** in the Day View, **H Avg** for Steps and Active Energy there. A single source left on a compared day reads the full label. A single source reads both. The top row's comparison averages now cover the last 7 days too.
+- **Sleep Stages widget connectors.** The Home Screen Sleep Stages widget now joins neighbouring stages with the same thin gradient connectors as the app's sleep chart, unless a gap of 15 minutes or more separates them, and its first and last bars stay flush with the bed and wake times.
 - **Taller day charts on the watch.** The watch Heart Rate and HRV pages' Last 8 hours chart and the Stress page's Last 12 hours chart now stand 130 points tall instead of 86, about half again the 7-day chart above them. The Steps and Active Energy Last 8 hours bars keep the 86 point height.
 
 ## 1.1.5 (build 4)

@@ -80,14 +80,38 @@ struct HealthWidgetSleepStagesView: View {
         }
     }
 
+    /// `BodySleepStageChart`'s constants, so the widget connects neighbouring
+    /// stages with the same thin gradient connectors as the in-app chart.
+    private static let segmentHalfHeight = 0.32
+    private static let bridgeStageOverlap = 0.14
+    private static let bridgeCoverWidth: TimeInterval = 60
+    private static let bridgeMaxGap: TimeInterval = 15 * 60
+
     private var chart: some View {
         Chart {
+            ForEach(bridges) { bridge in
+                RectangleMark(
+                    xStart: .value("Bridge Start", bridge.startDate),
+                    xEnd: .value("Bridge End", bridge.endDate),
+                    yStart: .value("Bridge Y Start", bridge.yStart),
+                    yEnd: .value("Bridge Y End", bridge.yEnd)
+                )
+                .foregroundStyle(LinearGradient(
+                    colors: [
+                        stageStyle(bridge.upperStage).opacity(0.92),
+                        stageStyle(bridge.lowerStage).opacity(0.92)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ))
+            }
+
             ForEach(sleep.segments) { segment in
                 RectangleMark(
-                    xStart: .value("Start", segment.startDate),
-                    xEnd: .value("End", segment.endDate),
-                    yStart: .value("Stage Start", segment.stage.chartPosition - 0.32),
-                    yEnd: .value("Stage End", segment.stage.chartPosition + 0.32)
+                    xStart: .value("Start", renderStartDate(for: segment)),
+                    xEnd: .value("End", renderEndDate(for: segment)),
+                    yStart: .value("Stage Start", segment.stage.chartPosition - Self.segmentHalfHeight),
+                    yEnd: .value("Stage End", segment.stage.chartPosition + Self.segmentHalfHeight)
                 )
                 .foregroundStyle(stageStyle(segment.stage))
             }
@@ -164,6 +188,68 @@ struct HealthWidgetSleepStagesView: View {
         // No padding: the hypnogram spans the full width so the manually
         // rendered start/end labels line up with the data edges.
         return start...end
+    }
+
+    private struct Bridge: Identifiable {
+        let id: String
+        let startDate: Date
+        let endDate: Date
+        let yStart: Double
+        let yEnd: Double
+        let upperStage: HealthWidgetSleepStage
+        let lowerStage: HealthWidgetSleepStage
+    }
+
+    /// A gradient connector between each pair of neighbouring segments on
+    /// different rows, unless a real gap (15 min or more) separates them.
+    private var bridges: [Bridge] {
+        let segments = sleep.segments.sorted { $0.startDate < $1.startDate }
+        guard segments.count >= 2 else { return [] }
+        return zip(segments, segments.dropFirst()).compactMap { current, next in
+            guard current.stage != next.stage,
+                  next.startDate.timeIntervalSince(current.endDate) < Self.bridgeMaxGap else {
+                return nil
+            }
+            let upper = current.stage.chartPosition > next.stage.chartPosition ? current.stage : next.stage
+            let lower = upper == current.stage ? next.stage : current.stage
+            let connectedStart = displayEndDate(for: current)
+            let connectedEnd = displayStartDate(for: next)
+            return Bridge(
+                id: "bridge-\(current.id)-\(next.id)",
+                startDate: min(connectedStart, connectedEnd),
+                endDate: max(connectedStart, connectedEnd),
+                yStart: lower.chartPosition + Self.segmentHalfHeight - Self.bridgeStageOverlap,
+                yEnd: upper.chartPosition - Self.segmentHalfHeight + Self.bridgeStageOverlap,
+                upperStage: upper,
+                lowerStage: lower
+            )
+        }
+    }
+
+    private func displayStartDate(for segment: HealthWidgetSleepSegment) -> Date {
+        segment.startDate.addingTimeInterval(spacingInset(for: segment))
+    }
+
+    private func displayEndDate(for segment: HealthWidgetSleepSegment) -> Date {
+        segment.endDate.addingTimeInterval(-spacingInset(for: segment))
+    }
+
+    /// Segments overhang their display span by the bridge cover so the
+    /// connector never shows through a segment's end, clamped to the
+    /// unpadded domain so the first and last bars stay flush with the
+    /// start and end labels.
+    private func renderStartDate(for segment: HealthWidgetSleepSegment) -> Date {
+        max(displayStartDate(for: segment).addingTimeInterval(-Self.bridgeCoverWidth), chartXDomain.lowerBound)
+    }
+
+    private func renderEndDate(for segment: HealthWidgetSleepSegment) -> Date {
+        min(displayEndDate(for: segment).addingTimeInterval(Self.bridgeCoverWidth), chartXDomain.upperBound)
+    }
+
+    private func spacingInset(for segment: HealthWidgetSleepSegment) -> TimeInterval {
+        let duration = segment.duration
+        guard duration > 90 else { return 0 }
+        return min(duration * 0.06, 35)
     }
 
     private var emptyState: some View {
