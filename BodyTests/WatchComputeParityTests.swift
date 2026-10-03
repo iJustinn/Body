@@ -191,9 +191,10 @@ final class WatchComputeParityTests: XCTestCase {
     /// trim, so the trim is really exercised) carrying the quiet heart rate
     /// and RMSSD baselines and the week's ranges, plus today's intraday reads
     /// up to `anchor`: heart rate in every window from midnight, a few SDNN
-    /// and RMSSD readings, and an hour each of steps and active energy over
-    /// the movement thresholds. The fixture's workout an hour before `anchor`
-    /// masks its windows too.
+    /// and RMSSD readings, and Stress's 15 minute movement mask with two
+    /// windows of steps and one of active energy over the per window
+    /// thresholds. The fixture's workout an hour before `anchor` masks its
+    /// windows too, apart from those movement windows.
     private func stressFixture(into trends: inout HealthTrendSnapshot, anchor: Date, calendar: Calendar) {
         let anchorDay = calendar.startOfDay(for: anchor)
         trends.recordedStressDays = (1...80).compactMap { age -> StressDaySummary? in
@@ -231,11 +232,14 @@ final class WatchComputeParityTests: XCTestCase {
         trends.heartbeatRMSSDDaySamples = HealthTrendSeries(points: [3.0, 6.0].map {
             HealthTrendDataPoint(date: anchorDay.addingTimeInterval($0 * 3_600 + 600), value: 30 + $0)
         })
-        trends.stepsDaySamples = HealthTrendSeries(points: [
-            HealthTrendDataPoint(date: anchorDay.addingTimeInterval(7 * 3_600), value: 900)
+        // 15 minute buckets dated at their window's start, the shape the phone's
+        // Stress input load and the watch's `stressMovementSeries` both read.
+        trends.stressStepsDaySamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: anchorDay.addingTimeInterval(7 * 3_600), value: 400),
+            HealthTrendDataPoint(date: anchorDay.addingTimeInterval(7 * 3_600 + 900), value: 400)
         ])
-        trends.activeEnergyDaySamples = HealthTrendSeries(points: [
-            HealthTrendDataPoint(date: anchorDay.addingTimeInterval(6 * 3_600), value: 40)
+        trends.stressActiveEnergyDaySamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: anchorDay.addingTimeInterval(6 * 3_600), value: 20)
         ])
     }
 
@@ -602,8 +606,8 @@ final class WatchComputeParityTests: XCTestCase {
         delta.stressHeartRateSamples = stressSlice(fixture.trends.heartRateDaySamples)
         delta.stressSDNNSamples = stressSlice(fixture.trends.heartRateVariabilityDaySamples)
         delta.stressRMSSDSamples = stressSlice(fixture.trends.heartbeatRMSSDDaySamples)
-        delta.stressHourlySteps = stressSlice(fixture.trends.stepsDaySamples)
-        delta.stressHourlyActiveEnergy = stressSlice(fixture.trends.activeEnergyDaySamples)
+        delta.stressQuarterHourSteps = stressSlice(fixture.trends.stressStepsDaySamples)
+        delta.stressQuarterHourActiveEnergy = stressSlice(fixture.trends.stressActiveEnergyDaySamples)
         // The day's running totals: a fixed trailing week ending today, the
         // window `WatchDeltaFetcher.weeklyTotalSeries` reads whatever the
         // delta window is (the seed carries nothing to splice onto).
@@ -1204,8 +1208,8 @@ final class WatchComputeParityTests: XCTestCase {
         XCTAssertNil(try stressAsOf { $0.stressSDNNSamples = .failure })
         XCTAssertNil(try stressAsOf { $0.carriedKinds = [.heartRateVariability] })
         XCTAssertNil(try stressAsOf { $0.stressRMSSDSamples = .failure }, "the beat to beat read failed or timed out")
-        XCTAssertNil(try stressAsOf { $0.stressHourlySteps = .failure }, "steps permitted but not read")
-        XCTAssertNil(try stressAsOf { $0.stressHourlyActiveEnergy = .failure }, "energy permitted but not read")
+        XCTAssertNil(try stressAsOf { $0.stressQuarterHourSteps = .failure }, "steps permitted but not read")
+        XCTAssertNil(try stressAsOf { $0.stressQuarterHourActiveEnergy = .failure }, "energy permitted but not read")
         XCTAssertNil(
             try stressAsOf { delta in
                 delta.sleepNights = .failure
@@ -1222,8 +1226,8 @@ final class WatchComputeParityTests: XCTestCase {
             .setting(.energy, isEnabled: false)
         XCTAssertEqual(
             try stressAsOf(permission: maskOff) { delta in
-                delta.stressHourlySteps = .failure
-                delta.stressHourlyActiveEnergy = .failure
+                delta.stressQuarterHourSteps = .failure
+                delta.stressQuarterHourActiveEnergy = .failure
             },
             anchor
         )
@@ -1262,8 +1266,8 @@ final class WatchComputeParityTests: XCTestCase {
             dataThrough: anchor, now: anchor, calendar: calendar,
             permission: maskOff,
             mutateDelta: { delta in
-                delta.stressHourlySteps = .failure
-                delta.stressHourlyActiveEnergy = .failure
+                delta.stressQuarterHourSteps = .failure
+                delta.stressQuarterHourActiveEnergy = .failure
             }
         )
 
@@ -1280,7 +1284,7 @@ final class WatchComputeParityTests: XCTestCase {
         XCTAssertNotEqual(
             result.snapshot.stressTimeline?.slots,
             phoneSnapshot(fixture: fixture, now: anchor, calendar: calendar).stressTimeline?.slots,
-            "the case must differ from the one with the movement hours masked"
+            "the case must differ from the one with the movement windows masked"
         )
     }
 

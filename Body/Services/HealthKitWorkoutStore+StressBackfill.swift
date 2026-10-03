@@ -117,18 +117,20 @@ extension HealthKitWorkoutStore {
         to chunkEnd: Date,
         calendar: Calendar
     ) async -> [StressDaySummary]? {
-        var samplesByKind: [HealthMetricKind: HealthTrendSeries] = [:]
-        for kind in Self.stressIntradaySampleKinds
-        where permissionSelection.includes(HealthKitFetchEngine.healthPermission(forMetric: kind)) {
-            guard let samples = await engine.fetchIntradayDaySamples(
-                for: kind,
+        // `chunkStart` is a midnight, so the movement series' 15 minute buckets
+        // land on the Stress windows exactly as the per-refresh load's do.
+        var samplesBySeries: [HealthDaySampleSeries: HealthTrendSeries] = [:]
+        for series in Self.stressIntradaySampleSeries
+        where permissionSelection.includes(HealthKitFetchEngine.healthPermission(forMetric: series.kind)) {
+            guard let samples = await engine.fetchStressIntradaySamples(
+                series,
                 calendar: calendar,
                 startDate: chunkStart,
                 endDate: chunkEnd
             ) else {
                 return nil
             }
-            samplesByKind[kind] = samples
+            samplesBySeries[series] = samples
         }
 
         guard let sleepIntervalsByDay = await engine.fetchStressBackfillSleepIntervals(
@@ -159,10 +161,10 @@ extension HealthKitWorkoutStore {
         let inputs = StressDayInput.dayInputs(
             from: chunkStart,
             to: chunkEnd,
-            heartRateSamples: samplesByKind[.heartRate]?.points ?? [],
-            sdnnSamples: samplesByKind[.heartRateVariability]?.points ?? [],
-            hourlySteps: samplesByKind[.steps]?.points ?? [],
-            hourlyActiveEnergy: samplesByKind[.activeEnergy]?.points ?? [],
+            heartRateSamples: samplesBySeries[.heartRateDaySamples]?.points ?? [],
+            sdnnSamples: samplesBySeries[.heartRateVariabilityDaySamples]?.points ?? [],
+            quarterHourSteps: samplesBySeries[.stressStepsDaySamples]?.points ?? [],
+            quarterHourActiveEnergy: samplesBySeries[.stressActiveEnergyDaySamples]?.points ?? [],
             workouts: workouts,
             sleepIntervalsByDay: sleepIntervalsByDay,
             calendar: calendar

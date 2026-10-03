@@ -941,8 +941,9 @@ struct HealthDashboardSnapshot: Codable, Equatable {
     ///
     /// `workouts` is passed explicitly — the snapshot holds no workout months,
     /// as with `recalculatingReadiness(todaysWorkouts:)`. Stress needs them
-    /// across the whole scanned window rather than just today: workouts are the
-    /// fine activity mask, and a masked window is never scored.
+    /// across the whole scanned window rather than just today: each workout
+    /// masks its own span plus a recovery tail sized by its type, and a masked
+    /// window is never scored.
     ///
     /// Baseline inputs are reduced ONCE into a single `StressDailySeriesContext`
     /// (quiet-HR medians: recorded days unioned with freshly computed ones, fresh
@@ -958,6 +959,25 @@ struct HealthDashboardSnapshot: Codable, Equatable {
     ) -> HealthDashboardSnapshot {
         var next = self
         let scoreDay = calendar.startOfDay(for: date)
+
+        // A context change drops every record and rescores, so it must not run on
+        // inputs that cannot describe the new rules yet: the first refresh after
+        // updating still holds the hourly movement series but not the 15 minute
+        // ones the Stress input load fetches next, and rescoring now would mint
+        // records with no movement mask (and push them to the watch). Keep the
+        // old records until the load lands, with today's record standing in for
+        // the summary a fresh fetch leaves blank. Only a context change waits, so
+        // a later failed fetch never freezes Stress; the watch passes no context.
+        if let recordedStressContext,
+           next.trends.recordedStressContext != recordedStressContext,
+           trends.stressMovementInputsPending {
+            if next.summary.stress == nil {
+                next.summary.stress = next.trends.recordedStressDays.last {
+                    calendar.startOfDay(for: $0.date) == scoreDay
+                }
+            }
+            return next
+        }
 
         // Recorded days captured under different inputs (a permission or source
         // change) no longer describe the same signal, so drop them. The signature
@@ -1426,13 +1446,13 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             calendar: calendar
         )
         let stepsByDay = Self.stressPointsByDay(
-            trends.stepsDaySamples.points,
+            trends.stressStepsDaySamples.points,
             from: windowStart,
             through: scoreDay,
             calendar: calendar
         )
         let energyByDay = Self.stressPointsByDay(
-            trends.activeEnergyDaySamples.points,
+            trends.stressActiveEnergyDaySamples.points,
             from: windowStart,
             through: scoreDay,
             calendar: calendar
@@ -1450,9 +1470,9 @@ struct HealthDashboardSnapshot: Codable, Equatable {
                 heartRateSamples: heartRateByDay[day] ?? [],
                 sdnnSamples: sdnnByDay[day] ?? [],
                 rmssdSamples: rmssdByDay[day] ?? [],
-                hourlySteps: stepsByDay[day] ?? [],
-                hourlyActiveEnergy: energyByDay[day] ?? [],
-                workoutIntervals: StressDayInput.workoutIntervals(for: dayWorkouts),
+                quarterHourSteps: stepsByDay[day] ?? [],
+                quarterHourActiveEnergy: energyByDay[day] ?? [],
+                workoutMaskIntervals: StressDayInput.workoutMaskIntervals(for: dayWorkouts),
                 sleepInterval: stressSleepInterval(on: day, scoreDay: scoreDay, calendar: calendar)
             )
         }

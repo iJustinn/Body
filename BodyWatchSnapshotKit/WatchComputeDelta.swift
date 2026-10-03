@@ -40,13 +40,14 @@ struct WatchComputeDelta {
     /// window: today, plus yesterday when the last 12 hours reach into it), in
     /// the shape of the phone's day-sample series: raw heart rate and SDNN
     /// samples, RMSSD points (Recovery HRV, or one per heartbeat series), and
-    /// hourly step and active energy sums. Stress is stamped only when every
+    /// 15 minute step and active energy sums from midnight (the movement mask).
+    /// Stress is stamped only when every
     /// permitted one succeeded (`WatchComputeAssembly.dataAsOf`).
     var stressHeartRateSamples: WatchFetchOutcome<HealthTrendSeries> = .failure
     var stressSDNNSamples: WatchFetchOutcome<HealthTrendSeries> = .failure
     var stressRMSSDSamples: WatchFetchOutcome<HealthTrendSeries> = .failure
-    var stressHourlySteps: WatchFetchOutcome<HealthTrendSeries> = .failure
-    var stressHourlyActiveEnergy: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var stressQuarterHourSteps: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var stressQuarterHourActiveEnergy: WatchFetchOutcome<HealthTrendSeries> = .failure
 
     /// The Steps, Active Energy and Resting Energy cards' trailing week of
     /// daily totals (`WatchDeltaFetcher`'s fixed week: today and the six days

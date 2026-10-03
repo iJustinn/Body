@@ -1812,9 +1812,10 @@ actor HealthKitFetchEngine {
         }
     }
 
-    func fetchHourlyCumulativeQuantitySeries(
+    func fetchIntradayCumulativeQuantitySeries(
         for identifier: HKQuantityTypeIdentifier,
         unit: HKUnit,
+        bucket: BodyIntradayBucket,
         calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
@@ -1841,7 +1842,7 @@ actor HealthKitFetchEngine {
 
         // Same bracket as `fetchQuantitySampleSeries`: the shared collection
         // seam stops its query on cancellation, so it is awaited directly under
-        // the pool permit. The hourly collection and its points live in the
+        // the pool permit. The bucketed collection and its points live in the
         // shared `BodyHealthQuantityFetch`.
         let semaphore = HealthKitQueryPool.current.semaphore
         guard await semaphore.acquireForCurrentTask() else { return nil }
@@ -1851,11 +1852,12 @@ actor HealthKitFetchEngine {
         BodyRefreshProfile.shared.enterQuery()
         defer { BodyRefreshProfile.shared.exitQuery() }
         let store = healthStore
-        let outcome = await BodyHealthQuantityFetch.hourlyCumulativeSeries(
+        let outcome = await BodyHealthQuantityFetch.intradayCumulativeSeries(
             store: store,
             quantityType: quantityType,
             predicate: predicate,
             unit: unit,
+            bucket: bucket,
             start: effectiveStart,
             end: effectiveEnd,
             calendar: calendar,
@@ -3813,6 +3815,9 @@ actor HealthKitFetchEngine {
         // forward explicitly, exactly like `recordedReadiness`.
         let cachedHeartbeatRMSSDDaySamples = cachedTrends.heartbeatRMSSDDaySamples
         let cachedRecoveryHRVDaySamplesSecondary = cachedTrends.recoveryHRVDaySamplesSecondary
+        // Stress's own 15 minute movement mask, kept by the Stress input load.
+        let cachedStressStepsDaySamples = cachedTrends.stressStepsDaySamples
+        let cachedStressActiveEnergyDaySamples = cachedTrends.stressActiveEnergyDaySamples
         let cachedStress = cachedTrends.stress
         let cachedStressRanges = cachedTrends.stressRanges
         let cachedRecordedStressDays = cachedTrends.recordedStressDays
@@ -4280,6 +4285,8 @@ actor HealthKitFetchEngine {
             activeEnergyDaySamplesSecondary: cachedActiveEnergyDaySamplesSecondary,
             stepsDaySamples: cachedStepsDaySamples,
             stepsDaySamplesSecondary: cachedStepsDaySamplesSecondary,
+            stressStepsDaySamples: cachedStressStepsDaySamples,
+            stressActiveEnergyDaySamples: cachedStressActiveEnergyDaySamples,
             recordedStressDays: cachedRecordedStressDays,
             recordedStressContext: cachedRecordedStressContext,
             stressBackfillScannedThrough: cachedStressBackfillScannedThrough,
@@ -4757,6 +4764,24 @@ actor HealthKitFetchEngine {
             trends.activeEnergySecondary = resolvedTrend(await activeEnergySecondaryTrend, cached: existing.trends.activeEnergySecondary)
             trends.activeEnergyDaySamples = resolvedDaySamples(await activeEnergyDaySamples, cached: existing.trends.activeEnergyDaySamples, series: .activeEnergyDaySamples)
             trends.activeEnergyDaySamplesSecondary = resolvedDaySamples(await activeEnergyDaySamplesSecondary, cached: existing.trends.activeEnergyDaySamplesSecondary, series: .activeEnergyDaySamplesSecondary)
+            // Stress's 15 minute movement mask follows the energy it is read
+            // from, so a Stress recompute after this refresh (the background
+            // observed one included) keeps a current mask. Without Heart Stress
+            // cannot score: the cache is carried, never marked authoritative.
+            if permissionSelection.includes(.heart) {
+                trends.stressActiveEnergyDaySamples = resolvedDaySamples(
+                    await refreshedStressMovementSamples(
+                        for: .activeEnergy,
+                        cached: existing.trends.stressActiveEnergyDaySamples,
+                        calendar: calendar,
+                        reconcilesRetainedWindow: reconcilesRetainedIntradayWindow
+                    ),
+                    cached: existing.trends.stressActiveEnergyDaySamples,
+                    series: .stressActiveEnergyDaySamples
+                )
+            } else {
+                trends.stressActiveEnergyDaySamples = existing.trends.stressActiveEnergyDaySamples
+            }
         case .restingEnergy:
             async let restingEnergy = summaryLeaf(.restingEnergy, calendar: calendar)
             async let restingEnergyTrend: HealthTrendSeries? = trendLeaf(.restingEnergy, calendar: calendar)
@@ -4818,6 +4843,21 @@ actor HealthKitFetchEngine {
             trends.stepsSecondary = resolvedTrend(await stepsSecondaryTrend, cached: existing.trends.stepsSecondary)
             trends.stepsDaySamples = resolvedDaySamples(await stepsDaySamples, cached: existing.trends.stepsDaySamples, series: .stepsDaySamples)
             trends.stepsDaySamplesSecondary = resolvedDaySamples(await stepsDaySamplesSecondary, cached: existing.trends.stepsDaySamplesSecondary, series: .stepsDaySamplesSecondary)
+            // Stress's 15 minute movement mask, as for `.activeEnergy` above.
+            if permissionSelection.includes(.heart) {
+                trends.stressStepsDaySamples = resolvedDaySamples(
+                    await refreshedStressMovementSamples(
+                        for: .steps,
+                        cached: existing.trends.stressStepsDaySamples,
+                        calendar: calendar,
+                        reconcilesRetainedWindow: reconcilesRetainedIntradayWindow
+                    ),
+                    cached: existing.trends.stressStepsDaySamples,
+                    series: .stressStepsDaySamples
+                )
+            } else {
+                trends.stressStepsDaySamples = existing.trends.stressStepsDaySamples
+            }
         case .cardioFitness:
             // Latest reading in the trend window + the sparse daily series, same
             // shapes as the dashboard leaves. The demographics ride along so the

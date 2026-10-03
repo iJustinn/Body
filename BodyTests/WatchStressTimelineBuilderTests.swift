@@ -169,7 +169,8 @@ final class WatchStressTimelineBuilderTests: XCTestCase {
         var heartRate = heartRateSamples(from: day, windows: 24..<40, value: 70)
             + heartRateSamples(from: day, windows: 41..<56, value: 70)
         heartRate.append(HealthTrendDataPoint(date: day.addingTimeInterval(40 * 900 + 60), value: 70))
-        // 12:00 to 12:30, masked through 13:00 by the recovery tail.
+        // A run from 12:00 to 12:30, masked through 13:00 by a run's 30 minute
+        // recovery tail.
         let workoutStart = day.addingTimeInterval(12 * 3_600)
         let workout = WorkoutSummary(
             type: .running, startDate: workoutStart, duration: 30 * 60,
@@ -199,6 +200,37 @@ final class WatchStressTimelineBuilderTests: XCTestCase {
             XCTAssertEqual(timeline.slots[index], expectedSlot(window), "slot \(index)")
         }
         XCTAssertEqual(timeline.slots.filter { $0 == WatchStressTimeline.activityMarker }.count, 4)
+    }
+
+    /// A walk earns only the short recovery tail: its 5 minutes reach into the
+    /// 12:30 window and no further, so 12:45 is already scored where a run's
+    /// half hour would still mask it.
+    func testAWalksShortRecoveryTailMasksOnlyTheWindowItReaches() throws {
+        let day = try date(2025, 3, 20)
+        let now = try date(2025, 3, 20, 14, 7)
+        // 06:00 to 14:00, a walk from 12:00 to 12:30 in the middle.
+        let heartRate = heartRateSamples(from: day, windows: 24..<56, value: 70)
+        let workoutStart = day.addingTimeInterval(12 * 3_600)
+        let walk = WorkoutSummary(
+            type: .walking, startDate: workoutStart, duration: 30 * 60,
+            endDate: workoutStart.addingTimeInterval(30 * 60)
+        )
+        let snapshot = dashboard(heartRate: heartRate, baselinesBefore: day)
+
+        let timeline = try XCTUnwrap(WatchStressTimelineBuilder.make(
+            dashboard: snapshot, workouts: [walk], now: now, calendar: calendar, computedAt: nil
+        ))
+
+        // `now - 13h` is 01:07, so the timeline opens on 01:00's window (4).
+        XCTAssertEqual(timeline.start, day.addingTimeInterval(4 * 900))
+        func slot(atWindow window: Int) -> WatchStressTimeline.Slot { timeline.slot(at: window - 4) }
+        for window in 48..<51 {
+            XCTAssertEqual(slot(atWindow: window), .activity, "window \(window)")
+        }
+        guard case .scored = slot(atWindow: 47), case .scored = slot(atWindow: 51) else {
+            return XCTFail("the windows either side are scored")
+        }
+        XCTAssertEqual(timeline.slots.filter { $0 == WatchStressTimeline.activityMarker }.count, 3)
     }
 
     /// The latest window is still running: it ends at `now`, not 15 minutes

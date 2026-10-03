@@ -3506,8 +3506,11 @@ final class HealthKitWorkoutStore {
         // Make the lazily fetched series durable so the next launch renders the
         // day chart straight from the sidecar.
         var successfulSeries: Set<HealthDaySampleSeries> = []
+        // Stress's 15 minute movement series share `.steps` / `.activeEnergy` but
+        // this load never fetches them, so it must not mark them authoritative.
         for series in HealthDaySampleSeries.allCases
-        where series.kind == kind && series != .heartbeatRMSSDDaySamples && series != .recoveryHRVDaySamplesSecondary {
+        where series.kind == kind && series != .heartbeatRMSSDDaySamples && series != .recoveryHRVDaySamplesSecondary
+            && !series.isStressMovementMask {
             if series.isSecondary ? secondarySamples != nil : primarySamples != nil {
                 successfulSeries.insert(series)
             }
@@ -3560,7 +3563,7 @@ final class HealthKitWorkoutStore {
     }
 
     /// Fetches the intraday inputs Stress scores from — HR/HRV day samples, the
-    /// coarse steps/active-energy movement mask, and the beat-to-beat RMSSD
+    /// 15 minute steps/active-energy movement mask, and the beat-to-beat RMSSD
     /// series — then recomputes. Every fetch is incremental against the cached
     /// series and bounded to the intraday day-sample window, so today's curve
     /// stays current without re-pulling a month of samples.
@@ -3588,27 +3591,25 @@ final class HealthKitWorkoutStore {
         let capturedDaySampleSignatures = currentDaySampleSignatures()
         let capturedDaySampleRevisions = daySampleRevisions
 
-        var fetched: [HealthMetricKind: (samples: HealthTrendSeries, refetchStart: Date)] = [:]
-        for kind in Self.stressIntradaySampleKinds
-        where permissionSelection.includes(HealthKitFetchEngine.healthPermission(forMetric: kind)) {
-            var fetchStart = HealthKitFetchEngine.incrementalFetchStart(
-                after: healthTrends.daySeries(for: kind),
-                windowStart: interval.start
-            )
-            // Hourly cumulative buckets overlap on their own day and the merge
-            // has no bucket dedupe, so restart at that day's midnight.
-            if kind == .steps || kind == .activeEnergy {
-                fetchStart = max(interval.start, calendar.startOfDay(for: fetchStart))
-            }
+        var fetched: [HealthDaySampleSeries: (samples: HealthTrendSeries, refetchStart: Date)] = [:]
+        for series in Self.stressIntradaySampleSeries
+        where permissionSelection.includes(HealthKitFetchEngine.healthPermission(forMetric: series.kind)) {
+            let cached = healthTrends[keyPath: series.trendKeyPath]
+            // Cumulative buckets overlap on their own day and the merge has no
+            // bucket dedupe, so the movement series restart at that day's
+            // midnight, which is also their 15 minute anchor.
+            let fetchStart = series.isStressMovementMask
+                ? HealthKitFetchEngine.stressMovementFetchStart(after: cached, windowStart: interval.start, calendar: calendar)
+                : HealthKitFetchEngine.incrementalFetchStart(after: cached, windowStart: interval.start)
             guard fetchStart < interval.end else {
                 continue
             }
-            // A `nil` result is a failed query, not an empty day: skip the kind
-            // and keep its cached series. Post-refresh continuation, so it
-            // spends the background budget.
+            // A `nil` result is a failed query, not an empty day: skip the series
+            // and keep its cached copy. Post-refresh continuation, so it spends
+            // the background budget.
             guard let samples = await withBackgroundQueryPool({
-                await engine.fetchIntradayDaySamples(
-                    for: kind,
+                await engine.fetchStressIntradaySamples(
+                    series,
                     calendar: calendar,
                     startDate: fetchStart,
                     endDate: interval.end
@@ -3616,7 +3617,7 @@ final class HealthKitWorkoutStore {
             }) else {
                 continue
             }
-            fetched[kind] = (samples, fetchStart)
+            fetched[series] = (samples, fetchStart)
         }
 
         let rmssdFetchStart = HealthKitFetchEngine.incrementalFetchStart(
@@ -3642,25 +3643,13 @@ final class HealthKitWorkoutStore {
         }
 
         var trends = healthTrends
-        for (kind, result) in fetched {
-            let merged = HealthKitFetchEngine.mergeIntradaySamples(
-                existing: trends.daySeries(for: kind),
+        for (series, result) in fetched {
+            trends[keyPath: series.trendKeyPath] = HealthKitFetchEngine.mergeIntradaySamples(
+                existing: trends[keyPath: series.trendKeyPath],
                 incoming: result.samples,
                 windowStart: interval.start,
                 refetchStart: result.refetchStart
             )
-            switch kind {
-            case .heartRate:
-                trends.heartRateDaySamples = merged
-            case .heartRateVariability:
-                trends.heartRateVariabilityDaySamples = merged
-            case .steps:
-                trends.stepsDaySamples = merged
-            case .activeEnergy:
-                trends.activeEnergyDaySamples = merged
-            default:
-                break
-            }
         }
         if let rmssdSamples {
             trends.heartbeatRMSSDDaySamples = HealthKitFetchEngine.mergeIntradaySamples(
@@ -3670,9 +3659,7 @@ final class HealthKitWorkoutStore {
                 refetchStart: rmssdFetchStart
             )
         }
-        var successfulSeries = Set(HealthDaySampleSeries.allCases.filter {
-            !$0.isSecondary && $0 != .heartbeatRMSSDDaySamples && fetched[$0.kind] != nil
-        })
+        var successfulSeries = Set(fetched.keys)
         if rmssdSamples != nil { successfulSeries.insert(.heartbeatRMSSDDaySamples) }
         guard !publishDaySamples(from: trends, successfulSeries: successfulSeries,
                                  capturedRevisions: capturedDaySampleRevisions).isEmpty else { return }
@@ -4742,7 +4729,7 @@ final class HealthKitWorkoutStore {
     ]
 
     /// The categories the Stress input loader reads (HR/HRV day samples, the
-    /// beat-to-beat series, and the coarse steps/energy movement mask).
+    /// beat-to-beat series, and the 15 minute steps/energy movement mask).
     private static let stressInputLoadPermissions: Set<BodyHealthPermission> = [
         .heart,
         .steps,
@@ -7294,14 +7281,16 @@ final class HealthKitWorkoutStore {
         .heart
     ]
 
-    /// The intraday day-sample series Stress scores from. The dashboard refresh
-    /// carries these forward from cache without refetching, so the Stress loader
-    /// is what keeps them (and therefore today's curve) current.
-    nonisolated static let stressIntradaySampleKinds: [HealthMetricKind] = [
-        .heartRate,
-        .heartRateVariability,
-        .steps,
-        .activeEnergy
+    /// The intraday day-sample series Stress scores from: heart rate and SDNN
+    /// samples, plus Stress's own 15 minute steps and energy movement mask (the
+    /// hourly `.steps` / `.activeEnergy` series draw only the Day View). The
+    /// dashboard refresh carries these forward from cache without refetching, so
+    /// the Stress loader is what keeps them (and therefore today's curve) current.
+    nonisolated static let stressIntradaySampleSeries: [HealthDaySampleSeries] = [
+        .heartRateDaySamples,
+        .heartRateVariabilityDaySamples,
+        .stressStepsDaySamples,
+        .stressActiveEnergyDaySamples
     ]
 
     @discardableResult
@@ -8756,7 +8745,9 @@ final class HealthKitWorkoutStore {
     /// it and dropped when it changes, because they carry baseline aggregates
     /// derived under the old inputs. The sleep-duration goal is deliberately
     /// absent (Stress uses only the sleep WINDOW), the awake-stage prefs are not
-    /// (they move the parsed main session).
+    /// (they move the parsed main session). The algorithm version rides along
+    /// too, as for Readiness, so a scoring-rule change (v2's 15 minute movement
+    /// mask and typed recovery tails) drops the records and reruns the backfill.
     nonisolated static func stressRecordContextSignature(
         permissionSelection: BodyHealthPermissionSelection,
         healthDataSourceSelection: BodyHealthDataSourceSelection,
@@ -8775,7 +8766,7 @@ final class HealthKitWorkoutStore {
             .joined(separator: ",")
         let awakeFlags = "a[\(showsSubMinuteAwakeStages ? "1" : "0")];l[\(showsLeadingTrailingAwakeStages ? "1" : "0")]"
         return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];\(awakeFlags)"
-            + customSourceGroupsSignatureSuffix
+            + customSourceGroupsSignatureSuffix + ";stress[\(StressScoreCalculator.algorithmVersion)]"
     }
 
     /// The Body Radar counterpart of `stressRecordContextSignature`: which Radar

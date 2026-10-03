@@ -47,6 +47,37 @@ enum BodyDailyQuantityAggregation: Equatable {
     }
 }
 
+/// The bucket an intraday cumulative series (steps, active energy) sums into.
+///
+/// It carries both the interval and the anchor, because the two only make sense
+/// together: the Day View's hourly bars start on the hour, while Stress's movement
+/// mask needs every bucket to be exactly one of its 15 minute windows, which the
+/// grid builds from the day's midnight.
+enum BodyIntradayBucket: Equatable, Sendable {
+    /// The Day View's hourly bars, anchored at the hour holding `start`.
+    case hour
+    /// Stress's movement mask, anchored at `start`'s midnight so each bucket is one window.
+    case quarterHour
+
+    func anchor(for start: Date, calendar: Calendar) -> Date {
+        switch self {
+        case .hour:
+            return calendar.dateInterval(of: .hour, for: start)?.start ?? start
+        case .quarterHour:
+            return calendar.startOfDay(for: start)
+        }
+    }
+
+    var intervalComponents: DateComponents {
+        switch self {
+        case .hour:
+            return DateComponents(hour: 1)
+        case .quarterHour:
+            return DateComponents(minute: 15)
+        }
+    }
+}
+
 enum BodyHealthQuantityFetch {
     /// The `valueTransform` the percentage reads (SpO₂, body fat) run with:
     /// HealthKit's `.percent()` unit yields a 0…1 fraction for most sources but
@@ -225,34 +256,31 @@ enum BodyHealthQuantityFetch {
         }
     }
 
-    /// One point per hour over `[start, end]`, from a one-hour cumulative-sum
-    /// collection anchored at the hour containing `start`: the intraday shape
-    /// of steps and active energy, and Stress's movement mask. Each point is
-    /// dated at its hour's start. An hour with no sum, a non-finite value or a
-    /// value at or below zero is omitted, so an idle hour reads as absent
-    /// rather than as a zero bar.
-    static func hourlyCumulativeSeries(
+    /// One point per `bucket` over `[start, end]`, from a cumulative-sum
+    /// collection anchored by the bucket: hourly for the intraday shape of
+    /// steps and active energy, 15 minutes from midnight for Stress's movement
+    /// mask. Each point is dated at its bucket's start. A bucket with no sum, a
+    /// non-finite value or a value at or below zero is omitted, so an idle
+    /// bucket reads as absent rather than as a zero bar.
+    static func intradayCumulativeSeries(
         store: any BodyHealthQuerying,
         quantityType: HKQuantityType,
         predicate: NSPredicate?,
         unit: HKUnit,
+        bucket: BodyIntradayBucket,
         start: Date,
         end: Date,
         calendar: Calendar,
         valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
         onFailure: ((Error?) -> Void)? = nil
     ) async -> WatchFetchOutcome<HealthTrendSeries> {
-        var intervalComponents = DateComponents()
-        intervalComponents.hour = 1
-        let anchor = calendar.dateInterval(of: .hour, for: start)?.start ?? start
-
         switch await store.cumulativeQuantities(
             BodyStatisticsCollectionRequest(
                 quantityType: quantityType,
                 predicate: predicate,
                 options: .cumulativeSum,
-                anchorDate: anchor,
-                intervalComponents: intervalComponents
+                anchorDate: bucket.anchor(for: start, calendar: calendar),
+                intervalComponents: bucket.intervalComponents
             ), from: start, to: end
         ) {
         case .failure(let error):
@@ -283,7 +311,7 @@ enum BodyHealthQuantityFetch {
     /// omitted and a finite zero is kept, exactly as the phone's
     /// `fetchDailyCumulativeQuantitySeries` does, so the watch's week and
     /// today's total read the same as the iPhone's for the same samples
-    /// (unlike `hourlyCumulativeSeries`, whose idle hours are absent by
+    /// (unlike `intradayCumulativeSeries`, whose idle buckets are absent by
     /// design).
     ///
     /// Resting energy (`.basalEnergyBurned`) applies that engine's

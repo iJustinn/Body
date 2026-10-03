@@ -181,6 +181,68 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
         XCTAssertEqual(stripped.stepsDaySamples, trends.stepsDaySamples)
     }
 
+    /// Stress's 15 minute movement mask rides its metric: a Steps or Active
+    /// Energy refresh carries its half, any other metric leaves both alone, a
+    /// permission turned off or a source switch clears only that metric's half.
+    func testStressMovementMaskFollowsItsMetricThroughReplaceFilterAndStrip() {
+        var current = makeDaySampleTrends()
+        current.stressStepsDaySamples = sampleSeries(count: 3, baseValue: 400)
+        current.stressActiveEnergyDaySamples = sampleSeries(count: 3, baseValue: 20)
+        var refreshed = HealthTrendSnapshot.empty
+        refreshed.stressStepsDaySamples = sampleSeries(count: 2, baseValue: 500)
+        refreshed.stressActiveEnergyDaySamples = sampleSeries(count: 2, baseValue: 30)
+
+        let afterSteps = current.replacingMetric(.steps, with: refreshed)
+        XCTAssertEqual(afterSteps.stressStepsDaySamples, refreshed.stressStepsDaySamples)
+        XCTAssertEqual(afterSteps.stressActiveEnergyDaySamples, current.stressActiveEnergyDaySamples)
+
+        let afterEnergy = current.replacingMetric(.activeEnergy, with: refreshed)
+        XCTAssertEqual(afterEnergy.stressActiveEnergyDaySamples, refreshed.stressActiveEnergyDaySamples)
+        XCTAssertEqual(afterEnergy.stressStepsDaySamples, current.stressStepsDaySamples)
+
+        let afterHeartRate = current.replacingMetric(.heartRate, with: refreshed)
+        XCTAssertEqual(afterHeartRate.stressStepsDaySamples, current.stressStepsDaySamples)
+        XCTAssertEqual(afterHeartRate.stressActiveEnergyDaySamples, current.stressActiveEnergyDaySamples)
+
+        let withoutSteps = current.filtered(by: BodyHealthPermissionSelection(enabledPermissions: [.heart, .energy]))
+        XCTAssertEqual(withoutSteps.stressStepsDaySamples, .empty)
+        XCTAssertEqual(withoutSteps.stressActiveEnergyDaySamples, current.stressActiveEnergyDaySamples)
+
+        let stepsSourceSwitched = current.strippingPrimaryDaySamples(for: .steps)
+        XCTAssertEqual(stepsSourceSwitched.stressStepsDaySamples, .empty)
+        XCTAssertEqual(stepsSourceSwitched.stressActiveEnergyDaySamples, current.stressActiveEnergyDaySamples)
+
+        let stripped = current.strippingDaySamples()
+        XCTAssertEqual(stripped.stressStepsDaySamples, .empty)
+        XCTAssertEqual(stripped.stressActiveEnergyDaySamples, .empty)
+        XCTAssertTrue(HealthTrendDaySampleSnapshot(trends: stripped).isEmpty)
+        XCTAssertFalse(HealthTrendDaySampleSnapshot(trends: current).isEmpty, "the mask alone is sidecar content")
+    }
+
+    /// The upgrade guard's signal: a Stress movement series is pending only
+    /// while it is empty beside a non-empty hourly counterpart (the first launch
+    /// after the 15 minute mask arrived), never when both are empty or both are
+    /// filled, and each metric is judged on its own.
+    func testStressMovementInputsArePendingOnlyBesideHourlyData() {
+        var trends = makeDaySampleTrends()
+        XCTAssertFalse(trends.stressMovementInputsPending, "no steps or energy at all: nothing to wait for")
+
+        trends.stepsDaySamples = sampleSeries(count: 3, baseValue: 900)
+        XCTAssertTrue(trends.stressMovementInputsPending, "hourly steps but no 15 minute steps yet")
+
+        trends.stressStepsDaySamples = sampleSeries(count: 3, baseValue: 400)
+        XCTAssertFalse(trends.stressMovementInputsPending)
+
+        trends.activeEnergyDaySamples = sampleSeries(count: 3, baseValue: 60)
+        XCTAssertTrue(trends.stressMovementInputsPending, "energy is judged on its own")
+
+        trends.stressActiveEnergyDaySamples = sampleSeries(count: 3, baseValue: 20)
+        XCTAssertFalse(trends.stressMovementInputsPending)
+
+        trends.stepsDaySamples = .empty
+        XCTAssertFalse(trends.stressMovementInputsPending, "a 15 minute series without an hourly one is never pending")
+    }
+
     func testSnapshotEncoderIsByteStableAcrossEncodes() throws {
         // `JSONEncoder` randomizes key order between calls; the store's
         // encoder must be deterministic or the save-if-changed byte compare
@@ -260,6 +322,70 @@ final class HealthDashboardDaySamplesTests: XCTestCase {
         XCTAssertEqual(decoded.permissionSignature, "sleep,heart,steps")
         XCTAssertEqual(decoded.combinesHealthDataSourcesByName, true)
         XCTAssertEqual(decoded, sidecar)
+    }
+
+    /// Stress's 15 minute movement mask is a day-sample series like the others:
+    /// the main snapshot is saved without it, the sidecar keeps it.
+    func testStressMovementMaskPersistsOnlyInTheSidecar() throws {
+        let suiteName = "BodyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let fileURL = temporarySnapshotFileURL()
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
+        var snapshot = try makeSnapshot(heartRateDaySamples: sampleSeries(count: 8, baseValue: 70))
+        let stressSteps = sampleSeries(count: 6, baseValue: 400)
+        let stressEnergy = sampleSeries(count: 3, baseValue: 20)
+        snapshot.trends.stressStepsDaySamples = stressSteps
+        snapshot.trends.stressActiveEnergyDaySamples = stressEnergy
+
+        XCTAssertTrue(HealthDashboardSnapshotStore.save(snapshot, defaults: defaults, fileURL: fileURL))
+
+        let loaded = try XCTUnwrap(HealthDashboardSnapshotStore.load(defaults: defaults, fileURL: fileURL))
+        XCTAssertEqual(loaded.trends.stressStepsDaySamples, .empty)
+        XCTAssertEqual(loaded.trends.stressActiveEnergyDaySamples, .empty)
+        let sidecar = try XCTUnwrap(HealthDashboardSnapshotStore.loadDaySamples(fileURL: fileURL))
+        XCTAssertEqual(sidecar.stressStepsDaySamples, stressSteps)
+        XCTAssertEqual(sidecar.stressActiveEnergyDaySamples, stressEnergy)
+        XCTAssertEqual(sidecar.heartRateDaySamples, snapshot.trends.heartRateDaySamples)
+    }
+
+    /// A schema 3 sidecar written before Stress's 15 minute mask has no keys for
+    /// it: they decode empty (the Stress input load then fetches the window
+    /// once), while every other series and the schema stamp survive, so adding
+    /// the mask drops nothing else.
+    func testSidecarWithoutTheStressMovementKeysDecodesThemEmptyAndKeepsSchemaThree() throws {
+        var trends = makeDaySampleTrends(
+            heartRateDaySamples: sampleSeries(count: 4, baseValue: 70),
+            stepsDaySamples: sampleSeries(count: 4, baseValue: 900)
+        )
+        trends.stressStepsDaySamples = sampleSeries(count: 4, baseValue: 400)
+        trends.stressActiveEnergyDaySamples = sampleSeries(count: 2, baseValue: 20)
+        let sidecar = HealthTrendDaySampleSnapshot(
+            trends: trends,
+            signatures: HealthTrendDaySampleSignatures(
+                primarySelectionSignature: "P1",
+                secondarySelectionSignature: "S1",
+                permissionSignature: "heart,steps,energy",
+                combinesHealthDataSourcesByName: false
+            )
+        )
+        let data = try HealthDashboardSnapshotStore.makeSnapshotEncoder().encode(sidecar)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNotNil(object["stressStepsDaySamples"], "the mask is encoded under its own key")
+        XCTAssertNotNil(object["stressActiveEnergyDaySamples"])
+        object.removeValue(forKey: "stressStepsDaySamples")
+        object.removeValue(forKey: "stressActiveEnergyDaySamples")
+        let olderData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(HealthTrendDaySampleSnapshot.self, from: olderData)
+
+        XCTAssertEqual(decoded.stressStepsDaySamples, .empty)
+        XCTAssertEqual(decoded.stressActiveEnergyDaySamples, .empty)
+        XCTAssertEqual(decoded.heartRateDaySamples, sidecar.heartRateDaySamples)
+        XCTAssertEqual(decoded.stepsDaySamples, sidecar.stepsDaySamples)
+        XCTAssertEqual(decoded.schemaVersion, 3)
     }
 
     /// The session memoizes ONE sidecar load, so an invalidation that only touches

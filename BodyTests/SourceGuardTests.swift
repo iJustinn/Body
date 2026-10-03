@@ -3046,6 +3046,12 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(assemblyBlock.contains("stressBackfillComplete: cachedStressBackfillComplete,"))
         XCTAssertTrue(engineSource.contains("let cachedRecordedStressDays = cachedTrends.recordedStressDays"))
         XCTAssertTrue(engineSource.contains("let cachedHeartbeatRMSSDDaySamples = cachedTrends.heartbeatRMSSDDaySamples"))
+        // Stress's own 15 minute movement mask: only the Stress input load and the
+        // steps / energy refreshes fetch it, so a full refresh must carry it.
+        XCTAssertTrue(assemblyBlock.contains("stressStepsDaySamples: cachedStressStepsDaySamples,"))
+        XCTAssertTrue(assemblyBlock.contains("stressActiveEnergyDaySamples: cachedStressActiveEnergyDaySamples,"))
+        XCTAssertTrue(engineSource.contains("let cachedStressStepsDaySamples = cachedTrends.stressStepsDaySamples"))
+        XCTAssertTrue(engineSource.contains("let cachedStressActiveEnergyDaySamples = cachedTrends.stressActiveEnergyDaySamples"))
     }
 
     /// The Body Radar twin of the guard above: Radar is derived too, so its

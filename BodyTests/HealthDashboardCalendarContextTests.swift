@@ -28,6 +28,9 @@ final class HealthDashboardCalendarContextTests: XCTestCase {
         result.summary.activityRings = .init(move: .init(value: 500, goal: 500), exercise: .empty, stand: .empty)
         result.trends.steps = .init(points: [.init(date: day, value: 1234)])
         result.trends.stepsDaySamples = result.trends.steps
+        // Stress's 15 minute movement mask, bucketed from this zone's midnight.
+        result.trends.stressStepsDaySamples = .init(points: [.init(date: day, value: 400)])
+        result.trends.stressActiveEnergyDaySamples = .init(points: [.init(date: day, value: 20)])
         result.trends.heartRateDaySamples = .init(points: [.init(date: day, value: 60)])
         result.trends.recordedReadiness = [.init(date: day, score: 42)]
         result.trends.recordedReadinessContext = "original frozen context"
@@ -46,6 +49,9 @@ final class HealthDashboardCalendarContextTests: XCTestCase {
             let repaired = next.scoping(original, from: old)
             XCTAssertTrue(repaired.trends.steps.isEmpty)
             XCTAssertTrue(repaired.trends.stepsDaySamples.isEmpty)
+            // Its buckets start at the old zone's midnight, off the new grid.
+            XCTAssertTrue(repaired.trends.stressStepsDaySamples.isEmpty)
+            XCTAssertTrue(repaired.trends.stressActiveEnergyDaySamples.isEmpty)
             XCTAssertEqual(repaired.trends.heartRateDaySamples, original.trends.heartRateDaySamples)
             XCTAssertEqual(repaired.trends.recordedReadiness, original.trends.recordedReadiness)
             XCTAssertEqual(repaired.trends.recordedReadinessContext, original.trends.recordedReadinessContext)
@@ -211,6 +217,7 @@ final class HealthDashboardCalendarContextTests: XCTestCase {
         XCTAssertTrue(result.hadQueryFailure)
         XCTAssertTrue(fake.leafRequests.contains(.statisticsCollection(type.identifier)))
         XCTAssertTrue(result.trends.steps.isEmpty)
+        XCTAssertTrue(result.trends.stressStepsDaySamples.isEmpty, "the full refresh carries the cleared mask, never the old zone's")
         XCTAssertEqual(result.trends.recordedReadiness, original.trends.recordedReadiness)
     }
 

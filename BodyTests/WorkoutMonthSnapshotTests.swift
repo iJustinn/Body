@@ -3000,7 +3000,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
     func testVitalsHomeCardKindConfiguration() {
         XCTAssertEqual(BodyHomeCardKind.vitals.healthMetricKind, .vitals)
-        // Readiness carries the "v2" chip and Stress "v1"; Body Radar carries
+        // Readiness carries the "v2" chip and Stress "v2"; Body Radar carries
         // "Beta v3" instead (all still count as isBeta via betaVersionLabel).
         XCTAssertFalse(BodyHomeCardKind.vitals.isBeta)
         XCTAssertFalse(BodyHomeCardKind.cardioFitness.isBeta)
@@ -3014,7 +3014,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     /// owns the metric, so the two surfaces can never disagree.
     func testAboutCardVersionLabelsMatchTheSummaryCardChips() {
         XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .readiness), "v2")
-        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .stress), "v1")
+        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .stress), "v2")
         XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .bodyRadar), "Beta v3")
         XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .vitals))
         XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .sleep))

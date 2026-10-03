@@ -268,8 +268,8 @@ extension BodyHealthQuerying {
         }
     }
 
-    /// Each interval's sum from a cumulative collection (the hourly intraday
-    /// series), the same value projection as `dailyQuantities` so a scripted
+    /// Each interval's sum from a cumulative collection (the intraday hourly and
+    /// 15 minute series), the same value projection as `dailyQuantities` so a scripted
     /// fake can answer it. An interval with no sum is skipped.
     func cumulativeQuantities(_ request: BodyStatisticsCollectionRequest,
         from start: Date, to end: Date

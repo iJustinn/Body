@@ -40,9 +40,10 @@ extension HealthKitFetchEngine {
                 endDate: endDate
             )
         case .hourlyCumulative:
-            return await fetchHourlyCumulativeQuantitySeries(
+            return await fetchIntradayCumulativeQuantitySeries(
                 for: descriptor.quantityType,
                 unit: descriptor.unit,
+                bucket: .hour,
                 calendar: calendar,
                 sourceKind: descriptor.sourceKind,
                 valueTransform: descriptor.valueTransform,
@@ -50,6 +51,105 @@ extension HealthKitFetchEngine {
                 endDate: endDate
             )
         }
+    }
+
+    /// Stress's movement mask for `.steps` / `.activeEnergy`: 15 minute sums
+    /// anchored at `startDate`'s midnight, so each bucket is one Stress window
+    /// (callers pass a midnight; the default window starts on one). Same source
+    /// selection, pool permit and nil on failure as the hourly Day View read,
+    /// which keeps its own series because it draws hourly bars.
+    func fetchStressMovementSamples(
+        for kind: HealthMetricKind,
+        calendar: Calendar,
+        startDate: Date? = nil,
+        endDate: Date? = nil
+    ) async -> HealthTrendSeries? {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              descriptor.intradayDaySamples == .hourlyCumulative else {
+            return .empty
+        }
+
+        return await fetchIntradayCumulativeQuantitySeries(
+            for: descriptor.quantityType,
+            unit: descriptor.unit,
+            bucket: .quarterHour,
+            calendar: calendar,
+            sourceKind: descriptor.sourceKind,
+            valueTransform: descriptor.valueTransform,
+            startDate: startDate,
+            endDate: endDate
+        )
+    }
+
+    /// One of `HealthKitWorkoutStore.stressIntradaySampleSeries`, read the way
+    /// Stress scores it: the movement series in 15 minute buckets, the heart
+    /// series as samples. Shared by the input loader and the history backfill so
+    /// the two cannot drift.
+    func fetchStressIntradaySamples(
+        _ series: HealthDaySampleSeries,
+        calendar: Calendar,
+        startDate: Date,
+        endDate: Date
+    ) async -> HealthTrendSeries? {
+        if series.isStressMovementMask {
+            return await fetchStressMovementSamples(
+                for: series.kind,
+                calendar: calendar,
+                startDate: startDate,
+                endDate: endDate
+            )
+        }
+
+        return await fetchIntradayDaySamples(
+            for: series.kind,
+            calendar: calendar,
+            startDate: startDate,
+            endDate: endDate
+        )
+    }
+
+    /// Where an incremental movement fetch restarts. Cumulative buckets overlap
+    /// on their own day and the merge has no bucket dedupe, so the incremental
+    /// start snaps back to that day's midnight, which is also the 15 minute anchor.
+    nonisolated static func stressMovementFetchStart(
+        after cached: HealthTrendSeries,
+        windowStart: Date,
+        calendar: Calendar
+    ) -> Date {
+        max(windowStart, calendar.startOfDay(for: incrementalFetchStart(after: cached, windowStart: windowStart)))
+    }
+
+    /// Stress's movement series for a per metric `.steps` / `.activeEnergy`
+    /// refresh, merged onto `cached` exactly as the input loader merges it (the
+    /// counterpart of `refreshedRecoveryHRVDaySamples` for HRV), so a background
+    /// Stress recompute after new steps keeps a current mask. `nil` when the read
+    /// FAILED, so the caller keeps the cache and reports the failure.
+    func refreshedStressMovementSamples(
+        for kind: HealthMetricKind,
+        cached: HealthTrendSeries,
+        calendar: Calendar,
+        reconcilesRetainedWindow: Bool
+    ) async -> HealthTrendSeries? {
+        let interval = intradayDaySampleInterval(calendar: calendar)
+        let fetchStart = reconcilesRetainedWindow
+            ? interval.start
+            : Self.stressMovementFetchStart(after: cached, windowStart: interval.start, calendar: calendar)
+        guard fetchStart < interval.end else { return cached }
+        guard let incoming = await fetchStressMovementSamples(
+            for: kind,
+            calendar: calendar,
+            startDate: fetchStart,
+            endDate: interval.end
+        ) else {
+            return nil
+        }
+
+        return Self.mergeIntradaySamples(
+            existing: cached,
+            incoming: incoming,
+            windowStart: interval.start,
+            refetchStart: fetchStart
+        )
     }
 
     /// Trailing overlap re-fetched on every incremental refresh. HealthKit

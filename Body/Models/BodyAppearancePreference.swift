@@ -1097,7 +1097,7 @@ struct BodyDashboardFetchSelection: Equatable {
         .oxygenSaturation,
         .wristTemperature
     ]
-    /// Stress reads its own inputs — quiet heart rate, HRV, the coarse
+    /// Stress reads its own inputs — quiet heart rate, HRV, the 15 minute
     /// movement mask, and the sleep window for rest context. Deliberately
     /// separate from `readinessDependencyKinds`: the two metrics overlap but
     /// are not the same set, and neither should pull the other's data.
@@ -1570,7 +1570,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Per-kind beta chip label — Readiness carries the "v2" chip, Stress "v1",
+    /// Per-kind beta chip label — Readiness carries the "v2" chip, Stress "v2",
     /// Body Radar shows "Beta v3" instead, and every other card carries no chip
     /// at all.
     var betaVersionLabel: LocalizedStringKey? {
@@ -1578,7 +1578,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         case .readiness:
             return "v2"
         case .stress:
-            return "v1"
+            return "v2"
         case .bodyRadar:
             return "Beta v3"
         case .vitals,

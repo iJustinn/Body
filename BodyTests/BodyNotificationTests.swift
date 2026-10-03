@@ -70,7 +70,7 @@ final class BodyNotificationTests: XCTestCase {
         input.sleepInterval = DateInterval(start: start, duration: 900)
         XCTAssertNil(evaluate(start.addingTimeInterval(2700)))
         input.sleepInterval = nil
-        input.workoutIntervals = [DateInterval(start: start, duration: 300)]
+        input.workoutMaskIntervals = [DateInterval(start: start, duration: 300)]
         XCTAssertNil(evaluate(start.addingTimeInterval(2700)))
     }
 

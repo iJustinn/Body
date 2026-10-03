@@ -295,11 +295,11 @@ enum WatchComputeAssembly {
             stressInputs.trends.heartbeatRMSSDDaySamples = Self.daySamples(delta.stressRMSSDSamples)
             // The movement mask reads only what the phone's permission filter
             // leaves it.
-            stressInputs.trends.stepsDaySamples = permission.includes(.steps)
-                ? Self.daySamples(delta.stressHourlySteps)
+            stressInputs.trends.stressStepsDaySamples = permission.includes(.steps)
+                ? Self.daySamples(delta.stressQuarterHourSteps)
                 : .empty
-            stressInputs.trends.activeEnergyDaySamples = permission.includes(.energy)
-                ? Self.daySamples(delta.stressHourlyActiveEnergy)
+            stressInputs.trends.stressActiveEnergyDaySamples = permission.includes(.energy)
+                ? Self.daySamples(delta.stressQuarterHourActiveEnergy)
                 : .empty
             let stressed = stressInputs.recalculatingStress(
                 on: now,
@@ -631,7 +631,7 @@ enum WatchComputeAssembly {
     /// timeline (`WatchComputeMerge.mergingComputed`), or nil when neither
     /// may be adopted. Coverage semantics, like Sleep Debt's: Stress scores
     /// today's intraday heart rate, SDNN and RMSSD, masks movement with the
-    /// hourly steps and active energy and the workouts, and reads the main
+    /// 15 minute steps and active energy and the workouts, and reads the main
     /// sleep session as rest context, so it is stamped with the query window's
     /// end only when every one of those that is permitted was re-read this
     /// run. A carried heart kind (no source on this watch) was not re-read,
@@ -649,8 +649,8 @@ enum WatchComputeAssembly {
               delta.stressRMSSDSamples.isSuccess,
               !delta.carriedKinds.contains(.heartRate),
               !delta.carriedKinds.contains(.heartRateVariability),
-              !permission.includes(.steps) || delta.stressHourlySteps.isSuccess,
-              !permission.includes(.energy) || delta.stressHourlyActiveEnergy.isSuccess,
+              !permission.includes(.steps) || delta.stressQuarterHourSteps.isSuccess,
+              !permission.includes(.energy) || delta.stressQuarterHourActiveEnergy.isSuccess,
               !permission.includes(.sleep) || (delta.sleepNights.isSuccess && !delta.carriedKinds.contains(.sleep)),
               !permission.includes(.workouts) || delta.workouts.isSuccess else {
             return nil

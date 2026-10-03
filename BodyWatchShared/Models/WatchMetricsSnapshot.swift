@@ -436,7 +436,7 @@ struct WatchStressTimeline: Codable, Equatable {
         /// A scored window, rounded. `StressBand`'s bounds sit on .5, so the
         /// rounded score always falls in the same band as the exact one.
         case scored(Int)
-        /// Masked as movement (a workout or a busy hour): a stub, no score.
+        /// Masked as movement (a workout or a busy 15 minute window): a stub, no score.
         case activity
         /// No score (too few readings): a gap.
         case none

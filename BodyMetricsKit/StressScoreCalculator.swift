@@ -21,12 +21,14 @@ struct StressDayInput: Equatable {
     var heartRateSamples: [HealthTrendDataPoint]
     var sdnnSamples: [HealthTrendDataPoint]
     var rmssdSamples: [HealthTrendDataPoint]
-    /// Hourly buckets (bucket start date, total for that hour) — coarse movement mask;
-    /// workouts provide the fine one.
-    var hourlySteps: [HealthTrendDataPoint]
-    var hourlyActiveEnergy: [HealthTrendDataPoint]
-    /// Workout spans, built with `WorkoutSummary.effectiveEndDate` (see `workoutIntervals(for:)`).
-    var workoutIntervals: [DateInterval]
+    /// 15 minute sums dated at each bucket's start, anchored at the day's midnight, so
+    /// each bucket is one scoring window: the movement mask judges every window by its
+    /// own steps and energy. Workouts are masked separately.
+    var quarterHourSteps: [HealthTrendDataPoint]
+    var quarterHourActiveEnergy: [HealthTrendDataPoint]
+    /// The masked spans: each workout plus its recovery tail (see
+    /// `workoutMaskIntervals(for:)`). The calculator masks them as given and adds nothing.
+    var workoutMaskIntervals: [DateInterval]
     /// The day's main sleep session, used only for rest context.
     var sleepInterval: DateInterval?
 
@@ -35,18 +37,18 @@ struct StressDayInput: Equatable {
         heartRateSamples: [HealthTrendDataPoint] = [],
         sdnnSamples: [HealthTrendDataPoint] = [],
         rmssdSamples: [HealthTrendDataPoint] = [],
-        hourlySteps: [HealthTrendDataPoint] = [],
-        hourlyActiveEnergy: [HealthTrendDataPoint] = [],
-        workoutIntervals: [DateInterval] = [],
+        quarterHourSteps: [HealthTrendDataPoint] = [],
+        quarterHourActiveEnergy: [HealthTrendDataPoint] = [],
+        workoutMaskIntervals: [DateInterval] = [],
         sleepInterval: DateInterval? = nil
     ) {
         self.date = date
         self.heartRateSamples = heartRateSamples
         self.sdnnSamples = sdnnSamples
         self.rmssdSamples = rmssdSamples
-        self.hourlySteps = hourlySteps
-        self.hourlyActiveEnergy = hourlyActiveEnergy
-        self.workoutIntervals = workoutIntervals
+        self.quarterHourSteps = quarterHourSteps
+        self.quarterHourActiveEnergy = quarterHourActiveEnergy
+        self.workoutMaskIntervals = workoutMaskIntervals
         self.sleepInterval = sleepInterval
     }
 
@@ -59,16 +61,22 @@ struct StressDayInput: Equatable {
         }
     }
 
+    /// One workout's masked span: the session plus the recovery tail its type earns
+    /// (`Tuning.recoveryTail(for:)`). The single place a tail is applied, shared by the
+    /// `WorkoutSummary` paths and the notification path's raw `HKWorkout`s.
+    static func workoutMaskInterval(type: BodyWorkoutType, start: Date, end: Date) -> DateInterval? {
+        guard end > start else {
+            return nil
+        }
+
+        return DateInterval(start: start, end: end.addingTimeInterval(StressScoreCalculator.Tuning.recoveryTail(for: type)))
+    }
+
     /// `duration` excludes paused time, so `startDate + duration` can land before the
     /// workout really ended — the activity mask must use HealthKit's authoritative end.
-    static func workoutIntervals(for workouts: [WorkoutSummary]) -> [DateInterval] {
+    static func workoutMaskIntervals(for workouts: [WorkoutSummary]) -> [DateInterval] {
         workouts.compactMap { workout in
-            let end = workout.effectiveEndDate
-            guard end > workout.startDate else {
-                return nil
-            }
-
-            return DateInterval(start: workout.startDate, end: end)
+            workoutMaskInterval(type: workout.type, start: workout.startDate, end: workout.effectiveEndDate)
         }
     }
 
@@ -84,8 +92,8 @@ struct StressDayInput: Equatable {
         to end: Date,
         heartRateSamples: [HealthTrendDataPoint],
         sdnnSamples: [HealthTrendDataPoint],
-        hourlySteps: [HealthTrendDataPoint],
-        hourlyActiveEnergy: [HealthTrendDataPoint],
+        quarterHourSteps: [HealthTrendDataPoint],
+        quarterHourActiveEnergy: [HealthTrendDataPoint],
         workouts: [WorkoutSummary],
         sleepIntervalsByDay: [Date: DateInterval],
         calendar: Calendar = .bodyGregorian
@@ -106,8 +114,8 @@ struct StressDayInput: Equatable {
 
         let heartRateByDay = grouped(heartRateSamples)
         let sdnnByDay = grouped(sdnnSamples)
-        let stepsByDay = grouped(hourlySteps)
-        let energyByDay = grouped(hourlyActiveEnergy)
+        let stepsByDay = grouped(quarterHourSteps)
+        let energyByDay = grouped(quarterHourActiveEnergy)
         let workoutsByDay = Dictionary(grouping: workouts) { calendar.startOfDay(for: $0.startDate) }
 
         return heartRateByDay.keys.sorted().map { day in
@@ -120,9 +128,9 @@ struct StressDayInput: Equatable {
                 date: day,
                 heartRateSamples: heartRateByDay[day] ?? [],
                 sdnnSamples: sdnnByDay[day] ?? [],
-                hourlySteps: stepsByDay[day] ?? [],
-                hourlyActiveEnergy: energyByDay[day] ?? [],
-                workoutIntervals: StressDayInput.workoutIntervals(for: dayWorkouts),
+                quarterHourSteps: stepsByDay[day] ?? [],
+                quarterHourActiveEnergy: energyByDay[day] ?? [],
+                workoutMaskIntervals: StressDayInput.workoutMaskIntervals(for: dayWorkouts),
                 sleepInterval: sleepIntervalsByDay[day]
             )
         }
@@ -283,16 +291,47 @@ enum StressScoreCalculator {
         static let hrvReach: TimeInterval = 45 * 60
         static let hrvBlendWeight = 0.35
 
-        /// Recovery HR stays elevated after a session, so the mask runs past the workout.
-        static let workoutMaskTail: TimeInterval = 30 * 60
-        static let maskStepsPerHour = 200.0
-        static let maskActiveEnergyKilocaloriesPerHour = 25.0
+        /// Recovery HR stays elevated after a session, so the mask runs past the workout:
+        /// half an hour after hard training, a few minutes after a light session.
+        static let workoutRecoveryTail: TimeInterval = 30 * 60
+        static let lightWorkoutRecoveryTail: TimeInterval = 5 * 60
+        /// Steady sessions at walking pace or gentler. Apple Watch already reads heart
+        /// rate as sedentary again after 5 minutes of stillness, so a longer tail would
+        /// only grey out calm windows; the tail matters most for short, frequent walks.
+        /// A long hike or round of golf is masked by its own span either way, so those
+        /// keep the full tail.
+        static let lightRecoveryWorkoutTypes: Set<BodyWorkoutType> = [
+            .walking,
+            .wheelchairWalkPace,
+            .yoga,
+            .mindAndBody,
+            .taiChi,
+            .flexibility,
+            .cooldown,
+            .preparationAndReadiness
+        ]
+
+        static func recoveryTail(for type: BodyWorkoutType) -> TimeInterval {
+            lightRecoveryWorkoutTypes.contains(type) ? lightWorkoutRecoveryTail : workoutRecoveryTail
+        }
+
+        /// A window is movement when its own 15 minute bucket goes past either line
+        /// (strictly): about 3 minutes of walking, or about 2 METs for 70 kg.
+        static let maskStepsPerWindow = 300.0
+        static let maskActiveEnergyKilocaloriesPerWindow = 15.0
 
         /// Minimum coverage for a window to be scored at all — one stray sample (or a
         /// watch put on mid-window) must read as a gap, never as a zero.
         static let minimumHeartRateSampleCount = 2
         static let minimumHeartRateSampleSpan: TimeInterval = 5 * 60
     }
+
+    /// Scoring rules revision, bumped whenever a change should drop and rescore the
+    /// recorded days and rerun the history backfill (see
+    /// `HealthKitWorkoutStore.stressRecordContextSignature`). 1 was implicit: an hourly
+    /// movement mask with a flat 30 minute tail. 2 judges movement per 15 minute window
+    /// and tails each workout by its type.
+    static let algorithmVersion = 2
 
     // MARK: - Grid
 
@@ -423,18 +462,17 @@ enum StressScoreCalculator {
             return []
         }
 
-        let maskIntervals = input.workoutIntervals.map {
-            DateInterval(start: $0.start, end: $0.end.addingTimeInterval(Tuning.workoutMaskTail))
-        }
-        let stepsByHour = hourlyBuckets(input.hourlySteps, calendar: calendar)
-        let energyByHour = hourlyBuckets(input.hourlyActiveEnergy, calendar: calendar)
+        let maskIntervals = input.workoutMaskIntervals
+        let dayStart = intervals[0].start
+        let stepsByWindow = windowTotals(input.quarterHourSteps, dayStart: dayStart, windowCount: intervals.count)
+        let energyByWindow = windowTotals(input.quarterHourActiveEnergy, dayStart: dayStart, windowCount: intervals.count)
         let heartRateSamples = input.heartRateSamples
             .filter { $0.value.isFinite }
             .sorted { $0.date < $1.date }
 
         var sampleIndex = 0
 
-        return intervals.map { interval in
+        return intervals.enumerated().map { index, interval in
             while sampleIndex < heartRateSamples.count, heartRateSamples[sampleIndex].date < interval.start {
                 sampleIndex += 1
             }
@@ -450,12 +488,9 @@ enum StressScoreCalculator {
                 && (windowSamples[windowSamples.count - 1].date
                     .timeIntervalSince(windowSamples[0].date) >= Tuning.minimumHeartRateSampleSpan)
 
-            let hourStart = calendar.dateInterval(of: .hour, for: interval.start)?.start
-            let steps = hourStart.flatMap { stepsByHour[$0] } ?? 0
-            let energy = hourStart.flatMap { energyByHour[$0] } ?? 0
             let isActivity = maskIntervals.contains { overlaps(interval, $0) }
-                || steps > Tuning.maskStepsPerHour
-                || energy > Tuning.maskActiveEnergyKilocaloriesPerHour
+                || stepsByWindow[index] > Tuning.maskStepsPerWindow
+                || energyByWindow[index] > Tuning.maskActiveEnergyKilocaloriesPerWindow
 
             return WindowScan(
                 interval: interval,
@@ -731,19 +766,30 @@ enum StressScoreCalculator {
         first.start < second.end && first.end > second.start
     }
 
-    private static func hourlyBuckets(
+    /// Each window's movement total. The grid steps +900 s from midnight, so floor
+    /// division by the window length lands every 15 minute bucket on the window it
+    /// starts in, DST days (92 or 100 windows) and the clamped last window included;
+    /// a bucket that is not on the grid is counted in the window it starts in, never
+    /// dropped.
+    private static func windowTotals(
         _ points: [HealthTrendDataPoint],
-        calendar: Calendar
-    ) -> [Date: Double] {
-        var buckets: [Date: Double] = [:]
+        dayStart: Date,
+        windowCount: Int
+    ) -> [Double] {
+        var totals = Array(repeating: 0.0, count: windowCount)
         for point in points where point.value.isFinite {
-            guard let hourStart = calendar.dateInterval(of: .hour, for: point.date)?.start else {
+            let offset = point.date.timeIntervalSince(dayStart)
+            guard offset >= 0 else {
                 continue
             }
-            buckets[hourStart, default: 0] += point.value
+
+            let index = Int(offset / Tuning.windowDuration)
+            if index < windowCount {
+                totals[index] += point.value
+            }
         }
 
-        return buckets
+        return totals
     }
 
     // MARK: - Personal baseline shares

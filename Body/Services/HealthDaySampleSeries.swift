@@ -19,6 +19,10 @@ enum HealthDaySampleSeries: CaseIterable, Hashable, Sendable {
     case activeEnergyDaySamplesSecondary
     case stepsDaySamples
     case stepsDaySamplesSecondary
+    /// Stress's own 15 minute movement mask, cached beside the Day View's hourly
+    /// `.steps` / `.activeEnergy` series (see `isStressMovementMask`).
+    case stressStepsDaySamples
+    case stressActiveEnergyDaySamples
 
     var keyPath: WritableKeyPath<HealthTrendDaySampleSnapshot, HealthTrendSeries> {
         switch self {
@@ -37,6 +41,8 @@ enum HealthDaySampleSeries: CaseIterable, Hashable, Sendable {
         case .activeEnergyDaySamplesSecondary: return \.activeEnergyDaySamplesSecondary
         case .stepsDaySamples: return \.stepsDaySamples
         case .stepsDaySamplesSecondary: return \.stepsDaySamplesSecondary
+        case .stressStepsDaySamples: return \.stressStepsDaySamples
+        case .stressActiveEnergyDaySamples: return \.stressActiveEnergyDaySamples
         }
     }
 
@@ -57,6 +63,8 @@ enum HealthDaySampleSeries: CaseIterable, Hashable, Sendable {
         case .activeEnergyDaySamplesSecondary: return \.activeEnergyDaySamplesSecondary
         case .stepsDaySamples: return \.stepsDaySamples
         case .stepsDaySamplesSecondary: return \.stepsDaySamplesSecondary
+        case .stressStepsDaySamples: return \.stressStepsDaySamples
+        case .stressActiveEnergyDaySamples: return \.stressActiveEnergyDaySamples
         }
     }
 
@@ -77,6 +85,19 @@ enum HealthDaySampleSeries: CaseIterable, Hashable, Sendable {
         case .activeEnergyDaySamplesSecondary: return .activeEnergy
         case .stepsDaySamples: return .steps
         case .stepsDaySamplesSecondary: return .steps
+        case .stressStepsDaySamples: return .steps
+        case .stressActiveEnergyDaySamples: return .activeEnergy
+        }
+    }
+
+    /// Stress's 15 minute movement series. They share their metric's kind (so they
+    /// ride its permission, source scope and travel signature) but are not the
+    /// Day View's chart series: a loop that picks a metric's series by `kind` must
+    /// skip these unless it means Stress.
+    var isStressMovementMask: Bool {
+        switch self {
+        case .stressStepsDaySamples, .stressActiveEnergyDaySamples: return true
+        default: return false
         }
     }
 

@@ -74,7 +74,7 @@ actor WatchDeltaFetcher {
         )
         // Steps, active energy and resting energy, resolved ONCE per run
         // beside the kinds above and handed to every read that uses them:
-        // Stress's hourly movement mask and the week of daily totals behind
+        // Stress's 15 minute movement mask and the week of daily totals behind
         // their own cards. A permission that is off resolves `.skip`.
         //
         // A deliberate deviation from the source parity rule above: these
@@ -84,7 +84,7 @@ actor WatchDeltaFetcher {
         // The iPhone's pedometer is almost always a phone source the watch
         // never sees, so the universe check would skip these reads, and with
         // them Stress and the three cards, for nearly everyone. The mask is a
-        // coarse threshold (200 steps or 25 kcal in an hour) that only matters
+        // per window threshold (more than 300 steps or 15 kcal in 15 minutes) that only matters
         // where the wrist is producing the heart rate being scored, and the
         // watch sees its own movement. The cards accept the cost: a total
         // built here counts only what this watch sees, so it can read lower
@@ -185,11 +185,12 @@ actor WatchDeltaFetcher {
         async let stressRMSSDSamples = rmssdSamples(
             reads: reads, start: stressStart, end: now
         )
-        async let stressHourlySteps = hourlySeries(
+        // `stressStart` is a midnight, the 15 minute buckets' anchor.
+        async let stressQuarterHourSteps = stressMovementSeries(
             .steps, reads: movementReads,
             start: stressStart, end: now, calendar: calendar
         )
-        async let stressHourlyActiveEnergy = hourlySeries(
+        async let stressQuarterHourActiveEnergy = stressMovementSeries(
             .activeEnergy, reads: movementReads,
             start: stressStart, end: now, calendar: calendar
         )
@@ -232,8 +233,8 @@ actor WatchDeltaFetcher {
         delta.stressHeartRateSamples = await stressHeartRateSamples
         delta.stressSDNNSamples = await stressSDNNSamples
         delta.stressRMSSDSamples = await stressRMSSDSamples
-        delta.stressHourlySteps = await stressHourlySteps
-        delta.stressHourlyActiveEnergy = await stressHourlyActiveEnergy
+        delta.stressQuarterHourSteps = await stressQuarterHourSteps
+        delta.stressQuarterHourActiveEnergy = await stressQuarterHourActiveEnergy
 
         delta.stepsWeek = await stepsWeek
         delta.activeEnergyWeek = await activeEnergyWeek
@@ -428,12 +429,13 @@ actor WatchDeltaFetcher {
         )
     }
 
-    /// Hourly sums for Stress's movement mask (steps, active energy): the
-    /// descriptor's intraday `.hourlyCumulative` row, under the kind's
+    /// 15 minute sums for Stress's movement mask (steps, active energy), from
+    /// `start`'s midnight like the phone's: the descriptor's intraday
+    /// `.hourlyCumulative` row read in Stress's own buckets, under the kind's
     /// resolution in `movementReads` (resolved without the phone's source
     /// universe; see `fetchDelta`). A permission that is off resolves `.skip`
     /// and leaves `.failure`.
-    private func hourlySeries(
+    private func stressMovementSeries(
         _ kind: HealthMetricKind,
         reads: [HealthMetricKind: WatchSourceRead],
         start: Date,
@@ -447,7 +449,7 @@ actor WatchDeltaFetcher {
             return .failure
         }
 
-        return await BodyHealthQuantityFetch.hourlyCumulativeSeries(
+        return await BodyHealthQuantityFetch.intradayCumulativeSeries(
             store: store,
             quantityType: quantityType,
             predicate: BodyHealthSourceResolver.combinedPredicate(
@@ -456,6 +458,7 @@ actor WatchDeltaFetcher {
                 sourcePredicate: resolvedSourcePredicate
             ),
             unit: descriptor.unit,
+            bucket: .quarterHour,
             start: start,
             end: end,
             calendar: calendar,

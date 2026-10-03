@@ -4,9 +4,12 @@
 //
 //  The shared HealthKit leaves behind Stress's intraday inputs, driven against
 //  `FakeHealthStore`: the raw sample series (heart rate, SDNN, Recovery HRV),
-//  the hourly cumulative series (the movement mask), and the RMSSD fetch with
-//  its beat-to-beat scan. The phone's engine and the watch's delta fetcher both
-//  call these, so what they pin holds on both devices.
+//  the intraday cumulative series (the Day View's hourly bars and Stress's 15
+//  minute movement mask), and the RMSSD fetch with its beat-to-beat scan. The
+//  phone's engine and the watch's delta fetcher both call these, so what they
+//  pin holds on both devices. The engine's own Stress movement reads are
+//  pinned too: the 15 minute request, and the Steps refresh that keeps the
+//  mask current only while Stress can score.
 //
 //  `HKHeartbeatSeriesSample` has no public initializer, so the beat streams
 //  themselves can't be scripted; the scan is pinned up to its series query
@@ -109,7 +112,7 @@ final class StressLeafFetchTests: XCTestCase {
         XCTAssertEqual(recorder.count, 0, "cancellation is not a query failure")
     }
 
-    // MARK: - hourlyCumulativeSeries
+    // MARK: - intradayCumulativeSeries
 
     func testHourlyCumulativeSeriesDropsIdleAndNonFiniteHours() async throws {
         let type = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .stepCount))
@@ -124,11 +127,12 @@ final class StressLeafFetchTests: XCTestCase {
         // Mid-hour on purpose: the collection must anchor on the hour itself.
         let windowStart = start.addingTimeInterval(23 * 60)
 
-        let outcome = await BodyHealthQuantityFetch.hourlyCumulativeSeries(
+        let outcome = await BodyHealthQuantityFetch.intradayCumulativeSeries(
             store: store,
             quantityType: type,
             predicate: nil,
             unit: .count(),
+            bucket: .hour,
             start: windowStart,
             end: start.addingTimeInterval(4 * hour),
             calendar: .bodyGregorian,
@@ -157,11 +161,12 @@ final class StressLeafFetchTests: XCTestCase {
         let failingStore = FakeHealthStore()
         failingStore.scriptStatisticsCollection(for: type, .failure(ScriptedError()))
         let failureRecorder = FailureRecorder()
-        let failed = await BodyHealthQuantityFetch.hourlyCumulativeSeries(
+        let failed = await BodyHealthQuantityFetch.intradayCumulativeSeries(
             store: failingStore,
             quantityType: type,
             predicate: nil,
             unit: .kilocalorie(),
+            bucket: .hour,
             start: windowStart,
             end: windowEnd,
             calendar: .bodyGregorian,
@@ -174,11 +179,12 @@ final class StressLeafFetchTests: XCTestCase {
         let pendingStore = FakeHealthStore()
         let cancelRecorder = FailureRecorder()
         let cancelled = await cancelling {
-            await BodyHealthQuantityFetch.hourlyCumulativeSeries(
+            await BodyHealthQuantityFetch.intradayCumulativeSeries(
                 store: pendingStore,
                 quantityType: type,
                 predicate: nil,
                 unit: .kilocalorie(),
+                bucket: .hour,
                 start: windowStart,
                 end: windowEnd,
                 calendar: .bodyGregorian,
@@ -187,6 +193,128 @@ final class StressLeafFetchTests: XCTestCase {
         }
         XCTAssertFalse(try XCTUnwrap(cancelled).isSuccess)
         XCTAssertEqual(cancelRecorder.count, 0, "cancellation is not a query failure")
+    }
+
+    /// Stress's bucket: 15 minutes from the day's midnight, whatever time the
+    /// window opens, so every bucket is exactly one Stress window.
+    func testQuarterHourBucketsAnchorAtMidnightSoEachIsOneStressWindow() async throws {
+        let type = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .stepCount))
+        let store = FakeHealthStore()
+        let calendar = Calendar.bodyGregorian
+        // Mid-morning and off the grid on purpose: the collection must anchor on
+        // the day's midnight, not on the window's start or its hour.
+        let windowStart = start.addingTimeInterval(10 * 3_600 + 23 * 60)
+        let midnight = calendar.startOfDay(for: windowStart)
+        let quarter: TimeInterval = 900
+        store.scriptCumulativeQuantities(for: type, values: [
+            BodyDatedQuantity(date: midnight.addingTimeInterval(41 * quarter), quantity: HKQuantity(unit: .count(), doubleValue: 120)),
+            BodyDatedQuantity(date: midnight.addingTimeInterval(42 * quarter), quantity: HKQuantity(unit: .count(), doubleValue: 0)),
+            BodyDatedQuantity(date: midnight.addingTimeInterval(43 * quarter), quantity: HKQuantity(unit: .count(), doubleValue: 340)),
+            BodyDatedQuantity(date: midnight.addingTimeInterval(44 * quarter), quantity: HKQuantity(unit: .count(), doubleValue: 999))
+        ])
+
+        let outcome = await BodyHealthQuantityFetch.intradayCumulativeSeries(
+            store: store,
+            quantityType: type,
+            predicate: nil,
+            unit: .count(),
+            bucket: .quarterHour,
+            start: windowStart,
+            end: windowStart.addingTimeInterval(2 * 3_600),
+            calendar: calendar,
+            valueTransform: { $0 == 999 ? .nan : $0 }
+        )
+
+        guard case .success(let series) = outcome else {
+            return XCTFail("a scripted window is a success")
+        }
+        XCTAssertEqual(series.points, [
+            HealthTrendDataPoint(date: midnight.addingTimeInterval(41 * quarter), value: 120),
+            HealthTrendDataPoint(date: midnight.addingTimeInterval(43 * quarter), value: 340)
+        ], "an idle bucket and a non-finite one are omitted, dated at each bucket's start")
+
+        let request = try XCTUnwrap(store.cumulativeQuantityRequests.last)
+        XCTAssertEqual(request.options, .cumulativeSum)
+        XCTAssertEqual(request.intervalComponents.minute, 15)
+        XCTAssertNil(request.intervalComponents.hour)
+        XCTAssertEqual(request.anchorDate, midnight)
+    }
+
+    // MARK: - The engine's Stress movement reads
+
+    /// The engine reads Stress's movement through the steps row, in 15 minute
+    /// buckets from the midnight it is handed, not the Day View's hours.
+    func testStressMovementFetchAsksForQuarterHoursFromMidnight() async throws {
+        let type = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .stepCount))
+        let fake = FakeHealthStore()
+        let calendar = Calendar.bodyGregorian
+        let midnight = calendar.startOfDay(for: engineNow)
+        fake.scriptCumulativeQuantities(for: type, values: [
+            BodyDatedQuantity(date: midnight.addingTimeInterval(40 * 900), quantity: HKQuantity(unit: .count(), doubleValue: 420)),
+            BodyDatedQuantity(date: midnight.addingTimeInterval(41 * 900), quantity: HKQuantity(unit: .count(), doubleValue: 0))
+        ])
+        let engine = engine(fake, permissions: [.steps, .heart])
+
+        let fetched = await engine.fetchStressMovementSamples(
+            for: .steps,
+            calendar: calendar,
+            startDate: midnight,
+            endDate: midnight.addingTimeInterval(12 * 3_600)
+        )
+
+        let series = try XCTUnwrap(fetched, "a scripted read is a success")
+        XCTAssertEqual(series.points, [HealthTrendDataPoint(date: midnight.addingTimeInterval(40 * 900), value: 420)])
+        let request = try XCTUnwrap(fake.cumulativeQuantityRequests.last)
+        XCTAssertEqual(request.quantityType, type)
+        XCTAssertEqual(request.options, .cumulativeSum)
+        XCTAssertEqual(request.intervalComponents.minute, 15)
+        XCTAssertNil(request.intervalComponents.hour)
+        XCTAssertEqual(request.anchorDate, midnight)
+    }
+
+    /// A Steps refresh keeps Stress's mask current whenever Stress can score
+    /// (Heart on), so the background recompute after new steps never scores a
+    /// walk; without Heart it carries the cached mask and claims no authority.
+    func testStepsRefreshKeepsTheStressMovementMaskCurrentOnlyWithHeart() async throws {
+        let type = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .stepCount))
+        let calendar = Calendar.bodyGregorian
+        let today = calendar.startOfDay(for: engineNow)
+        let bucket = today.addingTimeInterval(36 * 900)
+        func scriptedStore() -> FakeHealthStore {
+            let fake = FakeHealthStore()
+            fake.scriptCumulativeQuantities(for: type, values: [
+                BodyDatedQuantity(date: bucket, quantity: HKQuantity(unit: .count(), doubleValue: 640))
+            ])
+            // Every other leaf of the Steps refresh fails at once, so nothing
+            // parks on an unscripted read.
+            fake.scriptSources(for: type, .sources([]))
+            fake.scriptSamples(for: type, .failure(nil))
+            fake.scriptStatisticsCollection(for: type, .failure(nil))
+            fake.scriptStatistics(for: type, .failure(nil))
+            return fake
+        }
+        var existing = HealthDashboardSnapshot.empty
+        existing.trends.stressStepsDaySamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: today.addingTimeInterval(-3 * 86_400), value: 500)
+        ])
+
+        let withHeart = scriptedStore()
+        let heartEngine = engine(withHeart, permissions: [.steps, .heart])
+        await heartEngine.setHealthTrendAnchorDate(engineNow)
+        let refreshed = await heartEngine.fetchHealthDashboardSnapshot(for: .steps, calendar: calendar, existing: existing)
+        // The cached point sits inside the 48 hour overlap re-read from its
+        // day's midnight, so the fresh read replaces it.
+        XCTAssertEqual(refreshed.snapshot.trends.stressStepsDaySamples.points, [HealthTrendDataPoint(date: bucket, value: 640)])
+        XCTAssertTrue(refreshed.authoritativeDaySampleSeries.contains(.stressStepsDaySamples))
+        XCTAssertTrue(withHeart.cumulativeQuantityRequests.contains { $0.intervalComponents.minute == 15 })
+
+        let withoutHeart = scriptedStore()
+        let plainEngine = engine(withoutHeart, permissions: [.steps])
+        await plainEngine.setHealthTrendAnchorDate(engineNow)
+        let carried = await plainEngine.fetchHealthDashboardSnapshot(for: .steps, calendar: calendar, existing: existing)
+        XCTAssertEqual(carried.snapshot.trends.stressStepsDaySamples, existing.trends.stressStepsDaySamples)
+        XCTAssertFalse(carried.authoritativeDaySampleSeries.contains(.stressStepsDaySamples))
+        XCTAssertFalse(withoutHeart.cumulativeQuantityRequests.contains { $0.intervalComponents.minute == 15 })
     }
 
     // MARK: - BodyHeartbeatRMSSDFetch
@@ -337,6 +465,15 @@ final class StressLeafFetchTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// The engine tests' clock, as in `IntradayRepairTests`.
+    private let engineNow = Date(timeIntervalSince1970: 1_788_500_000)
+
+    private func engine(_ fake: FakeHealthStore, permissions: Set<BodyHealthPermission>) -> HealthKitFetchEngine {
+        HealthKitFetchEngine(permission: .init(enabledPermissions: permissions),
+            healthDataSourceSelection: .defaultValue, secondaryHealthDataSourceSelection: .defaultValue,
+            combinesHealthDataSourcesByName: false, healthStore: fake)
+    }
 
     private func sample(_ type: HKQuantityType, _ value: Double, endingAt end: Date) -> HKQuantitySample {
         HKQuantitySample(
