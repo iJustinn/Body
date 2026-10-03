@@ -669,6 +669,30 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    /// The Stress page's Day and Night card builds every line as an interpolated
+    /// `Text` key, so extraction would only see them after a build in Xcode.
+    func testStressDayNightCardStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "stress.dayNight.title",
+            "stress.dayNight.day",
+            "stress.dayNight.night",
+            "stress.dayNight.span %@ %@",
+            "stress.dayNight.spanToNow %@",
+            "stress.dayNight.spanToMidnight %@",
+            "stress.dayNight.allDay",
+            "stress.dayNight.peak %lld %@",
+            "stress.dayNight.restlessAt %@ %@",
+            "stress.dayNight.restless %@",
+            "stress.dayNight.noRestless",
+            "stress.dayNight.noSleep",
+            "stress.dayNight.notEnoughData"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
     func testBodyRadarReplayExportStringsAreTranslated() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 

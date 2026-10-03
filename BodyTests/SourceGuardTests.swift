@@ -5873,6 +5873,28 @@ final class SourceGuardTests: XCTestCase {
         return try files.map { try text(at: $0) }.joined(separator: "\n")
     }
 
+    /// Stress's Day and Night card rides in `metricDayChartCard`, right under the
+    /// Day View card, and reads the same two day scan as the plot: every scan
+    /// rebuilds the baselines from the whole cached window, so a second one would
+    /// double the page's cost.
+    func testStressDayNightCardSharesTheDayViewScan() throws {
+        let detail = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let cardStart = try XCTUnwrap(detail.range(of: "private var metricDayChartCard: some View")?.lowerBound)
+        let cardEnd = try XCTUnwrap(
+            detail.range(of: "private var metricWarningCards", range: cardStart..<detail.endIndex)?.lowerBound
+        )
+        let card = String(detail[cardStart..<cardEnd])
+        let dayViewBackground = try XCTUnwrap(card.range(of: ".bodyCardBackground(translucent: true)")?.lowerBound)
+        let dayNightCard = try XCTUnwrap(card.range(of: "stressDayNightCard(windowsByDay: stressWindowsByDay)")?.lowerBound)
+
+        XCTAssertTrue(card.contains("let stressWindowsByDay = selectedStressWindowsByDay"))
+        XCTAssertLessThan(dayViewBackground, dayNightCard)
+        XCTAssertEqual(
+            detail.occurrenceCount(of: "workoutStore.stressWindows(forDays: [previousDay, day], calendar: calendar)"),
+            1
+        )
+    }
+
     /// Concatenates every Swift file backing `HealthKitFetchEngine`. The engine
     /// was split across the main actor file and one or more `+...swift`
     /// extension files; tests that grep for engine substrings should look across

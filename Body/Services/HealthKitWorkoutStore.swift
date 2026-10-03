@@ -7722,8 +7722,15 @@ final class HealthKitWorkoutStore {
     /// anything, using the same wide workout window (fine activity mask) the
     /// background recompute scans.
     func stressWindows(for day: Date, calendar: Calendar = .bodyGregorian) -> [StressWindow] {
+        stressWindows(forDays: [day], calendar: calendar)[calendar.startOfDay(for: day)] ?? []
+    }
+
+    /// `stressWindows(for:)` for several days from one scan, keyed by each day's
+    /// start: every call rescans the whole cached window to build the baselines,
+    /// so the Stress page reads the selected day and the day before together.
+    func stressWindows(forDays days: [Date], calendar: Calendar = .bodyGregorian) -> [Date: [StressWindow]] {
         guard permissionSelection.includes(.heart) else {
-            return []
+            return [:]
         }
 
         return HealthDashboardSnapshot(
@@ -7731,7 +7738,7 @@ final class HealthKitWorkoutStore {
             trends: healthTrends,
             activityRingHistory: activityRingHistory
         ).stressWindows(
-            for: day,
+            forDays: days,
             workouts: stressWindowWorkouts(through: Date(), calendar: calendar),
             calendar: calendar,
             now: Date()

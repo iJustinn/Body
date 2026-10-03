@@ -966,15 +966,42 @@ struct BodyHealthMetricDetailView: View {
         )
     }
 
-    /// The selected day's intraday Stress windows, scored live against the
-    /// cached snapshot — there is no fetched day series to fall back to (Stress
-    /// is derived, like Readiness), so an unscored day simply renders empty.
-    private var selectedStressWindows: [StressWindow] {
+    /// The selected day's intraday Stress windows and the day before's, keyed by
+    /// day start and scored live against the cached snapshot in one scan — there
+    /// is no fetched day series to fall back to (Stress is derived, like
+    /// Readiness), so an unscored day simply renders empty. The day before is
+    /// for the Day and Night card: last night started before midnight.
+    private var selectedStressWindowsByDay: [Date: [StressWindow]] {
         guard model.kind == .stress else {
-            return []
+            return [:]
         }
 
-        return workoutStore.stressWindows(for: selectedMetricDay)
+        let calendar = Calendar.bodyGregorian
+        let day = calendar.startOfDay(for: selectedMetricDay)
+        let previousDay = calendar.date(byAdding: .day, value: -1, to: day) ?? day
+        return workoutStore.stressWindows(forDays: [previousDay, day], calendar: calendar)
+    }
+
+    /// Stress's Day and Night card, from the same scan as the Day View above it.
+    /// Its sleep is the Day View shading's: the main session that ended that
+    /// morning, the day's naps, and tonight's main session, whose minutes before
+    /// midnight are not Day either.
+    private func stressDayNightCard(windowsByDay: [Date: [StressWindow]]) -> some View {
+        let calendar = Calendar.bodyGregorian
+        let day = calendar.startOfDay(for: selectedMetricDay)
+        let nextDay = calendar.date(byAdding: .day, value: 1, to: day) ?? day
+        let stageSnapshot = sleepSummary(for: day)?.stageSnapshot
+
+        return BodyStressDayNightCard(
+            split: StressDayNightSplit.make(
+                day: day,
+                windowsByDay: windowsByDay,
+                night: stageSnapshot?.mainSession.dateInterval,
+                naps: stageSnapshot?.napSessions.compactMap(\.dateInterval) ?? [],
+                tonight: sleepSummary(for: nextDay)?.stageSnapshot.mainSession.dateInterval,
+                calendar: calendar
+            )
+        )
     }
 
     /// The selected day's Stress rollup: today comes off the live model (which
@@ -2506,13 +2533,17 @@ struct BodyHealthMetricDetailView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// The Day View card, and for Stress the Day and Night card under it: one
+    /// property so the two share the windows below.
+    @ViewBuilder
     private var metricDayChartCard: some View {
-        // Computed once per body evaluation and shared below: `selectedStressWindows`
-        // re-scores the day's windows against the live snapshot, and the plot and
-        // the breakdown-rows gate both need it.
-        let stressWindows = selectedStressWindows
+        // Computed once per body evaluation and shared below: `selectedStressWindowsByDay`
+        // re-scores the day's windows (and the day before's) against the live snapshot,
+        // and the plot, the breakdown-rows gate and the Day and Night card all need them.
+        let stressWindowsByDay = selectedStressWindowsByDay
+        let stressWindows = stressWindowsByDay[Calendar.bodyGregorian.startOfDay(for: selectedMetricDay)] ?? []
 
-        return VStack(alignment: .leading, spacing: 32) {
+        VStack(alignment: .leading, spacing: 32) {
             HStack(alignment: .firstTextBaseline) {
                 // Sized first, like the hero's big number, so the day's labels
                 // get the rest of the row and shrink only when it is full.
@@ -2649,6 +2680,14 @@ struct BodyHealthMetricDetailView: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .bodyCardBackground(translucent: true)
+
+        // Same gate as the breakdown rows: a day the plot draws empty has no
+        // split to show either.
+        if model.kind == .stress,
+           stressWindows.contains(where: { $0.isScored || $0.state == .activity }) {
+            stressDayNightCard(windowsByDay: stressWindowsByDay)
+                .transition(dayChartTransition)
+        }
     }
 
     @ViewBuilder
