@@ -583,6 +583,19 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// (`latestReading(asOf:)`). Optional so snapshots from before this field
     /// decode.
     var stressTimeline: WatchStressTimeline? = nil
+    /// The Heart Rate and HRV chart complications' last 8 hours, keyed by
+    /// `WatchMetricKindKey` (`heartRate`, `heartRateVariability`): the same 30
+    /// minute slots the detail pages read, built by the WATCH compute from
+    /// its own Apple Health data. Watch side only: the phone never sets it, so
+    /// it adds nothing to the push. A chart the compute read successfully
+    /// replaces the displayed one when its window is newer, an empty one
+    /// removes it, and a failed or skipped read keeps it
+    /// (`WatchComputeMerge`); a phone push keeps it while the push still
+    /// carries that kind's card, and a permission or data source change drops
+    /// it until the next compute. No sanitize rule: the complications draw
+    /// only the slots inside their own window. Optional so snapshots from
+    /// before this field decode.
+    var heartCharts: [String: WatchIntradayChart]? = nil
     /// The phone's custom workout colors (`BodyWorkoutColorOverrides` raw
     /// form, empty without Body Pro), for the workout shading on the Stress
     /// chart. A display preference, so only a phone push sets it; nil (an
@@ -672,25 +685,99 @@ struct WatchMetricsSnapshot: Codable, Equatable {
         // The Sleep Stages complication draws only `sleepStages`, so the
         // gallery preview needs a sample night rather than an empty bar.
         sleepStages: placeholderSleepStages,
-        // The Stress complication draws the timeline's latest scored window.
-        stressTimeline: placeholderStressTimeline
+        // The Stress complications draw the timeline's latest scored window,
+        // and the Stress chart its last 12 hours.
+        stressTimeline: placeholderStressTimeline,
+        // The Heart Rate and HRV chart complications draw these slots.
+        heartCharts: placeholderHeartCharts
     )
 
-    /// The placeholder's Stress windows: an hour and three quarters of desk
-    /// time with a walk, ending on a Relaxed 42. Anchored to a FIXED instant
-    /// like the night below; the complication skips its age check for the
-    /// placeholder, whose `generatedAt` is `.distantPast`.
+    /// The placeholder's Stress windows: 12 and a quarter hours from 04:30 to
+    /// 16:45 UTC on 2026-06-04, enough to fill the Stress chart. The end of
+    /// the night below under its sleep shading, the desk, a stressor, a run
+    /// masked as movement under its workout shading, 45 minutes off the
+    /// wrist, then an hour and three quarters of desk time with a walk, ending
+    /// on a Relaxed 42. Anchored to FIXED instants like the night below; the
+    /// complications skip their age check for the placeholder, whose
+    /// `generatedAt` is `.distantPast`.
     private static let placeholderStressTimeline: WatchStressTimeline = {
-        let start = Date(timeIntervalSinceReferenceDate: 802_278_000)
-        let slots: [Int?] = [28, 31, 35, WatchStressTimeline.activityMarker, WatchStressTimeline.activityMarker, 40, 42]
+        let start = Date(timeIntervalSinceReferenceDate: 802_240_200)
+        let a = WatchStressTimeline.activityMarker
+        let slots: [Int?] = [
+            // Asleep: the night's end.
+            11, 9, 8, 12, 10, 9, 13, 15, 18,
+            // Awake, then the desk.
+            nil, 27, 33, 30, 36, 41, 38, 44, 47, 39, 35, 31, 34,
+            // A stressor.
+            58, 69, 77, 62,
+            // A run, masked as movement.
+            a, a, a, a, a, a,
+            // Recovering, then off the wrist.
+            57, 49, nil, nil, nil,
+            // Back at the desk.
+            36, 42, 38, 35, 33,
+            // Desk time with a walk.
+            28, 31, 35, a, a, 40, 42
+        ]
         return WatchStressTimeline(
             start: start,
             end: start.addingTimeInterval(Double(slots.count) * WatchStressTimeline.slotLength),
             slots: slots,
-            context: [],
+            context: [
+                WatchStressContextBand(
+                    kind: WatchStressContextBand.sleepKind,
+                    start: Date(timeIntervalSinceReferenceDate: 802_221_000),
+                    end: Date(timeIntervalSinceReferenceDate: 802_248_120)
+                ),
+                // `BodyWorkoutType.running`'s raw value; this file stays free
+                // of BodyMetricsKit.
+                WatchStressContextBand(
+                    kind: WatchStressContextBand.workoutKind,
+                    start: Date(timeIntervalSinceReferenceDate: 802_263_720),
+                    end: Date(timeIntervalSinceReferenceDate: 802_268_880),
+                    workoutType: "running"
+                )
+            ],
             computedAt: nil,
             latestBand: WatchStatusBand(min: 25.5, max: 50.5, label: String(localized: "Relaxed", table: "BodyWatchShared"))
         )
+    }()
+
+    /// The placeholder's Heart Rate and HRV slots: the 8 hours before 16:45
+    /// UTC on the same day as the Stress windows above (08:30 to 17:00). Heart
+    /// Rate rests, runs with the Stress timeline's run, comes off the wrist
+    /// for an hour, walks, and ends on 62, the sample card's reading; HRV
+    /// takes a few sparse readings, the way the watch does, ending on 48.
+    /// Whole seconds and whole numbers, so the placeholder survives the
+    /// snapshot's ISO 8601 round trip unchanged.
+    private static let placeholderHeartCharts: [String: WatchIntradayChart] = {
+        let window = WatchIntradayWindow(
+            start: Date(timeIntervalSinceReferenceDate: 802_254_600),
+            end: Date(timeIntervalSinceReferenceDate: 802_284_300),
+            plotEnd: Date(timeIntervalSinceReferenceDate: 802_285_200)
+        )
+        func chart(_ slots: [(slot: Int, minimum: Double, average: Double, maximum: Double)]) -> WatchIntradayChart {
+            WatchIntradayChart(window: window, buckets: slots.map { slot in
+                WatchIntradayBucket(
+                    start: window.start.addingTimeInterval(Double(slot.slot) * WatchIntradayWindow.slotLength),
+                    minimum: slot.minimum,
+                    maximum: slot.maximum,
+                    average: slot.average
+                )
+            })
+        }
+        return [
+            WatchMetricKindKey.heartRate: chart([
+                (0, 57, 64, 75), (1, 55, 61, 70), (2, 58, 66, 78), (3, 63, 72, 88), (4, 61, 69, 81),
+                (5, 96, 118, 131), (6, 118, 134, 149), (7, 109, 127, 142), (8, 70, 88, 112),
+                (11, 63, 71, 84), (12, 59, 66, 77), (13, 57, 63, 72), (14, 60, 67, 79),
+                (15, 64, 79, 98), (16, 56, 62, 70)
+            ]),
+            WatchMetricKindKey.heartRateVariability: chart([
+                (1, 38, 44, 50), (2, 46, 51, 56), (4, 43, 47, 51), (8, 26, 33, 40),
+                (12, 52, 52, 52), (14, 49, 55, 61), (16, 43, 48, 53)
+            ])
+        ]
     }()
 
     /// The placeholder's night: a main session from 23:10 to 06:42 (7h 32m,

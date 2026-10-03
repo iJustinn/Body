@@ -361,6 +361,7 @@ enum WatchComputeAssembly {
             stressTimeline: stressTimeline
         )
         snapshot.source = "watch"
+        snapshot.heartCharts = Self.heartCharts(delta: delta, permission: permission)
 
         guard snapshot.metrics.contains(where: \.hasValue) else { return nil }
         return WatchComputeResult(
@@ -759,6 +760,29 @@ enum WatchComputeAssembly {
             map[WatchMetricKindKey.wristTemperature] = now
         }
         return map
+    }
+
+    /// The Heart Rate and HRV chart complications' slots
+    /// (`WatchMetricsSnapshot.heartCharts`), keyed by kind: every chart this
+    /// run read, an empty one included (the merge's "remove"), and no key for
+    /// a read that failed or was skipped (the merge's "keep"). Nil without
+    /// Heart, and nil when no read succeeded, so a compute that read no chart
+    /// carries no field at all. Display only, like the week charts' ranges:
+    /// no watermark, since each chart carries its own read time
+    /// (`WatchIntradayWindow.end`), which is what `WatchComputeMerge` compares.
+    static func heartCharts(
+        delta: WatchComputeDelta,
+        permission: BodyHealthPermissionSelection
+    ) -> [String: WatchIntradayChart]? {
+        guard permission.includes(.heart) else { return nil }
+        var charts: [String: WatchIntradayChart] = [:]
+        if case .success(let chart) = delta.heartRateIntraday {
+            charts[WatchMetricKindKey.heartRate] = chart
+        }
+        if case .success(let chart) = delta.heartRateVariabilityIntraday {
+            charts[WatchMetricKindKey.heartRateVariability] = chart
+        }
+        return charts.isEmpty ? nil : charts
     }
 
     static func temperatureUnitPreference(

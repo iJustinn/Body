@@ -195,8 +195,17 @@ enum WatchComputeMerge {
     /// empty over a displayed timeline with marks, and only when the watermark
     /// is newer than the displayed timeline's `computedAt`. The adopted
     /// timeline is stamped with it. `workoutColorOverrides` is never touched,
-    /// like `showsSleepDebt`. Never merges into a reset tombstone. The caller
-    /// sanitizes.
+    /// like `showsSleepDebt`.
+    ///
+    /// The Heart Rate and HRV charts (`heartCharts`) carry their own read
+    /// time, the window's end, so each kind is adopted on that alone: a
+    /// computed chart replaces the displayed one only when its window ends
+    /// strictly later, an empty one (the read found nothing) removes the kind
+    /// instead of being stored, so a persisted snapshot never carries one,
+    /// and a kind the compute brought no chart for (its read failed or was
+    /// skipped) keeps what's displayed.
+    ///
+    /// Never merges into a reset tombstone. The caller sanitizes.
     static func mergingComputed(
         _ result: WatchComputeResult,
         into current: WatchMetricsSnapshot
@@ -328,6 +337,17 @@ enum WatchComputeMerge {
             merged.stressTimeline = candidate
         }
 
+        // Heart Rate and HRV charts: per kind, on each chart's own window
+        // (see the rules above). An empty read removes the kind; a kind
+        // without a candidate keeps its chart.
+        if let candidates = computed.heartCharts {
+            var charts = current.heartCharts ?? [:]
+            for (kind, candidate) in candidates where candidate.window.end > (charts[kind]?.window.end ?? .distantPast) {
+                charts[kind] = candidate.buckets.isEmpty ? nil : candidate
+            }
+            merged.heartCharts = charts.isEmpty ? nil : charts
+        }
+
         // Readiness drain: record the watch's report from a compute that
         // STAMPED readiness, or whose workout query succeeded
         // (`drainIsFresh`): the report depends on the workout list alone, so a
@@ -398,6 +418,12 @@ enum WatchComputeMerge {
     ///
     /// The Stress timeline comes from the push under the same exception (it
     /// has no display flag), and `workoutColorOverrides` always does.
+    ///
+    /// The Heart Rate and HRV charts (`heartCharts`) never come from the
+    /// push, since only the watch builds them: each local one is kept while
+    /// the push still carries that kind's card (a push without it means
+    /// Heart was turned off), outside the settings-change mode, which drops
+    /// them all because they were read under the old source selection.
     static func merging(
         _ received: WatchMetricsSnapshot,
         over current: WatchMetricsSnapshot,
@@ -516,6 +542,16 @@ enum WatchComputeMerge {
             merged.stressTimeline = local
         }
 
+        // Heart Rate and HRV charts: the push never carries them, so the
+        // local ones stand while the push still carries each kind's card.
+        // Without the card, Heart was turned off. The settings-change mode
+        // drops them (`merged = received`): they were read under the old
+        // source selection.
+        if !treatingBlanksAsAuthoritative, let local = current.heartCharts {
+            let kept = local.filter { received.metric(forKind: $0.key) != nil }
+            merged.heartCharts = kept.isEmpty ? nil : kept
+        }
+
         // Readiness drain: the push's own report replaces the phone's previous
         // one, then whichever metric won above is reconciled against the other
         // side's report. This is what stops a push that has not seen a watch
@@ -556,13 +592,17 @@ enum WatchComputeMerge {
     /// would preserve exactly the values that must go. Display fields are left
     /// in place; the push resolving in the same intake replaces them. The
     /// Sleep Debt's and the Stress timeline's `computedAt` are cleared too,
-    /// for the same reason.
+    /// for the same reason. The Heart Rate and HRV charts (`heartCharts`) are
+    /// dropped outright: they were read under the old permission or source
+    /// selection, and no push brings them back, so they wait for the next
+    /// compute.
     static func strippingLocalProvenance(
         from snapshot: WatchMetricsSnapshot
     ) -> WatchMetricsSnapshot {
         var stripped = snapshot
         stripped.sleepDebt?.computedAt = nil
         stripped.stressTimeline?.computedAt = nil
+        stripped.heartCharts = nil
         stripped.metrics = snapshot.metrics.map { metric in
             var cleared = metric
             // The kept drain reports were derived under the old selection too,

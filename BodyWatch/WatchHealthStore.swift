@@ -213,13 +213,16 @@ actor WatchHealthStore {
     /// window's start. HR and HRV read min / average / max per slot: like
     /// `mostRecentQuantity`, a statistics query resolves the `HKQuantitySeries`
     /// a workout stores its heart rate in beat by beat, where a sample query
-    /// would return one blob per workout. Steps and Active Energy read each
-    /// slot's sum, like the hourly leaf behind Stress's movement mask: a slot
-    /// with no sum, or a sum at or below zero, is absent rather than a zero
-    /// bar. The predicate keeps HealthKit's default overlap
-    /// matching, so a series that started before the window still contributes
-    /// its in-window beats; the earlier ones fall into slots that are never
-    /// enumerated.
+    /// would return one blob per workout. They read through the shared leaf
+    /// the watch compute reads the Heart Rate and HRV chart complications
+    /// through (`BodyHealthQuantityFetch.intradayRangeBuckets`), so a
+    /// complication charts the same slots as its page. Steps and Active
+    /// Energy read each slot's sum, like the hourly leaf behind Stress's
+    /// movement mask: a slot with no sum, or a sum at or below zero, is
+    /// absent rather than a zero bar. The predicate keeps HealthKit's
+    /// default overlap matching, so a series that started before the window
+    /// still contributes its in-window beats; the earlier ones fall into
+    /// slots that are never enumerated.
     ///
     /// Sources: HR and HRV follow the live values' strict resolution. The two
     /// totals follow the compute's movement rule (`WatchDeltaFetcher`):
@@ -276,16 +279,30 @@ actor WatchHealthStore {
             sourcePredicate: sourcePredicate
         )
 
+        if query.aggregation == .discrete {
+            switch await BodyHealthQuantityFetch.intradayRangeBuckets(
+                store: store,
+                quantityType: type,
+                predicate: predicate,
+                unit: query.unit,
+                start: window.start,
+                end: window.end
+            ) {
+            case .success(let buckets):
+                return buckets
+            case .failure:
+                // A locked (off wrist) watch has the query fail; keep the chart.
+                return nil
+            }
+        }
+
         var interval = DateComponents()
         interval.minute = Int(WatchIntradayWindow.slotLength / 60)
-        let options: HKStatisticsOptions = query.aggregation == .discrete
-            ? [.discreteAverage, .discreteMin, .discreteMax]
-            : .cumulativeSum
         let outcome = await store.statisticsCollection(
             BodyStatisticsCollectionRequest(
                 quantityType: type,
                 predicate: predicate,
-                options: options,
+                options: .cumulativeSum,
                 anchorDate: window.start,
                 intervalComponents: interval
             )
@@ -299,24 +316,13 @@ actor WatchHealthStore {
         let transform = HealthMetricQueryDescriptor.descriptor(for: query.metricKind)?.valueTransform ?? { $0 }
         var buckets: [WatchIntradayBucket] = []
         collection.enumerateStatistics(from: window.start, to: window.end) { statistics, _ in
-            switch query.aggregation {
-            case .discrete:
-                guard let average = statistics.averageQuantity()?.doubleValue(for: unit),
-                      let minimum = statistics.minimumQuantity()?.doubleValue(for: unit),
-                      let maximum = statistics.maximumQuantity()?.doubleValue(for: unit),
-                      average.isFinite, minimum.isFinite, maximum.isFinite else {
-                    return
-                }
-                buckets.append(WatchIntradayBucket(start: statistics.startDate, minimum: minimum, maximum: maximum, average: average))
-            case .cumulativeSum:
-                guard let raw = statistics.sumQuantity()?.doubleValue(for: unit) else { return }
-                var sum = transform(raw)
-                guard sum.isFinite, sum > 0 else { return }
-                if query.isEnergy {
-                    sum = BodyValueFormat.energyValue(kilocalories: sum, energyUnitPreference: energyUnitPreference).value
-                }
-                buckets.append(WatchIntradayBucket(start: statistics.startDate, minimum: sum, maximum: sum, average: sum))
+            guard let raw = statistics.sumQuantity()?.doubleValue(for: unit) else { return }
+            var sum = transform(raw)
+            guard sum.isFinite, sum > 0 else { return }
+            if query.isEnergy {
+                sum = BodyValueFormat.energyValue(kilocalories: sum, energyUnitPreference: energyUnitPreference).value
             }
+            buckets.append(WatchIntradayBucket(start: statistics.startDate, minimum: sum, maximum: sum, average: sum))
         }
 
         return buckets

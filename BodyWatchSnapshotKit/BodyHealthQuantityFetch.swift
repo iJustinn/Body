@@ -562,4 +562,67 @@ enum BodyHealthQuantityFetch {
             return .success(HealthTrendRangeSeries(points: points))
         }
     }
+
+    /// One bucket per 30 minute slot over `[start, end]`, the "Last 8 hours"
+    /// slots behind the watch's Heart Rate and HRV detail pages
+    /// (`WatchHealthStore.intradayBuckets`) and their chart complications
+    /// (`WatchMetricsSnapshot.heartCharts`, read by the watch compute), so a
+    /// complication never charts a slot its page doesn't. The same average +
+    /// min + max collection as `dailyQuantityRangeSeries`, anchored at `start`
+    /// (the window's oldest slot start, already on the local half hour) with
+    /// `WatchIntradayWindow.slotLength` intervals. A statistics query resolves
+    /// the `HKQuantitySeries` a workout stores its heart rate in beat by beat,
+    /// where a sample query would return one entry per series. A slot gets a
+    /// bucket only when its minimum, maximum AND average are all present and
+    /// finite, dated at the slot's start; a slot without readings is never
+    /// built.
+    static func intradayRangeBuckets(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        start: Date,
+        end: Date,
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<[WatchIntradayBucket]> {
+        var intervalComponents = DateComponents()
+        intervalComponents.minute = Int(WatchIntradayWindow.slotLength / 60)
+
+        switch await store.dailyQuantityRanges(
+            BodyStatisticsCollectionRequest(
+                quantityType: quantityType,
+                predicate: predicate,
+                options: [.discreteAverage, .discreteMin, .discreteMax],
+                anchorDate: start,
+                intervalComponents: intervalComponents
+            ), from: start, to: end
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let ranges):
+            var buckets: [WatchIntradayBucket] = []
+            for dated in ranges {
+                guard let minimum = dated.minimum?.doubleValue(for: unit),
+                      let maximum = dated.maximum?.doubleValue(for: unit),
+                      let average = dated.average?.doubleValue(for: unit),
+                      minimum.isFinite, maximum.isFinite, average.isFinite else {
+                    continue
+                }
+
+                buckets.append(
+                    WatchIntradayBucket(
+                        start: dated.date,
+                        minimum: minimum,
+                        maximum: maximum,
+                        average: average
+                    )
+                )
+            }
+
+            return .success(buckets)
+        }
+    }
 }

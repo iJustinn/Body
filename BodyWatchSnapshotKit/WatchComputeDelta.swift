@@ -30,6 +30,14 @@ struct WatchComputeDelta {
     /// so a failed range read keeps the seed's capsules and never blocks a score.
     var heartRateRanges: WatchFetchOutcome<HealthTrendRangeSeries> = .failure
     var heartRateVariabilityRanges: WatchFetchOutcome<HealthTrendRangeSeries> = .failure
+    /// The Heart Rate and HRV chart complications' last 8 hours
+    /// (`WatchMetricsSnapshot.heartCharts`), in the detail pages' 30 minute
+    /// slots. Display only: never a Readiness or Stress input, so a failed
+    /// read blocks nothing. `.success` with an empty chart means the read ran
+    /// and found nothing, which removes the displayed chart; `.failure` means
+    /// it failed or was skipped, which keeps what's displayed.
+    var heartRateIntraday: WatchFetchOutcome<WatchIntradayChart> = .failure
+    var heartRateVariabilityIntraday: WatchFetchOutcome<WatchIntradayChart> = .failure
     var respiratoryRateSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var oxygenSaturationSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var wristTemperatureSeries: WatchFetchOutcome<HealthTrendSeries> = .failure

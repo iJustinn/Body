@@ -8,14 +8,17 @@
 //  the iOS `HealthKitFetchEngine` also calls (`BodyHealthSourceResolver`,
 //  `BodyHealthQuantityFetch`, `BodyRestingEnergyEstimates`,
 //  `BodyHeartbeatRMSSDFetch`, `BodySleepFetch`, `BodyWorkoutFetch`,
-//  `BodyWorkoutEffortFetcher`). One leaf is not called by the phone yet:
+//  `BodyWorkoutEffortFetcher`). Two leaves are not called by the phone yet:
 //  `BodyHealthQuantityFetch.dailyCumulativeSeries`, the week of daily totals
 //  behind the Steps, Active Energy and Resting Energy cards, which mirrors the
 //  engine's `fetchDailyCumulativeQuantitySeries` and shares its resting energy
-//  estimate fold. This file owns no query logic of its own — a hand-forked
-//  watch fetch layer drifted from the phone within a day in the June 2026
-//  standalone-compute attempt (a 26-hour night), and this file exists
-//  precisely so there is nothing left to drift.
+//  estimate fold; and `BodyHealthQuantityFetch.intradayRangeBuckets`, the 30
+//  minute slots behind the Heart Rate and HRV chart complications, which the
+//  watch's own detail pages read through too (`WatchHealthStore`), so a
+//  complication and its page chart the same slots. This file owns no query
+//  logic of its own — a hand-forked watch fetch layer drifted from the phone
+//  within a day in the June 2026 standalone-compute attempt (a 26-hour
+//  night), and this file exists precisely so there is nothing left to drift.
 //
 //  Two rules run through everything here:
 //  * Source parity — every source-selectable read resolves the PHONE's synced
@@ -194,6 +197,16 @@ actor WatchDeltaFetcher {
             .activeEnergy, reads: movementReads,
             start: stressStart, end: now, calendar: calendar
         )
+        // The Heart Rate and HRV chart complications: the detail pages'
+        // "Last 8 hours" read, in the same 30 minute slots on the same
+        // window, under the kinds' resolution above (see `intradayChart`).
+        let intradayWindow = WatchIntradayWindow.endingAt(now, calendar: calendar)
+        async let heartRateIntraday = intradayChart(
+            .heartRate, reads: reads, window: intradayWindow
+        )
+        async let heartRateVariabilityIntraday = intradayChart(
+            .heartRateVariability, reads: reads, window: intradayWindow
+        )
         // The Steps, Active Energy and Resting Energy cards: a fixed trailing
         // week of daily totals, today included, so every day the 7 day bars
         // draw sits inside the query (see `weeklyTotalSeries`).
@@ -235,6 +248,9 @@ actor WatchDeltaFetcher {
         delta.stressRMSSDSamples = await stressRMSSDSamples
         delta.stressQuarterHourSteps = await stressQuarterHourSteps
         delta.stressQuarterHourActiveEnergy = await stressQuarterHourActiveEnergy
+
+        delta.heartRateIntraday = await heartRateIntraday
+        delta.heartRateVariabilityIntraday = await heartRateVariabilityIntraday
 
         delta.stepsWeek = await stepsWeek
         delta.activeEnergyWeek = await activeEnergyWeek
@@ -464,6 +480,52 @@ actor WatchDeltaFetcher {
             calendar: calendar,
             valueTransform: descriptor.valueTransform
         )
+    }
+
+    // MARK: - Chart complications
+
+    /// A Heart Rate or HRV chart complication's last 8 hours: the detail
+    /// page's read (`WatchHealthStore.intradayBuckets`) through the same
+    /// shared leaf, with the descriptor's type and unit (SDNN in ms for HRV,
+    /// as on the page) under the kind's resolution in `reads`. The predicate
+    /// is the page's own, open ended on purpose (`endDate: nil`), so a heart
+    /// rate series that started before the window still contributes its
+    /// in-window beats. A kind with no source on this watch at all
+    /// (`.unavailable`) reads as an empty chart, as the page's does, which
+    /// removes the displayed one. A skipped resolution (Heart off, or a
+    /// selection this watch can't match), a missing read or a failed query
+    /// leaves `.failure`, which keeps it.
+    private func intradayChart(
+        _ kind: HealthMetricKind,
+        reads: [HealthMetricKind: WatchSourceRead],
+        window: WatchIntradayWindow
+    ) async -> WatchFetchOutcome<WatchIntradayChart> {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType) else {
+            return .failure
+        }
+
+        switch reads[descriptor.sourceKind] {
+        case .run(let resolvedSourcePredicate):
+            let outcome = await BodyHealthQuantityFetch.intradayRangeBuckets(
+                store: store,
+                quantityType: quantityType,
+                predicate: BodyHealthSourceResolver.combinedPredicate(
+                    startDate: window.start,
+                    endDate: nil,
+                    sourcePredicate: resolvedSourcePredicate
+                ),
+                unit: descriptor.unit,
+                start: window.start,
+                end: window.end
+            )
+            guard case .success(let buckets) = outcome else { return .failure }
+            return .success(WatchIntradayChart(window: window, buckets: buckets))
+        case .unavailable:
+            return .success(WatchIntradayChart(window: window, buckets: []))
+        default:
+            return .failure
+        }
     }
 
     // MARK: - Daily totals
