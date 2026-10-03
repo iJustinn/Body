@@ -427,6 +427,7 @@ struct BodyHealthMetricDetailView: View {
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
     @AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true
     @AppStorage(BodyAppearancePreference.sleepStageBreakdownShowsOptimalRangesKey) private var sleepStageShowsOptimalRanges = true
+    @AppStorage(BodyAppearancePreference.stressDayBreakdownShowsBarKey) private var stressBreakdownShowsBar = false
     @AppStorage(BodyAppearancePreference.metricDayViewSelectionKey) private var metricDayViewSelectionRawValue = BodyMetricDayViewSelection.defaultRawValue
     @AppStorage(BodyAppearancePreference.hrvDetailDisplayKindKey) private var hrvDetailDisplayKindRawValue = BodyHRVDisplayKind.defaultValue.rawValue
     @AppStorage(BodyAppearancePreference.metricWarningsKey) private var metricWarningSelectionRawValue = BodyMetricWarningSelection.defaultRawValue
@@ -2667,13 +2668,28 @@ struct BodyHealthMetricDetailView: View {
             }
 
             // The band breakdown lives in this card rather than its own: the rows
-            // read the same day the plot above them draws.
+            // read the same day the plot above them draws. A tap switches them to
+            // one bar and back, like the Sleep Stages breakdown, and the pick sticks.
             if model.kind == .stress,
                stressWindows.contains(where: { $0.isScored || $0.state == .activity }) {
-                BodyStressDayBreakdownRows(
-                    summary: selectedStressDaySummary,
-                    recordedDays: workoutStore.healthTrends.recordedStressDays
-                )
+                Button {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                        stressBreakdownShowsBar.toggle()
+                    }
+                } label: {
+                    BodyStressDayBreakdownRows(
+                        summary: selectedStressDaySummary,
+                        recordedDays: workoutStore.healthTrends.recordedStressDays,
+                        showsBar: stressBreakdownShowsBar
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(BodyStressDayBreakdownRows.accessibilityLabel(for: selectedStressDaySummary))
+                // `Text`, not bare literals: a ternary of literals can pick the
+                // String overload, which would read the dotted key aloud.
+                .accessibilityValue(stressBreakdownShowsBar ? Text("stress.stage.showingBar") : Text("stress.stage.showingRows"))
+                .accessibilityHint(Text("stress.stage.switchHint"))
                 .padding(.top, -14)
             }
         }

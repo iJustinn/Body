@@ -968,11 +968,16 @@ private struct BodyStressIntradayRenderPlot: View, Animatable {
 /// masked denominator and the rows account for the whole measured day. There is no
 /// "optimal" stress band, so the dashed boxes read as the user's OWN typical share
 /// of each band rather than a target — and the Activity row has none at all.
+///
+/// `showsBar` draws the same five instead as one bar, the Day and Night card's,
+/// with each one's share and time in a column under it. The detail page switches
+/// between the two on a tap, like the Sleep Stages breakdown.
 struct BodyStressDayBreakdownRows: View {
     let summary: StressDaySummary?
     /// The recorded history the personal baseline is computed from. Empty (the
     /// default) simply means no boxes.
     var recordedDays: [StressDaySummary] = []
+    var showsBar = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -1013,6 +1018,10 @@ struct BodyStressDayBreakdownRows: View {
     }
 
     private var rows: [Row] {
+        Self.rows(for: summary, baselineShares: baselineShares)
+    }
+
+    private static func rows(for summary: StressDaySummary?, baselineShares: [StressBand: Double]?) -> [Row] {
         let bandRows = StressBand.displayOrder.map { band in
             Row(
                 id: band.rawValue,
@@ -1042,10 +1051,44 @@ struct BodyStressDayBreakdownRows: View {
             }
     }
 
+    /// The detail page wraps this view in its tap-to-switch Button, which reads as
+    /// one VoiceOver element, so this spells out each row's share and time, as the
+    /// Sleep Stages breakdown's label does.
+    static func accessibilityLabel(for summary: StressDaySummary?) -> String {
+        let total = summary?.totalMeasuredMinutes ?? 0
+        guard total > 0 else {
+            return String(localized: "No Stress yet today")
+        }
+
+        let descriptions = rows(for: summary, baselineShares: nil).map { row in
+            let percent = Int((Double(row.minutes) / Double(total) * 100).rounded())
+            return String(localized: "\(row.label) \(percent) percent, \(BodyValueFormat.durationText(for: TimeInterval(row.minutes) * 60))")
+        }
+        return String(localized: "stress.stage.breakdownAccessibility \(descriptions.joined(separator: ". "))")
+    }
+
     @ViewBuilder
     private var content: some View {
         if totalMinutes == 0 {
             emptyState
+        } else if showsBar {
+            VStack(alignment: .leading, spacing: 14) {
+                BodyStressDayNightBar(
+                    segments: rows.map { BodyStressDayNightBar.Segment(id: $0.id, color: $0.color, minutes: $0.minutes) }
+                )
+
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        if index > 0 {
+                            Spacer(minLength: 4)
+                        }
+
+                        barColumn(row)
+                    }
+                }
+
+                legend
+            }
         } else {
             VStack(alignment: .leading, spacing: 12) {
                 header
@@ -1115,6 +1158,45 @@ struct BodyStressDayBreakdownRows: View {
         .accessibilityLabel("\(row.label), \(percentText), \(durationText)")
     }
 
+    /// One row's column under the bar, in the Sleep Stages durations view's
+    /// language: a stripe in its color over its name, share and time. The time
+    /// sits a size below the name, since zh-Hans times like "10小时30分" are the
+    /// widest thing in a column; at that size a typical day's five fit a 375 pt
+    /// phone at full size. Nothing is fixed size, so a wider day or larger text
+    /// shrinks a little rather than spills.
+    private func barColumn(_ row: Row) -> some View {
+        let fraction = totalMinutes > 0 ? Double(row.minutes) / Double(totalMinutes) : 0
+        let percentText = "\(Int((fraction * 100).rounded()))%"
+        let durationText = BodyValueFormat.durationText(for: TimeInterval(row.minutes) * 60)
+
+        return VStack(spacing: 5) {
+            Rectangle()
+                .fill(row.color)
+                .frame(width: 28, height: 3)
+                .padding(.bottom, 2)
+
+            Text(row.label)
+                .font(.system(.caption, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+
+            Text(percentText)
+                .font(.system(.callout, design: .rounded))
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
+                .bodyLegendNumberFlip(value: percentText)
+
+            Text(durationText)
+                .font(.system(.caption2, design: .rounded))
+                .fontWeight(.bold)
+                .foregroundColor(.secondary)
+                .bodyLegendNumberFlip(value: durationText)
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .accessibilityElement(children: .combine)
+    }
+
     /// Sleep's column-title row, reusing its already-localized "Stage"/"Pct."/
     /// "Duration" strings so the two breakdowns stay word-for-word consistent.
     private var header: some View {
@@ -1178,11 +1260,12 @@ struct BodyStressDayBreakdownRows: View {
             )
     }
 
-    /// The baseline swatch half only appears once a baseline exists, but the
-    /// trailing axis caption always renders — sleep's legend row, adapted.
+    /// The baseline swatch half only appears once a baseline exists, and only
+    /// beside the rows that draw its boxes, but the trailing axis caption always
+    /// renders — sleep's legend row, adapted.
     private var legend: some View {
         HStack(spacing: 8) {
-            if baselineShares != nil {
+            if !showsBar, baselineShares != nil {
                 baselineBox
                     .frame(width: 22, height: 14)
 

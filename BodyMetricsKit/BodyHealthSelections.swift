@@ -37,6 +37,9 @@ enum BodyAppearancePreference {
     static let workoutRouteStyleKey = "workoutRouteStyle"
     static let drawsWorkoutRouteOnLoadKey = "drawsWorkoutRouteOnLoad"
     static let sleepStageBreakdownShowsOptimalRangesKey = "sleepStageBreakdownShowsOptimalRanges"
+    /// Whether the Stress Day View shows its breakdown as one bar instead of
+    /// rows. Default false.
+    static let stressDayBreakdownShowsBarKey = "stressDayBreakdownShowsBar"
     static let workoutsChartShowsTypeBreakdownKey = "workoutsChartShowsTypeBreakdown"
     static let homeCardOrderKey = "homeCardOrder"
     static let summaryCardSelectionKey = "summaryCardSelection"

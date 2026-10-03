@@ -1004,6 +1004,10 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "stress.status.noData",
             "stress.stage.activity",
             "stress.stage.baselineLegend",
+            "stress.stage.breakdownAccessibility %@",
+            "stress.stage.showingBar",
+            "stress.stage.showingRows",
+            "stress.stage.switchHint",
             "No Stress yet today"
         ]
 
