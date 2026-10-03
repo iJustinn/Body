@@ -91,7 +91,7 @@ final class WatchPageScreenshotTests: XCTestCase {
             WatchMetricDetailView(metric: metric, generatedAt: now, referenceDate: now)
                 .frame(width: screen.width, height: screen.height)
             chart()
-                .frame(height: 86)
+                .frame(height: WatchMetricDetailView.intradayChartHeight(forKind: metric.kind))
                 .padding(.top, 10)
                 .padding(.bottom, 12)
                 .padding(.horizontal, 8)

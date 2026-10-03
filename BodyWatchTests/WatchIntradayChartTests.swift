@@ -7,8 +7,9 @@
 //  half hour slot, the average line breaks across an hour without readings,
 //  the value axis keeps every mark inside it (and starts at zero for the daily
 //  totals' bars), hour labels sit on even local hours away from the plot's
-//  edges, the daily total kinds take the bar style, and only those four pages
-//  show a chart.
+//  edges, the daily total kinds take the bar style, only those four pages
+//  show a chart, and the Heart Rate, HRV and Stress charts stand about half
+//  again as tall as the page's other charts.
 //
 
 import XCTest
@@ -192,6 +193,15 @@ final class WatchIntradayChartTests: XCTestCase {
             WatchMetricKindKey.stress, WatchMetricKindKey.wristTemperature, WatchMetricKindKey.restingEnergy
         ] {
             XCTAssertNil(WatchMetricDetailView.intradayChart(filled, kind: kind), kind)
+        }
+    }
+
+    func testHeartAndStressChartsStandTaller() {
+        for kind in [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability, WatchMetricKindKey.stress] {
+            XCTAssertEqual(WatchMetricDetailView.intradayChartHeight(forKind: kind), 130, kind)
+        }
+        for kind in [WatchMetricKindKey.steps, WatchMetricKindKey.activeEnergy, WatchMetricKindKey.restingEnergy] {
+            XCTAssertEqual(WatchMetricDetailView.intradayChartHeight(forKind: kind), 86, kind)
         }
     }
 

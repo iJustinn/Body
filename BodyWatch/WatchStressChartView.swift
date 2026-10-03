@@ -349,7 +349,7 @@ extension WatchStressTimeline {
     return ZStack {
         Color.black.ignoresSafeArea()
         WatchStressChartView(timeline: .preview(now: now), now: now, palette: .builtIn)
-            .frame(height: 86)
+            .frame(height: 130)
             .padding(.horizontal, 8)
     }
 }

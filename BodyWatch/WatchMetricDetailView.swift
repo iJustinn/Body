@@ -29,7 +29,8 @@
 //  totals (Resting Energy has none, like the iPhone). The Stress page scrolls
 //  the same way whenever the snapshot's Stress timeline has a window in the
 //  last 12 hours, adding its own "Last 12 hours" chart (`WatchStressChartView`)
-//  below its value row.
+//  below its value row. The Heart Rate, HRV and Stress charts stand about half
+//  again as tall as the page's other charts, the Steps and Active Energy ones as tall.
 //  The
 //  tint fill is the page's own background so it slides with the vertical
 //  pager, giving a smooth color transition between metrics. Display-only: it
@@ -191,6 +192,14 @@ struct WatchMetricDetailView: View {
         return chart
     }
 
+    /// The height of the page's "Last 8 hours" or "Last 12 hours" chart:
+    /// 130 points on Heart Rate, HRV and Stress, about half again the page's
+    /// other charts' 86, and 86 on Steps and Active Energy.
+    static func intradayChartHeight(forKind kind: String) -> CGFloat {
+        let tallKinds = [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability, WatchMetricKindKey.stress]
+        return tallKinds.contains(kind) ? 130 : 86
+    }
+
     private var visibleIntradayChart: WatchIntradayChart? {
         Self.intradayChart(intradayChart, kind: metric.kind)
     }
@@ -255,7 +264,7 @@ struct WatchMetricDetailView: View {
                                 tint: pageTint,
                                 style: .style(forKind: metric.kind)
                             )
-                                .frame(height: 86)
+                                .frame(height: Self.intradayChartHeight(forKind: metric.kind))
                                 .padding(.top, 10)
                                 .padding(.bottom, 12)
                         }
@@ -266,7 +275,7 @@ struct WatchMetricDetailView: View {
                                 now: referenceDate,
                                 palette: BodyWorkoutColorPalette(rawOverrides: workoutColorOverrides ?? "", isProUnlocked: true)
                             )
-                            .frame(height: 86)
+                            .frame(height: Self.intradayChartHeight(forKind: metric.kind))
                             .padding(.top, 10)
                             .padding(.bottom, 12)
                         }

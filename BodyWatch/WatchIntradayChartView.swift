@@ -306,7 +306,7 @@ struct WatchIntradayChartView: View {
             chart: .preview(kind: WatchMetricKindKey.heartRate),
             tint: Color(WatchMetricKindKey.tint(forKind: WatchMetricKindKey.heartRate))
         )
-        .frame(height: 86)
+        .frame(height: 130)
         .padding(.horizontal, 8)
     }
 }
@@ -318,7 +318,7 @@ struct WatchIntradayChartView: View {
             chart: .preview(kind: WatchMetricKindKey.heartRateVariability),
             tint: Color(WatchMetricKindKey.tint(forKind: WatchMetricKindKey.heartRateVariability))
         )
-        .frame(height: 86)
+        .frame(height: 130)
         .padding(.horizontal, 8)
     }
 }
