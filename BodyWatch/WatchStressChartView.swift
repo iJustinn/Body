@@ -12,7 +12,9 @@
 //  grid with no value labels, then per 15 minute window a faint column under
 //  a capsule in the band color, or a gray floor stub for a window masked as
 //  movement. An unscored window is a gap. Every constant comes from
-//  `StressChartStyle` and `StressBand.rgbComponents`, so the two can't drift.
+//  `StressChartStyle` and `StressBand.rgbComponents`, so the two can't drift,
+//  and the window, marks and shading spans from `WatchStressChartGeometry`,
+//  which the Stress chart complication shares.
 //  Display-only: no selection or scrubbing. Reads the snapshot's
 //  `stressTimeline`, which the phone pushes or the watch recomputes.
 //
@@ -29,30 +31,11 @@ struct WatchStressChartView: View {
     /// Workout shading colors, the phone's custom colors included.
     let palette: BodyWorkoutColorPalette
 
-    /// How far back the chart reaches: 12 hours, against the Heart Rate and
-    /// HRV charts' 8.
-    static let windowLength: TimeInterval = 12 * 60 * 60
-
     /// The row above the plot the band symbols sit in.
     private static let symbolRowHeight: CGFloat = 12
     private static let symbolSize: CGFloat = 11
     /// The row below the plot the hour labels sit in.
     private static let labelRowHeight: CGFloat = 14
-
-    /// One window drawn on the chart: its span as fractions of the domain,
-    /// clamped to it, and what it shows (never `.none`, which is a gap).
-    struct Mark: Equatable {
-        let xStart: Double
-        let xEnd: Double
-        let slot: WatchStressTimeline.Slot
-    }
-
-    /// One shaded stretch clipped to the domain, as fractions of it.
-    struct ContextSpan: Equatable {
-        let xStart: Double
-        let xEnd: Double
-        let band: WatchStressContextBand
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -63,17 +46,17 @@ struct WatchStressChartView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Canvas { context, size in
-                let domain = Self.domain(endingAt: now)
+                let domain = WatchStressChartGeometry.domain(endingAt: now)
                 let plotRect = CGRect(
                     x: 0,
                     y: Self.symbolRowHeight,
                     width: size.width,
                     height: max(0, size.height - Self.symbolRowHeight - Self.labelRowHeight)
                 )
-                drawContextBands(Self.contextSpans(in: timeline, domain: domain), in: plotRect, context: &context)
+                drawContextBands(WatchStressChartGeometry.contextSpans(in: timeline, domain: domain), in: plotRect, context: &context)
                 drawGrid(in: plotRect, context: &context)
-                drawMarks(Self.marks(in: timeline, domain: domain), in: plotRect, context: &context)
-                drawHourLabels(Self.ticks(endingAt: now), domain: domain, in: plotRect, context: &context)
+                drawMarks(WatchStressChartGeometry.marks(in: timeline, domain: domain), in: plotRect, context: &context)
+                drawHourLabels(WatchStressChartGeometry.ticks(endingAt: now), domain: domain, in: plotRect, context: &context)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -86,7 +69,7 @@ struct WatchStressChartView: View {
     /// and a bold symbol centered above the band, kept whole at the plot's
     /// edges (a band clipped at the window's start would otherwise draw half
     /// a symbol).
-    private func drawContextBands(_ spans: [ContextSpan], in plotRect: CGRect, context: inout GraphicsContext) {
+    private func drawContextBands(_ spans: [WatchStressChartGeometry.ContextSpan], in plotRect: CGRect, context: inout GraphicsContext) {
         let stripeHeight = max(
             CGFloat(StressChartStyle.topStripeMinimumHeight),
             plotRect.height * CGFloat(StressChartStyle.topStripeHeightRatio)
@@ -149,7 +132,7 @@ struct WatchStressChartView: View {
     private func drawGrid(in plotRect: CGRect, context: inout GraphicsContext) {
         var grid = Path()
         for fraction in StressChartStyle.gridFractions {
-            let y = Self.y(forScore: fraction * 100, in: plotRect)
+            let y = WatchStressChartGeometry.y(forScore: fraction * 100, in: plotRect)
             grid.move(to: CGPoint(x: plotRect.minX, y: y))
             grid.addLine(to: CGPoint(x: plotRect.maxX, y: y))
         }
@@ -166,14 +149,20 @@ struct WatchStressChartView: View {
     /// A scored window: a faint column from the score to the floor under a
     /// capsule centered on the score, both in the band color. An activity
     /// window: a gray stub on the floor.
-    private func drawMarks(_ marks: [Mark], in plotRect: CGRect, context: inout GraphicsContext) {
+    private func drawMarks(_ marks: [WatchStressChartGeometry.Mark], in plotRect: CGRect, context: inout GraphicsContext) {
         for mark in marks {
-            let span = Self.markSpan(xStart: mark.xStart, xEnd: mark.xEnd, in: plotRect)
+            let span = WatchStressChartGeometry.markSpan(
+                xStart: mark.xStart,
+                xEnd: mark.xEnd,
+                in: plotRect,
+                inset: CGFloat(StressChartStyle.markHorizontalInset),
+                minimumWidth: CGFloat(StressChartStyle.markMinimumWidth)
+            )
             switch mark.slot {
             case let .scored(score):
                 let rgb = StressBand.band(for: score).rgbComponents
                 let color = Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
-                let valueY = Self.y(forScore: Double(score), in: plotRect)
+                let valueY = WatchStressChartGeometry.y(forScore: Double(score), in: plotRect)
                 context.fill(
                     Path(
                         roundedRect: CGRect(x: span.x, y: valueY, width: span.width, height: max(0, plotRect.maxY - valueY)),
@@ -214,82 +203,11 @@ struct WatchStressChartView: View {
                         .foregroundStyle(.white.opacity(0.85))
                 ),
                 at: CGPoint(
-                    x: plotRect.minX + plotRect.width * CGFloat(Self.fraction(for: tick, in: domain)),
+                    x: plotRect.minX + plotRect.width * CGFloat(WatchIntradayChartGeometry.fraction(for: tick, in: domain)),
                     y: plotRect.maxY + Self.labelRowHeight / 2
                 )
             )
         }
-    }
-
-    // MARK: - Geometry
-
-    /// The x domain: the Heart Rate and HRV charts' window ending at `now`,
-    /// opened `windowLength` back, from its oldest slot's start through the
-    /// current slot's end.
-    static func domain(endingAt now: Date, calendar: Calendar = .current) -> ClosedRange<Date> {
-        let window = WatchIntradayWindow.endingAt(now, length: windowLength, calendar: calendar)
-        return window.start...window.plotEnd
-    }
-
-    /// The Heart Rate and HRV charts' hour labels, over this chart's window.
-    static func ticks(endingAt now: Date, calendar: Calendar = .current) -> [Date] {
-        WatchIntradayChartView.hourTicks(in: domain(endingAt: now, calendar: calendar), calendar: calendar)
-    }
-
-    /// Where `date` falls across the domain, clamped to 0...1.
-    static func fraction(for date: Date, in domain: ClosedRange<Date>) -> Double {
-        let span = domain.upperBound.timeIntervalSince(domain.lowerBound)
-        guard span > 0 else { return 0 }
-        return min(1, max(0, date.timeIntervalSince(domain.lowerBound) / span))
-    }
-
-    /// The scored and activity windows that overlap the domain, oldest first,
-    /// clipped to it. Unscored windows are gaps, so they never appear, and a
-    /// window cut to nothing at the timeline's `end` is skipped.
-    static func marks(in timeline: WatchStressTimeline, domain: ClosedRange<Date>) -> [Mark] {
-        timeline.slots.indices.compactMap { index -> Mark? in
-            let slot = timeline.slot(at: index)
-            if case .none = slot { return nil }
-            let interval = timeline.interval(at: index)
-            guard interval.duration > 0,
-                  interval.end > domain.lowerBound,
-                  interval.start < domain.upperBound else { return nil }
-            return Mark(
-                xStart: fraction(for: interval.start, in: domain),
-                xEnd: fraction(for: interval.end, in: domain),
-                slot: slot
-            )
-        }
-    }
-
-    /// The context bands that overlap the domain, clipped to it.
-    static func contextSpans(in timeline: WatchStressTimeline, domain: ClosedRange<Date>) -> [ContextSpan] {
-        timeline.context.compactMap { band -> ContextSpan? in
-            let xStart = fraction(for: band.start, in: domain)
-            let xEnd = fraction(for: band.end, in: domain)
-            guard xEnd > xStart else { return nil }
-            return ContextSpan(xStart: xStart, xEnd: xEnd, band: band)
-        }
-    }
-
-    /// Whether the window ending at `now` has anything to draw: the Stress
-    /// page shows the chart, and scrolls, only then.
-    static func hasVisibleMarks(_ timeline: WatchStressTimeline, endingAt now: Date, calendar: Calendar = .current) -> Bool {
-        !marks(in: timeline, domain: domain(endingAt: now, calendar: calendar)).isEmpty
-    }
-
-    /// A score's height in the plot: 0 on the floor, 100 at the top, clamped.
-    static func y(forScore score: Double, in plotRect: CGRect) -> CGFloat {
-        plotRect.maxY - plotRect.height * CGFloat(min(1, max(0, score / 100)))
-    }
-
-    /// A window's mark across the plot, inset on each side so neighbors don't
-    /// touch, but never narrower than `StressChartStyle.markMinimumWidth`.
-    static func markSpan(xStart: Double, xEnd: Double, in plotRect: CGRect) -> (x: CGFloat, width: CGFloat) {
-        let inset = CGFloat(StressChartStyle.markHorizontalInset)
-        let leading = plotRect.minX + plotRect.width * CGFloat(xStart) + inset
-        let trailing = plotRect.minX + plotRect.width * CGFloat(xEnd) - inset
-        return (leading, max(CGFloat(StressChartStyle.markMinimumWidth), trailing - leading))
     }
 }
 

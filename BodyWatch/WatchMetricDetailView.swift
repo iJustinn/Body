@@ -211,7 +211,7 @@ struct WatchMetricDetailView: View {
     /// here, so it needs no sanitize rule).
     static func stressTimeline(_ timeline: WatchStressTimeline?, kind: String, now: Date, calendar: Calendar = .current) -> WatchStressTimeline? {
         guard kind == WatchMetricKindKey.stress, let timeline,
-              WatchStressChartView.hasVisibleMarks(timeline, endingAt: now, calendar: calendar) else { return nil }
+              WatchStressChartGeometry.hasVisibleMarks(timeline, endingAt: now, calendar: calendar) else { return nil }
         return timeline
     }
 

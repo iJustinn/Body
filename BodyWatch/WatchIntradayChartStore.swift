@@ -12,70 +12,15 @@
 //
 //  The read itself is injected (`Load`): production wires it to
 //  `WatchMetricsModel.readIntradayBuckets`, which owns the per kind permission
-//  gate and the source resolution; tests script it.
+//  gate and the source resolution; tests script it. The slot types it holds
+//  (`WatchIntradayBucket`, `WatchIntradayWindow`, `WatchIntradayChart`) live
+//  in BodyWatchShared/Models/WatchIntradayChart.swift, shared with the chart
+//  complications.
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
 
 import Foundation
-
-/// One 30 minute slot of readings, in the metric's display unit (bpm for
-/// Heart Rate, ms for HRV, steps, kcal or kJ for the energies). Slots without
-/// a reading are never built. For the daily total kinds (Steps, Active Energy)
-/// a slot has one number, its sum, carried in all three fields; the chart's
-/// `.totals` style reads `average`.
-struct WatchIntradayBucket: Equatable, Sendable {
-    let start: Date
-    let minimum: Double
-    let maximum: Double
-    let average: Double
-
-    /// Where the slot is plotted: its middle, so a slot's mark sits between
-    /// its own edges rather than on the next slot's start.
-    var midpoint: Date {
-        start.addingTimeInterval(WatchIntradayWindow.slotLength / 2)
-    }
-}
-
-/// The rolling window one read covers. Slots are aligned to the local half
-/// hour, so the window opens 8 hours before the CURRENT slot's start: the
-/// oldest slot is always whole and only the current one is partial.
-struct WatchIntradayWindow: Equatable, Sendable {
-    static let slotLength: TimeInterval = 30 * 60
-    static let length: TimeInterval = 8 * 60 * 60
-
-    /// The oldest slot's start, also the HealthKit query's anchor.
-    let start: Date
-    /// When the read ran: the query covers `start...end`.
-    let end: Date
-    /// The current slot's end, the chart's right edge, so the current slot's
-    /// midpoint is never drawn past the plot.
-    let plotEnd: Date
-
-    /// The window ending at `now`. The current slot starts at the local hour's
-    /// start plus whole 30 minute steps, not at a whole multiple of 30 minutes
-    /// since the reference date: a +5:45 zone would otherwise put the slot
-    /// edges at :15 and :45, and an hour shortened by a DST change would drift
-    /// them. `length` is how far back it opens: the Heart Rate and HRV charts'
-    /// 8 hours by default, the Stress chart's 12.
-    static func endingAt(_ now: Date, length: TimeInterval = Self.length, calendar: Calendar = .current) -> WatchIntradayWindow {
-        let hourStart = calendar.dateInterval(of: .hour, for: now)?.start ?? now
-        let offset = max(0, now.timeIntervalSince(hourStart))
-        let slotStart = hourStart.addingTimeInterval((offset / slotLength).rounded(.down) * slotLength)
-        return WatchIntradayWindow(
-            start: slotStart.addingTimeInterval(-length),
-            end: now,
-            plotEnd: slotStart.addingTimeInterval(slotLength)
-        )
-    }
-}
-
-/// One finished read: the window it covered and the slots that had readings
-/// (never empty; an empty read removes the chart instead).
-struct WatchIntradayChart: Equatable, Sendable {
-    let window: WatchIntradayWindow
-    let buckets: [WatchIntradayBucket]
-}
 
 @MainActor
 final class WatchIntradayChartStore: ObservableObject {

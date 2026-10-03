@@ -26,7 +26,7 @@ final class WatchStressChartTests: XCTestCase {
 
     /// 15:07: the window runs 03:00 to 15:30.
     private var now: Date { date(15, 7) }
-    private var domain: ClosedRange<Date> { WatchStressChartView.domain(endingAt: now, calendar: calendar) }
+    private var domain: ClosedRange<Date> { WatchStressChartGeometry.domain(endingAt: now, calendar: calendar) }
 
     private func timeline(start: Date, slots: [Int?], end: Date? = nil, context: [WatchStressContextBand] = []) -> WatchStressTimeline {
         WatchStressTimeline(
@@ -41,7 +41,7 @@ final class WatchStressChartTests: XCTestCase {
     // MARK: - Window and ticks
 
     func testDomainIsTheIntradayWindowOpenedTwelveHoursBack() {
-        let window = WatchIntradayWindow.endingAt(now, length: WatchStressChartView.windowLength, calendar: calendar)
+        let window = WatchIntradayWindow.endingAt(now, length: WatchStressChartGeometry.windowLength, calendar: calendar)
         XCTAssertEqual(domain, window.start...window.plotEnd)
         XCTAssertEqual(domain, date(3, 0)...date(15, 30))
         // The same alignment as the Heart Rate and HRV charts, 4 hours longer.
@@ -51,23 +51,23 @@ final class WatchStressChartTests: XCTestCase {
     }
 
     func testTicksReuseTheIntradayHourTicks() {
-        let ticks = WatchStressChartView.ticks(endingAt: now, calendar: calendar)
-        XCTAssertEqual(ticks, WatchIntradayChartView.hourTicks(in: domain, calendar: calendar))
+        let ticks = WatchStressChartGeometry.ticks(endingAt: now, calendar: calendar)
+        XCTAssertEqual(ticks, WatchIntradayChartGeometry.hourTicks(in: domain, calendar: calendar))
         XCTAssertEqual(ticks, [date(4, 0), date(6, 0), date(8, 0), date(10, 0), date(12, 0), date(14, 0)])
     }
 
     // MARK: - X mapping
 
     func testFractionMapsAcrossTheDomainAndClamps() {
-        XCTAssertEqual(WatchStressChartView.fraction(for: date(3, 0), in: domain), 0)
-        XCTAssertEqual(WatchStressChartView.fraction(for: date(15, 30), in: domain), 1)
-        XCTAssertEqual(WatchStressChartView.fraction(for: date(9, 15), in: domain), 0.5, accuracy: 0.0001)
-        XCTAssertEqual(WatchStressChartView.fraction(for: date(1, 0), in: domain), 0)
-        XCTAssertEqual(WatchStressChartView.fraction(for: date(18, 0), in: domain), 1)
+        XCTAssertEqual(WatchIntradayChartGeometry.fraction(for: date(3, 0), in: domain), 0)
+        XCTAssertEqual(WatchIntradayChartGeometry.fraction(for: date(15, 30), in: domain), 1)
+        XCTAssertEqual(WatchIntradayChartGeometry.fraction(for: date(9, 15), in: domain), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(WatchIntradayChartGeometry.fraction(for: date(1, 0), in: domain), 0)
+        XCTAssertEqual(WatchIntradayChartGeometry.fraction(for: date(18, 0), in: domain), 1)
     }
 
     func testMarksArePlacedByTheirWindow() {
-        let marks = WatchStressChartView.marks(
+        let marks = WatchStressChartGeometry.marks(
             in: timeline(start: date(9, 15), slots: [40, WatchStressTimeline.activityMarker]),
             domain: domain
         )
@@ -82,19 +82,19 @@ final class WatchStressChartTests: XCTestCase {
     /// The latest window is drawn only up to the timeline's `end`, and one
     /// starting at `end` is cut to nothing and skipped.
     func testTheLatestWindowStopsAtTheTimelineEnd() {
-        let marks = WatchStressChartView.marks(
+        let marks = WatchStressChartGeometry.marks(
             in: timeline(start: date(14, 45), slots: [40, 42, 44], end: date(15, 7)),
             domain: domain
         )
         XCTAssertEqual(marks.map(\.slot), [.scored(40), .scored(42)])
-        XCTAssertEqual(marks[1].xEnd, WatchStressChartView.fraction(for: date(15, 7), in: domain), accuracy: 0.0001)
+        XCTAssertEqual(marks[1].xEnd, WatchIntradayChartGeometry.fraction(for: date(15, 7), in: domain), accuracy: 0.0001)
     }
 
     // MARK: - Visible windows
 
     func testWindowsOutsideTheDomainAreDropped() {
         // 02:30 and 02:45 end at or before 03:00; 03:00 is the first inside.
-        let marks = WatchStressChartView.marks(
+        let marks = WatchStressChartGeometry.marks(
             in: timeline(start: date(2, 30), slots: [20, 22, 24]),
             domain: domain
         )
@@ -103,23 +103,23 @@ final class WatchStressChartTests: XCTestCase {
     }
 
     func testAWindowStraddlingTheDomainStartIsClipped() {
-        let marks = WatchStressChartView.marks(in: timeline(start: date(2, 50), slots: [30]), domain: domain)
+        let marks = WatchStressChartGeometry.marks(in: timeline(start: date(2, 50), slots: [30]), domain: domain)
         XCTAssertEqual(marks.count, 1)
         XCTAssertEqual(marks[0].xStart, 0)
-        XCTAssertEqual(marks[0].xEnd, WatchStressChartView.fraction(for: date(3, 5), in: domain), accuracy: 0.0001)
+        XCTAssertEqual(marks[0].xEnd, WatchIntradayChartGeometry.fraction(for: date(3, 5), in: domain), accuracy: 0.0001)
     }
 
     func testUnscoredWindowsAreGaps() {
-        let marks = WatchStressChartView.marks(in: timeline(start: date(12, 0), slots: [nil, 50, nil]), domain: domain)
+        let marks = WatchStressChartGeometry.marks(in: timeline(start: date(12, 0), slots: [nil, 50, nil]), domain: domain)
         XCTAssertEqual(marks.map(\.slot), [.scored(50)])
-        XCTAssertEqual(marks[0].xStart, WatchStressChartView.fraction(for: date(12, 15), in: domain), accuracy: 0.0001)
+        XCTAssertEqual(marks[0].xStart, WatchIntradayChartGeometry.fraction(for: date(12, 15), in: domain), accuracy: 0.0001)
     }
 
     func testATimelineOlderThanTheWindowHasNothingToDraw() {
         let old = timeline(start: date(0, 0), slots: [30, 35, 40, 45, 50, 55, 60, 65])
         XCTAssertTrue(old.hasMarks)
-        XCTAssertTrue(WatchStressChartView.marks(in: old, domain: domain).isEmpty)
-        XCTAssertFalse(WatchStressChartView.hasVisibleMarks(old, endingAt: now, calendar: calendar))
+        XCTAssertTrue(WatchStressChartGeometry.marks(in: old, domain: domain).isEmpty)
+        XCTAssertFalse(WatchStressChartGeometry.hasVisibleMarks(old, endingAt: now, calendar: calendar))
     }
 
     // MARK: - Context bands
@@ -133,33 +133,36 @@ final class WatchStressChartTests: XCTestCase {
             workoutType: "running"
         )
         let earlier = WatchStressContextBand(kind: WatchStressContextBand.napKind, start: date(1, 0), end: date(2, 0))
-        let spans = WatchStressChartView.contextSpans(
+        let spans = WatchStressChartGeometry.contextSpans(
             in: timeline(start: date(7, 0), slots: [30], context: [earlier, sleep, workout]),
             domain: domain
         )
         XCTAssertEqual(spans.map(\.band), [sleep, workout])
         XCTAssertEqual(spans[0].xStart, 0)
-        XCTAssertEqual(spans[0].xEnd, WatchStressChartView.fraction(for: date(8, 0), in: domain), accuracy: 0.0001)
-        XCTAssertEqual(spans[1].xStart, WatchStressChartView.fraction(for: date(13, 0), in: domain), accuracy: 0.0001)
+        XCTAssertEqual(spans[0].xEnd, WatchIntradayChartGeometry.fraction(for: date(8, 0), in: domain), accuracy: 0.0001)
+        XCTAssertEqual(spans[1].xStart, WatchIntradayChartGeometry.fraction(for: date(13, 0), in: domain), accuracy: 0.0001)
     }
 
     // MARK: - Y mapping and mark width
 
     func testScoresMapFromTheFloorToTheTopAndClamp() {
         let plot = CGRect(x: 0, y: 10, width: 100, height: 40)
-        XCTAssertEqual(WatchStressChartView.y(forScore: 0, in: plot), 50)
-        XCTAssertEqual(WatchStressChartView.y(forScore: 100, in: plot), 10)
-        XCTAssertEqual(WatchStressChartView.y(forScore: 25, in: plot), 40)
-        XCTAssertEqual(WatchStressChartView.y(forScore: 140, in: plot), 10)
-        XCTAssertEqual(WatchStressChartView.y(forScore: -5, in: plot), 50)
+        XCTAssertEqual(WatchStressChartGeometry.y(forScore: 0, in: plot), 50)
+        XCTAssertEqual(WatchStressChartGeometry.y(forScore: 100, in: plot), 10)
+        XCTAssertEqual(WatchStressChartGeometry.y(forScore: 25, in: plot), 40)
+        XCTAssertEqual(WatchStressChartGeometry.y(forScore: 140, in: plot), 10)
+        XCTAssertEqual(WatchStressChartGeometry.y(forScore: -5, in: plot), 50)
     }
 
     func testMarksAreInsetButNeverNarrowerThanTheMinimum() {
         let plot = CGRect(x: 0, y: 0, width: 200, height: 40)
-        let wide = WatchStressChartView.markSpan(xStart: 0.5, xEnd: 0.53, in: plot)
+        // The page's values.
+        let inset = CGFloat(StressChartStyle.markHorizontalInset)
+        let minimumWidth = CGFloat(StressChartStyle.markMinimumWidth)
+        let wide = WatchStressChartGeometry.markSpan(xStart: 0.5, xEnd: 0.53, in: plot, inset: inset, minimumWidth: minimumWidth)
         XCTAssertEqual(wide.x, 101, accuracy: 0.0001)
         XCTAssertEqual(wide.width, 4, accuracy: 0.0001)
-        let narrow = WatchStressChartView.markSpan(xStart: 0.5, xEnd: 0.505, in: plot)
+        let narrow = WatchStressChartGeometry.markSpan(xStart: 0.5, xEnd: 0.505, in: plot, inset: inset, minimumWidth: minimumWidth)
         XCTAssertEqual(narrow.width, CGFloat(StressChartStyle.markMinimumWidth))
     }
 
@@ -204,7 +207,7 @@ final class WatchStressChartTests: XCTestCase {
         XCTAssertEqual(preview.end, now)
         XCTAssertEqual(preview.computedAt, now)
         XCTAssertEqual(preview.interval(at: preview.slots.count - 1), DateInterval(start: date(15, 0), end: now))
-        XCTAssertTrue(WatchStressChartView.hasVisibleMarks(preview, endingAt: now, calendar: calendar))
+        XCTAssertTrue(WatchStressChartGeometry.hasVisibleMarks(preview, endingAt: now, calendar: calendar))
         XCTAssertEqual(
             Set(preview.context.map(\.kind)),
             [WatchStressContextBand.sleepKind, WatchStressContextBand.workoutKind]
@@ -234,7 +237,7 @@ final class WatchStressChartTests: XCTestCase {
     /// The Stress complication shows the newest window this chart draws: the
     /// latest scored one, past the activity after it, until it is 12 hours old.
     func testTheComplicationReadingIsTheLatestScoredWindowForTwelveHours() {
-        XCTAssertEqual(WatchStressTimeline.readingMaxAge, WatchStressChartView.windowLength)
+        XCTAssertEqual(WatchStressTimeline.readingMaxAge, WatchStressChartGeometry.windowLength)
         let stress = timeline(start: date(13, 0), slots: [30, 44, nil, WatchStressTimeline.activityMarker], end: date(13, 52))
 
         let reading = stress.latestReading(asOf: now)

@@ -12,7 +12,9 @@
 //  solid. `.totals` (Steps, Active Energy): a bar per slot
 //  from zero in the page color, nothing on an idle slot, like the 7 day bars
 //  above it. Display-only: no selection or scrubbing. Reads the chart
-//  `WatchIntradayChartStore` holds.
+//  `WatchIntradayChartStore` holds. The line breaks, value range and hour
+//  ticks come from `WatchIntradayChartGeometry`, shared with the chart
+//  complications.
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -40,10 +42,6 @@ struct WatchIntradayChartView: View {
     let tint: Color
     var style: Style = .range
 
-    /// Slot starts this far apart break the average line: an hour or more of
-    /// empty slots between two readings (the watch was off the wrist). A
-    /// single empty slot is bridged.
-    private static let lineBreakGap: TimeInterval = WatchIntradayWindow.slotLength + 60 * 60
     /// Slots across the plot: the window plus the current slot.
     private static let slotCount = WatchIntradayWindow.length / WatchIntradayWindow.slotLength + 1
     private static let lineWidth: CGFloat = 2
@@ -121,7 +119,7 @@ struct WatchIntradayChartView: View {
                 }
             }
 
-            ForEach(Array(Self.lineRuns(chart.buckets).enumerated()), id: \.offset) { _, run in
+            ForEach(Array(WatchIntradayChartGeometry.lineRuns(chart.buckets).enumerated()), id: \.offset) { _, run in
                 ForEach(run, id: \.start) { bucket in
                     LineMark(
                         x: .value("Time", bucket.midpoint),
@@ -153,7 +151,7 @@ struct WatchIntradayChartView: View {
 
     /// Even local hours under the plot, shared by both styles.
     private var hourAxis: some AxisContent {
-        AxisMarks(values: Self.hourTicks(in: xDomain)) { value in
+        AxisMarks(values: WatchIntradayChartGeometry.hourTicks(in: xDomain)) { value in
             AxisGridLine()
                 .foregroundStyle(.white.opacity(0.18))
             AxisTick()
@@ -196,69 +194,16 @@ struct WatchIntradayChartView: View {
 
     // MARK: - Geometry
 
-    /// The slots oldest first, split wherever an hour or more of empty slots
-    /// separates two readings (the watch was off the wrist), so the average
-    /// line breaks there instead of bridging the gap. A run may hold a single
-    /// slot.
-    static func lineRuns(_ buckets: [WatchIntradayBucket]) -> [[WatchIntradayBucket]] {
-        var runs: [[WatchIntradayBucket]] = []
-        for bucket in buckets.sorted(by: { $0.start < $1.start }) {
-            if let previous = runs.last?.last, bucket.start.timeIntervalSince(previous.start) < lineBreakGap {
-                runs[runs.count - 1].append(bucket)
-            } else {
-                runs.append([bucket])
-            }
-        }
-        return runs
-    }
-
     /// `.range`: spans every slot's range so no capsule clips, padded and
-    /// clamped like the iPhone Day View's `computeYDomain`
-    /// (Body/Views/Health/Charts/MetricCharts.swift), which is iOS-only.
-    /// `.totals`: from zero, so the bars grow from the axis, to the tallest
-    /// bar plus the same 16 percent headroom.
+    /// clamped (`WatchIntradayChartGeometry.rangeDomain`, which the chart
+    /// complications share). `.totals`: from zero, so the bars grow from the
+    /// axis, to the tallest bar plus the same 16 percent headroom.
     static func yDomain(for chart: WatchIntradayChart, style: Style = .range) -> ClosedRange<Double> {
         if style == .totals {
             let maximum = chart.buckets.map(\.average).filter(\.isFinite).max() ?? 0
             return 0...max(maximum * 1.16, 1)
         }
-
-        let values = chart.buckets.flatMap { [$0.minimum, $0.maximum] }.filter(\.isFinite)
-        guard let minimum = values.min(), let maximum = values.max() else {
-            return 0...1
-        }
-
-        guard minimum != maximum else {
-            let padding = max(abs(minimum) * 0.02, 1)
-            let lower = max(0, minimum - padding)
-            return lower...max(maximum + padding, lower + 1)
-        }
-
-        let padding = max((maximum - minimum) * 0.16, 1)
-        let lower = max(0, minimum - padding)
-        return lower...max(maximum + padding, lower + 1)
-    }
-
-    /// The even local hours more than 30 minutes inside both edges, so no
-    /// hour label clips at the plot's ends.
-    static func hourTicks(in domain: ClosedRange<Date>, calendar: Calendar = .current) -> [Date] {
-        let margin: TimeInterval = 30 * 60
-        var ticks: [Date] = []
-        calendar.enumerateDates(
-            startingAfter: domain.lowerBound,
-            matching: DateComponents(minute: 0, second: 0),
-            matchingPolicy: .nextTime
-        ) { date, _, stop in
-            guard let date, domain.upperBound.timeIntervalSince(date) > margin else {
-                stop = true
-                return
-            }
-            if date.timeIntervalSince(domain.lowerBound) > margin,
-               calendar.component(.hour, from: date).isMultiple(of: 2) {
-                ticks.append(date)
-            }
-        }
-        return ticks
+        return WatchIntradayChartGeometry.rangeDomain(for: chart.buckets)
     }
 
     /// About 62% of one slot's share of the plot, kept between 2 and 8 points.

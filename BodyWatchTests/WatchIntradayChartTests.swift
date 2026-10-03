@@ -64,7 +64,7 @@ final class WatchIntradayChartTests: XCTestCase {
     // MARK: - Line runs
 
     func testLineBreaksAcrossAnHourWithoutReadings() {
-        let runs = WatchIntradayChartView.lineRuns([bucket(0), bucket(30), bucket(60), bucket(150)])
+        let runs = WatchIntradayChartGeometry.lineRuns([bucket(0), bucket(30), bucket(60), bucket(150)])
         XCTAssertEqual(runs.map { $0.map(\.start) }, [
             [bucket(0).start, bucket(30).start, bucket(60).start],
             [bucket(150).start]
@@ -73,16 +73,16 @@ final class WatchIntradayChartTests: XCTestCase {
 
     func testLineBreaksAfterAnEmptyHourButBridgesOneEmptySlot() {
         // Starts 90 minutes apart: two empty 30 minute slots, an hour.
-        XCTAssertEqual(WatchIntradayChartView.lineRuns([bucket(0), bucket(90)]).count, 2)
+        XCTAssertEqual(WatchIntradayChartGeometry.lineRuns([bucket(0), bucket(90)]).count, 2)
         // Starts 60 minutes apart: one empty slot.
-        XCTAssertEqual(WatchIntradayChartView.lineRuns([bucket(0), bucket(60)]).count, 1)
+        XCTAssertEqual(WatchIntradayChartGeometry.lineRuns([bucket(0), bucket(60)]).count, 1)
     }
 
     func testLineRunsSortUnsortedSlotsAndAllowASingleSlot() {
-        let runs = WatchIntradayChartView.lineRuns([bucket(60), bucket(0), bucket(30)])
+        let runs = WatchIntradayChartGeometry.lineRuns([bucket(60), bucket(0), bucket(30)])
         XCTAssertEqual(runs.map { $0.map(\.start) }, [[bucket(0).start, bucket(30).start, bucket(60).start]])
-        XCTAssertEqual(WatchIntradayChartView.lineRuns([bucket(0)]).map(\.count), [1])
-        XCTAssertTrue(WatchIntradayChartView.lineRuns([]).isEmpty)
+        XCTAssertEqual(WatchIntradayChartGeometry.lineRuns([bucket(0)]).map(\.count), [1])
+        XCTAssertTrue(WatchIntradayChartGeometry.lineRuns([]).isEmpty)
     }
 
     // MARK: - Value axis
@@ -124,21 +124,21 @@ final class WatchIntradayChartTests: XCTestCase {
     // MARK: - Hour ticks
 
     func testHourTicksAreEvenHoursInsideTheWindow() {
-        let ticks = WatchIntradayChartView.hourTicks(in: date(7, 0)...date(15, 30), calendar: calendar)
+        let ticks = WatchIntradayChartGeometry.hourTicks(in: date(7, 0)...date(15, 30), calendar: calendar)
         XCTAssertEqual(ticks, [date(8, 0), date(10, 0), date(12, 0), date(14, 0)])
     }
 
     func testHourTicksSkipHoursWithinHalfAnHourOfAnEdge() {
         XCTAssertEqual(
-            WatchIntradayChartView.hourTicks(in: date(7, 45)...date(15, 15), calendar: calendar),
+            WatchIntradayChartGeometry.hourTicks(in: date(7, 45)...date(15, 15), calendar: calendar),
             [date(10, 0), date(12, 0), date(14, 0)]
         )
         XCTAssertEqual(
-            WatchIntradayChartView.hourTicks(in: date(6, 45)...date(14, 15), calendar: calendar),
+            WatchIntradayChartGeometry.hourTicks(in: date(6, 45)...date(14, 15), calendar: calendar),
             [date(8, 0), date(10, 0), date(12, 0)]
         )
         XCTAssertEqual(
-            WatchIntradayChartView.hourTicks(in: date(7, 30)...date(14, 30), calendar: calendar),
+            WatchIntradayChartGeometry.hourTicks(in: date(7, 30)...date(14, 30), calendar: calendar),
             [date(10, 0), date(12, 0)]
         )
     }
@@ -146,7 +146,7 @@ final class WatchIntradayChartTests: XCTestCase {
     func testHourTicksFollowLocalHoursInAQuarterHourZone() {
         var kathmandu = Calendar(identifier: .gregorian)
         kathmandu.timeZone = TimeZone(identifier: "Asia/Kathmandu")!
-        let ticks = WatchIntradayChartView.hourTicks(
+        let ticks = WatchIntradayChartGeometry.hourTicks(
             in: date(2, 30, in: kathmandu)...date(11, 0, in: kathmandu),
             calendar: kathmandu
         )
