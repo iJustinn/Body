@@ -1143,7 +1143,11 @@ struct BodyHealthSourceComparisonRangeChart: View {
 
                 return BodyChartSelectionValue(
                     title: entry.sourceName,
-                    value: "\(valueFormatter(lowValue))-\(valueFormatter(highValue))",
+                    // "48-142 bpm": the unit once, after the high end.
+                    value: BodyHealthStatFormat.rangeText(
+                        min(lowValue, highValue)...max(lowValue, highValue),
+                        formatter: valueFormatter
+                    ),
                     color: color(for: entry)
                 )
             }

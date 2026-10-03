@@ -100,9 +100,11 @@ enum BodyHealthStatFormat {
     }
 
     /// `text` without the unit suffix it shares with `other`, when what is
-    /// left is a plain number; `text` itself otherwise.
+    /// left is a plain number; `text` itself otherwise. The number ends at
+    /// its last decimal digit, so a unit's own sub or superscript ("VO₂ max",
+    /// "m²") stays with the unit.
     private static func numberPart(of text: String, sharingUnitWith other: String) -> String {
-        guard let lastDigit = text.lastIndex(where: \.isNumber) else {
+        guard let lastDigit = text.lastIndex(where: isDecimalDigit) else {
             return text
         }
 
@@ -115,5 +117,11 @@ enum BodyHealthStatFormat {
         }
 
         return String(number)
+    }
+
+    /// A decimal digit in any script ("4", "٤"), unlike `isNumber`, which
+    /// counts "₂" and "²" too.
+    private static func isDecimalDigit(_ character: Character) -> Bool {
+        character.unicodeScalars.first?.properties.generalCategory == .decimalNumber
     }
 }

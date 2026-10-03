@@ -30,6 +30,19 @@ final class BodyHealthStatFormatTests: XCTestCase {
         )
     }
 
+    /// Cardio Fitness read "38.5 VO₂ max-39.4 VO₂ max": the unit's "₂" was
+    /// taken for the number's last digit.
+    func testAUnitWithASubOrSuperscriptDigitIsPrintedOnce() {
+        XCTAssertEqual(
+            BodyHealthStatFormat.rangeText(38.5...39.4) { BodyValueFormat.numberText($0, decimals: 1) + " VO₂ max" },
+            "38.5-39.4 VO₂ max"
+        )
+        XCTAssertEqual(
+            BodyHealthStatFormat.rangeText(21.4...23.9) { BodyValueFormat.numberText($0, decimals: 1) + " kg/m²" },
+            "21.4-23.9 kg/m²"
+        )
+    }
+
     /// The formatter's decimals and grouping carry over, so the range reads
     /// like the average beside it.
     func testTheFormattersDecimalsAndGroupingCarryOver() {

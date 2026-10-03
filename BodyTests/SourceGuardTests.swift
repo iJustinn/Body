@@ -2891,6 +2891,22 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(storeSource.contains("func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind)"))
         XCTAssertTrue(storeSource.contains("func updateSecondaryHealthDataSource(for kind: HealthMetricKind"))
         XCTAssertTrue(engineSource.contains("func fetchSecondaryTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendSeries?"))
+    /// A range reads "48-142 bpm", the unit once after the high end, on the
+    /// detail page's labels and in the range charts' callouts alike, never
+    /// "48 bpm-142 bpm"; the workout charts' callout range gains its unit.
+    func testRangesPrintTheirUnitOnce() throws {
+        let rangeChart = try BodyTestSupport.sourceText(at: "Body/Views/Health/Charts/HeartRateRangeChart.swift")
+        let comparison = try BodyTestSupport.sourceText(at: "Body/Views/Health/Charts/SourceComparisonCharts.swift")
+        let workouts = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutsView.swift")
+
+        for source in [rangeChart, comparison] {
+            XCTAssertFalse(source.contains("valueFormatter(lowValue))-\\(valueFormatter(highValue))"))
+            XCTAssertTrue(source.contains("BodyHealthStatFormat.rangeText("))
+        }
+        XCTAssertEqual(rangeChart.occurrenceCount(of: "value: rangeText(lowValue, highValue),"), 2)
+        XCTAssertTrue(workouts.contains(": \"\\(bar.lowText)–\\(bar.highText) \\(presentation.unitText)\","))
+    }
+
         XCTAssertTrue(engineSource.contains("func fetchSecondaryRangeTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendRangeSeries?"))
         XCTAssertTrue(engineSource.contains("let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)"))
         XCTAssertTrue(engineSource.contains("sourceOption: secondaryOption"))

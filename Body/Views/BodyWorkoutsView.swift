@@ -4148,7 +4148,10 @@ private struct BodyWorkoutBucketedSeriesPlot: View {
                 ),
                 BodyChartSelectionValue(
                     title: String(localized: "chart.legendRange", defaultValue: "Range"),
-                    value: "\(bar.lowText)–\(bar.highText)",
+                    // The unit once, after the high end, as on the Avg line.
+                    value: presentation.unitText.isEmpty
+                        ? "\(bar.lowText)–\(bar.highText)"
+                        : "\(bar.lowText)–\(bar.highText) \(presentation.unitText)",
                     color: color.opacity(0.55)
                 )
             ]
