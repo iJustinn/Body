@@ -2783,12 +2783,14 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(sourceLegendBlock.contains("dimensions[.firstTextBaseline]"))
         XCTAssertTrue(basicsLegendBlock.contains(".alignmentGuide(.firstTextBaseline) { dimensions in"))
         XCTAssertTrue(basicsLegendBlock.contains("dimensions[.lastTextBaseline]"))
-        // Skin Temperature's Baseline legend has its own line under the value
-        // row, so the big number keeps its place against the chart.
-        XCTAssertFalse(heroTrailingBlock.contains("BodyChartBaselineLegend()"))
-        XCTAssertTrue(source.contains(
-            "metricHeroValueRow\n\n                if wristTemperatureTrendBaseline != nil {\n                    BodyChartBaselineLegend()"
+        // Skin Temperature's Baseline legend hangs under the two labels, as
+        // far from the range as the range is from the average, while the row
+        // stays aligned on the range line, so the big number keeps its place
+        // against the chart.
+        XCTAssertTrue(heroTrailingBlock.contains(
+            "                    .alignmentGuide(.firstTextBaseline) { dimensions in\n                        dimensions[.lastTextBaseline]\n                    }\n                }\n\n                if wristTemperatureTrendBaseline != nil {\n                    BodyChartBaselineLegend()\n                }"
         ))
+        XCTAssertFalse(source.contains("VStack(alignment: .trailing, spacing: 4) {\n                metricHeroValueRow"))
         XCTAssertTrue(heroTrailingBlock.contains(".alignmentGuide(.firstTextBaseline) { dimensions in"))
         XCTAssertTrue(heroTrailingBlock.contains("dimensions[.lastTextBaseline]"))
         XCTAssertFalse(source.contains("sourceLabelSortOrder"))
@@ -2899,12 +2901,16 @@ final class SourceGuardTests: XCTestCase {
         let dayHeader = String(detail[dayStart..<dayEnd])
 
         // The hero: the comparison legends name the week, and a single source
-        // reads the week's average and range, never a third line (Skin
-        // Temperature's Baseline legend sits under the row instead).
+        // reads the week's average and range, Stress's included, with no
+        // daily column beside them (its Day View reads the day); only Skin
+        // Temperature's Baseline legend hangs under them.
         XCTAssertEqual(hero.occurrenceCount(of: "average: .weeklyAverage,\n                compact: usesShortStatLabels"), 3)
         XCTAssertTrue(hero.contains("averageHeaderText(weeklyAverageText, prefix: statLabel(.weeklyAverage))"))
         XCTAssertTrue(hero.contains("averageHeaderText(weeklyRangeText, prefix: statLabel(.weeklyRange))"))
-        XCTAssertFalse(hero.contains("BodyChartBaselineLegend()"))
+        XCTAssertEqual(hero.occurrenceCount(of: "BodyChartBaselineLegend()"), 1)
+        XCTAssertFalse(hero.contains("statLabel(.dailyAverage)"))
+        XCTAssertFalse(hero.contains("statLabel(.dailyRange)"))
+        XCTAssertFalse(detail.contains("todaysStress"))
         XCTAssertFalse(hero.contains("prefix: String(localized: \"chart.legendRange\""))
         XCTAssertEqual(detail.occurrenceCount(of: "averageValue(in: BodyHealthStatFormat.heroWindow)"), 4)
         XCTAssertFalse(detail.contains("averageValue(in: selectedTrendRange)"))

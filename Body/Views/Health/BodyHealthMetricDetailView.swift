@@ -1699,16 +1699,7 @@ struct BodyHealthMetricDetailView: View {
                 metricTrendChart(immersive: true)
             }
 
-            // Skin Temperature's Baseline legend gets its own line under the
-            // value row's two, so the big number keeps its place against the
-            // chart instead of dropping to a third line's baseline.
-            VStack(alignment: .trailing, spacing: 4) {
-                metricHeroValueRow
-
-                if wristTemperatureTrendBaseline != nil {
-                    BodyChartBaselineLegend()
-                }
-            }
+            metricHeroValueRow
 
             if sleepDataUnavailableForToday {
                 Text("No sleep data yet")
@@ -1935,40 +1926,30 @@ struct BodyHealthMetricDetailView: View {
                 average: .weeklyAverage,
                 compact: usesShortStatLabels
             )
-        } else if model.kind == .stress, weeklyAverageText != nil || todaysStress?.averageScore != nil {
-            // Stress leads with its latest reading, so today's figures read
-            // beside the week's, side by side.
-            HStack(alignment: .lastTextBaseline, spacing: 14) {
-                twoLineStatColumn(
-                    top: todaysStress?.averageScore.map { "\($0)" },
-                    topPrefix: statLabel(.dailyAverage),
-                    bottom: stressRangeText(todaysStress),
-                    bottomPrefix: statLabel(.dailyRange)
-                )
-                twoLineStatColumn(
-                    top: weeklyAverageText,
-                    topPrefix: statLabel(.weeklyAverage),
-                    bottom: weeklyRangeText,
-                    bottomPrefix: statLabel(.weeklyRange)
-                )
-            }
-            .alignmentGuide(.firstTextBaseline) { dimensions in
-                dimensions[.lastTextBaseline]
-            }
-        } else if weeklyAverageText != nil || weeklyRangeText != nil {
+        } else if weeklyAverageText != nil || weeklyRangeText != nil || wristTemperatureTrendBaseline != nil {
             // The last 7 days whatever range the chart shows, named as such,
-            // in two lines at most (Skin Temperature's Baseline legend sits
-            // under the row, in `metricHero`).
+            // Stress's included (its Day View reads the day). Skin
+            // Temperature's Baseline legend hangs under them as a third line
+            // the same distance apart, while the row stays aligned on the
+            // range line, so the big number keeps its place against the chart.
             VStack(alignment: .trailing, spacing: 4) {
-                if let weeklyAverageText {
-                    averageHeaderText(weeklyAverageText, prefix: statLabel(.weeklyAverage))
+                if weeklyAverageText != nil || weeklyRangeText != nil {
+                    VStack(alignment: .trailing, spacing: 4) {
+                        if let weeklyAverageText {
+                            averageHeaderText(weeklyAverageText, prefix: statLabel(.weeklyAverage))
+                        }
+                        if let weeklyRangeText {
+                            averageHeaderText(weeklyRangeText, prefix: statLabel(.weeklyRange))
+                        }
+                    }
+                    .alignmentGuide(.firstTextBaseline) { dimensions in
+                        dimensions[.lastTextBaseline]
+                    }
                 }
-                if let weeklyRangeText {
-                    averageHeaderText(weeklyRangeText, prefix: statLabel(.weeklyRange))
+
+                if wristTemperatureTrendBaseline != nil {
+                    BodyChartBaselineLegend()
                 }
-            }
-            .alignmentGuide(.firstTextBaseline) { dimensions in
-                dimensions[.lastTextBaseline]
             }
         }
     }
@@ -4135,12 +4116,6 @@ struct BodyHealthMetricDetailView: View {
             range = BodyHealthStatFormat.valueRange(points.map(\.value))
         }
         return range.map { BodyHealthStatFormat.rangeText($0, formatter: model.valueFormatter) }
-    }
-
-    /// The Stress rollup when it is today's: one that outlived midnight is
-    /// yesterday's, not the day the hero names.
-    private var todaysStress: StressDaySummary? {
-        model.stress.flatMap { Calendar.bodyGregorian.isDateInToday($0.date) ? $0 : nil }
     }
 
     /// A Stress day's lowest to highest window score, from the same rollup as
