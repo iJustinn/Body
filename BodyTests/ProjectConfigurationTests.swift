@@ -418,6 +418,18 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertEqual(WatchStressBands.tint(forScore: 140), WatchStressBands.tints[3])
     }
 
+    func testWatchStressChartComplicationMatchesStressChartStyle() {
+        // The watch widget extension has no BodyMetricsKit either, so the
+        // Stress chart complication shades sleep in the Sleep tint and draws
+        // its band grid from `WatchStressChartGeometry`'s copy. Both must
+        // match the Stress page's `StressChartStyle`.
+        let sleep = WatchMetricKindKey.tint(forKind: WatchMetricKindKey.sleep)
+        XCTAssertEqual(sleep.red, StressChartStyle.sleepRGB.red)
+        XCTAssertEqual(sleep.green, StressChartStyle.sleepRGB.green)
+        XCTAssertEqual(sleep.blue, StressChartStyle.sleepRGB.blue)
+        XCTAssertEqual(WatchStressChartGeometry.gridFractions, StressChartStyle.gridFractions)
+    }
+
     func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
         let project = try BodyTestSupport.sourceText(at: "body.xcodeproj/project.pbxproj")
         let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, beat-to-beat heart rhythm data, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, running form, swim strokes, distance, date of birth, and biological sex from Apple Health to power your dashboard, charts, and widgets."

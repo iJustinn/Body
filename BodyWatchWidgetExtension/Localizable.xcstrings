@@ -171,6 +171,23 @@
         }
       }
     },
+    "Nothing to chart yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing to chart yet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无图表数据"
+          }
+        }
+      }
+    },
     "Open Body on iPhone" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -426,6 +443,23 @@
         }
       }
     },
+    "Your heart rate over the last 8 hours." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate over the last 8 hours."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你最近 8 小时的心率。"
+          }
+        }
+      }
+    },
     "Your heart rate ring." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -439,6 +473,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "心率圆环。"
+          }
+        }
+      }
+    },
+    "Your heart rate variability over the last 8 hours." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate variability over the last 8 hours."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你最近 8 小时的心率变异性。"
           }
         }
       }
@@ -575,6 +626,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "睡眠分数圆环。"
+          }
+        }
+      }
+    },
+    "Your stress over the last 12 hours." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your stress over the last 12 hours."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你最近 12 小时的压力。"
           }
         }
       }

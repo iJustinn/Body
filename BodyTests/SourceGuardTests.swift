@@ -5630,6 +5630,65 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(watchBundle.contains("StressBandsComplication()"))
     }
 
+    func testRecentHoursComplicationsChartTheLastHours() throws {
+        let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/RecentHoursComplications.swift")
+        let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
+        // Comment lines are dropped for the negative checks below, so prose
+        // that names what the charts avoid can't fail them.
+        let code = source
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+
+        // Rectangular only: a chart has nowhere to lay out in a circular or
+        // corner slot. The file holds three widgets (Stress, Heart Rate, HRV),
+        // each pinned once.
+        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryRectangular])"), 3)
+
+        // A face stores the widget kind, so renaming one silently drops the
+        // complication from every face it is on. A tap opens the chart's page.
+        for kind in ["\"BodyWatchStressChart\"", "\"BodyWatchHeartRateChart\"", "\"BodyWatchHRVChart\""] {
+            XCTAssertTrue(source.contains("kind: \(kind)"), kind)
+        }
+        for metricKind in ["stress", "heartRate", "heartRateVariability"] {
+            XCTAssertTrue(source.contains(".widgetURL(WatchMetricDeepLink.url(forKind: WatchMetricKindKey.\(metricKind)))"), metricKind)
+        }
+
+        // Each chart ends at its entry's date, so the provider steps the
+        // timeline through every half hour of that chart's window: Stress's
+        // 12 hours, the heart charts' 8.
+        XCTAssertEqual(source.occurrenceCount(of: "WatchMetricProvider(slidingWindow: WatchStressChartGeometry.windowLength)"), 1)
+        XCTAssertEqual(source.occurrenceCount(of: "WatchMetricProvider(slidingWindow: WatchIntradayWindow.length)"), 2)
+
+        // Stress heads its chart with the Stress complication's reading, aged
+        // like the chart and named with the band stamped on the timeline.
+        // Heart Rate and HRV chart the slots the watch compute keeps. Never
+        // the card's score.
+        XCTAssertTrue(code.contains("latestStressReading(in: entry)"))
+        XCTAssertTrue(code.contains("latestBand?.label"))
+        XCTAssertTrue(code.contains("heartCharts?[metricKind]"))
+        XCTAssertFalse(code.contains("metric.score"))
+
+        // The gallery placeholder (generated at `.distantPast`) carries its
+        // sample data on fixed dates, so its charts end at the data's own end.
+        XCTAssertTrue(code.contains("entry.snapshot.generatedAt == .distantPast"))
+
+        // Free, like the bar complications: no Body Pro gate.
+        XCTAssertFalse(source.contains("BodyProEntitlement"))
+
+        // A widget type that is never registered in its bundle compiles and
+        // ships, but never appears in the gallery. The picker order is pinned
+        // in `testWatchComplicationPickerOrder`.
+        for widget in ["StressChartComplication()", "HeartRateChartComplication()", "HRVChartComplication()"] {
+            XCTAssertTrue(watchBundle.contains(widget), widget)
+        }
+
+        // The chart view is watch only, like the band ring: the iOS target
+        // excludes it, so its WidgetKit import never reaches the app.
+        let project = try BodyTestSupport.sourceText(at: "body.xcodeproj/project.pbxproj")
+        XCTAssertTrue(project.contains("Views/WatchMetricRingView.swift,\n\t\t\t\tViews/WatchRecentHoursChartView.swift,"))
+    }
+
     func testReadinessComplicationDrawsTheHeroArc() throws {
         let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
         let complicationSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/ReadinessComplicationView.swift")
@@ -5690,7 +5749,8 @@ final class SourceGuardTests: XCTestCase {
             .map { $0.trimmingCharacters(in: .whitespaces) }
 
         // One bundle order serves every family. Sleep Stages leads, then the
-        // week bar charts, then the rest in the watch's card order
+        // week bar charts, then the intraday charts (Stress, Heart Rate, HRV),
+        // then the rest in the watch's card order
         // (`WatchMetricKindKey.displayOrder`), each new circular complication
         // right after its sibling. Steps, Active Energy and Resting Energy are
         // rings in circular slots too, so they lead that list as well.
@@ -5700,6 +5760,9 @@ final class SourceGuardTests: XCTestCase {
             "StepsWeekComplication()",
             "ActiveEnergyWeekComplication()",
             "RestingEnergyWeekComplication()",
+            "StressChartComplication()",
+            "HeartRateChartComplication()",
+            "HRVChartComplication()",
             "ReadinessComplication()",
             "ReadinessRingComplication()",
             "SleepComplication()",
@@ -5715,7 +5778,7 @@ final class SourceGuardTests: XCTestCase {
 
     func testRectangularWatchComplicationRowsLeadWithTheReading() throws {
         // No drawn border: the system owns a rectangular slot's outline.
-        for file in ["WatchComplicationView", "ReadinessComplicationView", "ExerciseWeekComplication", "SleepStagesComplication", "DailyTotalWeekComplications", "StressComplication"] {
+        for file in ["WatchComplicationView", "ReadinessComplicationView", "ExerciseWeekComplication", "SleepStagesComplication", "DailyTotalWeekComplications", "StressComplication", "RecentHoursComplications"] {
             let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/\(file).swift")
             XCTAssertFalse(source.contains("strokeBorder"), file)
         }

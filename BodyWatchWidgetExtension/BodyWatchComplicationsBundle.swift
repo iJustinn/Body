@@ -5,9 +5,10 @@
 //  One ring-style complication per metric (matches the existing iOS
 //  BodyWidgetExtensionBundle's static-per-widget pattern), each supporting
 //  the circular ring, the rectangular row, and the corner gauge, plus the bar
-//  complications. The picker lists Sleep Stages first, then the week bar
-//  charts (Weekly Workout Time, then this week's daily Steps, Active Energy
-//  and Resting Energy), then the rest in the watch's card order. Steps,
+//  and intraday chart complications. The picker lists Sleep Stages first,
+//  then the week bar charts (Weekly Workout Time, then this week's daily
+//  Steps, Active Energy and Resting Energy), then the intraday charts
+//  (Stress, Heart Rate, HRV), then the rest in the watch's card order. Steps,
 //  Active Energy and Resting Energy are also rings in circular slots, so they
 //  lead that list too. Readiness draws the home hero's segmented bands
 //  instead of the single ring (`ReadinessComplicationView`), and a second
@@ -32,6 +33,9 @@ struct BodyWatchComplicationsBundle: WidgetBundle {
         StepsWeekComplication()
         ActiveEnergyWeekComplication()
         RestingEnergyWeekComplication()
+        StressChartComplication()
+        HeartRateChartComplication()
+        HRVChartComplication()
         ReadinessComplication()
         ReadinessRingComplication()
         SleepComplication()

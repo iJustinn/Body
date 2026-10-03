@@ -120,6 +120,7 @@
 				Views/WatchBandRingView.swift,
 				Views/WatchMetricCardView.swift,
 				Views/WatchMetricRingView.swift,
+				Views/WatchRecentHoursChartView.swift,
 			);
 			target = 7100000D2E0000010000000D /* Body */;
 		};

@@ -47,11 +47,12 @@ struct StressBandsComplication: Widget {
     }
 }
 
-/// The reading both Stress complications show. The gallery placeholder
-/// (generated at `.distantPast`) carries a sample timeline on fixed dates, so
-/// it is drawn without the age check, which would otherwise preview the blank
-/// state.
-private func latestStressReading(in entry: WatchMetricEntry) -> (score: Int, end: Date)? {
+/// The reading every Stress complication shows: the ring, the bands, and the
+/// Stress chart's header (`RecentHoursComplications.swift`). The gallery
+/// placeholder (generated at `.distantPast`) carries a sample timeline on
+/// fixed dates, so it is drawn without the age check, which would otherwise
+/// preview the blank state.
+func latestStressReading(in entry: WatchMetricEntry) -> (score: Int, end: Date)? {
     let timeline = entry.snapshot.stressTimeline
     return entry.snapshot.generatedAt == .distantPast
         ? timeline?.latestScoredWindow
