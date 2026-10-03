@@ -2701,9 +2701,12 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(legendBlock.contains("Text(average.label("))
 
         XCTAssertTrue(legendBlock.contains("VStack(alignment: .trailing, spacing: 7)"))
-        XCTAssertTrue(legendBlock.contains(".frame(maxWidth: 180, alignment: .trailing)"))
         XCTAssertFalse(legendBlock.contains("VStack(alignment: .leading, spacing: 7)"))
-        XCTAssertFalse(legendBlock.contains(".frame(maxWidth: 180, alignment: .leading)"))
+        // Its natural width, which the hero row shares out: a fixed 180 pt
+        // cap shrank the rows beside an empty gap.
+        XCTAssertFalse(legendBlock.contains("maxWidth:"))
+        // A legend's dot is 7 pt; the callouts keep their own.
+        XCTAssertTrue(legendBlock.contains(".frame(width: 7, height: 7)"))
     }
 
     func testTwoLineHeroLegendsUseBottomRowAnchoring() throws {
@@ -2746,6 +2749,19 @@ final class SourceGuardTests: XCTestCase {
         )
     }
 
+    /// The Time of Day card's axis legend reads in secondary, title and unit
+    /// alike, behind a 6 pt dot in the series color.
+    func testTimeOfDayLegendReadsSecondary() throws {
+        let detail = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let legendStart = try XCTUnwrap(detail.range(of: "private func basicsTimeOfDayLegend(")?.lowerBound)
+        let legendEnd = try XCTUnwrap(detail.range(of: "private var wristTemperatureTrendBaseline", range: legendStart..<detail.endIndex)?.lowerBound)
+        let legend = String(detail[legendStart..<legendEnd])
+
+        XCTAssertTrue(legend.contains(".fill(color)\n                .frame(width: 6, height: 6)"))
+        XCTAssertTrue(legend.contains("}\n        .foregroundStyle(.secondary)"))
+        XCTAssertFalse(legend.contains(".foregroundStyle(.primary)"))
+    }
+
     func testBasicsLegendMatchesTrailingSourceLegendStyle() throws {
         let source = try bodyHomeViewText()
         let legendStart = try XCTUnwrap(source.range(of: "struct BodyBasicsTrendLegend: View")?.lowerBound)
@@ -2755,7 +2771,8 @@ final class SourceGuardTests: XCTestCase {
         let legendBlock = String(source[legendStart..<selectionValueStart])
 
         XCTAssertTrue(legendBlock.contains("VStack(alignment: .trailing, spacing: 7)"))
-        XCTAssertTrue(legendBlock.contains(".frame(maxWidth: 180, alignment: .trailing)"))
+        XCTAssertFalse(legendBlock.contains("maxWidth:"))
+        XCTAssertTrue(legendBlock.contains(".frame(width: 7, height: 7)"))
         XCTAssertTrue(legendBlock.contains(".minimumScaleFactor(0.68)"))
         XCTAssertFalse(legendBlock.contains("VStack(alignment: .leading, spacing: 5)"))
         XCTAssertFalse(legendBlock.contains("basicsLegendTrailingAxisGutter"))
@@ -2854,12 +2871,40 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(dayHeader.contains("topPrefix: statLabel(.dailyTotal)"))
         XCTAssertTrue(dayHeader.contains("bottomPrefix: statLabel(.hourlyAverage)"))
 
+        // The hero's row shares its width in proportion (`BodyHeroValueRowLayout`)
+        // and the Day View title is sized first, so the labels get the width
+        // they need instead of an even split that shrank them beside a wide gap.
+        XCTAssertTrue(detail.contains("BodyHeroValueRowLayout {\n            heroValueLeading\n            heroValueTrailing\n        }"))
+        XCTAssertTrue(dayHeader.contains(".foregroundColor(.primary)\n                    .layoutPriority(1)"))
+
+        // The big number reads at 35 pt (a status word at 32), leaving the
+        // labels more of the row.
+        XCTAssertTrue(detail.contains("value: value,\n                fontSize: 35,"))
+        XCTAssertTrue(detail.contains("BodyMetricStatusValueText(text: vitalsHeroStatusText, fontSize: 32)"))
+        XCTAssertTrue(detail.contains("BodyMetricStatusValueText(text: model.value, fontSize: 32)"))
+
         // Every label reads its short form ("W Avg") on a small screen, the
         // page's width measured on the hero.
         XCTAssertTrue(detail.contains("stat.label(short: usesShortStatLabels)"))
         XCTAssertTrue(detail.contains("BodyHealthStatFormat.usesShortLabels(forScreenWidth: statLabelsScreenWidth)"))
         XCTAssertTrue(detail.contains("statLabelsScreenWidth = width"))
         XCTAssertFalse(detail.contains("BodyHealthStatFormat.Stat.weeklyAverage.label(short: false)"))
+    }
+
+    /// A range reads "48-142 bpm", the unit once after the high end, on the
+    /// detail page's labels and in the range charts' callouts alike, never
+    /// "48 bpm-142 bpm"; the workout charts' callout range gains its unit.
+    func testRangesPrintTheirUnitOnce() throws {
+        let rangeChart = try BodyTestSupport.sourceText(at: "Body/Views/Health/Charts/HeartRateRangeChart.swift")
+        let comparison = try BodyTestSupport.sourceText(at: "Body/Views/Health/Charts/SourceComparisonCharts.swift")
+        let workouts = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutsView.swift")
+
+        for source in [rangeChart, comparison] {
+            XCTAssertFalse(source.contains("valueFormatter(lowValue))-\\(valueFormatter(highValue))"))
+            XCTAssertTrue(source.contains("BodyHealthStatFormat.rangeText("))
+        }
+        XCTAssertEqual(rangeChart.occurrenceCount(of: "value: rangeText(lowValue, highValue),"), 2)
+        XCTAssertTrue(workouts.contains(": \"\\(bar.lowText)–\\(bar.highText) \\(presentation.unitText)\","))
     }
 
     func testMorphingRangeChartsReceiveUntrimmedHistory() throws {
@@ -2891,22 +2936,6 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(storeSource.contains("func selectedSecondaryHealthDataSourceOption(for kind: HealthMetricKind)"))
         XCTAssertTrue(storeSource.contains("func updateSecondaryHealthDataSource(for kind: HealthMetricKind"))
         XCTAssertTrue(engineSource.contains("func fetchSecondaryTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendSeries?"))
-    /// A range reads "48-142 bpm", the unit once after the high end, on the
-    /// detail page's labels and in the range charts' callouts alike, never
-    /// "48 bpm-142 bpm"; the workout charts' callout range gains its unit.
-    func testRangesPrintTheirUnitOnce() throws {
-        let rangeChart = try BodyTestSupport.sourceText(at: "Body/Views/Health/Charts/HeartRateRangeChart.swift")
-        let comparison = try BodyTestSupport.sourceText(at: "Body/Views/Health/Charts/SourceComparisonCharts.swift")
-        let workouts = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutsView.swift")
-
-        for source in [rangeChart, comparison] {
-            XCTAssertFalse(source.contains("valueFormatter(lowValue))-\\(valueFormatter(highValue))"))
-            XCTAssertTrue(source.contains("BodyHealthStatFormat.rangeText("))
-        }
-        XCTAssertEqual(rangeChart.occurrenceCount(of: "value: rangeText(lowValue, highValue),"), 2)
-        XCTAssertTrue(workouts.contains(": \"\\(bar.lowText)–\\(bar.highText) \\(presentation.unitText)\","))
-    }
-
         XCTAssertTrue(engineSource.contains("func fetchSecondaryRangeTrend(for kind: HealthMetricKind, calendar: Calendar) async -> HealthTrendRangeSeries?"))
         XCTAssertTrue(engineSource.contains("let secondaryOption = selectedSecondaryHealthDataSourceOption(for: kind)"))
         XCTAssertTrue(engineSource.contains("sourceOption: secondaryOption"))

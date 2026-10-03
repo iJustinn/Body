@@ -112,3 +112,54 @@ final class BodyHealthStatFormatTests: XCTestCase {
         XCTAssertEqual(BodyHealthStatFormat.heroWindow.dayCount, 7)
     }
 }
+
+/// Covers how the hero's value row shares its width
+/// (`BodyHeroValueRowLayout.shares`): natural widths while they fit, then
+/// shrinking together in proportion, never below an item's minimum scale.
+final class BodyHeroValueRowLayoutTests: XCTestCase {
+    private let scales: [CGFloat] = [0.6, 0.75]
+    private let gap = BodyHeroValueRowLayout().minimumGap
+
+    func testTheItemsStayAtLeastSixPointsApart() {
+        XCTAssertEqual(gap, 6)
+        XCTAssertEqual(BodyHeroValueRowLayout().minimumScales, scales)
+    }
+
+    /// The labels' complaint: they kept their natural width only when the
+    /// row split evenly happened to give it to them.
+    func testItemsThatFitKeepTheirNaturalWidth() {
+        XCTAssertEqual(
+            BodyHeroValueRowLayout.shares(of: [90, 200], minimumScales: scales, in: 370, minimumGap: gap),
+            [90, 200]
+        )
+        XCTAssertEqual(
+            BodyHeroValueRowLayout.shares(of: [164, 200], minimumScales: scales, in: 370, minimumGap: gap),
+            [164, 200]
+        )
+    }
+
+    func testAFullRowShrinksBothInProportion() {
+        let shares = BodyHeroValueRowLayout.shares(of: [200, 200], minimumScales: scales, in: 360 + gap, minimumGap: gap)
+        XCTAssertEqual(shares[0], 180, accuracy: 0.001)
+        XCTAssertEqual(shares[1], 180, accuracy: 0.001)
+    }
+
+    /// The labels would go below the three quarters they can shrink to, so
+    /// they hold there and the big number gives the rest.
+    func testAnItemBelowItsMinimumHoldsThereAndTheOtherGivesWay() {
+        let shares = BodyHeroValueRowLayout.shares(of: [200, 240], minimumScales: scales, in: 300 + gap, minimumGap: gap)
+        XCTAssertEqual(shares[1], 180, accuracy: 0.001)
+        XCTAssertEqual(shares[0], 120, accuracy: 0.001)
+    }
+
+    func testARowTooNarrowForEveryMinimumGivesEachItsMinimum() {
+        let shares = BodyHeroValueRowLayout.shares(of: [200, 240], minimumScales: scales, in: 100, minimumGap: gap)
+        XCTAssertEqual(shares[0], 120, accuracy: 0.001)
+        XCTAssertEqual(shares[1], 180, accuracy: 0.001)
+    }
+
+    /// A row with only the big number (no labels) keeps it whole.
+    func testASingleItemThatFitsKeepsItsWidth() {
+        XCTAssertEqual(BodyHeroValueRowLayout.shares(of: [90], minimumScales: scales, in: 370, minimumGap: gap), [90])
+    }
+}

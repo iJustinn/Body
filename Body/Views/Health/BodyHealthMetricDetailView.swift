@@ -1827,9 +1827,10 @@ struct BodyHealthMetricDetailView: View {
     }
 
     private var metricHeroValueRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        // Both at their natural width while they fit; a really full row
+        // shrinks them together, never one beside an empty gap.
+        BodyHeroValueRowLayout {
             heroValueLeading
-            Spacer(minLength: 8)
             heroValueTrailing
         }
     }
@@ -1839,10 +1840,10 @@ struct BodyHealthMetricDetailView: View {
         if model.kind == .vitals {
             // The headline follows the chart: it reads the visible range, not the
             // single latest night the home card shows.
-            BodyMetricStatusValueText(text: vitalsHeroStatusText, fontSize: 40)
+            BodyMetricStatusValueText(text: vitalsHeroStatusText, fontSize: 32)
         } else if isBodyRadarDetail {
             // A verdict, not a number: the same word treatment Vitals uses.
-            BodyMetricStatusValueText(text: model.value, fontSize: 40)
+            BodyMetricStatusValueText(text: model.value, fontSize: 32)
         } else if let latestStressScore = todaysLatestStressScore {
             // The latest reading, as the watch page shows it, even once it is
             // too old to count as current; the Home card falls back to the
@@ -1870,15 +1871,17 @@ struct BodyHealthMetricDetailView: View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             BodyAnimatedMetricValueText(
                 value: value,
-                fontSize: 44,
+                fontSize: 35,
                 color: .primary,
                 minimumScaleFactor: 0.5
             )
 
             if !unit.isEmpty {
+                // The number shrinks before the unit wraps ("step s").
                 Text(unit)
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundColor(.secondary)
+                    .fixedSize()
             }
         }
     }
@@ -2428,14 +2431,13 @@ struct BodyHealthMetricDetailView: View {
         HStack(spacing: 5) {
             Circle()
                 .fill(color)
-                .frame(width: 8, height: 8)
+                .frame(width: 6, height: 6)
 
             Text(title)
-                .foregroundStyle(.primary)
 
             Text(unit)
-                .foregroundStyle(.secondary)
         }
+        .foregroundStyle(.secondary)
         .font(.system(.caption, design: .rounded).weight(.semibold))
         .lineLimit(1)
     }
@@ -2531,9 +2533,12 @@ struct BodyHealthMetricDetailView: View {
 
         return VStack(alignment: .leading, spacing: 32) {
             HStack(alignment: .firstTextBaseline) {
+                // Sized first, like the hero's big number, so the day's labels
+                // get the rest of the row and shrink only when it is full.
                 Text("Day View")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.primary)
+                    .layoutPriority(1)
 
                 Spacer(minLength: 12)
 

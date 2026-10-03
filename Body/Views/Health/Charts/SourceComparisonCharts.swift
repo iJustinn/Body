@@ -35,7 +35,7 @@ struct BodyHealthSourceLegend: View {
                     HStack(spacing: 7) {
                         Circle()
                             .fill(item.color)
-                            .frame(width: 9, height: 9)
+                            .frame(width: 7, height: 7)
 
                         Text(verbatim: "\(item.sourceName) \(average.label(short: true)) \(averageText(for: item.averageValue))")
                             .font(.system(.subheadline, design: .rounded))
@@ -47,7 +47,6 @@ struct BodyHealthSourceLegend: View {
                     }
                 }
             }
-            .frame(maxWidth: 180, alignment: .trailing)
             .alignmentGuide(.firstTextBaseline) { dimensions in
                 dimensions[.lastTextBaseline]
             }
