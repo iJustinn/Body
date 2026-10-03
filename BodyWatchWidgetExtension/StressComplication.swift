@@ -12,6 +12,10 @@
 //  once that window is 12 hours old. Its band name comes stamped on the
 //  timeline, since this target has no `StressBand`. No corner gauge.
 //
+//  The Stress bands complication (circular only) shows the same reading on
+//  Stress's four bands, drawn like the Readiness bands (`WatchBandRingView`):
+//  the reading's band in its own color, from `WatchStressBands`.
+//
 
 import SwiftUI
 import WidgetKit
@@ -29,6 +33,31 @@ struct StressComplication: Widget {
     }
 }
 
+/// The same reading on Stress's four bands, drawn like the Readiness bands.
+struct StressBandsComplication: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "BodyWatchStressBands", provider: WatchMetricProvider()) { entry in
+            StressBandsComplicationView(entry: entry)
+                // Tapping the complication opens the Stress detail page.
+                .widgetURL(WatchMetricDeepLink.url(forKind: WatchMetricKindKey.stress))
+        }
+        .configurationDisplayName(String(localized: "Stress"))
+        .description(String(localized: "Your latest stress reading and its level."))
+        .supportedFamilies([.accessoryCircular])
+    }
+}
+
+/// The reading both Stress complications show. The gallery placeholder
+/// (generated at `.distantPast`) carries a sample timeline on fixed dates, so
+/// it is drawn without the age check, which would otherwise preview the blank
+/// state.
+private func latestStressReading(in entry: WatchMetricEntry) -> (score: Int, end: Date)? {
+    let timeline = entry.snapshot.stressTimeline
+    return entry.snapshot.generatedAt == .distantPast
+        ? timeline?.latestScoredWindow
+        : timeline?.latestReading(asOf: entry.date)
+}
+
 private struct StressComplicationView: View {
     @Environment(\.widgetFamily) private var family
     let entry: WatchMetricEntry
@@ -38,14 +67,7 @@ private struct StressComplicationView: View {
     private var metric: WatchMetric? { entry.snapshot.metric(forKind: WatchMetricKindKey.stress) }
     private var timeline: WatchStressTimeline? { entry.snapshot.stressTimeline }
 
-    /// The gallery placeholder (generated at `.distantPast`) carries a sample
-    /// timeline on fixed dates, so it is drawn without the age check, which
-    /// would otherwise preview the blank state.
-    private var reading: (score: Int, end: Date)? {
-        entry.snapshot.generatedAt == .distantPast
-            ? timeline?.latestScoredWindow
-            : timeline?.latestReading(asOf: entry.date)
-    }
+    private var reading: (score: Int, end: Date)? { latestStressReading(in: entry) }
 
     private var ringText: String { reading.map { "\($0.score)" } ?? "--" }
     private var fillFraction: Double { reading.map { Double($0.score) / 100 } ?? 0 }
@@ -121,6 +143,33 @@ private struct StressComplicationView: View {
     }
 }
 
+/// Stress's bands round the ring (`WatchBandRingView`), the reading's band
+/// tinted in its own color with the pill at the score. A Stress metric with no
+/// reading reads "--" like the Stress ring; no Stress metric shows the watch
+/// glyph, like the Readiness bands without a score.
+private struct StressBandsComplicationView: View {
+    let entry: WatchMetricEntry
+
+    private var hasMetric: Bool { entry.snapshot.metric(forKind: WatchMetricKindKey.stress) != nil }
+    private var score: Int? { hasMetric ? latestStressReading(in: entry)?.score : nil }
+    private var text: String { score.map { "\($0)" } ?? "--" }
+
+    var body: some View {
+        ZStack {
+            AccessoryWidgetBackground()
+            WatchBandRingView(
+                bandScoreRanges: WatchStressBands.scoreRanges,
+                score: score,
+                tint: Color(WatchStressBands.tint(forScore: score ?? 0)),
+                valueFontScale: complicationRingFontScale(for: text, base: ComplicationRingFontScale.circular.base, compact: ComplicationRingFontScale.circular.compact),
+                emptyText: hasMetric ? text : nil
+            )
+            .padding(1)
+        }
+        .containerBackground(.clear, for: .widget)
+    }
+}
+
 #Preview("Circular", as: .accessoryCircular) {
     StressComplication()
 } timeline: {
@@ -130,6 +179,13 @@ private struct StressComplicationView: View {
 
 #Preview("Rectangular", as: .accessoryRectangular) {
     StressComplication()
+} timeline: {
+    WatchMetricEntry(date: .now, snapshot: .placeholder)
+    WatchMetricEntry(date: .now, snapshot: .empty)
+}
+
+#Preview("Bands", as: .accessoryCircular) {
+    StressBandsComplication()
 } timeline: {
     WatchMetricEntry(date: .now, snapshot: .placeholder)
     WatchMetricEntry(date: .now, snapshot: .empty)

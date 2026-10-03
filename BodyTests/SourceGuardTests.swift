@@ -5518,16 +5518,9 @@ final class SourceGuardTests: XCTestCase {
 
         // A widget type that is never registered in its bundle compiles and
         // ships, but never appears in the gallery — the silent failure this
-        // assertion exists to catch.
+        // assertion exists to catch. The picker order is pinned in
+        // `testWatchComplicationPickerOrder`.
         XCTAssertTrue(watchBundle.contains("SleepStagesComplication()"))
-
-        // The picker lists Weekly Workout Time first and Sleep Stages second,
-        // ahead of the metric rings.
-        let exerciseWeekIndex = try XCTUnwrap(watchBundle.range(of: "ExerciseWeekComplication()")?.lowerBound)
-        let sleepStagesIndex = try XCTUnwrap(watchBundle.range(of: "SleepStagesComplication()")?.lowerBound)
-        let readinessIndex = try XCTUnwrap(watchBundle.range(of: "ReadinessComplication()")?.lowerBound)
-        XCTAssertLessThan(exerciseWeekIndex, sleepStagesIndex)
-        XCTAssertLessThan(sleepStagesIndex, readinessIndex)
     }
 
     func testDailyTotalWeekComplicationsArePinnedToCircularAndRectangular() throws {
@@ -5582,15 +5575,11 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(code.contains("metric?.unit"))
 
         // A widget type that is never registered in its bundle compiles and
-        // ships, but never appears in the gallery. The picker lists the three
-        // after Resting HR, in the watch's card order.
-        let restingHeartRateIndex = try XCTUnwrap(watchBundle.range(of: "RestingHeartRateComplication()")?.lowerBound)
-        let stepsIndex = try XCTUnwrap(watchBundle.range(of: "StepsWeekComplication()")?.lowerBound)
-        let activeEnergyIndex = try XCTUnwrap(watchBundle.range(of: "ActiveEnergyWeekComplication()")?.lowerBound)
-        let restingEnergyIndex = try XCTUnwrap(watchBundle.range(of: "RestingEnergyWeekComplication()")?.lowerBound)
-        XCTAssertLessThan(restingHeartRateIndex, stepsIndex)
-        XCTAssertLessThan(stepsIndex, activeEnergyIndex)
-        XCTAssertLessThan(activeEnergyIndex, restingEnergyIndex)
+        // ships, but never appears in the gallery. The picker order is pinned
+        // in `testWatchComplicationPickerOrder`.
+        for widget in ["StepsWeekComplication()", "ActiveEnergyWeekComplication()", "RestingEnergyWeekComplication()"] {
+            XCTAssertTrue(watchBundle.contains(widget), widget)
+        }
     }
 
     func testStressComplicationShowsTheLatestReading() throws {
@@ -5625,10 +5614,20 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(source.contains("BodyProEntitlement"))
         XCTAssertTrue(source.contains(".widgetURL(WatchMetricDeepLink.url(forKind: WatchMetricKindKey.stress))"))
 
-        // Registered, after Training Load as on the dashboard.
-        let trainingLoadIndex = try XCTUnwrap(watchBundle.range(of: "TrainingLoadComplication()")?.lowerBound)
-        let stressIndex = try XCTUnwrap(watchBundle.range(of: "StressComplication()")?.lowerBound)
-        XCTAssertLessThan(trainingLoadIndex, stressIndex)
+        // The bands complication: circular only, the same reading drawn on
+        // Stress's bands from the shared table (this target has no
+        // `StressBand`), its band in its own color. The bans above cover it too.
+        XCTAssertTrue(source.contains("kind: \"BodyWatchStressBands\""))
+        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryCircular])"), 1)
+        XCTAssertEqual(code.occurrenceCount(of: "latestStressReading(in: entry)"), 2)
+        XCTAssertTrue(code.contains("WatchBandRingView("))
+        XCTAssertTrue(code.contains("bandScoreRanges: WatchStressBands.scoreRanges,"))
+        XCTAssertTrue(code.contains("tint: Color(WatchStressBands.tint(forScore: score ?? 0)),"))
+
+        // Both registered; the picker order is pinned in
+        // `testWatchComplicationPickerOrder`.
+        XCTAssertTrue(watchBundle.contains("StressComplication()"))
+        XCTAssertTrue(watchBundle.contains("StressBandsComplication()"))
     }
 
     func testReadinessComplicationDrawsTheHeroArc() throws {
@@ -5646,18 +5645,32 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(watchBundle.contains("ReadinessComplicationView(entry: entry)"))
         XCTAssertTrue(watchBundle.contains("widgetKind: \"BodyWatchReadiness\""))
 
-        // Bands and active band come from the home hero's geometry, not a copy.
-        XCTAssertTrue(complicationSource.contains("Geometry = BodyReadinessArcGeometry"))
-        XCTAssertTrue(complicationSource.contains("Geometry.bandScoreRanges"))
-        XCTAssertTrue(complicationSource.contains("Geometry.segmentIndex(forScore:"))
+        // The bands come from the home hero's geometry, not a copy, drawn by
+        // the shared band ring, whose active band follows the same rule as
+        // the geometry's `segmentIndex(forScore:)`.
+        let ringSource = try BodyTestSupport.sourceText(at: "BodyWatchShared/Views/WatchBandRingView.swift")
+        XCTAssertEqual(complicationSource.occurrenceCount(of: "WatchBandRingView(bandScoreRanges: BodyReadinessArcGeometry.bandScoreRanges, score: metric?.score,"), 2)
         XCTAssertFalse(complicationSource.contains("WatchMetricRingView("))
+        XCTAssertTrue(ringSource.contains("let clamped = min(max(score, 0), 100)"))
+        XCTAssertTrue(geometrySource.contains("let clamped = min(max(score, 0), 100)"))
 
         // The ring already shows the score, so the rectangular row names the level.
         XCTAssertTrue(complicationSource.contains("metric.statusBand?.label"))
 
         // Tinted faces: only the active band and the pill take the accent.
-        XCTAssertTrue(complicationSource.contains("@Environment(\\.widgetRenderingMode)"))
-        XCTAssertTrue(complicationSource.contains(".widgetAccentable(isActive)"))
+        XCTAssertTrue(ringSource.contains("@Environment(\\.widgetRenderingMode)"))
+        XCTAssertTrue(ringSource.contains(".widgetAccentable(isActive)"))
+
+        // The band ring is watch only, like `WatchMetricRingView`: the iOS
+        // target excludes it, so its WidgetKit import never reaches the app.
+        let project = try BodyTestSupport.sourceText(at: "body.xcodeproj/project.pbxproj")
+        XCTAssertTrue(project.contains("Views/WatchBandRingView.swift,\n\t\t\t\tViews/WatchMetricCardView.swift,\n\t\t\t\tViews/WatchMetricRingView.swift,"))
+
+        // The Readiness ring complication: circular only, the single ring the
+        // other metrics draw, and a tap lands on the home page like the bands.
+        XCTAssertTrue(watchBundle.contains("StaticConfiguration(kind: \"BodyWatchReadinessRing\""))
+        XCTAssertTrue(watchBundle.contains("WatchComplicationView(metricKind: WatchMetricKindKey.readiness, entry: entry)\n                .widgetURL(WatchMetricDeepLink.homeURL)"))
+        XCTAssertEqual(watchBundle.occurrenceCount(of: ".supportedFamilies([.accessoryCircular])"), 1)
 
         // The corner family keeps the system bezel gauge.
         XCTAssertTrue(complicationSource.contains("case .accessoryCorner:\n            WatchComplicationView("))
@@ -5666,6 +5679,38 @@ final class SourceGuardTests: XCTestCase {
         // BodyMetricsKit, so the geometry file must not name ReadinessStatus.
         XCTAssertFalse(geometrySource.contains("[ReadinessStatus]"))
         XCTAssertFalse(geometrySource.contains("ReadinessStatus."))
+    }
+
+    func testWatchComplicationPickerOrder() throws {
+        let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
+        let start = try XCTUnwrap(watchBundle.range(of: "var body: some Widget {\n")?.upperBound)
+        let end = try XCTUnwrap(watchBundle.range(of: "\n    }\n", range: start..<watchBundle.endIndex)?.lowerBound)
+        let widgets = watchBundle[start..<end]
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+
+        // One bundle order serves every family. Sleep Stages leads, then the
+        // week bar charts, then the rest in the watch's card order
+        // (`WatchMetricKindKey.displayOrder`), each new circular complication
+        // right after its sibling. Steps, Active Energy and Resting Energy are
+        // rings in circular slots too, so they lead that list as well.
+        XCTAssertEqual(widgets, [
+            "SleepStagesComplication()",
+            "ExerciseWeekComplication()",
+            "StepsWeekComplication()",
+            "ActiveEnergyWeekComplication()",
+            "RestingEnergyWeekComplication()",
+            "ReadinessComplication()",
+            "ReadinessRingComplication()",
+            "SleepComplication()",
+            "TrainingLoadComplication()",
+            "StressComplication()",
+            "StressBandsComplication()",
+            "HeartRateComplication()",
+            "HRVComplication()",
+            "RestingHeartRateComplication()",
+            "SkinTemperatureComplication()"
+        ])
     }
 
     func testRectangularWatchComplicationRowsLeadWithTheReading() throws {

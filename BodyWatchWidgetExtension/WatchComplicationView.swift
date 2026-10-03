@@ -5,8 +5,9 @@
 //  Renders a single metric as the magenta ring (accessoryCircular), a ring +
 //  label row (accessoryRectangular), or a curved bezel gauge (accessoryCorner).
 //  Score-style metrics (Readiness, Sleep) show their 0–100 score in the center;
-//  the rest show their value. Readiness uses this view only for its corner
-//  gauge; its circular and rectangular families are `ReadinessComplicationView`.
+//  the rest show their value. Readiness uses this view for its corner gauge
+//  and for the circular Readiness ring complication; its bands complication's
+//  circular and rectangular families are `ReadinessComplicationView`.
 //
 
 import Foundation

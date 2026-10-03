@@ -387,6 +387,37 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(WatchMetricKindKey.displayOrder.contains(WatchMetricKindKey.workoutMinutes))
     }
 
+    func testWatchStressBandsMatchStressBand() {
+        // The watch widget extension has no BodyMetricsKit, so the Stress
+        // bands complication draws `StressBand`'s ranges and colors from this
+        // copy. One entry per band, in display order.
+        let bands = StressBand.displayOrder
+        XCTAssertEqual(WatchStressBands.scoreRanges.count, bands.count)
+        XCTAssertEqual(WatchStressBands.tints.count, bands.count)
+
+        // The ranges tile 0..<101 back to back.
+        XCTAssertEqual(WatchStressBands.scoreRanges.first?.lowerBound, 0)
+        XCTAssertEqual(WatchStressBands.scoreRanges.last?.upperBound, 101)
+        for (lower, upper) in zip(WatchStressBands.scoreRanges, WatchStressBands.scoreRanges.dropFirst()) {
+            XCTAssertEqual(lower.upperBound, upper.lowerBound)
+        }
+
+        // Every score lands in the same band either way.
+        for score in 0...100 {
+            let index = WatchStressBands.scoreRanges.firstIndex { $0.contains(score) }
+            XCTAssertEqual(index, bands.firstIndex(of: StressBand.band(for: score)), "\(score)")
+        }
+
+        for (tint, band) in zip(WatchStressBands.tints, bands) {
+            XCTAssertEqual(tint.red, band.rgbComponents.red, "\(band)")
+            XCTAssertEqual(tint.green, band.rgbComponents.green, "\(band)")
+            XCTAssertEqual(tint.blue, band.rgbComponents.blue, "\(band)")
+        }
+        XCTAssertEqual(WatchStressBands.tint(forScore: 25), WatchStressBands.tints[0])
+        XCTAssertEqual(WatchStressBands.tint(forScore: 26), WatchStressBands.tints[1])
+        XCTAssertEqual(WatchStressBands.tint(forScore: 140), WatchStressBands.tints[3])
+    }
+
     func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
         let project = try BodyTestSupport.sourceText(at: "body.xcodeproj/project.pbxproj")
         let usageDescription = "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, beat-to-beat heart rhythm data, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, running form, swim strokes, distance, date of birth, and biological sex from Apple Health to power your dashboard, charts, and widgets."

@@ -5,13 +5,15 @@
 //  Opt-in writer for the Stress complication's renders in
 //  `watch-widgets-screenshots/`: `35-complication-stress-circular` and
 //  `36-complication-stress-rectangular`, from the gallery placeholder (a
-//  Relaxed 42). It touches the worktree, so it skips unless
-//  `BODY_WATCH_WIDGET_SCREENSHOTS=1` is in the environment. Not a snapshot
-//  test.
+//  Relaxed 42), plus the two second circular complications,
+//  `40-complication-readiness-ring-circular` (the placeholder's Moderate 78)
+//  and `41-complication-stress-bands-circular`. It touches the worktree, so
+//  it skips unless `BODY_WATCH_WIDGET_SCREENSHOTS=1` is in the environment.
+//  Not a snapshot test.
 //
 //  The widget extension isn't compiled into any test target, so this draws
-//  `StressComplication`'s layout itself through the shared
-//  `WatchMetricRingView`, on the canvas the folder's other complication
+//  the complications' layouts itself through the shared `WatchMetricRingView`
+//  and `WatchBandRingView`, on the canvas the folder's other complication
 //  images use (6x, the rectangular slot outlined). The layout values it
 //  repeats are asserted against the widget source first, so a change there
 //  fails here instead of rendering a stale design.
@@ -92,6 +94,84 @@ final class WatchComplicationScreenshotTests: XCTestCase {
             .frame(width: Self.rectangularCanvas.width, height: Self.rectangularCanvas.height)
             .background(Color.black)
         try write(rectangular, name: "36-complication-stress-rectangular", to: directory)
+    }
+
+    /// Run it with:
+    /// `TEST_RUNNER_BODY_WATCH_WIDGET_SCREENSHOTS=1 SCHEME=BodyWatchTests PLANS=BodyWatch DEST=… ./test.sh -only-testing:BodyWatchTests/WatchComplicationScreenshotTests`
+    func testWritesReadinessRingAndStressBandsScreenshots() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["BODY_WATCH_WIDGET_SCREENSHOTS"] == "1",
+            "Set BODY_WATCH_WIDGET_SCREENSHOTS=1 to regenerate the Readiness ring and Stress bands screenshots"
+        )
+        try assertTheSecondCircularMirrorsMatchTheWidgetSource()
+
+        let directory = root.appendingPathComponent("watch-widgets-screenshots", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let snapshot = WatchMetricsSnapshot.placeholder
+
+        // `WatchComplicationView`'s circle for Readiness: the score in the
+        // ring, filled to it, in the level's color, the symbol in the gap.
+        let readiness = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.readiness))
+        let readinessScore = try XCTUnwrap(readiness.score)
+        let readinessText = "\(readinessScore)"
+        let readinessRing = WatchMetricRingView(
+            fillFraction: readiness.fillFraction,
+            value: readinessText,
+            unit: "",
+            symbolName: WatchMetricKindKey.symbolName(forKind: WatchMetricKindKey.readiness),
+            tint: readiness.resolvedTint,
+            showsUnit: false,
+            showsGlyph: true,
+            valueFontScale: readinessText.filter(\.isNumber).count >= 3 ? Self.circularFontScale.compact : Self.circularFontScale.base
+        )
+        try write(circular(readinessRing), name: "40-complication-readiness-ring-circular", to: directory)
+
+        // The Stress bands complication: the gallery placeholder's latest
+        // window on Stress's bands, its band in its own color.
+        let score = try XCTUnwrap(snapshot.stressTimeline?.latestScoredWindow?.score)
+        let stressText = "\(score)"
+        let stressBands = WatchBandRingView(
+            bandScoreRanges: WatchStressBands.scoreRanges,
+            score: score,
+            tint: Color(WatchStressBands.tint(forScore: score)),
+            valueFontScale: stressText.filter(\.isNumber).count >= 3 ? Self.circularFontScale.compact : Self.circularFontScale.base,
+            emptyText: stressText
+        )
+        try write(circular(stressBands), name: "41-complication-stress-bands-circular", to: directory)
+    }
+
+    /// A circular complication on the folder's circular canvas.
+    private func circular<Ring: View>(_ ring: Ring) -> some View {
+        ring
+            .padding(1)
+            .frame(width: Self.circularSlot, height: Self.circularSlot)
+            .frame(width: Self.circularCanvas.width, height: Self.circularCanvas.height)
+            .background(Color.black)
+    }
+
+    /// The values the two second circular renders repeat, as the widget
+    /// source spells them.
+    private func assertTheSecondCircularMirrorsMatchTheWidgetSource() throws {
+        let bundle = try String(contentsOf: root.appendingPathComponent("BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift"), encoding: .utf8)
+        let shared = try String(contentsOf: root.appendingPathComponent("BodyWatchWidgetExtension/WatchComplicationView.swift"), encoding: .utf8)
+        let stress = try String(contentsOf: root.appendingPathComponent("BodyWatchWidgetExtension/StressComplication.swift"), encoding: .utf8)
+
+        XCTAssertTrue(bundle.contains("WatchComplicationView(metricKind: WatchMetricKindKey.readiness, entry: entry)"))
+        for snippet in [
+            "fillFraction: metric.fillFraction,\n                    value: ringText(metric),",
+            "symbolName: WatchMetricKindKey.symbolName(forKind: metric.kind),\n                    tint: metric.resolvedTint,\n                    showsUnit: false,\n                    showsGlyph: true,",
+            "valueFontScale: complicationRingFontScale(for: ringText(metric), base: ComplicationRingFontScale.circular.base, compact: ComplicationRingFontScale.circular.compact)\n                )\n                .padding(1)",
+            "static let circular = (base: 0.35, compact: 0.255)"
+        ] {
+            XCTAssertTrue(shared.contains(snippet), snippet)
+        }
+        for snippet in [
+            "bandScoreRanges: WatchStressBands.scoreRanges,\n                score: score,\n                tint: Color(WatchStressBands.tint(forScore: score ?? 0)),",
+            "valueFontScale: complicationRingFontScale(for: text, base: ComplicationRingFontScale.circular.base, compact: ComplicationRingFontScale.circular.compact),",
+            "emptyText: hasMetric ? text : nil\n            )\n            .padding(1)"
+        ] {
+            XCTAssertTrue(stress.contains(snippet), snippet)
+        }
     }
 
     /// `StressComplication`'s ring, as its `ring(showsGlyph:fontScale:)` builds it.

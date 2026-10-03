@@ -460,6 +460,23 @@
         }
       }
     },
+    "Your latest stress reading and its level." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your latest stress reading and its level."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最新压力读数及其等级。"
+          }
+        }
+      }
+    },
     "Your latest stress reading." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -490,6 +507,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复状态圆环。"
+          }
+        }
+      }
+    },
+    "Your readiness score ring." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your readiness score ring."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态分数圆环。"
           }
         }
       }
