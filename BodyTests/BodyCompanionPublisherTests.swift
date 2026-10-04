@@ -32,7 +32,10 @@ final class BodyCompanionPublisherTests: XCTestCase {
         lastRefreshDate: Date? = nil,
         permissionSelection: BodyHealthPermissionSelection = .defaultValue,
         metricPullDates: [String: Date] = [:],
-        workoutColorPalette: BodyWorkoutColorPalette = .builtIn
+        workoutColorPalette: BodyWorkoutColorPalette = .builtIn,
+        metricWarningsOnHero: Bool = true,
+        dismissedMetricWarningsRaw: String = "",
+        metricWarningFoldDates: [String: Date] = [:]
     ) -> BodyCompanionPublishInput {
         BodyCompanionPublishInput(
             shared: shared ?? Self.makeSharedInput(),
@@ -64,6 +67,10 @@ final class BodyCompanionPublisherTests: XCTestCase {
             showsSleepDebt: false,
             homeHeroRaw: homeHeroRaw,
             dayRingShowsCaption: false,
+            metricWarningSelectionRaw: BodyMetricWarningSelection.defaultRawValue,
+            metricWarningsOnHero: metricWarningsOnHero,
+            dismissedMetricWarningsRaw: dismissedMetricWarningsRaw,
+            metricWarningFoldDates: metricWarningFoldDates,
             workoutColorPalette: workoutColorPalette,
             healthDataSourceSelectionRaw: "",
             customHealthSourceGroupsRaw: nil,
@@ -222,5 +229,214 @@ final class BodyCompanionPublisherTests: XCTestCase {
         )
 
         await fulfillment(of: [sent], timeout: 2)
+    }
+
+    // MARK: - Watch metric warnings
+
+    /// 2026-06-20 10:00, the publish time every warning test below runs at.
+    nonisolated private static let warningNow = Calendar.bodyGregorian.date(
+        from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)
+    )!
+
+    /// Both watch cards that can carry a warning: Heart Rate and Skin Temp.
+    nonisolated private static let warningCardKinds: Set<String> = [
+        WatchMetricKindKey.heartRate,
+        WatchMetricKindKey.wristTemperature
+    ]
+
+    /// An episode of `kind` starting at `hour`:`minute` on `dayOffset` days
+    /// from `warningNow`'s day.
+    nonisolated private static func warningEvent(
+        _ kind: MetricWarningKind,
+        hour: Int,
+        minute: Int = 0,
+        dayOffset: Int = 0,
+        threshold: Double? = nil
+    ) -> MetricWarningEvent {
+        let calendar = Calendar.bodyGregorian
+        let day = calendar.date(byAdding: .day, value: dayOffset, to: calendar.startOfDay(for: warningNow))!
+        let start = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day)!
+        return MetricWarningEvent(
+            kind: kind,
+            startDate: start,
+            endDate: start.addingTimeInterval(15 * 60),
+            extremeValue: 0,
+            sampleCount: 3,
+            threshold: threshold
+        )
+    }
+
+    /// Every kind detected today, listed out of kind order so the test sees the
+    /// publisher put them back in it.
+    nonisolated private static func summaryWithEveryWarningToday() -> HealthSummarySnapshot {
+        var summary = HealthSummarySnapshot.empty
+        summary.metricWarnings = [
+            warningEvent(.highWristTemperature, hour: 6, threshold: 37.2),
+            warningEvent(.highRespiratoryRate, hour: 5),
+            warningEvent(.highHeartRate, hour: 8, minute: 5, threshold: 120),
+            warningEvent(.lowBloodOxygen, hour: 4),
+            warningEvent(.lowHeartRate, hour: 3, minute: 10, threshold: 40)
+        ]
+        return summary
+    }
+
+    nonisolated private static func watchWarnings(
+        summary: HealthSummarySnapshot = BodyCompanionPublisherTests.summaryWithEveryWarningToday(),
+        selectionRaw: String = BodyMetricWarningSelection.defaultRawValue,
+        dismissedRaw: String = "",
+        foldDates: [String: Date] = [:],
+        cardKinds: Set<String> = BodyCompanionPublisherTests.warningCardKinds
+    ) -> [WatchMetricWarning]? {
+        BodyCompanionPublisher.watchMetricWarnings(
+            summary: summary,
+            selectionRaw: selectionRaw,
+            dismissedRaw: dismissedRaw,
+            foldDates: foldDates,
+            cardKinds: cardKinds,
+            now: warningNow
+        )
+    }
+
+    /// Today's Low and High Heart Rate and High Skin Temperature ship in kind
+    /// order with the phone's fold key, their own threshold and start; Blood
+    /// Oxygen and Respiratory Rate have no watch card, so they never do.
+    func testWatchWarningsShipTodaysCardedKindsInKindOrder() throws {
+        let warnings = try XCTUnwrap(Self.watchWarnings())
+
+        XCTAssertEqual(warnings.map(\.kind), ["lowHeartRate", "highHeartRate", "highWristTemperature"])
+        XCTAssertEqual(
+            warnings.map(\.foldKey),
+            ["lowHeartRate@2026-06-20", "highHeartRate@2026-06-20", "highWristTemperature@2026-06-20"]
+        )
+        XCTAssertEqual(warnings.map(\.threshold), [40, 120, 37.2])
+        XCTAssertEqual(
+            warnings.map(\.startDate),
+            [
+                Self.warningEvent(.lowHeartRate, hour: 3, minute: 10).startDate,
+                Self.warningEvent(.highHeartRate, hour: 8, minute: 5).startDate,
+                Self.warningEvent(.highWristTemperature, hour: 6).startDate
+            ]
+        )
+        XCTAssertEqual(warnings.map(\.isFolded), [false, false, false])
+        XCTAssertEqual(warnings.map(\.foldChangedAt), [nil, nil, nil])
+        // The key is the phone's one fold key builder, verbatim.
+        let summary = Self.summaryWithEveryWarningToday()
+        XCTAssertEqual(
+            warnings.first?.foldKey,
+            BodyDismissedMetricWarnings.entryKey(for: try XCTUnwrap(summary.warning(.lowHeartRate)))
+        )
+    }
+
+    /// The watch drops a warning after midnight anyway, so a summary still
+    /// holding yesterday's episode doesn't ship it.
+    func testWatchWarningsLeaveOutEpisodesFromAnotherDay() throws {
+        var summary = HealthSummarySnapshot.empty
+        summary.metricWarnings = [
+            Self.warningEvent(.lowHeartRate, hour: 23, dayOffset: -1),
+            Self.warningEvent(.highHeartRate, hour: 9),
+            Self.warningEvent(.highWristTemperature, hour: 6, dayOffset: -1)
+        ]
+
+        let warnings = try XCTUnwrap(Self.watchWarnings(summary: summary))
+
+        XCTAssertEqual(warnings.map(\.kind), ["highHeartRate"])
+    }
+
+    /// Only the kinds turned on in the Warnings selection ship; with every kind
+    /// off nothing does.
+    func testWatchWarningsFollowTheWarningsSelection() throws {
+        let selection = BodyMetricWarningSelection(enabledKinds: [.highHeartRate, .lowBloodOxygen])
+        let warnings = try XCTUnwrap(Self.watchWarnings(selectionRaw: selection.rawValue))
+
+        XCTAssertEqual(warnings.map(\.kind), ["highHeartRate"])
+        XCTAssertNil(Self.watchWarnings(selectionRaw: BodyMetricWarningSelection(enabledKinds: []).rawValue))
+    }
+
+    /// A warning ships only with its card: a card the builder left out (its
+    /// permission off, say) takes its warnings with it.
+    func testWatchWarningsShipOnlyForCardsInTheSnapshot() throws {
+        let heartOnly = try XCTUnwrap(Self.watchWarnings(cardKinds: [WatchMetricKindKey.heartRate]))
+        XCTAssertEqual(heartOnly.map(\.kind), ["lowHeartRate", "highHeartRate"])
+
+        let skinOnly = try XCTUnwrap(Self.watchWarnings(cardKinds: [WatchMetricKindKey.wristTemperature, WatchMetricKindKey.stress]))
+        XCTAssertEqual(skinOnly.map(\.kind), ["highWristTemperature"])
+
+        XCTAssertNil(Self.watchWarnings(cardKinds: [WatchMetricKindKey.stress, WatchMetricKindKey.sleep]))
+    }
+
+    /// The phone's fold state and its stamps ride with each warning; other
+    /// days' and Body Radar's entries change nothing.
+    func testWatchWarningsCarryTheFoldStateAndItsStamp() throws {
+        let stamp = Self.warningNow.addingTimeInterval(-600)
+        let unfoldStamp = Self.warningNow.addingTimeInterval(-60)
+        let warnings = try XCTUnwrap(Self.watchWarnings(
+            dismissedRaw: "bodyRadar@2026-06-20,highHeartRate@2026-06-20,lowHeartRate@2026-06-19",
+            foldDates: [
+                "highHeartRate@2026-06-20": stamp,
+                // An unfold is stamped too, and its entry is absent from the set.
+                "highWristTemperature@2026-06-20": unfoldStamp,
+                "lowHeartRate@2026-06-19": stamp
+            ]
+        ))
+
+        XCTAssertEqual(warnings.map(\.isFolded), [false, true, false])
+        XCTAssertEqual(warnings.map(\.foldChangedAt), [nil, stamp, unfoldStamp])
+    }
+
+    func testWatchWarningsAreNilWhenNothingQualifies() {
+        XCTAssertNil(Self.watchWarnings(summary: .empty))
+
+        var summary = HealthSummarySnapshot.empty
+        summary.metricWarnings = [
+            Self.warningEvent(.lowBloodOxygen, hour: 4),
+            Self.warningEvent(.highRespiratoryRate, hour: 5),
+            Self.warningEvent(.lowHeartRate, hour: 3, dayOffset: -1)
+        ]
+        XCTAssertNil(Self.watchWarnings(summary: summary))
+    }
+
+    /// The publish puts the warnings and the Show on Home Hero switch on the
+    /// snapshot it sends, filtered by the cards the builder made: with Heart
+    /// off there's no Heart Rate card, so only Skin Temp's warning ships.
+    func testWarningsAndTheHeroSwitchRideTheWatchSnapshot() async throws {
+        let shared = BodyCompanionPublishInput.Shared(
+            trends: .empty,
+            summary: Self.summaryWithEveryWarningToday(),
+            temperatureUnitPreference: .celsius,
+            energyUnitPreference: .kilocalories,
+            idealSleepDuration: 8 * 60 * 60,
+            showSleepScore: true
+        )
+        let stamp = Self.warningNow.addingTimeInterval(-120)
+        let cases: [(name: String, permission: BodyHealthPermissionSelection, onHero: Bool, kinds: [String])] = [
+            ("every permission", .defaultValue, false, ["lowHeartRate", "highHeartRate", "highWristTemperature"]),
+            ("Heart off", BodyHealthPermissionSelection.defaultValue.setting(.heart, isEnabled: false), true, ["highWristTemperature"])
+        ]
+        for testCase in cases {
+            let sent = expectation(description: testCase.name)
+            let publisher = BodyCompanionPublisher(send: { snapshot, _, _, _, _ in
+                XCTAssertEqual(snapshot.heroShowsWarnings, testCase.onHero, testCase.name)
+                XCTAssertEqual(snapshot.metricWarnings?.map(\.kind), testCase.kinds, testCase.name)
+                let skinTemp = snapshot.metricWarnings?.last
+                XCTAssertEqual(skinTemp?.isFolded, true, testCase.name)
+                XCTAssertEqual(skinTemp?.foldChangedAt, stamp, testCase.name)
+                sent.fulfill()
+            })
+
+            publisher.publishWatchSnapshot(
+                makeInput(
+                    epoch: 3,
+                    shared: shared,
+                    now: Self.warningNow,
+                    permissionSelection: testCase.permission,
+                    metricWarningsOnHero: testCase.onHero,
+                    dismissedMetricWarningsRaw: "highWristTemperature@2026-06-20",
+                    metricWarningFoldDates: ["highWristTemperature@2026-06-20": stamp]
+                ),
+                isEpochCurrent: { $0 == 3 }
+            )
+
+            await fulfillment(of: [sent], timeout: 5)
+        }
     }
 }

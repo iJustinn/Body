@@ -74,6 +74,19 @@ struct BodyCompanionPublishInput: Sendable {
     let showsSleepDebt: Bool
     let homeHeroRaw: String
     let dayRingShowsCaption: Bool
+    /// The Warnings selection's raw value (`BodyMetricWarningSelection`):
+    /// only the kinds turned on there reach the watch, as on the phone.
+    let metricWarningSelectionRaw: String
+    /// The Warnings sheet's Show on Home Hero switch, which both watch heroes
+    /// follow for their badge row.
+    let metricWarningsOnHero: Bool
+    /// The folded warnings' raw value (`BodyDismissedMetricWarnings`), so
+    /// each watch warning card starts folded or unfolded as the phone's does.
+    let dismissedMetricWarningsRaw: String
+    /// When each fold entry last changed (`BodyMetricWarningFoldDates`), sent
+    /// with its warning so the watch can tell whether its own fold record is
+    /// newer than the phone's state (`WatchWarningFoldSync`).
+    let metricWarningFoldDates: [String: Date]
     let workoutColorPalette: BodyWorkoutColorPalette
     let healthDataSourceSelectionRaw: String
     let customHealthSourceGroupsRaw: String?
@@ -282,6 +295,15 @@ final class BodyCompanionPublisher {
             snapshot.showsSleepDebt = input.showsSleepDebt
             snapshot.homeHero = input.homeHeroRaw
             snapshot.dayRingShowsCaption = input.dayRingShowsCaption
+            snapshot.heroShowsWarnings = input.metricWarningsOnHero
+            snapshot.metricWarnings = Self.watchMetricWarnings(
+                summary: input.shared.summary,
+                selectionRaw: input.metricWarningSelectionRaw,
+                dismissedRaw: input.dismissedMetricWarningsRaw,
+                foldDates: input.metricWarningFoldDates,
+                cardKinds: Set(snapshot.metrics.map(\.kind)),
+                now: input.now
+            )
             if input.homeHeroRaw == BodyStarMetric.dayRing.rawValue {
                 // Yesterday through tomorrow: the watch keeps what overlaps the day
                 // its own clock is on, so a snapshot that outlives midnight still draws.
@@ -381,6 +403,59 @@ final class BodyCompanionPublisher {
                 )
             }
         }
+    }
+
+    /// Today's threshold warnings as the watch draws them: its hero badges,
+    /// card glyphs and detail page warning cards.
+    ///
+    /// Walks `MetricWarningKind.allCases`, so the warnings ship in the phone's
+    /// kind order, and keeps a kind only when:
+    /// * it is turned on in the Warnings selection;
+    /// * `summary` carries an episode for it that started on `now`'s day (the
+    ///   watch drops a warning after midnight anyway, so an older one would
+    ///   only cost bytes);
+    /// * its metric has a card in the built snapshot (`cardKinds`). Blood
+    ///   Oxygen and Respiratory Rate have no watch card, so they never ship,
+    ///   and a card the builder left out for a permission that's off takes
+    ///   its warnings with it.
+    ///
+    /// `summary` is `input.shared.summary`, the same permission filtered
+    /// summary Home reads, so the watch shows exactly the warnings Home
+    /// flags. Each warning carries its fold key (the phone's
+    /// `dismissedMetricWarnings` entry, built in one place by
+    /// `BodyDismissedMetricWarnings.entryKey(for:)`), whether that entry is
+    /// folded, and the entry's stamp, which the watch compares its own fold
+    /// records against. Nil when nothing qualifies, which the snapshot reads
+    /// as no warnings.
+    nonisolated static func watchMetricWarnings(
+        summary: HealthSummarySnapshot,
+        selectionRaw: String,
+        dismissedRaw: String,
+        foldDates: [String: Date],
+        cardKinds: Set<String>,
+        now: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> [WatchMetricWarning]? {
+        let selection = BodyMetricWarningSelection.storedValue(from: selectionRaw)
+        let dismissed = BodyDismissedMetricWarnings.storedValue(from: dismissedRaw)
+        let warnings = MetricWarningKind.allCases.compactMap { kind -> WatchMetricWarning? in
+            guard selection.includes(kind),
+                  let event = summary.warning(kind),
+                  calendar.isDate(event.startDate, inSameDayAs: now),
+                  cardKinds.contains(kind.metric.rawValue) else {
+                return nil
+            }
+            let foldKey = BodyDismissedMetricWarnings.entryKey(for: event, calendar: calendar)
+            return WatchMetricWarning(
+                kind: kind.rawValue,
+                startDate: event.startDate,
+                threshold: event.threshold,
+                foldKey: foldKey,
+                isFolded: dismissed.contains(event, calendar: calendar),
+                foldChangedAt: foldDates[foldKey]
+            )
+        }
+        return warnings.isEmpty ? nil : warnings
     }
 
     /// Size budget for the compute seed alone (before the display snapshot and

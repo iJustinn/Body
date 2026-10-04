@@ -49,6 +49,12 @@ final class WatchConnectivityPublisher: NSObject {
     /// republishes and calls back with the reply. Installed at launch, before
     /// `activate()`, so a request that wakes the app can't arrive first.
     var baselineSyncHandler: (@MainActor (@escaping @MainActor @Sendable (WatchBaselineSync.Reply) -> Void) -> Void)?
+    /// Applies the watch's warning fold records (`WatchWarningFoldSync`). A
+    /// `sendMessage` passes a completion, which sends its reply and runs once
+    /// the resulting republish is handed off; the queued `transferUserInfo`
+    /// copy passes nil, since nothing waits on it. Installed at launch, before
+    /// `activate()`, so a record that wakes the app can't arrive first.
+    var warningFoldHandler: (@MainActor ([WatchWarningFoldSync.Record], (@MainActor @Sendable () -> Void)?) -> Void)?
 
     private override init() {
         super.init()
@@ -348,6 +354,23 @@ extension WatchConnectivityPublisher: WCSessionDelegate {
         didReceiveMessage message: [String: Any],
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
+        // A warning fold from the watch. The reply waits for the handler's
+        // completion (the republish), like Sync Baseline's, so a background
+        // wake stays up until the merged state is on the session.
+        if let records = WatchWarningFoldSync.records(from: message) {
+            nonisolated(unsafe) let reply = replyHandler
+            Task { @MainActor in
+                self.logger.info("Warning folds received from the watch: \(records.count, privacy: .public)")
+                guard let handler = self.warningFoldHandler else {
+                    reply([:])
+                    return
+                }
+                handler(records) {
+                    reply([:])
+                }
+            }
+            return
+        }
         guard message[WatchBaselineSync.requestKey] != nil else {
             replyHandler([:])
             return
@@ -364,6 +387,22 @@ extension WatchConnectivityPublisher: WCSessionDelegate {
             handler { result in
                 reply([WatchBaselineSync.replyKey: result.rawValue])
             }
+        }
+    }
+
+    /// The queued copy of a warning fold (`transferUserInfo`), which the watch
+    /// sends on every toggle whether or not the iPhone is reachable. It runs
+    /// the same handler as the message but with no completion: nothing waits
+    /// on a reply, so the handler republishes through the debounced path, and
+    /// a burst of queued copies makes one publish rather than one each. A copy
+    /// that arrives after its message is a tie the handler ignores.
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        guard let records = WatchWarningFoldSync.records(from: userInfo) else {
+            return
+        }
+        Task { @MainActor in
+            self.logger.info("Queued warning folds received from the watch: \(records.count, privacy: .public)")
+            self.warningFoldHandler?(records, nil)
         }
     }
 

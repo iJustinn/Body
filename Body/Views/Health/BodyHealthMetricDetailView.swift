@@ -2729,6 +2729,14 @@ struct BodyHealthMetricDetailView: View {
                     withAnimation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0)) {
                         dismissedMetricWarningsRawValue = (isFolded ? stored.unfolding(event) : stored.dismissing(event)).rawValue
                     }
+                    // Stamp the change for the two way fold sync with the watch,
+                    // and republish so the watch's card follows. Only today's
+                    // warnings ride the watch snapshot, so a past day picked in the
+                    // date picker has nothing there to update.
+                    BodyMetricWarningFoldDates.recordChange(of: event)
+                    if Calendar.bodyGregorian.isDateInToday(event.startDate) {
+                        workoutStore.republishCompanionSnapshots()
+                    }
                 }
             )
             // A warning is detected only once the day's samples have loaded, so the

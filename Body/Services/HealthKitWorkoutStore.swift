@@ -8506,6 +8506,47 @@ final class HealthKitWorkoutStore {
         }
     }
 
+    /// Applies fold records the watch sent (`WatchWarningFoldSync`) to the
+    /// phone's folded warnings and their stamps (in `defaults`), then
+    /// republishes so the watch gets the merged state back. `completion` comes
+    /// with a `sendMessage` and is what sends its reply: it runs once the
+    /// publish is handed off, or at once when nothing changed or there's
+    /// nothing to publish yet. The queued `transferUserInfo` copy passes nil.
+    ///
+    /// With a completion it publishes directly, shaped like
+    /// `publishWatchBaselineSync`, rather than through the debounced
+    /// `republishCompanionSnapshots()`: a watch message usually wakes this app
+    /// in the background with no scene, and a debounced task can be suspended
+    /// before it fires. Holding the reply until the publish completes keeps
+    /// the process up until the context is on the session, as Sync Baseline
+    /// does. Without one it takes the debounced path: nothing waits on the
+    /// queued copy, the message (when the watch could send one) already
+    /// published directly for an immediate change, and a burst of queued
+    /// records then makes one publish rather than one each. Either way the
+    /// publish runs under Sync Baseline's guard (a restored or refreshed
+    /// state, no cache clear in flight), and
+    /// `publishWatchSnapshot(shared:completion:)` still calls `completion`
+    /// when its own gate drops the send. Home picks up the change on its own,
+    /// since it reads the dismissed set through `@AppStorage`.
+    func applyWatchWarningFolds(
+        _ records: [WatchWarningFoldSync.Record],
+        defaults: UserDefaults = .standard,
+        completion: (@MainActor @Sendable () -> Void)?
+    ) {
+        guard BodyMetricWarningFoldDates.applying(records, defaults: defaults),
+              lastVitalsRefreshDate != nil, !isClearingCache else {
+            completion?()
+            return
+        }
+        guard let completion else {
+            republishCompanionSnapshots()
+            return
+        }
+        publishWatchSnapshot(shared: makeSharedPublishInput()) {
+            completion()
+        }
+    }
+
     /// Captures, synchronously on the main actor, exactly what the watch
     /// snapshot build and send read off this store beyond `shared` (which the
     /// caller captured, also synchronously, immediately before). There is no
@@ -8619,6 +8660,18 @@ final class HealthKitWorkoutStore {
             dayRingShowsCaption: UserDefaults.standard.object(
                 forKey: BodyAppearancePreference.dayRingShowsCaptionKey
             ) as? Bool ?? true,
+            // The watch shows the warnings Home flags: the selected kinds, under
+            // the Show on Home Hero switch, folded as the phone has them.
+            metricWarningSelectionRaw: UserDefaults.standard.string(
+                forKey: BodyAppearancePreference.metricWarningsKey
+            ) ?? BodyMetricWarningSelection.defaultRawValue,
+            metricWarningsOnHero: UserDefaults.standard.object(
+                forKey: BodyAppearancePreference.metricWarningsOnReadinessHeroKey
+            ) as? Bool ?? true,
+            dismissedMetricWarningsRaw: UserDefaults.standard.string(
+                forKey: BodyAppearancePreference.dismissedMetricWarningsKey
+            ) ?? "",
+            metricWarningFoldDates: BodyMetricWarningFoldDates.load(),
             workoutColorPalette: BodyWorkoutColorPalette(
                 rawOverrides: BodyWorkoutColorStore.sharedDefaults?.string(
                     forKey: BodyAppearancePreference.workoutColorOverridesKey

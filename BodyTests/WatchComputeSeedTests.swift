@@ -692,9 +692,9 @@ final class WatchComputeSeedTests: XCTestCase {
     /// The publisher budgets the WHOLE application context (display snapshot,
     /// permission key and seed together) and silently drops the seed past it,
     /// which stops every watch compute. So the seed is measured with a
-    /// realistic display snapshot on top: Sleep Debt, Day Ring workouts, a 15
-    /// segment night and every metric's week, sized the way `send` sizes them
-    /// (the snapshot as uncompressed JSON). Keeps 5 KB of headroom, below
+    /// realistic display snapshot on top: Sleep Debt, Day Ring workouts, three
+    /// metric warnings, a 15 segment night and every metric's week, sized the
+    /// way `send` sizes them (the snapshot as uncompressed JSON). Keeps 5 KB of headroom, below
     /// which the seed's oldest nights should shed their collapsed segment.
     func testWholePushWithTheRealisticSeedFitsTheContextBudget() throws {
         let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
@@ -763,6 +763,24 @@ final class WatchComputeSeedTests: XCTestCase {
                 startDate: start,
                 endDate: start.addingTimeInterval(45 * 60),
                 colorHex: 0xFF5A1F
+            )
+        }
+        // The most warnings a push can carry: the three kinds with a watch card,
+        // each with a fractional threshold and a fold stamp.
+        snapshot.heroShowsWarnings = true
+        snapshot.metricWarnings = [
+            (MetricWarningKind.lowHeartRate, 38.5),
+            (MetricWarningKind.highHeartRate, 128.5),
+            (MetricWarningKind.highWristTemperature, 37.85)
+        ].enumerated().map { index, warning in
+            let start = anchor.addingTimeInterval(Double(index - 3) * 3_600)
+            return WatchMetricWarning(
+                kind: warning.0.rawValue,
+                startDate: start,
+                threshold: warning.1,
+                foldKey: "\(warning.0.rawValue)@2026-05-17",
+                isFolded: index == 1,
+                foldChangedAt: start.addingTimeInterval(600)
             )
         }
         snapshot.sleepStages = WatchMetricsSnapshot.placeholder.sleepStages
