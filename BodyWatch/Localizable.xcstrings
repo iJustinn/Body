@@ -204,6 +204,23 @@
         }
       }
     },
+    "Collapse Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collapse Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起警告"
+          }
+        }
+      }
+    },
     "Couldn't reach Body on iPhone. Open it and try again." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -250,6 +267,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "结束"
+          }
+        }
+      }
+    },
+    "Expand Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展开警告"
+          }
+        }
+      }
+    },
+    "High Heart Rate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率过高"
+          }
+        }
+      }
+    },
+    "High Skin Temperature" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Skin Temperature"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "皮肤温度过高"
+          }
+        }
+      }
+    },
+    "If you were working out, this warning will disappear once the workout is logged." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If you were working out, this warning will disappear once the workout is logged."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "如果您当时正在体能训练，该警告会在训练记录同步后消失。"
           }
         }
       }
@@ -318,6 +403,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上次同步：%@。"
+          }
+        }
+      }
+    },
+    "Low Heart Rate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率过低"
           }
         }
       }
@@ -725,6 +827,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "震动"
+          }
+        }
+      }
+    },
+    "Your heart rate fell below %lld BPM starting at %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate fell below %lld BPM starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的心率降至 %1$lld 次/分钟以下。"
+          }
+        }
+      }
+    },
+    "Your heart rate rose above %lld BPM starting at %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate rose above %lld BPM starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的心率升至 %1$lld 次/分钟以上。"
+          }
+        }
+      }
+    },
+    "Your skin temperature rose above %@ starting at %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your skin temperature rose above %@ starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的皮肤温度升至 %1$@ 以上。"
           }
         }
       }

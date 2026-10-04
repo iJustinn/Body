@@ -10,6 +10,7 @@ import WatchKit
 struct BodyWatchApp: App {
     @WKApplicationDelegateAdaptor(WatchAppDelegate.self) private var delegate
     @StateObject private var model = WatchMetricsModel.shared
+    @StateObject private var warningFolds = WatchWarningFoldStore.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -17,6 +18,7 @@ struct BodyWatchApp: App {
             WatchDashboardView()
                 .environmentObject(model)
                 .environmentObject(model.intradayCharts)
+                .environmentObject(warningFolds)
         }
         .onChange(of: scenePhase) { _, phase in
             // `onAppear` doesn't reliably re-fire when watchOS returns the app

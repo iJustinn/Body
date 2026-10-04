@@ -533,6 +533,40 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    /// The watch's warning badges, card glyphs and detail page warning cards
+    /// reuse the phone's copy, so the watch catalog carries the same keys,
+    /// translated exactly as on the phone.
+    func testWatchMetricWarningKeysResolveInWatchCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyWatch/Localizable.xcstrings")
+        let phoneCatalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            // Card titles, glyph and badge accessibility labels.
+            "Low Heart Rate",
+            "High Heart Rate",
+            "High Skin Temperature",
+            // The unfolded card's sentence and the High Heart Rate footnote.
+            "Your heart rate fell below %lld BPM starting at %@.",
+            "Your heart rate rose above %lld BPM starting at %@.",
+            "Your skin temperature rose above %@ starting at %@.",
+            "If you were working out, this warning will disappear once the workout is logged.",
+            // The fold button's accessibility hint.
+            "Expand Warning",
+            "Collapse Warning"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+        for key in keys {
+            for language in ["en", "zh-Hans"] {
+                XCTAssertEqual(
+                    try value(of: key, language: language, in: catalog),
+                    try value(of: key, language: language, in: phoneCatalog),
+                    "\(key) \(language) differs from the phone"
+                )
+            }
+        }
+    }
+
     func testWorkoutRenameKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 
