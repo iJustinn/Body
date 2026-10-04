@@ -112,6 +112,11 @@ final class WatchHeartChartsSnapshotTests: XCTestCase {
         XCTAssertEqual(Array(timeline.slots.suffix(7)), [28, 31, 35, a, a, 40, 42])
         XCTAssertEqual(timeline.end, Date(timeIntervalSinceReferenceDate: 802_284_300))
         XCTAssertEqual(timeline.latestScoredWindow?.score, 42)
+        // Its scores reach both ends of the 0 to 100 scale, so the chart
+        // complication's gallery and render span the whole plot.
+        let scores = timeline.slots.compactMap { $0 }.filter { $0 != a }
+        XCTAssertEqual(scores.min(), 0)
+        XCTAssertEqual(scores.max(), 100)
         XCTAssertEqual(timeline.latestBand?.label, String(localized: "Relaxed", table: "BodyWatchShared"))
         XCTAssertEqual(
             Set(timeline.context.map(\.kind)),

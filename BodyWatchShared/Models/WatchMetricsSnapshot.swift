@@ -693,23 +693,23 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     )
 
     /// The placeholder's Stress windows: 12 and a quarter hours from 04:30 to
-    /// 16:45 UTC on 2026-06-04, enough to fill the Stress chart. The end of
-    /// the night below under its sleep shading, the desk, a stressor, a run
-    /// masked as movement under its workout shading, 45 minutes off the
-    /// wrist, then an hour and three quarters of desk time with a walk, ending
-    /// on a Relaxed 42. Anchored to FIXED instants like the night below; the
-    /// complications skip their age check for the placeholder, whose
-    /// `generatedAt` is `.distantPast`.
+    /// 16:45 UTC on 2026-06-04, enough to fill the Stress chart, and reaching
+    /// both ends of its 0 to 100 scale. The end of the night below under its
+    /// sleep shading, the desk, a stressor, a run masked as movement under its
+    /// workout shading, 45 minutes off the wrist, then an hour and three
+    /// quarters of desk time with a walk, ending on a Relaxed 42. Anchored to
+    /// FIXED instants like the night below; the complications skip their age
+    /// check for the placeholder, whose `generatedAt` is `.distantPast`.
     private static let placeholderStressTimeline: WatchStressTimeline = {
         let start = Date(timeIntervalSinceReferenceDate: 802_240_200)
         let a = WatchStressTimeline.activityMarker
         let slots: [Int?] = [
-            // Asleep: the night's end.
-            11, 9, 8, 12, 10, 9, 13, 15, 18,
+            // Asleep: the night's end, down to 0.
+            11, 9, 0, 12, 10, 9, 13, 15, 18,
             // Awake, then the desk.
             nil, 27, 33, 30, 36, 41, 38, 44, 47, 39, 35, 31, 34,
-            // A stressor.
-            58, 69, 77, 62,
+            // A stressor, peaking at 100.
+            58, 79, 100, 74,
             // A run, masked as movement.
             a, a, a, a, a, a,
             // Recovering, then off the wrist.
