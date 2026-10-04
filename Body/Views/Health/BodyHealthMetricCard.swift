@@ -760,8 +760,7 @@ struct BodyHealthMetricCardTrendPreview: View {
             // An empty occupied set is the even three-way split.
             let layout = DotPreviewLayout(
                 size: proxy.size,
-                occupied: dotEqualRegions ? [] : occupiedRegions(for: dots),
-                placesRingsWithinRegions: dotEqualRegions
+                occupied: dotEqualRegions ? [] : occupiedRegions(for: dots)
             )
 
             ZStack {
@@ -832,15 +831,8 @@ struct BodyHealthMetricCardTrendPreview: View {
         private let highHeight: CGFloat
         private let typicalHeight: CGFloat
         private let lowHeight: CGFloat
-        /// Whether a ring is placed by where it lands inside its own region in
-        /// all three of them, rather than resting at the middle of the outer
-        /// two the way a vital does. Only the equal-height layout has the room:
-        /// Body Radar's three slots are fixed thresholds, so its ring glides as
-        /// the night's evidence moves instead of holding three fixed heights.
-        private let placesRingsWithinRegions: Bool
 
-        init(size: CGSize, occupied: Set<SleepVitalRegion>, placesRingsWithinRegions: Bool = false) {
-            self.placesRingsWithinRegions = placesRingsWithinRegions
+        init(size: CGSize, occupied: Set<SleepVitalRegion>) {
             gap = min(max(size.height * Self.gapFraction, 1.5), size.height / 8)
             let available = max(size.height - 2 * gap, 1)
             // Clamping the minimum to a third is what keeps the three heights
@@ -928,26 +920,24 @@ struct BodyHealthMetricCardTrendPreview: View {
             max(height(for: region) * 0.14, 3)
         }
 
-        /// `markerPosition` maps the typical band to [1/3, 2/3]; that middle
-        /// third stretches over the typical region and the outer thirds collapse
-        /// onto the high and low regions, mirroring the drawn shapes. A layout
-        /// that places rings within every region stretches all three thirds
-        /// instead, so the outer two read like the middle one.
+        /// `markerPosition` splits its 0…1 scale into thirds, low / typical /
+        /// high, and each third stretches over its own region, so a ring sits
+        /// where its reading falls inside that region the way the Day View plots
+        /// it: a vital just outside its typical range rests by the typical band,
+        /// a far outlier at the outer edge. The third maps onto the ring's
+        /// travel rather than the region's full height, so a reading near an
+        /// edge still lands apart from one at the edge.
         func dotY(for position: Double) -> CGFloat {
             let clamped = min(max(position, 0), 1)
             let region = Self.regionSlot(for: clamped)
-
-            guard placesRingsWithinRegions || region == .typical else {
-                return centerY(for: region)
-            }
-
-            let halfDot = dotDiameter / 2
             let bandTopY = topY(for: region)
             let bandHeight = height(for: region)
-            let bandFraction = (Self.slotCeiling(for: region) - clamped) * 3
-            let minY = bandTopY + halfDot + 0.5
-            let maxY = bandTopY + bandHeight - halfDot - 0.5
-            return min(max(bandTopY + bandHeight * CGFloat(bandFraction), minY), maxY)
+            // 0 at the top of the region's own third of the scale, 1 at its bottom.
+            let bandFraction = CGFloat(min(max((Self.slotCeiling(for: region) - clamped) * 3, 0), 1))
+            // The ring's center travels between its two rests just inside the
+            // region's edges, so the whole third lands on a ring kept inside it.
+            let inset = min(dotDiameter / 2 + 0.5, bandHeight / 2)
+            return bandTopY + inset + (bandHeight - 2 * inset) * bandFraction
         }
 
         /// The top of a region's own third of the 0…1 scale, the value a ring

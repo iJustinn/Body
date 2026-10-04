@@ -6,7 +6,8 @@
 //  regions share the preview's height by which of them actually hold rings —
 //  an even three-way split, an even split between two with the empty region
 //  held at its minimum, or one region at its maximum with the other two at
-//  minimum — while the three heights always sum to the drawable height.
+//  minimum — while the three heights always sum to the drawable height —
+//  and where each ring sits inside the region its reading falls in.
 //
 
 import SwiftUI
@@ -224,10 +225,78 @@ final class VitalsPreviewDotLayoutTests: XCTestCase {
                     let bottom = top + layout.height(for: region)
                     let y = layout.dotY(for: position)
 
-                    XCTAssertGreaterThanOrEqual(y, top - accuracy)
-                    XCTAssertLessThanOrEqual(y, bottom + accuracy)
+                    // The whole ring, not just its center, stays inside.
+                    XCTAssertGreaterThanOrEqual(y - layout.dotDiameter / 2, top - accuracy)
+                    XCTAssertLessThanOrEqual(y + layout.dotDiameter / 2, bottom + accuracy)
                 }
             }
+        }
+    }
+
+    /// A High or Low ring sits where its reading falls inside its region
+    /// rather than at the region's middle: just past the typical range it rests
+    /// by the typical band, a far outlier at the outer edge.
+    func testOutlierRingsSitWhereTheReadingFallsInTheirRegion() {
+        let cases: [Set<SleepVitalRegion>] = [
+            [.high, .typical, .low],
+            [.high, .typical],
+            [.typical, .low]
+        ]
+
+        for size in Self.sizes {
+            for occupied in cases {
+                let layout = layout(size, occupied)
+                let rest = layout.dotDiameter / 2 + 0.5
+
+                if occupied.contains(.high) {
+                    let barelyHigh = layout.dotY(for: 0.7)
+                    let farHigh = layout.dotY(for: 1)
+
+                    XCTAssertGreaterThan(barelyHigh, layout.centerY(for: .high))
+                    XCTAssertEqual(farHigh, layout.topY(for: .high) + rest, accuracy: accuracy)
+                    XCTAssertEqual(layout.dotY(for: 5.0 / 6.0), layout.centerY(for: .high), accuracy: accuracy)
+                }
+
+                if occupied.contains(.low) {
+                    let barelyLow = layout.dotY(for: 0.3)
+                    let farLow = layout.dotY(for: 0)
+
+                    XCTAssertLessThan(barelyLow, layout.centerY(for: .low))
+                    XCTAssertEqual(
+                        farLow,
+                        layout.topY(for: .low) + layout.height(for: .low) - rest,
+                        accuracy: accuracy
+                    )
+                    XCTAssertEqual(layout.dotY(for: 1.0 / 6.0), layout.centerY(for: .low), accuracy: accuracy)
+                }
+            }
+        }
+    }
+
+    /// A higher reading always draws higher, across the region boundaries
+    /// too, so the rings keep the Day View's order.
+    func testDotYFallsAsThePositionRises() {
+        for size in Self.sizes {
+            let layout = layout(size, [.high, .typical, .low])
+            let positions = Array(stride(from: 0.0, through: 1.0, by: 0.01))
+
+            for (lower, higher) in zip(positions, positions.dropFirst()) {
+                XCTAssertGreaterThan(
+                    layout.dotY(for: lower),
+                    layout.dotY(for: higher),
+                    "\(higher) did not draw above \(lower)"
+                )
+            }
+        }
+    }
+
+    /// The pending skeleton's gray rings carry 0.5, which has to stay the
+    /// middle of the typical band.
+    func testSkeletonRingsRestAtTheMiddleOfTheTypicalBand() {
+        for size in Self.sizes {
+            let pending = layout(size, [])
+
+            XCTAssertEqual(pending.dotY(for: 0.5), pending.centerY(for: .typical), accuracy: accuracy)
         }
     }
 

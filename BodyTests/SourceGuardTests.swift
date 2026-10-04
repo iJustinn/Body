@@ -1825,16 +1825,21 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(card.contains(".foregroundStyle(.orange)"))
     }
 
-    func testBodyRadarPreviewRingIsPlacedWithinEveryRegion() throws {
+    func testDotsPreviewPlacesEveryRingWithinItsRegion() throws {
         let source = try bodyHomeViewText()
 
-        XCTAssertTrue(source.contains("placesRingsWithinRegions: dotEqualRegions"))
+        // Vitals' High and Low rings used to rest at their region's middle;
+        // every ring now sits where its reading falls, Body Radar's included.
+        XCTAssertFalse(source.contains("placesRingsWithinRegions"))
+        XCTAssertFalse(source.contains("return centerY(for: region)"))
+        XCTAssertTrue(source.contains("init(size: CGSize, occupied: Set<SleepVitalRegion>)"))
         XCTAssertTrue(
-            source.contains("init(size: CGSize, occupied: Set<SleepVitalRegion>, placesRingsWithinRegions: Bool = false)")
+            source.contains(
+                "let bandFraction = CGFloat(min(max((Self.slotCeiling(for: region) - clamped) * 3, 0), 1))"
+            )
         )
-        XCTAssertTrue(source.contains("guard placesRingsWithinRegions || region == .typical else {"))
-        XCTAssertTrue(source.contains("let bandFraction = (Self.slotCeiling(for: region) - clamped) * 3"))
-        // Body Radar is the one caller that asks for it.
+        XCTAssertTrue(source.contains("return bandTopY + inset + (bandHeight - 2 * inset) * bandFraction"))
+        // Body Radar keeps its fixed-threshold slots.
         XCTAssertTrue(source.contains("dotPreviewEqualRegions: true,"))
         // Nothing but the ring may move: an empty occupied set is the even
         // three-way split, so the three slots keep their heights whatever the
