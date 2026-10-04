@@ -68,7 +68,7 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     private var pendingRetryTask: Task<Void, Never>?
     /// How far ahead the standing background wake is requested, so a closed
     /// watch keeps recomputing without the phone or the app being opened.
-    static let backgroundRefreshInterval: TimeInterval = 60 * 60
+    static let backgroundRefreshInterval: TimeInterval = 30 * 60
     /// The date last handed to `scheduleBackgroundRefresh`. watchOS keeps one
     /// request per app and a new call replaces it, so a no-op trigger must not
     /// push an earlier wake later. In memory only: after a relaunch the first
@@ -986,8 +986,8 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         await environment.changeTracker.commitDetectedChanges()
     }
 
-    /// Keeps one background wake requested (best effort, watchOS decides): an
-    /// hour out, or pending workout work's earlier retry date. That retry also
+    /// Keeps one background wake requested (best effort, watchOS decides): 30
+    /// minutes out, or pending workout work's earlier retry date. That retry also
     /// gets an in-process timer for an open app, where no background refresh
     /// is delivered; bounded by the policy's attempt cap, and cancelled once
     /// the work is no longer waiting on a retry.

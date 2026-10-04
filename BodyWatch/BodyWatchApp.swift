@@ -23,7 +23,7 @@ struct BodyWatchApp: App {
             // to the foreground, so re-check staleness here too. Compute first,
             // then the live HR/HRV fallback — see `WatchMetricsModel.onAppear`.
             // Background triggers (the workout observer, a pushed context, the
-            // hourly scheduled refresh) run the same staleness gated compute,
+            // 30 minute scheduled refresh) run the same staleness gated compute,
             // but never raise an authorization sheet (see
             // `WatchMetricsModel.recomputeIfStale`).
             if phase == .active {
@@ -63,7 +63,7 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
                     WatchMetricsModel.shared.handleConnectivityBackgroundTask(wcTask)
                 }
             } else if let refreshTask = task as? WKApplicationRefreshBackgroundTask {
-                // The model's standing hourly wake, or an earlier retry for
+                // The model's standing 30 minute wake, or an earlier retry for
                 // pending workout work. The model completes the task, once,
                 // after the compute or on expiration. `apply` reloads the
                 // complication timelines itself, so no snapshot is requested.
