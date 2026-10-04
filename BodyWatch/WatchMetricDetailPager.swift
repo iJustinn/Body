@@ -10,7 +10,9 @@
 //  Heart Rate, HRV, Steps or Active Energy page is the visible one, it keeps
 //  that page's "Last 8 hours" chart fresh (`WatchIntradayChartStore`). The Stress page's "Last 8
 //  hours" chart rides the snapshot instead (the compute builds it alongside
-//  the Stress value), so it is not read here.
+//  the Stress value), so it is not read here. Each page's warning cards come
+//  from the snapshot's `metricWarnings` with the fold state
+//  `WatchWarningFoldStore` resolves, and a tap on one folds it there.
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -20,6 +22,7 @@ import SwiftUI
 struct WatchMetricDetailPager: View {
     @EnvironmentObject private var model: WatchMetricsModel
     @EnvironmentObject private var intradayCharts: WatchIntradayChartStore
+    @EnvironmentObject private var warningFolds: WatchWarningFoldStore
     @Environment(\.scenePhase) private var scenePhase
     private let initialKind: String
     @State private var selection: String?
@@ -67,7 +70,13 @@ struct WatchMetricDetailPager: View {
                         exerciseWeekMetric: WatchComplicationTimeline.exerciseWeekMetric(in: model.snapshot),
                         intradayChart: intradayCharts.charts[metric.kind],
                         stressTimeline: model.snapshot.stressTimeline,
-                        workoutColorOverrides: model.snapshot.workoutColorOverrides
+                        workoutColorOverrides: model.snapshot.workoutColorOverrides,
+                        warnings: WatchMetricWarnings.rows(
+                            forCardKind: metric.kind,
+                            in: model.snapshot.metricWarnings ?? [],
+                            isFolded: warningFolds.isFolded
+                        ),
+                        onToggleWarningFold: { warningFolds.toggle($0) }
                     )
                         .tag(metric.kind as String?)
                 }

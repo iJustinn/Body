@@ -31,6 +31,11 @@
 //  last 12 hours, adding its own "Last 12 hours" chart (`WatchStressChartView`)
 //  below its value row. The Heart Rate, HRV and Stress charts stand about half
 //  again as tall as the page's other charts, the Steps and Active Energy ones as tall.
+//  Whenever the phone pushed a warning for the page's metric today (Low or
+//  High Heart Rate on Heart Rate, High Skin Temperature on Skin Temp), the
+//  page scrolls the same way and its foldable warning cards
+//  (`WatchMetricWarningSection`) follow the last chart, the iPhone's order;
+//  Skin Temp, which has no chart below its value row, scrolls only then.
 //  The
 //  tint fill is the page's own background so it slides with the vertical
 //  pager, giving a smooth color transition between metrics. Display-only: it
@@ -79,6 +84,15 @@ struct WatchMetricDetailView: View {
     /// The snapshot's `workoutColorOverrides`, already resolved for Body Pro
     /// by the phone, for the workout shading on the Stress chart.
     var workoutColorOverrides: String? = nil
+    /// Today's warnings for this page's metric with their fold state (see
+    /// `WatchMetricWarnings.rows`), drawn as foldable cards after the page's
+    /// last chart and making the page scroll. Plain values rather than the
+    /// fold store, so the page stays renderable in tests. Empty on every page
+    /// without a warning.
+    var warnings: [WatchMetricWarningRow] = []
+    /// Folds or unfolds a warning card (the pager hands it to
+    /// `WatchWarningFoldStore`); nil leaves the cards' taps doing nothing.
+    var onToggleWarningFold: ((WatchMetricWarning) -> Void)? = nil
 
     /// The page theme (title, background wash, chart line): the metric's static
     /// kind color, matching the iOS detail page — never the status-band color.
@@ -231,7 +245,7 @@ struct WatchMetricDetailView: View {
                 .ignoresSafeArea()
 
             if sleepStageSegments != nil || sleepDebtSection != nil || exerciseWeekly != nil || visibleIntradayChart != nil
-                || visibleStressTimeline != nil {
+                || visibleStressTimeline != nil || !warnings.isEmpty {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
                         pageContent
@@ -278,6 +292,14 @@ struct WatchMetricDetailView: View {
                             .frame(height: Self.intradayChartHeight(forKind: metric.kind))
                             .padding(.top, 10)
                             .padding(.bottom, 12)
+                        }
+
+                        if !warnings.isEmpty {
+                            WatchMetricWarningSection(
+                                rows: warnings,
+                                usesFahrenheit: metric.usesFahrenheit ?? metric.unit.contains("F"),
+                                onToggleFold: { onToggleWarningFold?($0) }
+                            )
                         }
                     }
                     .padding(.horizontal, 8)

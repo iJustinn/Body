@@ -8,15 +8,20 @@
 //  "Last 8 hours" (Stress: "Last 12 hours") chart below it, the same for the
 //  Steps and Active Energy pages (their 7 day bars and today's total, then the
 //  "Last 8 hours" slot bars), and one screen for Resting Energy (no intraday
-//  chart, like the iPhone). It touches the worktree, so it skips unless
-//  `BODY_WATCH_PAGE_SCREENSHOTS=1` is in the environment. Not a snapshot
-//  test.
+//  chart, like the iPhone). Two more show the warning cards: the Heart Rate
+//  page with its "Last 8 hours" chart followed by a folded Low Heart Rate
+//  card and an unfolded High Heart Rate one, and a Skin Temp page (no chart)
+//  with one unfolded High Skin Temperature card. It touches the worktree, so
+//  it skips unless `BODY_WATCH_PAGE_SCREENSHOTS=1` is in the environment. Not
+//  a snapshot test.
 //
 //  `ImageRenderer` draws a watchOS `ScrollView` blank, so a page whose chart
-//  makes it scroll can't be rendered as is. The render stacks the page's
-//  first screen (rendered without the chart, which leaves it unchanged) over
-//  the chart section exactly as `WatchMetricDetailView` lays it out below the
-//  value row (same frame and padding), on the black the page's gradient ends in.
+//  or warnings make it scroll can't be rendered as is. The render stacks the
+//  page's first screen (rendered without the chart and the warnings, which
+//  leaves it unchanged) over the chart section and then the warning section,
+//  exactly as `WatchMetricDetailView` lays them out below the value row (same
+//  frame and padding), on the black the page's gradient ends in, in the
+//  dark color scheme the watch always uses.
 //
 
 import SwiftUI
@@ -74,14 +79,67 @@ final class WatchPageScreenshotTests: XCTestCase {
                 }
             }
         }
+
+        // The warning cards after the page's last chart: Low Heart Rate folded
+        // (header only, chevron pointing left), High Heart Rate unfolded (the
+        // sentence and the workout footnote, chevron pointing down).
+        let heartWarnings = [
+            warning(.lowHeartRate, threshold: 40, hour: 3, minute: 12, now: now),
+            warning(.highHeartRate, threshold: 120, hour: 11, minute: 40, now: now)
+        ]
+        try writePage(
+            "09-heart-rate-warnings",
+            metric: heartRate,
+            now: now,
+            warnings: WatchMetricWarnings.rows(
+                forCardKind: WatchMetricKindKey.heartRate,
+                in: heartWarnings,
+                isFolded: { $0.kind == MetricWarningKind.lowHeartRate.rawValue }
+            ),
+            to: directory
+        ) {
+            WatchIntradayChartView(
+                chart: .preview(kind: WatchMetricKindKey.heartRate, now: now),
+                tint: Color(WatchMetricKindKey.tint(forKind: WatchMetricKindKey.heartRate)),
+                style: .range
+            )
+        }
+
+        // Skin Temp has no chart below its value row: the card follows it.
+        try writePage(
+            "10-skin-temperature-warning",
+            metric: skinTemperature(now: now),
+            now: now,
+            warnings: WatchMetricWarnings.rows(
+                forCardKind: WatchMetricKindKey.wristTemperature,
+                in: [warning(.highWristTemperature, threshold: 38.0, hour: 4, minute: 25, now: now)],
+                isFolded: { _ in false }
+            ),
+            to: directory
+        )
+    }
+
+    /// A page with warnings and no chart section.
+    private func writePage(
+        _ name: String,
+        metric: WatchMetric,
+        now: Date,
+        warnings: [WatchMetricWarningRow],
+        to directory: URL
+    ) throws {
+        try writePage(name, metric: metric, now: now, warnings: warnings, to: directory) { EmptyView() }
     }
 
     /// Stacks the page's first screen over `chart`, framed and padded as
-    /// `WatchMetricDetailView` lays a chart section out, and writes the PNG.
+    /// `WatchMetricDetailView` lays a chart section out, then over `warnings`
+    /// as its warning section, and writes the PNG. An `EmptyView` chart
+    /// leaves the chart section out (a page with nothing below its value row
+    /// but its warnings).
     private func writePage<Chart: View>(
         _ name: String,
         metric: WatchMetric,
         now: Date,
+        warnings: [WatchMetricWarningRow] = [],
         to directory: URL,
         @ViewBuilder chart: () -> Chart
     ) throws {
@@ -90,14 +148,28 @@ final class WatchPageScreenshotTests: XCTestCase {
         let page = VStack(spacing: 0) {
             WatchMetricDetailView(metric: metric, generatedAt: now, referenceDate: now)
                 .frame(width: screen.width, height: screen.height)
-            chart()
-                .frame(height: WatchMetricDetailView.intradayChartHeight(forKind: metric.kind))
-                .padding(.top, 10)
-                .padding(.bottom, 12)
+            if Chart.self != EmptyView.self {
+                chart()
+                    .frame(height: WatchMetricDetailView.intradayChartHeight(forKind: metric.kind))
+                    .padding(.top, 10)
+                    .padding(.bottom, 12)
+                    .padding(.horizontal, 8)
+                    .frame(width: screen.width)
+            }
+            if !warnings.isEmpty {
+                WatchMetricWarningSection(
+                    rows: warnings,
+                    usesFahrenheit: metric.usesFahrenheit ?? metric.unit.contains("F"),
+                    onToggleFold: { _ in }
+                )
                 .padding(.horizontal, 8)
                 .frame(width: screen.width)
+            }
         }
         .background(Color.black)
+        // The watch is always dark, but `ImageRenderer` renders light, which
+        // would draw the warning cards' secondary text dark gray.
+        .environment(\.colorScheme, .dark)
 
         let renderer = ImageRenderer(content: page)
         renderer.scale = device.screenScale
@@ -141,6 +213,41 @@ final class WatchPageScreenshotTests: XCTestCase {
                 .init(low: 24, high: 66), .init(low: 29, high: 78), .init(low: 22, high: 61), nil,
                 .init(low: 31, high: 84), .init(low: 27, high: 70), .init(low: 25, high: 62)
             ]
+        )
+    }
+
+    /// A warning the phone pushed for `now`'s day, starting at `hour`:`minute`,
+    /// keyed like the phone's fold entries ("lowHeartRate@2026-10-01").
+    private func warning(_ kind: MetricWarningKind, threshold: Double, hour: Int, minute: Int, now: Date) -> WatchMetricWarning {
+        let calendar = Calendar.current
+        let start = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now) ?? now
+        let day = calendar.dateComponents([.year, .month, .day], from: now)
+        let dayKey = String(format: "%04d-%02d-%02d", day.year ?? 0, day.month ?? 0, day.day ?? 0)
+        return WatchMetricWarning(
+            kind: kind.rawValue,
+            startDate: start,
+            threshold: threshold,
+            foldKey: "\(kind.rawValue)@\(dayKey)",
+            isFolded: false
+        )
+    }
+
+    /// Skin Temp in Celsius: last night's reading and a week of nightly
+    /// readings, built on `now` so the headline survives the midnight check.
+    private func skinTemperature(now: Date) -> WatchMetric {
+        WatchMetric(
+            kind: WatchMetricKindKey.wristTemperature,
+            title: "Skin Temp",
+            displayValue: "34.6",
+            unit: "°C",
+            score: nil,
+            fillFraction: 0.7,
+            rawValue: 34.6,
+            rangeMin: 33.8,
+            rangeMax: 34.9,
+            weekly: [34.1, 33.9, 34.3, nil, 34.0, 33.8, 34.6],
+            weeklyAsOf: now,
+            usesFahrenheit: false
         )
     }
 
