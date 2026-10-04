@@ -132,6 +132,38 @@ enum WatchIntradayChartGeometry {
         return lower...max(maximum + padding, lower + 1)
     }
 
+    /// The round values a Heart Rate or HRV chart complication labels on its
+    /// axis: the multiples inside `domain` of the smallest step of 1, 2, 2.5
+    /// or 5 times a power of ten (never under 1, and 2.5 only from 25 up, so
+    /// every label is a whole number) that leaves at most three, so 55...149
+    /// reads 75, 100 and 125. A range so flat that this leaves a single value
+    /// allows four, so 41...49 reads 42, 44, 46 and 48, and one that still
+    /// leaves a single value (56...64 reads 60) keeps it.
+    static func valueTicks(in domain: ClosedRange<Double>) -> [Double] {
+        let three = valueTicks(in: domain, maximumCount: 3)
+        guard three.count < 2 else { return three }
+        let four = valueTicks(in: domain, maximumCount: 4)
+        return four.count > three.count ? four : three
+    }
+
+    private static func valueTicks(in domain: ClosedRange<Double>, maximumCount: Int) -> [Double] {
+        let span = domain.upperBound - domain.lowerBound
+        guard span > 0, span.isFinite else { return [] }
+        var magnitude = max(1, pow(10, floor(log10(span / Double(maximumCount)))))
+        while true {
+            for multiplier in [1.0, 2, 2.5, 5] where multiplier != 2.5 || magnitude >= 10 {
+                let step = multiplier * magnitude
+                let first = (domain.lowerBound / step).rounded(.up)
+                let last = (domain.upperBound / step).rounded(.down)
+                if last - first + 1 <= Double(maximumCount) {
+                    guard first <= last else { return [] }
+                    return stride(from: first, through: last, by: 1).map { $0 * step }
+                }
+            }
+            magnitude *= 10
+        }
+    }
+
     /// The even local hours more than 30 minutes inside both edges, so no
     /// hour label clips at the plot's ends.
     static func hourTicks(in domain: ClosedRange<Date>, calendar: Calendar = .current) -> [Date] {

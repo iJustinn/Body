@@ -6,7 +6,8 @@
 //  Energy pages: the rolling window opens 8 hours before the current local
 //  half hour slot, the average line breaks across an hour without readings,
 //  the value axis keeps every mark inside it (and starts at zero for the daily
-//  totals' bars), hour labels sit on even local hours away from the plot's
+//  totals' bars), the chart complications label it with round whole values,
+//  hour labels sit on even local hours away from the plot's
 //  edges, the daily total kinds take the bar style, only those four pages
 //  show a chart, and the Heart Rate, HRV and Stress charts stand about half
 //  again as tall as the page's other charts.
@@ -119,6 +120,37 @@ final class WatchIntradayChartTests: XCTestCase {
         )
         XCTAssertEqual(domain.lowerBound, 0)
         XCTAssertGreaterThan(domain.upperBound, 3)
+    }
+
+    /// The chart complications' axis labels: round whole values inside the
+    /// range, at most three, and four only where three would leave one.
+    func testValueTicksAreRoundWholeValuesInsideTheRange() {
+        XCTAssertEqual(WatchIntradayChartGeometry.valueTicks(in: 52...98), [60, 80])
+        XCTAssertEqual(WatchIntradayChartGeometry.valueTicks(in: 38.4...71.6), [40, 60])
+        // A workout's wide Heart Rate range.
+        XCTAssertEqual(WatchIntradayChartGeometry.valueTicks(in: 48...172), [50, 100, 150])
+        // Steps of 20 would leave five and 50 one: 25 leaves three.
+        XCTAssertEqual(WatchIntradayChartGeometry.valueTicks(in: 55...149), [75, 100, 125])
+        // Under 10, no 2.5 step (20, 22.5, 25): never a fraction.
+        XCTAssertEqual(WatchIntradayChartGeometry.valueTicks(in: 20...27.4), [20, 25])
+        // A flat HRV: three would leave 45 alone, so four.
+        XCTAssertEqual(WatchIntradayChartGeometry.valueTicks(in: 41...49), [42, 44, 46, 48])
+        // Four would leave one too (step 2 gives five), so the one stays.
+        XCTAssertEqual(WatchIntradayChartGeometry.valueTicks(in: 56...64), [60])
+        // A single repeated reading's padded range: never a fraction.
+        XCTAssertEqual(WatchIntradayChartGeometry.valueTicks(in: 60.76...63.24), [61, 62, 63])
+        XCTAssertEqual(WatchIntradayChartGeometry.valueTicks(in: 0...1), [0, 1])
+
+        let domains: [ClosedRange<Double>] = [52...98, 41...49, 60.76...63.24, 12.3...19.9, 88...131]
+        for domain in domains {
+            let ticks = WatchIntradayChartGeometry.valueTicks(in: domain)
+            XCTAssertFalse(ticks.isEmpty, "\(domain)")
+            XCTAssertLessThanOrEqual(ticks.count, 4, "\(domain)")
+            for tick in ticks {
+                XCTAssertEqual(tick, tick.rounded(), "\(domain)")
+                XCTAssertTrue(domain.contains(tick), "\(domain)")
+            }
+        }
     }
 
     // MARK: - Hour ticks
