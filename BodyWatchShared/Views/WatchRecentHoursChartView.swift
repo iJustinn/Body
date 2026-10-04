@@ -67,8 +67,8 @@ struct WatchRecentHoursChartView: View {
     static let hourRowHeight: CGFloat = 8
     /// The row over the Stress plot its band symbols sit in, reserved only
     /// while a band is in the window.
-    static let iconRowHeight: CGFloat = 9
-    private static let iconFont = Font.system(size: 8, weight: .bold)
+    static let iconRowHeight: CGFloat = 7
+    private static let iconFont = Font.system(size: 6.5, weight: .bold)
     /// The space between the value labels and the plot.
     private static let axisGap: CGFloat = 2
     /// About half a value label's digits: the least the plot keeps clear
