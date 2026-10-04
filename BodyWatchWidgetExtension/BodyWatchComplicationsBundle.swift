@@ -10,11 +10,12 @@
 //  Steps, Active Energy and Resting Energy), then the intraday charts
 //  (Stress, Heart Rate, HRV), then the rest in the watch's card order. Steps,
 //  Active Energy and Resting Energy are also rings in circular slots, so they
-//  lead that list too. Readiness draws the home hero's segmented bands
-//  instead of the single ring (`ReadinessComplicationView`), and a second
-//  circular Readiness complication draws the single ring. Stress has its own
-//  circular and rectangular complication (`StressComplication`), which shows
-//  the latest reading rather than the card's daily average, and a second
+//  lead that list too, and gauges in corner slots like the rest. Readiness
+//  draws the home hero's segmented bands instead of the single ring
+//  (`ReadinessComplicationView`), and a second circular Readiness
+//  complication draws the single ring. Stress has its own
+//  circular, rectangular and corner complication (`StressComplication`), which
+//  shows the latest reading rather than the card's daily average, and a second
 //  circular one draws that reading on Stress's bands.
 //
 //  Note: full magenta renders in the Smart Stack and full-color faces; in

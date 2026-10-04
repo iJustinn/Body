@@ -9,8 +9,11 @@
 //  circular family is the metric ring the other complications draw
 //  (`WatchMetricRingView`): today's total inside, filled against the week's
 //  best day as the card is, the metric's symbol in the gap, and "--" with an
-//  empty ring once the midnight clear blanks the total. Free (not Pro-gated),
-//  like the other bar complications. Reuses the existing
+//  empty ring once the midnight clear blanks the total. The corner family is
+//  the other metrics' bezel gauge (`WatchComplicationView`): today's total
+//  curved over a gauge from 0 to the week's best day, its ends compacted
+//  ("11K"), reading "--" over an empty gauge after the midnight clear. Free
+//  (not Pro-gated), like the other bar complications. Reuses the existing
 //  `WatchMetricProvider`/`WatchMetricEntry`, which already carries the whole
 //  snapshot.
 //
@@ -27,7 +30,7 @@ struct StepsWeekComplication: Widget {
         }
         .configurationDisplayName(String(localized: "Steps"))
         .description(String(localized: "Today's steps, or this week's daily steps."))
-        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryCorner])
     }
 }
 
@@ -40,7 +43,7 @@ struct ActiveEnergyWeekComplication: Widget {
         }
         .configurationDisplayName(String(localized: "Active Energy"))
         .description(String(localized: "Today's active energy, or this week's daily active energy."))
-        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryCorner])
     }
 }
 
@@ -53,7 +56,7 @@ struct RestingEnergyWeekComplication: Widget {
         }
         .configurationDisplayName(String(localized: "Resting Energy"))
         .description(String(localized: "Today's resting energy, or this week's daily resting energy."))
-        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryCorner])
     }
 }
 
@@ -82,6 +85,10 @@ private struct DailyTotalWeekComplicationView: View {
         switch family {
         case .accessoryCircular:
             circular
+        case .accessoryCorner:
+            // The other metrics' corner gauge: today's total over 0 to the
+            // week's best day, the card's fill, as the ring.
+            WatchComplicationView(metricKind: metricKind, entry: entry)
         default:
             rectangular
         }
@@ -149,6 +156,13 @@ private struct DailyTotalWeekComplicationView: View {
 }
 
 #Preview("Steps circular", as: .accessoryCircular) {
+    StepsWeekComplication()
+} timeline: {
+    WatchMetricEntry(date: .now, snapshot: .placeholder)
+    WatchMetricEntry(date: .now, snapshot: .empty)
+}
+
+#Preview("Steps corner", as: .accessoryCorner) {
     StepsWeekComplication()
 } timeline: {
     WatchMetricEntry(date: .now, snapshot: .placeholder)

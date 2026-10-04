@@ -5531,7 +5531,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(watchBundle.contains("SleepStagesComplication()"))
     }
 
-    func testDailyTotalWeekComplicationsArePinnedToCircularAndRectangular() throws {
+    func testDailyTotalWeekComplicationsArePinnedToTheirFamilies() throws {
         let source = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/DailyTotalWeekComplications.swift")
         let watchBundle = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift")
         // The gallery placeholder is generated at `.distantPast`, so rewinding
@@ -5545,12 +5545,20 @@ final class SourceGuardTests: XCTestCase {
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
 
-        // Rectangular (the week's bars) and circular (today's total in the
-        // metric ring); no corner, which has no gauge range to offer. The file
-        // holds three widgets (Steps, Active Energy, Resting Energy), each
-        // pinned once.
-        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryCircular, .accessoryRectangular])"), 3)
-        XCTAssertFalse(code.contains(".accessoryCorner"))
+        // Rectangular (the week's bars), circular (today's total in the metric
+        // ring) and corner (the other metrics' bezel gauge, today's total over
+        // 0 to the week's best day). The file holds three widgets (Steps,
+        // Active Energy, Resting Energy), each pinned once.
+        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryCorner])"), 3)
+        XCTAssertTrue(code.contains("case .accessoryCorner:\n            WatchComplicationView(metricKind: metricKind, entry: entry)"))
+
+        // That gauge's ends compact for a daily total only ("11K"), so a five
+        // digit day fits the arc's tip; Heart Rate, HRV and Skin Temp keep
+        // whole numbers. Every corner draws through the shared gauge.
+        let metricView = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/WatchComplicationView.swift")
+        XCTAssertTrue(metricView.contains("let isDailyTotal = WatchMetricKindKey.dailyTotalKinds.contains(metric.kind)"))
+        XCTAssertTrue(metricView.contains("if isDailyTotal { return value.formatted(.number.notation(.compactName)) }"))
+        XCTAssertTrue(metricView.contains("return complicationCornerGauge("))
 
         // The circular family is the shared metric ring on the system
         // background, today's total inside with the ring font step down, the
@@ -5603,9 +5611,14 @@ final class SourceGuardTests: XCTestCase {
         // A face stores the widget kind, so renaming it silently drops the
         // complication from every face it is on.
         XCTAssertTrue(source.contains("kind: \"BodyWatchStress\""))
-        // The circle and the rectangle only: the shared corner gauge would
-        // show the card's value, which falls back to the day's average.
-        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryCircular, .accessoryRectangular])"), 1)
+        // The circle, the rectangle and the corner. The corner draws its own
+        // gauge, since `WatchComplicationView`'s would show the card's value,
+        // which falls back to the day's average: the ring's reading and fill
+        // on 0 to 100, in the same pink.
+        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryCorner])"), 1)
+        XCTAssertTrue(code.contains("complicationCornerGauge(value: ringText, fill: fillFraction, min: \"0\", max: \"100\", tint: Color(tint))"))
+        XCTAssertFalse(code.contains("WatchComplicationView("))
+        XCTAssertFalse(code.contains("levelMin"))
 
         // The latest window of the Stress page's chart, aged like the chart,
         // named with the band the builder stamped on it and drawn in the
@@ -5920,7 +5933,7 @@ final class SourceGuardTests: XCTestCase {
         // the shortened text while the corner keeps the full value.
         XCTAssertTrue(source.contains("metric.kind == WatchMetricKindKey.trainingLoad"))
         XCTAssertEqual(source.components(separatedBy: "value: ringText(metric),").count - 1, 2)
-        XCTAssertTrue(source.contains("Text(ringValue(metric))"))
+        XCTAssertTrue(source.contains("value: ringValue(metric),"))
         XCTAssertTrue(source.contains("Text(metric.displayValue)"))
     }
 

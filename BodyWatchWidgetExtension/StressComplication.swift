@@ -10,7 +10,10 @@
 //  band over the title. The reading is the latest scored window of the Stress
 //  page's chart (`WatchStressTimeline.latestReading(asOf:)`), so it reads "--"
 //  once that window is 12 hours old. Its band name comes stamped on the
-//  timeline, since this target has no `StressBand`. No corner gauge.
+//  timeline, since this target has no `StressBand`. The corner family curves
+//  the same reading along the bezel over a 0 to 100 gauge in the same pink
+//  (`complicationCornerGauge`), never the card's value or band, and reads "--"
+//  over an empty gauge once the reading is 12 hours old, as the ring does.
 //
 //  The Stress bands complication (circular only) shows the same reading on
 //  Stress's four bands, drawn like the Readiness bands (`WatchBandRingView`):
@@ -29,7 +32,7 @@ struct StressComplication: Widget {
         }
         .configurationDisplayName(String(localized: "Stress"))
         .description(String(localized: "Your latest stress reading."))
-        .supportedFamilies([.accessoryCircular, .accessoryRectangular])
+        .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryCorner])
     }
 }
 
@@ -79,6 +82,8 @@ private struct StressComplicationView: View {
         switch family {
         case .accessoryRectangular:
             rectangular
+        case .accessoryCorner:
+            corner
         default:
             circular
         }
@@ -109,6 +114,18 @@ private struct StressComplicationView: View {
             }
         }
         .containerBackground(.clear, for: .widget)
+    }
+
+    /// The ring's reading and fill on the corner's 0 to 100 gauge.
+    @ViewBuilder private var corner: some View {
+        if metric != nil {
+            complicationCornerGauge(value: ringText, fill: fillFraction, min: "0", max: "100", tint: Color(tint))
+                .containerBackground(.clear, for: .widget)
+        } else {
+            Image(systemName: "applewatch")
+                .foregroundStyle(.secondary)
+                .containerBackground(.clear, for: .widget)
+        }
     }
 
     private var rectangular: some View {
@@ -179,6 +196,13 @@ private struct StressBandsComplicationView: View {
 }
 
 #Preview("Rectangular", as: .accessoryRectangular) {
+    StressComplication()
+} timeline: {
+    WatchMetricEntry(date: .now, snapshot: .placeholder)
+    WatchMetricEntry(date: .now, snapshot: .empty)
+}
+
+#Preview("Corner", as: .accessoryCorner) {
     StressComplication()
 } timeline: {
     WatchMetricEntry(date: .now, snapshot: .placeholder)
