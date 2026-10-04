@@ -6058,6 +6058,50 @@ final class SourceGuardTests: XCTestCase {
         )
     }
 
+    /// The watch shows the phone's metric warnings and syncs their fold state
+    /// both ways. The unit tests cover the payload, the fold rules and the
+    /// receive path, but not the wiring around them: the snapshot fields, the
+    /// publisher setting them, Settings republishing when the warning switches
+    /// change, the fold handler installed before the session activates (a
+    /// watch fold can launch the app in the background with no scene), the
+    /// queued user info path, the phone's fold stamp, and the watch reading
+    /// the hero switch, toggling through the fold store and injecting it.
+    func testWatchWarningsFollowThePhone() throws {
+        let snapshot = try BodyTestSupport.sourceText(at: "BodyWatchShared/Models/WatchMetricsSnapshot.swift")
+        XCTAssertTrue(snapshot.contains("var metricWarnings: [WatchMetricWarning]? = nil"))
+        XCTAssertTrue(snapshot.contains("var heroShowsWarnings: Bool? = nil"))
+
+        let publisher = try BodyTestSupport.sourceText(at: "Body/Services/BodyCompanionPublisher.swift")
+        XCTAssertTrue(publisher.contains("snapshot.heroShowsWarnings = input.metricWarningsOnHero"))
+        XCTAssertTrue(publisher.contains("snapshot.metricWarnings = Self.watchMetricWarnings("))
+
+        let settings = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
+        XCTAssertTrue(settings.contains(".onChange(of: metricWarningSelectionRawValue) { workoutStore.republishCompanionSnapshots() }"))
+        XCTAssertTrue(settings.contains(".onChange(of: showsWarningsOnHomeHero) { workoutStore.republishCompanionSnapshots() }"))
+
+        let app = try BodyTestSupport.sourceText(at: "Body/BodyApp.swift")
+        let handler = try XCTUnwrap(
+            app.range(of: "WatchConnectivityPublisher.shared.warningFoldHandler = { records, completion in")?.lowerBound
+        )
+        let activate = try XCTUnwrap(app.range(of: "WatchConnectivityPublisher.shared.activate()")?.lowerBound)
+        XCTAssertLessThan(handler, activate)
+
+        let connectivity = try BodyTestSupport.sourceText(at: "Body/Services/WatchConnectivityPublisher.swift")
+        XCTAssertTrue(connectivity.contains("didReceiveUserInfo"))
+
+        let detail = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        XCTAssertTrue(detail.contains("BodyMetricWarningFoldDates.recordChange(of: event)"))
+
+        let dashboard = try BodyTestSupport.sourceText(at: "BodyWatch/WatchDashboardView.swift")
+        XCTAssertTrue(dashboard.contains("heroShowsWarnings ?? true"))
+
+        let pager = try BodyTestSupport.sourceText(at: "BodyWatch/WatchMetricDetailPager.swift")
+        XCTAssertTrue(pager.contains("warningFolds.toggle("))
+
+        let watchApp = try BodyTestSupport.sourceText(at: "BodyWatch/BodyWatchApp.swift")
+        XCTAssertTrue(watchApp.contains(".environmentObject(warningFolds)"))
+    }
+
     /// Concatenates every Swift file backing `HealthKitFetchEngine`. The engine
     /// was split across the main actor file and one or more `+...swift`
     /// extension files; tests that grep for engine substrings should look across
