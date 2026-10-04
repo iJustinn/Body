@@ -45,6 +45,10 @@ final class WatchConnectivityPublisher: NSObject {
     private var captureSequenceCounter: UInt64 = 0
     private var lastQueuedCaptureSequence: UInt64 = 0
     private let revisionAllocator = WatchRevisionAllocator()
+    /// Answers the watch's Sync Baseline request (`WatchBaselineSync`):
+    /// republishes and calls back with the reply. Installed at launch, before
+    /// `activate()`, so a request that wakes the app can't arrive first.
+    var baselineSyncHandler: (@MainActor (@escaping @MainActor @Sendable (WatchBaselineSync.Reply) -> Void) -> Void)?
 
     private override init() {
         super.init()
@@ -133,6 +137,20 @@ final class WatchConnectivityPublisher: NSObject {
     /// first attempt raced activation.
     nonisolated static func isSeedSizeFailure(_ error: Error) -> Bool {
         (error as? WCError)?.code == .payloadTooLarge
+    }
+
+    /// The reply to a Sync Baseline request: `sent` only when the phone could
+    /// publish and the context it left on the session carries a seed (the seed
+    /// can still be dropped for the whole-context budget).
+    nonisolated static func baselineSyncReply(canPublish: Bool, sentContextHasSeed: Bool) -> WatchBaselineSync.Reply {
+        canPublish && sentContextHasSeed ? .sent : .unavailable
+    }
+
+    /// Whether the context last handed to `updateApplicationContext` carries a
+    /// compute seed, i.e. whether the watch is about to receive one.
+    func sentContextHasSeed() -> Bool {
+        WCSession.isSupported()
+            && WCSession.default.applicationContext[WatchComputeSeed.applicationContextKey] != nil
     }
 
     /// Installs the delegate + activates the session at launch so the latest
@@ -321,6 +339,30 @@ extension WatchConnectivityPublisher: WCSessionDelegate {
                     computeSeedData: pending.computeSeedData,
                     computeSeedSettingsSignature: pending.computeSeedSettingsSignature
                 )
+            }
+        }
+    }
+
+    nonisolated func session(
+        _ session: WCSession,
+        didReceiveMessage message: [String: Any],
+        replyHandler: @escaping ([String: Any]) -> Void
+    ) {
+        guard message[WatchBaselineSync.requestKey] != nil else {
+            replyHandler([:])
+            return
+        }
+        // `replyHandler` isn't `Sendable`, but WatchConnectivity calls it once
+        // from whatever thread it's handed back on.
+        nonisolated(unsafe) let reply = replyHandler
+        Task { @MainActor in
+            self.logger.info("Baseline sync requested by the watch")
+            guard let handler = self.baselineSyncHandler else {
+                reply([WatchBaselineSync.replyKey: WatchBaselineSync.Reply.unavailable.rawValue])
+                return
+            }
+            handler { result in
+                reply([WatchBaselineSync.replyKey: result.rawValue])
             }
         }
     }

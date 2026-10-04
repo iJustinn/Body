@@ -160,4 +160,22 @@ final class WatchConnectivityPublisherGateTests: XCTestCase {
         XCTAssertFalse(WatchConnectivityPublisher.isSeedSizeFailure(WCError(.deliveryFailed)))
         XCTAssertFalse(WatchConnectivityPublisher.isSeedSizeFailure(NSError(domain: "test", code: 1)))
     }
+
+    // MARK: - baselineSyncReply(canPublish:sentContextHasSeed:)
+
+    // The watch's Sync Baseline waits for a seed only on `sent`, so `sent`
+    // needs both a publish and a seed that survived the context budget.
+    func testBaselineSyncReplyIsSentOnlyWhenTheSentContextCarriesASeed() {
+        XCTAssertEqual(WatchConnectivityPublisher.baselineSyncReply(canPublish: true, sentContextHasSeed: true), .sent)
+        XCTAssertEqual(WatchConnectivityPublisher.baselineSyncReply(canPublish: true, sentContextHasSeed: false), .unavailable)
+        XCTAssertEqual(WatchConnectivityPublisher.baselineSyncReply(canPublish: false, sentContextHasSeed: true), .unavailable)
+        XCTAssertEqual(WatchConnectivityPublisher.baselineSyncReply(canPublish: false, sentContextHasSeed: false), .unavailable)
+    }
+
+    // The keys ride between two separately shipped binaries (the watch test
+    // bundle pins the same spellings).
+    func testBaselineSyncKeys() {
+        XCTAssertEqual(WatchBaselineSync.requestKey, "baselineSyncRequest")
+        XCTAssertEqual(WatchBaselineSync.replyKey, "baselineSyncReply")
+    }
 }

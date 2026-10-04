@@ -56,7 +56,12 @@ struct BodyApp: App {
         _proStore = State(initialValue: BodyProStore())
 
         // Activate WatchConnectivity at startup so the session is ready and the
-        // first snapshot push doesn't have to wait for activation.
+        // first snapshot push doesn't have to wait for activation. The watch's
+        // Sync Baseline handler goes in first, so a request that wakes the app
+        // can't arrive before it.
+        WatchConnectivityPublisher.shared.baselineSyncHandler = { reply in
+            BodyAppRuntime.shared.workoutStore.publishWatchBaselineSync(reply: reply)
+        }
         WatchConnectivityPublisher.shared.activate()
 
         // BGTask handlers must be registered before launch finishes, so this

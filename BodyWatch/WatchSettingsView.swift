@@ -2,8 +2,10 @@
 //  WatchSettingsView.swift
 //  BodyWatch
 //
-//  Watch settings: shows the app version. Metrics are computed on the iPhone
-//  and pushed to the watch over WatchConnectivity.
+//  Watch settings: which metrics the home screen shows, the refresh
+//  vibration, Sync Baseline (asks the iPhone to resend the compute seed the
+//  watch's own metrics are computed from, with when one last arrived), and
+//  the app version.
 //
 
 import SwiftUI
@@ -40,6 +42,24 @@ struct WatchSettingsView: View {
             }
 
             Section {
+                Button {
+                    model.syncBaseline()
+                } label: {
+                    HStack {
+                        Label("Sync Baseline", systemImage: "arrow.triangle.2.circlepath")
+                        if model.baselineSync == .syncing {
+                            Spacer()
+                            ProgressView()
+                                .fixedSize()
+                        }
+                    }
+                }
+                .disabled(model.baselineSync == .syncing)
+            } footer: {
+                Text(baselineFooter)
+            }
+
+            Section {
                 VStack(spacing: 2) {
                     Text("Body")
                         .font(.footnote.weight(.semibold))
@@ -61,6 +81,24 @@ struct WatchSettingsView: View {
             get: { model.isMetricVisible(kind) },
             set: { model.setMetric(kind, visible: $0) }
         )
+    }
+
+    /// The last sync line, led by one sentence when the last request failed.
+    private var baselineFooter: String {
+        let lastSynced = model.lastBaselineSyncDate.map {
+            String(localized: "Last synced \($0.formatted(.dateTime.month(.abbreviated).day().hour().minute())).")
+        } ?? String(localized: "Not synced yet.")
+        guard case .failed(let failure) = model.baselineSync else { return lastSynced }
+        let reason: String
+        switch failure {
+        case .unreachable:
+            reason = String(localized: "Couldn't reach Body on iPhone. Open it and try again.")
+        case .unavailable:
+            reason = String(localized: "iPhone has no baseline yet. Open Body on iPhone.")
+        case .noArrival:
+            reason = String(localized: "No baseline arrived. Try again.")
+        }
+        return reason + "\n" + lastSynced
     }
 
     private var appVersionDisplay: String {

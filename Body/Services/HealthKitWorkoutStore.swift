@@ -8465,8 +8465,14 @@ final class HealthKitWorkoutStore {
     /// The publish, from a `Shared` capture the caller already took. Exists for
     /// `republishCompanionSnapshots`, which saves the widget snapshot from the
     /// same capture: taking it twice would read the store twice for one rebuild.
-    private func publishWatchSnapshot(shared: BodyCompanionPublishInput.Shared) {
-        guard mayApplyRefreshResults else { return }
+    private func publishWatchSnapshot(
+        shared: BodyCompanionPublishInput.Shared,
+        completion: @escaping @MainActor @Sendable () -> Void = {}
+    ) {
+        guard mayApplyRefreshResults else {
+            completion()
+            return
+        }
         let inputs = captureRefreshInputs()
         let token = dashboardPublicationToken
         companionPublisher.publishWatchSnapshot(
@@ -8477,8 +8483,27 @@ final class HealthKitWorkoutStore {
                 }
                 return Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: self.cacheEpoch)
                     && self.mayApplyRefreshInputs(inputs) && token.isValid
-            }
+            },
+            completion: completion
         )
+    }
+
+    /// Answers the watch's Sync Baseline request: republishes now from the
+    /// restored or refreshed state (no HealthKit reads, so it fits a background
+    /// wake) and replies whether the context it left on the session carries a
+    /// compute seed. The seed's `dataThrough` doesn't move, so a resend never
+    /// looks like fresher data.
+    func publishWatchBaselineSync(reply: @escaping @MainActor @Sendable (WatchBaselineSync.Reply) -> Void) {
+        guard lastVitalsRefreshDate != nil, !isClearingCache else {
+            reply(WatchConnectivityPublisher.baselineSyncReply(canPublish: false, sentContextHasSeed: false))
+            return
+        }
+        publishWatchSnapshot(shared: makeSharedPublishInput()) {
+            reply(WatchConnectivityPublisher.baselineSyncReply(
+                canPublish: true,
+                sentContextHasSeed: WatchConnectivityPublisher.shared.sentContextHasSeed()
+            ))
+        }
     }
 
     /// Captures, synchronously on the main actor, exactly what the watch

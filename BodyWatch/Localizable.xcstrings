@@ -204,6 +204,23 @@
         }
       }
     },
+    "Couldn't reach Body on iPhone. Open it and try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't reach Body on iPhone. Open it and try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法连接 iPhone 上的 Body。请打开它后重试。"
+          }
+        }
+      }
+    },
     "Day Ring, %lld percent of the day passed" : {
       "localizations" : {
         "en" : {
@@ -233,6 +250,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "结束"
+          }
+        }
+      }
+    },
+    "iPhone has no baseline yet. Open Body on iPhone." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone has no baseline yet. Open Body on iPhone."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone 上还没有基准。请在 iPhone 上打开 Body。"
           }
         }
       }
@@ -271,6 +305,23 @@
         }
       }
     },
+    "Last synced %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last synced %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次同步：%@。"
+          }
+        }
+      }
+    },
     "Metrics" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -284,6 +335,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "指标"
+          }
+        }
+      }
+    },
+    "No baseline arrived. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No baseline arrived. Try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有收到基准，请重试。"
           }
         }
       }
@@ -318,6 +386,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "近期暂无数据"
+          }
+        }
+      }
+    },
+    "Not synced yet." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not synced yet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未同步。"
           }
         }
       }
@@ -522,6 +607,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "开始"
+          }
+        }
+      }
+    },
+    "Sync Baseline" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync Baseline"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步基准"
           }
         }
       }

@@ -33,6 +33,13 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// Metric kinds the user hid from the watch dashboard (a watch-local display
     /// preference — see the visibility section below).
     @Published private(set) var hiddenMetricKinds: Set<String>
+    /// When the watch last received a usable compute seed (its baselines) from
+    /// the iPhone, by an automatic push or the Settings page's Sync Baseline.
+    /// The seed's own `publishedAt` is not encoded, so the watch records its
+    /// receipt time. `nil` while the watch holds no seed.
+    @Published private(set) var lastBaselineSyncDate: Date?
+    /// The Settings page's Sync Baseline request (see `syncBaseline()`).
+    @Published private(set) var baselineSync: BaselineSyncState = .idle
 
     private let healthStore = WatchHealthStore()
     /// The Heart Rate, HRV, Steps and Active Energy pages' "Last 8 hours"
@@ -143,7 +150,10 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// Received WatchConnectivity contexts, consumed one at a time in delivery
     /// order by the single consumer started in `init` (M-37). Unbounded
     /// buffering on purpose: a dropping policy would silently lose a push.
-    private nonisolated let contextContinuation: AsyncStream<[String: Any]>.Continuation
+    /// `isReplay` marks the activation path's re-read of
+    /// `receivedApplicationContext`, which repeats the last delivered context on
+    /// every launch and must not count as a baseline arriving.
+    private nonisolated let contextContinuation: AsyncStream<(context: [String: Any], isReplay: Bool)>.Continuation
     /// Contexts yielded into the stream but not yet consumed. Kept under a lock
     /// rather than on the main actor so the increment happens at yield time and
     /// can never trail the consumer's decrement, which would let a background
@@ -195,13 +205,14 @@ final class WatchMetricsModel: NSObject, ObservableObject {
                 lastComputeAttemptDate = persisted
             }
         }
-        let (stream, continuation) = AsyncStream.makeStream(of: [String: Any].self)
+        lastBaselineSyncDate = Self.loadLastBaselineSyncDate(defaults: environment.defaults)
+        let (stream, continuation) = AsyncStream.makeStream(of: (context: [String: Any], isReplay: Bool).self)
         contextContinuation = continuation
         super.init()
         Task { @MainActor [weak self] in
-            for await context in stream {
+            for await received in stream {
                 guard let self else { return }
-                await self.applyReceivedContext(context)
+                await self.applyReceivedContext(received.context, isReplay: received.isReplay)
                 self.contextsInFlight.withLock { $0 -= 1 }
                 self.completePendingConnectivityTasksIfDrained()
             }
@@ -242,12 +253,12 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// the WC delegate can enqueue without a hop: the in-flight count is bumped
     /// under the lock BEFORE the yield, so a background task can never be
     /// completed in the window between delivery and consumption.
-    private nonisolated func enqueueReceivedContext(_ context: [String: Any]) {
+    private nonisolated func enqueueReceivedContext(_ context: [String: Any], isReplay: Bool = false) {
         contextsInFlight.withLock { $0 += 1 }
-        contextContinuation.yield(context)
+        contextContinuation.yield((context, isReplay))
     }
 
-    private func applyReceivedContext(_ context: [String: Any]) async {
+    private func applyReceivedContext(_ context: [String: Any], isReplay: Bool) async {
         // Permission selection — independent of snapshot freshness, so a
         // permission-only change (or a same-/older-generation snapshot) applies.
         // This also opens the live-read gate: the watch's HR/HRV path reads
@@ -303,7 +314,8 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             resolution,
             seedChanged: seedChanged,
             settingsChanged: settingsChanged,
-            effortHintsChanged: effortHintsChanged
+            effortHintsChanged: effortHintsChanged,
+            isReplay: isReplay
         )
         // A push is an execution opportunity: run a compute now, against the
         // seed this push just delivered, for a detected workout change or a
@@ -376,7 +388,8 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         _ resolution: ReceivedContextResolution,
         seedChanged: Bool,
         settingsChanged: Bool,
-        effortHintsChanged: Bool
+        effortHintsChanged: Bool,
+        isReplay: Bool
     ) {
         // Bump on a real byte change or a clear: a compute already in flight
         // holds its own decoded copy of the seed, and the generation is the only
@@ -384,6 +397,9 @@ final class WatchMetricsModel: NSObject, ObservableObject {
         if seedChanged {
             bumpComputeGeneration()
         }
+        // Before the early returns below: a resend usually carries a snapshot
+        // that doesn't supersede, and its seed still counts as a sync.
+        recordBaselineIntake(resolution.seedIntake, seedChanged: seedChanged, isReplay: isReplay)
         // A new iPhone rating for a recent workout is a detected change, like
         // one the change tracker finds: this push's own compute then runs now,
         // inside the pending-work attempt budget, instead of leaving the
@@ -667,6 +683,135 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     /// retry from outside.
     func applyForTesting(_ raw: WatchMetricsSnapshot) {
         apply(raw)
+    }
+
+    // MARK: - Baseline sync (Settings page)
+
+    enum BaselineSyncFailure: Equatable {
+        /// No session, the iPhone out of reach, or the request errored (an
+        /// iPhone build without the handler errors too).
+        case unreachable
+        /// The iPhone had no seed to send.
+        case unavailable
+        /// The iPhone said it sent one, but none landed in time.
+        case noArrival
+    }
+
+    enum BaselineSyncState: Equatable {
+        case idle
+        case syncing
+        case failed(BaselineSyncFailure)
+    }
+
+    private static let lastBaselineSyncDateKey = "watchBaselineLastSyncDate"
+    private var baselineSyncTimeoutTask: Task<Void, Never>?
+
+    /// The persisted receipt time, stored like `lastComputeAttemptDate`. An
+    /// install updated from a build that never recorded one falls back to the
+    /// stored seed file's modification date, so it doesn't read "Not synced
+    /// yet" while holding a seed.
+    static func loadLastBaselineSyncDate(
+        defaults: UserDefaults,
+        seedFileURL: URL? = WatchComputeSeedStore.seedFileURL
+    ) -> Date? {
+        guard defaults.object(forKey: lastBaselineSyncDateKey) != nil else {
+            return WatchComputeSeedStore.storedSeedModificationDate(fileURL: seedFileURL)
+        }
+        return Date(timeIntervalSinceReferenceDate: defaults.double(forKey: lastBaselineSyncDateKey))
+    }
+
+    private func setLastBaselineSyncDate(_ date: Date?) {
+        lastBaselineSyncDate = date
+        if let date {
+            environment.defaults.set(date.timeIntervalSinceReferenceDate, forKey: Self.lastBaselineSyncDateKey)
+        } else {
+            environment.defaults.removeObject(forKey: Self.lastBaselineSyncDateKey)
+        }
+    }
+
+    /// Records a seed intake for the Settings page. A live delivery of a seed
+    /// counts even with unchanged bytes (a resend of the same baseline is still
+    /// a sync), but the activation replay of `receivedApplicationContext`
+    /// counts only when it actually changed the stored seed: otherwise every
+    /// app launch would read as a sync. Internal for tests.
+    func recordBaselineIntake(_ intake: WatchComputeSeedIntake, seedChanged: Bool, isReplay: Bool) {
+        switch intake {
+        case .replace:
+            guard !isReplay || seedChanged else { return }
+            setLastBaselineSyncDate(environment.now())
+            baselineSyncTimeoutTask?.cancel()
+            baselineSyncTimeoutTask = nil
+            baselineSync = .idle
+        case .clear:
+            setLastBaselineSyncDate(nil)
+        case .clearIfSettingsMismatch:
+            if seedChanged { setLastBaselineSyncDate(nil) }
+        case .keepPrior:
+            break
+        }
+    }
+
+    /// Asks the iPhone to resend its compute seed now. The reply is only a
+    /// status (`WatchBaselineSync`): success is the seed landing through the
+    /// regular intake, which `recordBaselineIntake` sees.
+    func syncBaseline() {
+        guard baselineSync != .syncing else { return }
+        guard WCSession.isSupported(),
+              WCSession.default.activationState == .activated,
+              WCSession.default.isReachable else {
+            baselineSync = .failed(.unreachable)
+            return
+        }
+        baselineSync = .syncing
+        Self.logger.info("Baseline sync requested")
+        WCSession.default.sendMessage(
+            [WatchBaselineSync.requestKey: true],
+            replyHandler: { [weak self] reply in
+                let raw = reply[WatchBaselineSync.replyKey] as? String
+                Task { @MainActor in self?.handleBaselineSyncReply(raw) }
+            },
+            errorHandler: { [weak self] error in
+                Self.logger.error("Baseline sync request failed: \(error.localizedDescription, privacy: .public)")
+                Task { @MainActor in self?.handleBaselineSyncError() }
+            }
+        )
+    }
+
+    /// What a reply moves a pending sync to, or `nil` to keep waiting for the
+    /// seed. An unknown reply (a newer iPhone build) waits like `sent`.
+    nonisolated static func baselineSyncState(afterReply raw: String?) -> BaselineSyncState? {
+        switch raw.flatMap(WatchBaselineSync.Reply.init(rawValue:)) {
+        case .unavailable:
+            return .failed(.unavailable)
+        case .sent, nil:
+            return nil
+        }
+    }
+
+    private func handleBaselineSyncReply(_ raw: String?) {
+        // The seed may already have landed (`recordBaselineIntake` went idle).
+        guard baselineSync == .syncing else { return }
+        if let state = Self.baselineSyncState(afterReply: raw) {
+            baselineSync = state
+            return
+        }
+        baselineSyncTimeoutTask?.cancel()
+        baselineSyncTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: WatchBaselineSync.arrivalTimeout)
+            guard !Task.isCancelled, let self, self.baselineSync == .syncing else { return }
+            self.baselineSync = .failed(.noArrival)
+        }
+    }
+
+    private func handleBaselineSyncError() {
+        guard baselineSync == .syncing else { return }
+        baselineSync = .failed(.unreachable)
+    }
+
+    /// Test seam: `.syncing` is otherwise reachable only through a live,
+    /// reachable `WCSession`.
+    func setBaselineSyncForTesting(_ state: BaselineSyncState) {
+        baselineSync = state
     }
 
     // MARK: - Dashboard metric visibility (watch-local)
@@ -1320,7 +1465,7 @@ extension WatchMetricsModel: WCSessionDelegate {
             // the stream has drained (the seed persisted and the snapshot
             // applied), or watchOS can suspend the app mid-intake and drop the
             // push.
-            self.enqueueReceivedContext(WCSession.default.receivedApplicationContext)
+            self.enqueueReceivedContext(WCSession.default.receivedApplicationContext, isReplay: true)
             self.completePendingConnectivityTasksIfDrained()
         }
     }

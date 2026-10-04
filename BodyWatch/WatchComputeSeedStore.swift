@@ -54,6 +54,15 @@ enum WatchComputeSeedStore {
         return FileManager.default.fileExists(atPath: fileURL.path)
     }
 
+    /// When the stored seed's bytes last changed, or `nil` with no seed. Only
+    /// the Settings page's last-sync fallback for an install updated from a
+    /// build that never recorded a sync date (see
+    /// `WatchMetricsModel.lastBaselineSyncDate`).
+    static func storedSeedModificationDate(fileURL: URL? = seedFileURL) -> Date? {
+        guard let fileURL else { return nil }
+        return (try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.modificationDate] as? Date
+    }
+
     /// Persists the compressed seed payload. Returns `true` only when the bytes
     /// CHANGED — the caller bumps the compute generation on that signal, so an
     /// identical republish (the phone re-sends the same seed on every
