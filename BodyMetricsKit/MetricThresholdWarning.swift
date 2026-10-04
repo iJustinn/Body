@@ -388,3 +388,20 @@ enum MetricThresholdWarning {
         var value: Double
     }
 }
+
+/// Wrist temperature thresholds and readings are stored in °C; every place
+/// that prints one (the Settings row, the warning card, the notification, the
+/// watch warning card) shows it in the user's temperature unit through this
+/// one formatter.
+enum BodyMetricWarningTemperatureText {
+    static func text(
+        celsius: Double,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
+    ) -> String {
+        let display = BodyValueFormat.temperatureDisplay(
+            celsius: celsius,
+            temperatureUnitPreference: temperatureUnitPreference
+        )
+        return "\(display.value)°\(display.unit)"
+    }
+}

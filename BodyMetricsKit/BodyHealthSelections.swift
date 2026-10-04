@@ -63,6 +63,9 @@ enum BodyAppearancePreference {
     static let metricWarningsOnReadinessHeroKey = "metricWarningsOnReadinessHero"
     /// The warnings the user closed on a metric detail page. See `BodyDismissedMetricWarnings`.
     static let dismissedMetricWarningsKey = "dismissedMetricWarnings"
+    /// When each threshold warning's fold state last changed, on the iPhone or
+    /// the watch. See `BodyMetricWarningFoldDates`.
+    static let metricWarningFoldDatesKey = "metricWarningFoldDates"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthPermissionExpandedMigratedKey = "healthPermissionExpandedMigrated"
     static let healthCardioFitnessMigratedKey = "healthCardioFitnessMigrated"

@@ -532,6 +532,37 @@ struct WatchDayRingWorkout: Codable, Equatable {
     var colorHex: UInt32
 }
 
+/// One of today's metric threshold warnings, as the phone's Home shows it, for
+/// the watch's hero badges, card glyphs and detail page warning cards. Plain
+/// values so this file stays free of BodyMetricsKit: `kind` is the
+/// `MetricWarningKind` raw value ("lowHeartRate", "highHeartRate",
+/// "highWristTemperature"), which the watch app turns back into the kind.
+///
+/// The fold state rides along so the watch draws a card folded or unfolded
+/// exactly as the phone does. `foldKey` is the phone's
+/// `dismissedMetricWarnings` entry for this warning, "highHeartRate@2026-10-04":
+/// the watch uses it verbatim as the key of the fold records it sends back
+/// (`WatchWarningFoldSync`) and never derives a day key of its own, so the two
+/// devices can't disagree on which day a warning belongs to. `isFolded` and
+/// `foldChangedAt` are the phone's state and stamp for that key when it
+/// published; a watch fold record wins only when it is stamped strictly later.
+struct WatchMetricWarning: Codable, Equatable, Identifiable {
+    var kind: String
+    /// When the day's earliest episode started, which the card's sentence names.
+    var startDate: Date
+    /// The limit the episode was detected against, in the kind's stored unit:
+    /// bpm for heart rate, °C for skin temperature (the watch converts it to
+    /// the Skin Temp card's unit for display).
+    var threshold: Double
+    var foldKey: String
+    var isFolded: Bool
+    /// The phone's stamp for `foldKey` (whole seconds); nil when the phone has
+    /// never stamped it, such as a fold made before two way sync existed.
+    var foldChangedAt: Date? = nil
+
+    var id: String { foldKey }
+}
+
 /// Schema evolution: the phone and watch can run different builds, so any new
 /// field here (or on `WatchMetric`) must be optional or defaulted — a required
 /// field would make older watches silently reject the whole payload.
@@ -620,6 +651,24 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// The workouts around today for the Day Ring hero, published only while it
     /// is the chosen hero. The night's bar comes from `sleepStages`.
     var dayRingWorkouts: [WatchDayRingWorkout]? = nil
+
+    /// Today's metric threshold warnings for the kinds with a watch card
+    /// (Heart Rate and Skin Temp), each with the phone's fold state: the
+    /// warnings the phone's Home shows, under its Warnings selection. A
+    /// display payload like `homeHero`, so only a phone push sets it; the
+    /// watch never detects warnings itself. It follows phone pushes and
+    /// survives watch computes with no merge rule of its own:
+    /// `WatchComputeMerge.merging` starts from the received push and
+    /// `mergingComputed` from the current snapshot. Dropped after midnight by
+    /// `sanitized(asOf:)`. Optional so an older phone's payload decodes; nil
+    /// reads as no warnings.
+    var metricWarnings: [WatchMetricWarning]? = nil
+    /// The phone's Settings ▸ Warnings ▸ Show on Home Hero switch: whether the
+    /// hero (Readiness Ring or Day Ring) carries the warning badges under its
+    /// number. A display preference, so only a phone push sets it, and it
+    /// rides the display payload like `readinessHeroShowsLevel`. Optional so
+    /// an older phone's payload decodes; nil reads as on, the phone's default.
+    var heroShowsWarnings: Bool? = nil
 
     /// Identifies the phone install that produced this snapshot: a UUID
     /// persisted in phone UserDefaults, regenerated on reinstall / data reset.
@@ -867,6 +916,12 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// an unknown one, is cleared to the builder's blank card. They carry no
     /// status band, so `cleared()` alone is that card, and their week (and
     /// its `usesKilojoules`) stays for the chart and the complications.
+    ///
+    /// Sixth, independent rule: the metric warnings are today's, so a warning
+    /// whose `startDate` isn't `now`'s day is dropped, and the field goes nil
+    /// once none remain (an empty list too, so nil is the one "no warnings").
+    /// The phone detects the new day's warnings itself and its next push
+    /// brings them; until then the watch shows none rather than yesterday's.
     func sanitized(asOf now: Date = Date()) -> WatchMetricsSnapshot {
         let clearsSleep = metric(forKind: WatchMetricKindKey.sleep) != nil
             && !isSleepNightCurrent(asOf: now)
@@ -889,11 +944,23 @@ struct WatchMetricsSnapshot: Codable, Equatable {
             guard let builtOn = metric.weeklyAsOf else { return metric.kind }
             return Calendar(identifier: .gregorian).isDate(builtOn, inSameDayAs: now) ? nil : metric.kind
         })
-        guard clearsSleep || clearsStale || clearsSleepDebt || clearsStress || !clearedDailyTotals.isEmpty else { return self }
+        // Same day-boundary convention as `isSleepNightCurrent`.
+        let isWarningToday: (WatchMetricWarning) -> Bool = {
+            Calendar(identifier: .gregorian).isDate($0.startDate, inSameDayAs: now)
+        }
+        let clearsWarnings = metricWarnings.map { warnings in
+            warnings.isEmpty || !warnings.allSatisfy(isWarningToday)
+        } ?? false
+        guard clearsSleep || clearsStale || clearsSleepDebt || clearsStress || !clearedDailyTotals.isEmpty
+            || clearsWarnings else { return self }
 
         var copy = self
         if clearsSleep { copy.sleepStages = nil }
         if clearsSleepDebt { copy.sleepDebt = nil }
+        if clearsWarnings {
+            let todays = metricWarnings?.filter(isWarningToday) ?? []
+            copy.metricWarnings = todays.isEmpty ? nil : todays
+        }
         copy.metrics = metrics.map { metric in
             if clearsSleep, metric.kind == WatchMetricKindKey.sleep { return metric.cleared() }
             if clearsStress, metric.kind == WatchMetricKindKey.stress {
