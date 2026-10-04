@@ -6,13 +6,25 @@
 //  watch (rounded card, title, value + unit, tinted SF Symbol bubble). No
 //  `UIScreen` / Charts (iOS-only).
 //
+//  While the metric has a warning today that isn't folded, a yellow warning
+//  triangle sits just left of the symbol bubble, as on the iPhone card. The
+//  card stays plain data: the watch app hands it the warning titles, and the
+//  complications (the widget extension compiles this file too) never do.
+//
 //  Watch-only: not compiled into the iOS `Body` target.
 //
 
 import SwiftUI
 
 struct WatchMetricCardView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let metric: WatchMetric
+    /// Non nil draws the warning glyph left of the symbol bubble, and is what
+    /// VoiceOver speaks for it. The watch app passes the card's unfolded
+    /// warning titles, list formatted; complications leave it nil, and a card
+    /// without it lays out exactly as one without a warning always has.
+    var warningAccessibilityLabel: String? = nil
 
     private var color: Color { Color(Self.symbolTint(for: metric)) }
 
@@ -49,14 +61,33 @@ struct WatchMetricCardView: View {
 
             Spacer(minLength: 0)
 
-            Image(systemName: WatchMetricKindKey.symbolName(forKind: metric.kind))
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(color)
-                .frame(width: 32, height: 32)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(color.opacity(0.18))
-                )
+            // The glyph and the bubble share a row, so the glyph is centered on
+            // the bubble. The empty ZStack takes no width, so a card without a
+            // warning keeps the bubble exactly where it was.
+            HStack(spacing: 0) {
+                ZStack {
+                    if let label = warningAccessibilityLabel {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.yellow)
+                            .padding(.trailing, 6)
+                            .accessibilityLabel(Text(verbatim: label))
+                            .transition(.opacity)
+                    }
+                }
+                // The iPhone card badge's fade, so a warning arriving or being
+                // folded reads the same on both.
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: warningAccessibilityLabel)
+
+                Image(systemName: WatchMetricKindKey.symbolName(forKind: metric.kind))
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(color)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(color.opacity(0.18))
+                    )
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

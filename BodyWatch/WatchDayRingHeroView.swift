@@ -9,9 +9,11 @@
 //  `WatchReadinessHeroView` is, so it rides the same pin, pull and flatten. The
 //  entrance and stretch state below mirror the iOS hero's: keep the two in step.
 //
-//  What the watch leaves out: the warning badges (they point at Home cards the
-//  watch doesn't have). The night comes from the snapshot's `sleepStages` and
-//  the workouts from its `dayRingWorkouts`, both published by the phone.
+//  The warning badges under the number are drawn (`WatchHeroWarningBadgeRow`),
+//  one per dashboard card with an unfolded warning, but they are display only:
+//  this hero takes no taps at all. The night comes from the snapshot's
+//  `sleepStages` and the workouts from its `dayRingWorkouts`, both published by
+//  the phone.
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -31,6 +33,9 @@ struct WatchDayRingHeroView: View {
     let progress: Double
     /// Points the page has been pulled down past rest, in watch points.
     var pull: CGFloat = 0
+    /// The warning signs under the number, in the dashboard's card order; empty
+    /// hides the row.
+    var warningBadges: [WatchHeroWarningBadge] = []
     /// Previews only: freezes the clock.
     var previewDate: Date?
 
@@ -112,11 +117,20 @@ struct WatchDayRingHeroView: View {
                 centerText(percent: percent)
                     .position(x: width / 2, y: (Geometry.numberCenterY(width: referenceWidth) - captionLineOffset) * scale)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: showsCaption)
+
+                // Where the phone hangs its row, whether or not the caption shows.
+                WatchHeroWarningBadgeRow(
+                    badges: warningBadges,
+                    opacity: Geometry.textOpacity(progress: clampedProgress, width: referenceWidth),
+                    scale: scale
+                )
+                .position(x: width / 2, y: Geometry.badgeRowCenterY(width: referenceWidth) * scale)
             }
             .offset(y: -pull)
             .frame(width: width, height: WatchReadinessHero.height(width: width), alignment: .topLeading)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(String(localized: "Day Ring, \(timeline.percentPassed) percent of the day passed"))
+            .accessibilityValue(warningAccessibilityValue)
         }
         // Nothing here opens anything, and the pin raises the flattened hero over the
         // first card, so it must never take that card's taps.
@@ -139,6 +153,13 @@ struct WatchDayRingHeroView: View {
         .onChange(of: pull) { oldPull, newPull in
             followPull(from: oldPull, to: newPull)
         }
+    }
+
+    /// Every badge's warning titles joined into one list, so VoiceOver hears
+    /// what the row shows ("Low Heart Rate, High Heart Rate and High Skin
+    /// Temperature") rather than one list per badge strung together.
+    private var warningAccessibilityValue: String {
+        warningBadges.isEmpty ? "" : ListFormatter.localizedString(byJoining: warningBadges.flatMap(\.titles))
     }
 
     private func trackView(
