@@ -4,20 +4,23 @@
 //
 //  The intraday chart complications (accessoryRectangular only): Stress over
 //  the last 12 hours, and Heart Rate and HRV over the last 8, the charts their
-//  detail pages draw, compacted by `WatchRecentHoursChartView` under a header
-//  that names the metric on the left and its latest reading on the right.
-//  Stress draws the snapshot's `stressTimeline`, which the phone pushes or the
-//  watch recomputes, under the Stress complication's own reading
-//  (`latestStressReading(in:)`) and its band. Heart Rate and HRV draw the 30
-//  minute slots the watch compute keeps in `heartCharts`, under the card's
-//  value and unit. Each chart ends at its entry's date, and the provider adds
-//  an entry at every local half hour across the chart's window
+//  detail pages draw, compacted by `WatchRecentHoursChartView` to fill the
+//  slot with no header. The system's content margins are off, and each edge
+//  keeps at most `edgeInset` of them (the bottom `bottomInset`), so the chart
+//  reaches near the slot's edge. Workouts on the Stress chart take the
+//  phone's workout colors (`workoutColorOverrides`). VoiceOver reads the
+//  metric's name and its latest reading: Stress draws the snapshot's
+//  `stressTimeline`, which the phone pushes or the watch recomputes, and
+//  speaks the Stress complication's own reading
+//  (`latestStressReading(in:)`) with its band. Heart Rate and HRV draw the 30
+//  minute slots the watch compute keeps in `heartCharts`, and speak the
+//  card's value and unit. Each chart ends at its entry's date, and the
+//  provider adds an entry at every local half hour across the chart's window
 //  (`slidingWindow`), so the window slides without a reload. A window with
-//  nothing in it shows "Nothing to chart yet" under the header, and the slot
-//  shows "Open Body on iPhone" while the phone shares no such card. Free (not
-//  Pro-gated), like the bar complications, and a tap opens the metric's page.
-//  Kept apart from `StressComplication.swift`, whose source guards are scoped
-//  to that file.
+//  nothing in it shows "Nothing to chart yet", and the slot shows "Open Body
+//  on iPhone" while the phone shares no such card. Free (not Pro-gated), like
+//  the bar complications, and a tap opens the metric's page. Kept apart from
+//  `StressComplication.swift`, whose source guards are scoped to that file.
 //
 
 import SwiftUI
@@ -33,6 +36,7 @@ struct StressChartComplication: Widget {
         .configurationDisplayName(String(localized: "Stress"))
         .description(String(localized: "Your stress over the last 12 hours."))
         .supportedFamilies([.accessoryRectangular])
+        .contentMarginsDisabled()
     }
 }
 
@@ -46,6 +50,7 @@ struct HeartRateChartComplication: Widget {
         .configurationDisplayName(String(localized: "Heart Rate"))
         .description(String(localized: "Your heart rate over the last 8 hours."))
         .supportedFamilies([.accessoryRectangular])
+        .contentMarginsDisabled()
     }
 }
 
@@ -59,6 +64,7 @@ struct HRVChartComplication: Widget {
         .configurationDisplayName(String(localized: "HRV"))
         .description(String(localized: "Your heart rate variability over the last 8 hours."))
         .supportedFamilies([.accessoryRectangular])
+        .contentMarginsDisabled()
     }
 }
 
@@ -68,6 +74,25 @@ struct HRVChartComplication: Widget {
 private struct RecentHoursComplicationView: View {
     let metricKind: String
     let entry: WatchMetricEntry
+
+    @Environment(\.widgetContentMargins) private var margins
+
+    /// The most of the system's content margin each edge keeps: about half of
+    /// a Smart Stack card's, so the chart reaches twice as close to its edge,
+    /// while a slot whose margin is already smaller keeps its own.
+    private static let edgeInset: CGFloat = 5
+    /// The bottom edge keeps less, so the hour labels sit low: past the value
+    /// axis, the first one starts well clear of the card's rounded corner.
+    private static let bottomInset: CGFloat = 3
+
+    private var insets: EdgeInsets {
+        EdgeInsets(
+            top: min(margins.top, Self.edgeInset),
+            leading: min(margins.leading, Self.edgeInset),
+            bottom: min(margins.bottom, Self.bottomInset),
+            trailing: min(margins.trailing, Self.edgeInset)
+        )
+    }
 
     private var metric: WatchMetric? { entry.snapshot.metric(forKind: metricKind) }
     private var isStress: Bool { metricKind == WatchMetricKindKey.stress }
@@ -80,7 +105,10 @@ private struct RecentHoursComplicationView: View {
                     reading: reading(for: metric),
                     content: content,
                     now: now,
-                    emptyText: String(localized: "Nothing to chart yet")
+                    emptyText: String(localized: "Nothing to chart yet"),
+                    // The snapshot's overrides are already resolved for Body
+                    // Pro, as the Stress page reads them.
+                    palette: BodyWorkoutColorPalette(rawOverrides: entry.snapshot.workoutColorOverrides ?? "", isProUnlocked: true)
                 )
             } else {
                 Text("Open Body on iPhone")
@@ -88,15 +116,16 @@ private struct RecentHoursComplicationView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .padding(insets)
         .containerBackground(.clear, for: .widget)
     }
 
-    /// The header's reading. Stress: the Stress complication's reading (the
-    /// latest scored window, until it is 12 hours old) with the band stamped
-    /// on the timeline; a timeline from a build without the band shows the
-    /// score alone, as the Stress row does. Heart Rate and HRV: the card's
-    /// value and unit, which can differ from the chart's last 30 minute
-    /// average, as on the page.
+    /// The reading VoiceOver speaks. Stress: the Stress complication's
+    /// reading (the latest scored window, until it is 12 hours old) with the
+    /// band stamped on the timeline; a timeline from a build without the band
+    /// gives the score alone, as the Stress row does. Heart Rate and HRV: the
+    /// card's value and unit, which can differ from the chart's last 30
+    /// minute average, as on the page.
     private func reading(for metric: WatchMetric) -> String {
         if isStress {
             guard let reading = latestStressReading(in: entry) else { return "--" }

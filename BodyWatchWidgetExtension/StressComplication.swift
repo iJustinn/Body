@@ -48,7 +48,7 @@ struct StressBandsComplication: Widget {
 }
 
 /// The reading every Stress complication shows: the ring, the bands, and the
-/// Stress chart's header (`RecentHoursComplications.swift`). The gallery
+/// Stress chart's spoken reading (`RecentHoursComplications.swift`). The gallery
 /// placeholder (generated at `.distantPast`) carries a sample timeline on
 /// fixed dates, so it is drawn without the age check, which would otherwise
 /// preview the blank state.

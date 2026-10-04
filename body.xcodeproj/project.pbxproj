@@ -138,6 +138,14 @@
 			);
 			target = 710000362E00000100000036 /* BodyWatch */;
 		};
+		710000542E00000100000054 /* Exceptions for "BodyMetricsKit" folder in "BodyWatchWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				BodyWorkoutColorOverrides.swift,
+				BodyWorkoutType.swift,
+			);
+			target = 710000372E00000100000037 /* BodyWatchWidgetExtension */;
+		};
 		71000053BF00000100000053 /* Exceptions for "Body" folder in "Body" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -200,6 +208,9 @@
 		};
 		710000502E00000100000050 /* BodyMetricsKit */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				710000542E00000100000054 /* Exceptions for "BodyMetricsKit" folder in "BodyWatchWidgetExtension" target */,
+			);
 			path = BodyMetricsKit;
 			sourceTree = "<group>";
 		};

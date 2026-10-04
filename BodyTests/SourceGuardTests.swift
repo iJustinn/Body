@@ -5668,14 +5668,49 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertEqual(source.occurrenceCount(of: "WatchMetricProvider(slidingWindow: WatchStressChartGeometry.windowLength)"), 1)
         XCTAssertEqual(source.occurrenceCount(of: "WatchMetricProvider(slidingWindow: WatchIntradayWindow.length)"), 2)
 
-        // Stress heads its chart with the Stress complication's reading, aged
-        // like the chart and named with the band stamped on the timeline.
-        // Heart Rate and HRV chart the slots the watch compute keeps. Never
-        // the card's score.
+        // Stress speaks the Stress complication's reading, aged like the
+        // chart and named with the band stamped on the timeline. Heart Rate
+        // and HRV chart the slots the watch compute keeps. Never the card's
+        // score.
         XCTAssertTrue(code.contains("latestStressReading(in: entry)"))
         XCTAssertTrue(code.contains("latestBand?.label"))
         XCTAssertTrue(code.contains("heartCharts?[metricKind]"))
         XCTAssertFalse(code.contains("metric.score"))
+
+        // The chart reaches near the slot's edge: the system's content
+        // margins are off, and each edge keeps at most `edgeInset` of them,
+        // the bottom `bottomInset`, so the hour labels sit low.
+        XCTAssertEqual(code.occurrenceCount(of: ".contentMarginsDisabled()"), 3)
+        XCTAssertEqual(code.occurrenceCount(of: "@Environment(\\.widgetContentMargins)"), 1)
+        XCTAssertTrue(code.contains("bottom: min(margins.bottom, Self.bottomInset),"))
+        XCTAssertTrue(code.contains(".padding(insets)"))
+
+        // Stress shades and labels each workout in the phone's workout colors
+        // under its type's symbol, as the page does. The widget compiles just
+        // those two BodyMetricsKit files; the rest of the folder stays out.
+        XCTAssertTrue(code.contains("palette: BodyWorkoutColorPalette(rawOverrides: entry.snapshot.workoutColorOverrides ?? \"\", isProUnlocked: true)"))
+        let project = try BodyTestSupport.sourceText(at: "body.xcodeproj/project.pbxproj")
+        XCTAssertTrue(project.contains("""
+        /* Exceptions for "BodyMetricsKit" folder in "BodyWatchWidgetExtension" target */ = {
+        \t\t\tisa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+        \t\t\tmembershipExceptions = (
+        \t\t\t\tBodyWorkoutColorOverrides.swift,
+        \t\t\t\tBodyWorkoutType.swift,
+        \t\t\t);
+        \t\t\ttarget = 710000372E00000100000037 /* BodyWatchWidgetExtension */;
+        """))
+
+        // No header over the plot: the name and the latest reading are
+        // VoiceOver's label and value, not text on screen.
+        let chartView = try BodyTestSupport.sourceText(at: "BodyWatchShared/Views/WatchRecentHoursChartView.swift")
+        let chartCode = chartView
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        XCTAssertFalse(chartCode.contains("Text(title)"))
+        XCTAssertFalse(chartCode.contains("Text(reading)"))
+        XCTAssertTrue(chartCode.contains(".accessibilityLabel(title)"))
+        XCTAssertTrue(chartCode.contains(".accessibilityValue(hasPlot ? reading : emptyText)"))
 
         // The gallery placeholder (generated at `.distantPast`) carries its
         // sample data on fixed dates, so its charts end at the data's own end.
@@ -5693,7 +5728,6 @@ final class SourceGuardTests: XCTestCase {
 
         // The chart view is watch only, like the band ring: the iOS target
         // excludes it, so its WidgetKit import never reaches the app.
-        let project = try BodyTestSupport.sourceText(at: "body.xcodeproj/project.pbxproj")
         XCTAssertTrue(project.contains("Views/WatchMetricRingView.swift,\n\t\t\t\tViews/WatchRecentHoursChartView.swift,"))
     }
 

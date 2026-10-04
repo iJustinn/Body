@@ -7,9 +7,13 @@
 //  pages' 8 hour window and the Stress plot its 12, a chart read earlier
 //  keeps only the slots still inside the window ending at the entry's date
 //  (the current slot included), so a spike that has slid out no longer
-//  stretches the value range, the caption takes the plot's place only when
-//  nothing at all falls inside the window, and the range capsules keep a
-//  usable width.
+//  stretches the value range, which runs exactly from the lowest to the
+//  highest reading (unpadded, unlike the pages'), the caption takes the
+//  plot's place only when nothing at all falls inside the window, the range
+//  capsules keep a usable width, the Stress axis labels 0, 50 and 100, the
+//  icon row is reserved only while a sleep, nap or workout band is in the
+//  Stress window, and the plot leaves room for the axis, the hour row and the
+//  icon row.
 //
 
 import SwiftUI
@@ -82,8 +86,19 @@ final class WatchRecentHoursChartViewTests: XCTestCase {
         let rest = [bucket(9, 0, min: 58, max: 72, average: 64), bucket(14, 30, min: 60, max: 70, average: 66)]
 
         let values = WatchRecentHoursChartView.valueDomain(for: [spike] + rest, in: heartDomain)
-        XCTAssertEqual(values, WatchIntradayChartGeometry.rangeDomain(for: rest))
+        XCTAssertEqual(values, 58...72)
         XCTAssertLessThan(values.upperBound, 140)
+    }
+
+    /// Unlike the pages' padded range, the complication's runs exactly from
+    /// the lowest to the highest reading, so the chart spans the plot; one
+    /// repeated value keeps the pages' range so its line sits mid plot.
+    func testTheValueRangeSpansExactlyTheReadings() {
+        let readings = [bucket(9, 0, min: 52, max: 61, average: 56), bucket(12, 0, min: 60, max: 131, average: 104)]
+        XCTAssertEqual(WatchRecentHoursChartView.valueDomain(for: readings, in: heartDomain), 52...131)
+
+        let flat = [bucket(9, 0, min: 62, max: 62, average: 62)]
+        XCTAssertEqual(WatchRecentHoursChartView.valueDomain(for: flat, in: heartDomain), WatchIntradayChartGeometry.rangeDomain(for: flat))
     }
 
     // MARK: - Empty plot
@@ -113,6 +128,58 @@ final class WatchRecentHoursChartViewTests: XCTestCase {
         let moving = timeline(start: date(14, 0), slots: [a, a, nil, a])
         XCTAssertNil(moving.latestScoredWindow)
         XCTAssertTrue(WatchRecentHoursChartView.hasPlot(.stress(moving), endingAt: now, calendar: calendar))
+    }
+
+    // MARK: - Layout
+
+    func testStressAxisLabelsEveryOtherGridline() {
+        XCTAssertEqual(WatchRecentHoursChartView.stressAxisScores, [0, 50, 100])
+    }
+
+    /// The Stress plot reserves the icon row only while a band it draws a
+    /// symbol for overlaps its window (03:00 to 15:30 here).
+    func testIconRowOnlyWhileASleepOrWorkoutBandIsInTheStressWindow() {
+        let stressDomain = WatchRecentHoursChartView.domain(for: .stress(nil), endingAt: now, calendar: calendar)
+        func iconRow(_ bands: [WatchStressContextBand]) -> Bool {
+            WatchRecentHoursChartView.hasIconRow(
+                .stress(timeline(start: date(14, 0), slots: [30, 32], context: bands)),
+                domain: stressDomain
+            )
+        }
+
+        XCTAssertTrue(iconRow([WatchStressContextBand(kind: WatchStressContextBand.sleepKind, start: date(1, 0), end: date(6, 0))]))
+        XCTAssertTrue(iconRow([WatchStressContextBand(kind: WatchStressContextBand.napKind, start: date(13, 0), end: date(13, 30))]))
+        XCTAssertTrue(iconRow([
+            WatchStressContextBand(kind: WatchStressContextBand.workoutKind, start: date(12, 0), end: date(13, 0), workoutType: "running")
+        ]))
+
+        XCTAssertFalse(iconRow([]))
+        // Ended before the window opened.
+        XCTAssertFalse(iconRow([WatchStressContextBand(kind: WatchStressContextBand.sleepKind, start: date(0, 0), end: date(2, 30))]))
+        // A kind this build doesn't know draws nothing, so it reserves nothing.
+        XCTAssertFalse(iconRow([WatchStressContextBand(kind: "meditation", start: date(12, 0), end: date(13, 0))]))
+        XCTAssertFalse(WatchRecentHoursChartView.hasIconRow(.stress(nil), domain: stressDomain))
+        XCTAssertFalse(WatchRecentHoursChartView.hasIconRow(readings([bucket(12, 0)]), domain: heartDomain))
+    }
+
+    /// The plot sits right of the axis labels and above the hour row, inset
+    /// by half a label (or half a taller mark), and drops under the icon row
+    /// only when there is one.
+    func testPlotLeavesTheAxisTheHourRowAndTheIconRow() {
+        let size = CGSize(width: 175, height: 67)
+        let hourRow = WatchRecentHoursChartView.hourRowHeight
+        let labelHalf = WatchRecentHoursChartView.axisLabelHalfHeight
+
+        let plain = WatchRecentHoursChartView.plotRect(in: size, axisWidth: 12, hasIconRow: false, markHalfHeight: 1.5)
+        XCTAssertEqual(plain, CGRect(x: 12, y: labelHalf, width: 163, height: 67 - hourRow - 2 * labelHalf))
+
+        let withIcons = WatchRecentHoursChartView.plotRect(in: size, axisWidth: 12, hasIconRow: true, markHalfHeight: 1.5)
+        XCTAssertEqual(withIcons.minY, plain.minY + WatchRecentHoursChartView.iconRowHeight)
+        XCTAssertEqual(withIcons.maxY, plain.maxY)
+        XCTAssertEqual(withIcons.minX, plain.minX)
+
+        let tallMark = WatchRecentHoursChartView.plotRect(in: size, axisWidth: 12, hasIconRow: false, markHalfHeight: 4)
+        XCTAssertEqual(tallMark, CGRect(x: 12, y: 4, width: 163, height: 67 - hourRow - 8))
     }
 
     // MARK: - Capsules
