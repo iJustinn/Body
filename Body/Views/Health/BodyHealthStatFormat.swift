@@ -3,69 +3,56 @@
 //  Body
 //
 //  The windows and wording of the average and range readouts on the metric
-//  detail pages. The hero's top row reads the last 7 days ("Weekly"), whatever
-//  range the chart shows; the Day View header reads its selected day
-//  ("Daily"), except for the hourly totals of Steps and Active Energy, whose
-//  day reads as a total over an hourly average. Each label has a short form
-//  ("W Avg", "D Range", "H Avg") for the two row legends and small screens.
+//  detail pages, every label in letters on every screen. The hero's top row
+//  reads the range the chart shows ("W Avg", "M Range", "6M Avg", "Y Range");
+//  the Day View header reads its selected day ("D Avg", "D Range"), except
+//  for the hourly totals of Steps and Active Energy, whose day reads as a
+//  total over an hourly average ("D Total", "H Avg").
 //
 
 import Foundation
 
 enum BodyHealthStatFormat {
-    /// The hero readouts' window: the last 7 calendar days, today included.
-    static let heroWindow: BodyHealthTrendRange = .recentWeek
-
-    /// At or below this screen width (an iPhone SE or mini, the Home cards'
-    /// compact width) every label reads its short form, to save space.
-    static let compactScreenMaximumWidth: CGFloat = BodyHomeMetricCardPreview.compactScreenMaximumWidth
-
-    /// One readout's label, in full ("Weekly Avg") or short ("W Avg"): the
-    /// short form inside the two row legends (two sources, or Basics' two
-    /// series), so they never grow a third line, and everywhere on a small
-    /// screen.
+    /// One readout's label, in letters on every screen, so the two row
+    /// legends (two sources, or Basics' two series) never grow a third line.
     enum Stat {
-        case weeklyAverage
-        case weeklyRange
+        /// The average, or the lowest to highest, over one of the chart's
+        /// ranges, today included.
+        case average(over: BodyHealthTrendRange)
+        case range(over: BodyHealthTrendRange)
         case dailyAverage
         case dailyRange
         case dailyTotal
         case hourlyAverage
 
-        func label(short: Bool) -> String {
-            switch (self, short) {
-            case (.weeklyAverage, false):
-                return String(localized: "detail.weeklyAvgPrefix", defaultValue: "Weekly Avg")
-            case (.weeklyAverage, true):
+        var label: String {
+            switch self {
+            case .average(over: .recentWeek):
                 return String(localized: "detail.weeklyAvgShortPrefix", defaultValue: "W Avg")
-            case (.weeklyRange, false):
-                return String(localized: "detail.weeklyRangePrefix", defaultValue: "Weekly Range")
-            case (.weeklyRange, true):
+            case .average(over: .recentMonth):
+                return String(localized: "detail.monthlyAvgShortPrefix", defaultValue: "M Avg")
+            case .average(over: .recentSixMonths):
+                return String(localized: "detail.sixMonthAvgShortPrefix", defaultValue: "6M Avg")
+            case .average(over: .recentYear):
+                return String(localized: "detail.yearlyAvgShortPrefix", defaultValue: "Y Avg")
+            case .range(over: .recentWeek):
                 return String(localized: "detail.weeklyRangeShortPrefix", defaultValue: "W Range")
-            case (.dailyAverage, false):
-                return String(localized: "detail.dailyAvgPrefix", defaultValue: "Daily Avg")
-            case (.dailyAverage, true):
+            case .range(over: .recentMonth):
+                return String(localized: "detail.monthlyRangeShortPrefix", defaultValue: "M Range")
+            case .range(over: .recentSixMonths):
+                return String(localized: "detail.sixMonthRangeShortPrefix", defaultValue: "6M Range")
+            case .range(over: .recentYear):
+                return String(localized: "detail.yearlyRangeShortPrefix", defaultValue: "Y Range")
+            case .dailyAverage:
                 return String(localized: "detail.dailyAvgShortPrefix", defaultValue: "D Avg")
-            case (.dailyRange, false):
-                return String(localized: "detail.dailyRangePrefix", defaultValue: "Daily Range")
-            case (.dailyRange, true):
+            case .dailyRange:
                 return String(localized: "detail.dailyRangeShortPrefix", defaultValue: "D Range")
-            case (.dailyTotal, false):
-                return String(localized: "detail.dailyTotalPrefix", defaultValue: "Daily Total")
-            case (.dailyTotal, true):
+            case .dailyTotal:
                 return String(localized: "detail.dailyTotalShortPrefix", defaultValue: "D Total")
-            case (.hourlyAverage, false):
-                return String(localized: "detail.hourlyAvgPrefix", defaultValue: "Hourly Avg")
-            case (.hourlyAverage, true):
+            case .hourlyAverage:
                 return String(localized: "detail.hourlyAvgShortPrefix", defaultValue: "H Avg")
             }
         }
-    }
-
-    /// Whether a screen this wide reads the short labels; an unmeasured (0)
-    /// width reads the full ones.
-    static func usesShortLabels(forScreenWidth width: CGFloat) -> Bool {
-        width > 0 && width <= compactScreenMaximumWidth
     }
 
     /// Whether a kind's daily value is a running total (Steps, the two

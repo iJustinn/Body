@@ -2752,11 +2752,13 @@ final class SourceGuardTests: XCTestCase {
         )
         let legendBlock = String(source[legendStart..<comparisonChartStart])
 
-        // Two sources read two rows, each naming the window in short ("Apple
-        // Watch W Avg 72 bpm"), never a caption line above them.
-        XCTAssertTrue(legendBlock.contains("Text(verbatim: \"\\(item.sourceName) \\(average.label(short: true)) \\(averageText(for: item.averageValue))\")"))
-        XCTAssertTrue(legendBlock.contains("Text(verbatim: \"\\(average.label(short: compact)) \\(averageText(for: item.averageValue))\")"))
-        XCTAssertFalse(legendBlock.contains("Text(average.label("))
+        // Two sources read two rows, each naming the window in letters
+        // ("Apple Watch W Avg 72 bpm"), never a caption line above them; one
+        // source reads the same letters on every screen.
+        XCTAssertTrue(legendBlock.contains("Text(verbatim: \"\\(item.sourceName) \\(average.label) \\(averageText(for: item.averageValue))\")"))
+        XCTAssertTrue(legendBlock.contains("Text(verbatim: \"\\(average.label) \\(averageText(for: item.averageValue))\")"))
+        XCTAssertFalse(legendBlock.contains("Text(average.label)"))
+        XCTAssertFalse(legendBlock.contains("compact"))
 
         XCTAssertTrue(legendBlock.contains("VStack(alignment: .trailing, spacing: 7)"))
         XCTAssertFalse(legendBlock.contains("VStack(alignment: .leading, spacing: 7)"))
@@ -2896,10 +2898,10 @@ final class SourceGuardTests: XCTestCase {
     }
 
     /// Every average and range on a metric detail page names its window: the
-    /// hero's top row the last 7 days ("Weekly"), the Day View header its day
-    /// ("Daily", or a total over an hourly average for the hourly totals).
-    /// With a second source picked only the averages show; one source reads
-    /// its range too.
+    /// hero's top row the range the chart shows ("W Avg" through "Y Range"),
+    /// the Day View header its day ("D Avg", or "D Total" over "H Avg" for
+    /// the hourly totals), all in letters. With a second source picked only
+    /// the averages show; one source reads its range too.
     func testMetricDetailStatsNameTheirWindow() throws {
         let detail = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
         let heroStart = try XCTUnwrap(detail.range(of: "private var heroValueTrailing: some View")?.lowerBound)
@@ -2909,28 +2911,33 @@ final class SourceGuardTests: XCTestCase {
         let dayEnd = try XCTUnwrap(detail.range(of: "ZStack {", range: dayStart..<detail.endIndex)?.lowerBound)
         let dayHeader = String(detail[dayStart..<dayEnd])
 
-        // The hero: the comparison legends name the week, and a single source
-        // reads the week's average and range, Stress's included, with no
-        // daily column beside them (its Day View reads the day); only Skin
-        // Temperature's Baseline legend hangs under them.
-        XCTAssertEqual(hero.occurrenceCount(of: "average: .weeklyAverage,\n                compact: usesShortStatLabels"), 3)
-        XCTAssertTrue(hero.contains("averageHeaderText(weeklyAverageText, prefix: statLabel(.weeklyAverage))"))
-        XCTAssertTrue(hero.contains("averageHeaderText(weeklyRangeText, prefix: statLabel(.weeklyRange))"))
+        // The hero: the comparison legends name the chart's range, and a
+        // single source reads its average and range over it, Stress's
+        // included, with no daily column beside them (its Day View reads the
+        // day); only Skin Temperature's Baseline legend hangs under them. The
+        // BMI card reads the same range.
+        XCTAssertEqual(hero.occurrenceCount(of: "valueFormatter: model.valueFormatter,\n                average: .average(over: selectedTrendRange)\n            )"), 3)
+        XCTAssertTrue(hero.contains("averageHeaderText(visibleAverageText, prefix: statLabel(.average(over: selectedTrendRange)))"))
+        XCTAssertTrue(hero.contains("averageHeaderText(visibleRangeText, prefix: statLabel(.range(over: selectedTrendRange)))"))
         XCTAssertEqual(hero.occurrenceCount(of: "BodyChartBaselineLegend()"), 1)
         XCTAssertFalse(hero.contains("statLabel(.dailyAverage)"))
         XCTAssertFalse(hero.contains("statLabel(.dailyRange)"))
         XCTAssertFalse(detail.contains("todaysStress"))
         XCTAssertFalse(hero.contains("prefix: String(localized: \"chart.legendRange\""))
-        XCTAssertEqual(detail.occurrenceCount(of: "averageValue(in: BodyHealthStatFormat.heroWindow)"), 4)
-        XCTAssertFalse(detail.contains("averageValue(in: selectedTrendRange)"))
-        XCTAssertTrue(detail.contains("model.series.limited(to: BodyHealthStatFormat.heroWindow)"))
+        XCTAssertEqual(detail.occurrenceCount(of: "averageValue(in: selectedTrendRange)"), 4)
+        XCTAssertFalse(detail.contains("heroWindow"))
+        XCTAssertTrue(detail.contains("model.series.limited(to: selectedTrendRange)"))
+        XCTAssertTrue(detail.contains("model.rangeSeries?.limited(to: selectedTrendRange).valueRange"))
+        XCTAssertTrue(detail.contains("averageHeaderText(bodyMassIndexAverageText, prefix: statLabel(.average(over: selectedTrendRange)))"))
+        XCTAssertTrue(detail.contains("averageHeaderText(bodyMassIndexRangeText, prefix: statLabel(.range(over: selectedTrendRange)))"))
+        XCTAssertTrue(detail.contains("(visibleBasicsTrend?.bodyMassIndex ?? .empty).averageValue"))
 
         // The Day View: the second source decides avg only, before the single
         // source's avg and range.
         let secondaryIndex = try XCTUnwrap(dayHeader.range(of: "} else if hasComparedSecondaryDaySource {")?.lowerBound)
         let singleIndex = try XCTUnwrap(dayHeader.range(of: "} else if model.kind != .readiness, !selectedMetricDaySeries.isEmpty {")?.lowerBound)
         XCTAssertLessThan(secondaryIndex, singleIndex)
-        XCTAssertTrue(dayHeader.contains("average: BodyHealthStatFormat.isDailyTotal(model.kind) ? .hourlyAverage : .dailyAverage,"))
+        XCTAssertTrue(dayHeader.contains("average: BodyHealthStatFormat.isDailyTotal(model.kind) ? .hourlyAverage : .dailyAverage\n"))
         XCTAssertTrue(dayHeader.contains("bottomPrefix: statLabel(.dailyRange)"))
         XCTAssertTrue(dayHeader.contains("topPrefix: statLabel(.dailyTotal)"))
         XCTAssertTrue(dayHeader.contains("bottomPrefix: statLabel(.hourlyAverage)"))
@@ -2947,12 +2954,11 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(detail.contains("BodyMetricStatusValueText(text: vitalsHeroStatusText, fontSize: 32)"))
         XCTAssertTrue(detail.contains("BodyMetricStatusValueText(text: model.value, fontSize: 32)"))
 
-        // Every label reads its short form ("W Avg") on a small screen, the
-        // page's width measured on the hero.
-        XCTAssertTrue(detail.contains("stat.label(short: usesShortStatLabels)"))
-        XCTAssertTrue(detail.contains("BodyHealthStatFormat.usesShortLabels(forScreenWidth: statLabelsScreenWidth)"))
-        XCTAssertTrue(detail.contains("statLabelsScreenWidth = width"))
-        XCTAssertFalse(detail.contains("BodyHealthStatFormat.Stat.weeklyAverage.label(short: false)"))
+        // Every label reads in letters on every screen, so nothing measures
+        // the page for a short form.
+        XCTAssertTrue(detail.contains("stat.label\n"))
+        XCTAssertFalse(detail.contains("statLabelsScreenWidth"))
+        XCTAssertFalse(detail.contains("compact: "))
     }
 
     /// A range reads "48-142 bpm", the unit once after the high end, on the
@@ -2986,8 +2992,9 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(detail.contains("series: visibleBodyMassIndexTrend,"))
         XCTAssertFalse(detail.contains("nights: visibleVitalsNights,"))
         // Windowed values still back the readouts around the charts: the BMI
-        // card's the hero's week, the Difference Range card's the selected range.
-        XCTAssertTrue(detail.contains("model.basicsTrend?.limited(to: BodyHealthStatFormat.heroWindow)"))
+        // card's and the Difference Range card's, both the selected range.
+        XCTAssertTrue(detail.contains("model.basicsTrend?.limited(to: selectedTrendRange)"))
+        XCTAssertTrue(detail.contains("(visibleBasicsTrend?.bodyMassIndex ?? .empty).averageValue"))
         XCTAssertTrue(detail.contains("visibleBasicsTrend?.bodyFatHalfSpread"))
     }
 
@@ -3677,13 +3684,14 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(source.contains("bodyFatAverageText: basicsBodyFatAverageText"))
         XCTAssertTrue(source.contains("legendItem(title: \"Body Fat\", valueText: bodyFatAverageText, color: bodyFatColor)"))
         XCTAssertTrue(source.contains("legendItem(title: \"Weight\", valueText: weightAverageText, color: weightColor)"))
-        // Each row names the window in short ("Body Fat W Avg 18.2%"), as the
-        // two source legend does, so the legend stays two lines.
-        XCTAssertFalse(source.contains("Text(BodyHealthStatFormat.Stat.weeklyAverage.label("))
+        // Each row names the chart's range in short ("Body Fat M Avg 18.2%"),
+        // as the two source legend does, so the legend stays two lines.
+        XCTAssertTrue(source.contains("bodyFatAverageText: basicsBodyFatAverageText,\n                average: .average(over: selectedTrendRange)\n            )"))
+        XCTAssertFalse(source.contains("Stat.weeklyAverage"))
         let legendItemStart = try XCTUnwrap(source.range(of: "private func legendItem")?.lowerBound)
         let legendItemBlock = source[legendItemStart...].prefix(1_300)
         let averageTextStart = try XCTUnwrap(
-            legendItemBlock.range(of: "Text(verbatim: \"\\(BodyHealthStatFormat.Stat.weeklyAverage.label(short: true)) \\(valueText)\")")?.lowerBound
+            legendItemBlock.range(of: "Text(verbatim: \"\\(average.label) \\(valueText)\")")?.lowerBound
         )
         let averageTextBlock = legendItemBlock[averageTextStart...].prefix(260)
         XCTAssertTrue(averageTextBlock.contains(".foregroundColor(.secondary)"))

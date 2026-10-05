@@ -4,8 +4,9 @@
 //
 //  Covers the metric detail pages' range readouts (`BodyHealthStatFormat`):
 //  both ends in the kind's own formatter with its unit printed once, a
-//  duration kept whole, one value for a range of one, and which kinds count
-//  as running daily totals.
+//  duration kept whole, one value for a range of one, which kinds count as
+//  running daily totals, and every label's letters, the top row's for each
+//  chart range and the Day View's.
 //
 
 import XCTest
@@ -95,21 +96,30 @@ final class BodyHealthStatFormatTests: XCTestCase {
         }
     }
 
-    /// A small phone (an SE or mini, 375 pt or narrower, the Home cards'
-    /// compact width) reads every label short; an unmeasured width reads
-    /// them in full.
-    func testSmallScreensReadTheShortLabels() {
-        XCTAssertEqual(BodyHealthStatFormat.compactScreenMaximumWidth, 375)
-        XCTAssertTrue(BodyHealthStatFormat.usesShortLabels(forScreenWidth: 320))
-        XCTAssertTrue(BodyHealthStatFormat.usesShortLabels(forScreenWidth: 375))
-        XCTAssertFalse(BodyHealthStatFormat.usesShortLabels(forScreenWidth: 376))
-        XCTAssertFalse(BodyHealthStatFormat.usesShortLabels(forScreenWidth: 402))
-        XCTAssertFalse(BodyHealthStatFormat.usesShortLabels(forScreenWidth: 0))
+    /// The top row names the range the chart shows, in letters on every
+    /// screen.
+    func testTheTopRowNamesTheChartsRangeInLetters() {
+        let expected: [(range: BodyHealthTrendRange, average: String, valueRange: String)] = [
+            (.recentWeek, "W Avg", "W Range"),
+            (.recentMonth, "M Avg", "M Range"),
+            (.recentSixMonths, "6M Avg", "6M Range"),
+            (.recentYear, "Y Avg", "Y Range")
+        ]
+
+        XCTAssertEqual(expected.map(\.range), BodyHealthTrendRange.allCases)
+        for entry in expected {
+            XCTAssertEqual(BodyHealthStatFormat.Stat.average(over: entry.range).label, entry.average)
+            XCTAssertEqual(BodyHealthStatFormat.Stat.range(over: entry.range).label, entry.valueRange)
+        }
     }
 
-    func testTheHeroWindowIsTheLastSevenDays() {
-        XCTAssertEqual(BodyHealthStatFormat.heroWindow, .recentWeek)
-        XCTAssertEqual(BodyHealthStatFormat.heroWindow.dayCount, 7)
+    /// The Day View header names its day in letters too: "D Avg" over
+    /// "D Range", or "D Total" over "H Avg" for the hourly totals.
+    func testTheDayViewLabelsReadInLetters() {
+        XCTAssertEqual(BodyHealthStatFormat.Stat.dailyAverage.label, "D Avg")
+        XCTAssertEqual(BodyHealthStatFormat.Stat.dailyRange.label, "D Range")
+        XCTAssertEqual(BodyHealthStatFormat.Stat.dailyTotal.label, "D Total")
+        XCTAssertEqual(BodyHealthStatFormat.Stat.hourlyAverage.label, "H Avg")
     }
 }
 

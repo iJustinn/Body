@@ -440,20 +440,20 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         XCTAssertEqual(try value(of: "chart.legendRange", language: "zh-Hans", in: catalog), "范围")
     }
 
-    /// The detail pages' window labels, full ("Weekly Avg") and the short form
-    /// two source rows and small screens read ("W Avg"), so none falls back
-    /// to its key.
+    /// The detail pages' window labels, all in letters on every screen, so
+    /// none falls back to its key: the chart's range ("W Avg" through
+    /// "Y Range") and the Day View's day ("D Avg", "D Total", "H Avg").
     func testDetailStatWindowLabelsResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
         let expected: [(key: String, english: String, chinese: String)] = [
-            ("detail.weeklyAvgPrefix", "Weekly Avg", "周平均"),
-            ("detail.weeklyRangePrefix", "Weekly Range", "周范围"),
-            ("detail.dailyAvgPrefix", "Daily Avg", "日平均"),
-            ("detail.dailyRangePrefix", "Daily Range", "日范围"),
-            ("detail.dailyTotalPrefix", "Daily Total", "日总计"),
-            ("detail.hourlyAvgPrefix", "Hourly Avg", "每小时平均"),
             ("detail.weeklyAvgShortPrefix", "W Avg", "周均"),
             ("detail.weeklyRangeShortPrefix", "W Range", "周范围"),
+            ("detail.monthlyAvgShortPrefix", "M Avg", "月均"),
+            ("detail.monthlyRangeShortPrefix", "M Range", "月范围"),
+            ("detail.sixMonthAvgShortPrefix", "6M Avg", "6个月均"),
+            ("detail.sixMonthRangeShortPrefix", "6M Range", "6个月范围"),
+            ("detail.yearlyAvgShortPrefix", "Y Avg", "年均"),
+            ("detail.yearlyRangeShortPrefix", "Y Range", "年范围"),
             ("detail.dailyAvgShortPrefix", "D Avg", "日均"),
             ("detail.dailyRangeShortPrefix", "D Range", "日范围"),
             ("detail.dailyTotalShortPrefix", "D Total", "日总计"),

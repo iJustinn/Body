@@ -5422,23 +5422,6 @@
         }
       }
     },
-    "detail.dailyAvgPrefix" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daily Avg"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "日平均"
-          }
-        }
-      }
-    },
     "detail.dailyAvgShortPrefix" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5452,23 +5435,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "日均"
-          }
-        }
-      }
-    },
-    "detail.dailyRangePrefix" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daily Range"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "日范围"
           }
         }
       }
@@ -5490,23 +5456,6 @@
         }
       }
     },
-    "detail.dailyTotalPrefix" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daily Total"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "日总计"
-          }
-        }
-      }
-    },
     "detail.dailyTotalShortPrefix" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5520,23 +5469,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "日总计"
-          }
-        }
-      }
-    },
-    "detail.hourlyAvgPrefix" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hourly Avg"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每小时平均"
           }
         }
       }
@@ -5558,19 +5490,70 @@
         }
       }
     },
-    "detail.weeklyAvgPrefix" : {
+    "detail.monthlyAvgShortPrefix" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Weekly Avg"
+            "value" : "M Avg"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "周平均"
+            "value" : "月均"
+          }
+        }
+      }
+    },
+    "detail.monthlyRangeShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "M Range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月范围"
+          }
+        }
+      }
+    },
+    "detail.sixMonthAvgShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6M Avg"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6个月均"
+          }
+        }
+      }
+    },
+    "detail.sixMonthRangeShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6M Range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6个月范围"
           }
         }
       }
@@ -5592,23 +5575,6 @@
         }
       }
     },
-    "detail.weeklyRangePrefix" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Weekly Range"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "周范围"
-          }
-        }
-      }
-    },
     "detail.weeklyRangeShortPrefix" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5622,6 +5588,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "周范围"
+          }
+        }
+      }
+    },
+    "detail.yearlyAvgShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Y Avg"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "年均"
+          }
+        }
+      }
+    },
+    "detail.yearlyRangeShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Y Range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "年范围"
           }
         }
       }

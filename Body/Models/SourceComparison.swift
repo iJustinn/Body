@@ -19,20 +19,16 @@ struct BodyHealthSourceTrend: Equatable, Identifiable {
         "\(role.rawValue)-\(sourceName)"
     }
 
+    /// The daily mean over the whole range, the way the single source readout
+    /// averages. Averaging the chart's comparison buckets instead would drop
+    /// the oldest partial bucket, leaving the first days of 6 Months and Year
+    /// out.
     func averageValue(
         in range: BodyHealthTrendRange,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> Double? {
-        let values = series
-            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
-            .compactMap(\.value)
-            .filter(\.isFinite)
-        guard !values.isEmpty else {
-            return nil
-        }
-
-        return values.reduce(0, +) / Double(values.count)
+        series.limited(to: range, calendar: calendar, date: date).averageValue
     }
 }
 
@@ -69,20 +65,14 @@ struct BodyHealthSourceRangeTrend: Equatable, Identifiable {
         "\(role.rawValue)-\(sourceName)"
     }
 
+    /// The mean of each day's average over the whole range, like
+    /// `BodyHealthSourceTrend.averageValue(in:)`.
     func averageValue(
         in range: BodyHealthTrendRange,
         calendar: Calendar = .bodyGregorian,
         date: Date = Date()
     ) -> Double? {
-        let values = series
-            .sourceComparisonChartCalendarPoints(to: range, calendar: calendar, date: date)
-            .compactMap(\.averageValue)
-            .filter(\.isFinite)
-        guard !values.isEmpty else {
-            return nil
-        }
-
-        return values.reduce(0, +) / Double(values.count)
+        series.limited(to: range, calendar: calendar, date: date).averageValue
     }
 }
 

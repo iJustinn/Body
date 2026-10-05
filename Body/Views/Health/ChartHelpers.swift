@@ -124,6 +124,9 @@ struct BodyBasicsTrendLegend: View {
     let bodyFatColor: Color
     let weightAverageText: String?
     let bodyFatAverageText: String?
+    /// The averages' window, named in letters inside each row ("W Avg"), as
+    /// the two source legend names it.
+    let average: BodyHealthStatFormat.Stat
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 7) {
@@ -151,7 +154,7 @@ struct BodyBasicsTrendLegend: View {
             // The window named in the row, as the two source legend names it,
             // so the legend stays two lines.
             if let valueText {
-                Text(verbatim: "\(BodyHealthStatFormat.Stat.weeklyAverage.label(short: true)) \(valueText)")
+                Text(verbatim: "\(average.label) \(valueText)")
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
