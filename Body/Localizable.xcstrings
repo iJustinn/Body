@@ -6198,6 +6198,38 @@
         }
       }
     },
+    "equivalent.food.blueberries" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blueberries"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "蓝莓"
+          }
+        }
+      }
+    },
+    "equivalent.food.boiledEgg" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boiled Egg"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "水煮蛋"
+          }
+        }
+      }
+    },
     "equivalent.food.bread" : {
       "localizations" : {
         "en" : {
@@ -6242,6 +6274,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "汉堡"
+          }
+        }
+      }
+    },
+    "equivalent.food.candy" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Candy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "糖果"
+          }
+        }
+      }
+    },
+    "equivalent.food.carrot" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Carrot"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "胡萝卜"
+          }
+        }
+      }
+    },
+    "equivalent.food.cherries" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cherries"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "樱桃"
           }
         }
       }
@@ -6322,6 +6402,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "饺子"
+          }
+        }
+      }
+    },
+    "equivalent.food.fortuneCookie" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fortune Cookie"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "幸运饼干"
           }
         }
       }
@@ -6422,6 +6518,22 @@
         }
       }
     },
+    "equivalent.food.kiwi" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kiwi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "猕猴桃"
+          }
+        }
+      }
+    },
     "equivalent.food.latte" : {
       "localizations" : {
         "en" : {
@@ -6486,6 +6598,22 @@
         }
       }
     },
+    "equivalent.food.peach" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Peach"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "桃子"
+          }
+        }
+      }
+    },
     "equivalent.food.pizza" : {
       "localizations" : {
         "en" : {
@@ -6498,6 +6626,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "一块披萨"
+          }
+        }
+      }
+    },
+    "equivalent.food.popcorn" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Popcorn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "爆米花"
           }
         }
       }
@@ -6534,6 +6678,22 @@
         }
       }
     },
+    "equivalent.food.riceCracker" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rice Cracker"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仙贝"
+          }
+        }
+      }
+    },
     "equivalent.food.soda" : {
       "localizations" : {
         "en" : {
@@ -6546,6 +6706,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "汽水"
+          }
+        }
+      }
+    },
+    "equivalent.food.strawberries" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Strawberries"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "草莓"
           }
         }
       }
@@ -6578,6 +6754,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "塔可"
+          }
+        }
+      }
+    },
+    "equivalent.food.tomato" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tomato"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "番茄"
           }
         }
       }

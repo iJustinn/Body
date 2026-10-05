@@ -1079,7 +1079,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = EnergyEquivalent.foods.map(\.name.key) + [EnergyEquivalent.iceCube.name.key]
         // Guards the enumeration itself: a refactor dropping foods would otherwise
         // silently check fewer keys and still pass.
-        XCTAssertEqual(keys.count, 29, "expected one key per EnergyEquivalent.Food plus the ice cube")
+        XCTAssertEqual(keys.count, 41, "expected one key per EnergyEquivalent.Food plus the ice cube")
 
         try assertKeysTranslated(keys, in: catalog)
     }

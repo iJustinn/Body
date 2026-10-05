@@ -13,10 +13,10 @@ final class EnergyEquivalentTests: XCTestCase {
         XCTAssertNil(EnergyEquivalent.decompose(kilocalories: -100))
     }
 
-    /// The smallest food (🍫, 50 kcal) is the floor — anything below it has
+    /// The smallest food (🍬, 20 kcal) is the floor — anything below it has
     /// nothing meaningful to show.
     func testBelowSmallestFoodReturnsNil() {
-        XCTAssertNil(EnergyEquivalent.decompose(kilocalories: 30))
+        XCTAssertNil(EnergyEquivalent.decompose(kilocalories: 15))
     }
 
     /// The banded draw may vary the mix, but the shown foods must still cover
@@ -97,5 +97,64 @@ final class EnergyEquivalentTests: XCTestCase {
         for (a, b) in zip(kcals, kcals.dropFirst()) {
             XCTAssertGreaterThan(a, b)
         }
+    }
+
+    /// ~300 kcal in more-items mode used to be six 🍫, the only food in its
+    /// band; the small foods now fill that band with a mix of different ones.
+    func testMoreItemsAt300KilocaloriesMixesSmallFoods() throws {
+        let result = try XCTUnwrap(EnergyEquivalent.decompose(kilocalories: 300, preferringMoreItems: true))
+        let counts = Dictionary(result.map { ($0.emoji, 1) }, uniquingKeysWith: +)
+        XCTAssertGreaterThanOrEqual(counts.count, 8)
+        XCTAssertLessThanOrEqual(counts.values.max() ?? 0, 2)
+        XCTAssertLessThanOrEqual(counts["🍫"] ?? 0, 1)
+    }
+
+    /// Unused foods come first, so across everyday totals the fewest-items
+    /// mode never repeats a food and the more-items mode shows one at most twice.
+    func testFoodsRarelyRepeatAcrossTypicalTotals() {
+        for kilocalories in stride(from: 100.0, through: 2500, by: 3.7) {
+            let fewest = EnergyEquivalent.decompose(kilocalories: kilocalories)?.filter { $0.kilocalories > 0 } ?? []
+            let more = EnergyEquivalent.decompose(kilocalories: kilocalories, preferringMoreItems: true)?.filter { $0.kilocalories > 0 } ?? []
+            let fewestMax = Dictionary(fewest.map { ($0.emoji, 1) }, uniquingKeysWith: +).values.max() ?? 0
+            let moreMax = Dictionary(more.map { ($0.emoji, 1) }, uniquingKeysWith: +).values.max() ?? 0
+            XCTAssertLessThanOrEqual(fewestMax, 1, "fewest-items repeat at \(kilocalories) kcal")
+            XCTAssertLessThanOrEqual(moreMax, 2, "more-items repeat at \(kilocalories) kcal")
+        }
+    }
+
+    /// Reaching outside the band for variety is guarded near the cap, so a
+    /// long workout still covers nearly all of its energy in 12 foods.
+    func testLongWorkoutsKeepTheirCoverage() {
+        for kilocalories in stride(from: 2500.0, through: 5500, by: 3.3) {
+            let covered = EnergyEquivalent.decompose(kilocalories: kilocalories)?.reduce(0) { $0 + $1.kilocalories } ?? 0
+            XCTAssertGreaterThanOrEqual(covered, kilocalories * 0.9, "coverage at \(kilocalories) kcal")
+        }
+    }
+
+    /// A cached breakdown is reused only for the same food table and inputs;
+    /// one drawn from an older table re-rolls once.
+    func testCachedBreakdownIsReusedOnlyForTheSameTableAndInputs() {
+        let cached = PersistedEnergyEquivalent(
+            tuningVersion: EnergyEquivalent.tuningVersion,
+            kilocalories: 300,
+            hiddenFoods: ["🍔"],
+            prefersMoreItems: nil,
+            emojis: ["🍫"]
+        )
+        XCTAssertTrue(cached.isReusable(kilocalories: 300, hiddenFoods: ["🍔"], prefersMoreItems: false))
+        XCTAssertFalse(cached.isReusable(kilocalories: 301, hiddenFoods: ["🍔"], prefersMoreItems: false))
+        XCTAssertFalse(cached.isReusable(kilocalories: nil, hiddenFoods: ["🍔"], prefersMoreItems: false))
+        XCTAssertFalse(cached.isReusable(kilocalories: 300, hiddenFoods: [], prefersMoreItems: false))
+        XCTAssertFalse(cached.isReusable(kilocalories: 300, hiddenFoods: ["🍔"], prefersMoreItems: true))
+
+        let olderTable = PersistedEnergyEquivalent(
+            tuningVersion: 1,
+            kilocalories: 300,
+            hiddenFoods: ["🍔"],
+            prefersMoreItems: false,
+            emojis: ["🍫"]
+        )
+        XCTAssertNotEqual(EnergyEquivalent.tuningVersion, 1)
+        XCTAssertFalse(olderTable.isReusable(kilocalories: 300, hiddenFoods: ["🍔"], prefersMoreItems: false))
     }
 }

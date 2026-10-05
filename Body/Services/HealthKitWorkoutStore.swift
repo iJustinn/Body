@@ -2899,14 +2899,15 @@ final class HealthKitWorkoutStore {
     /// kilocalories for the "Equivalent" card, or nil when there is nothing
     /// meaningful to show (see `EnergyEquivalent.decompose`).
     ///
-    /// Invalidation rule: the cached/persisted breakdown is reused iff its
-    /// `kilocalories` matches the workout's current active energy AND its
-    /// `hiddenFoods` matches `hiddenFoods` exactly AND it was computed under
-    /// the same `prefersMoreItems` choice (older payloads without the flag
-    /// read as false). `tuningVersion` is forensic metadata only and never
-    /// invalidates — bumping it recomputes nothing on its own. A mismatch
-    /// (kcal restated by HealthKit, or the user changed which foods are hidden
-    /// or the representation style) recomputes and re-persists.
+    /// Invalidation rule (`PersistedEnergyEquivalent.isReusable`): the
+    /// cached/persisted breakdown is reused iff it was drawn under the current
+    /// `EnergyEquivalent.tuningVersion` AND its `kilocalories` matches the
+    /// workout's current source energy AND its `hiddenFoods` matches
+    /// `hiddenFoods` exactly AND it was computed under the same
+    /// `prefersMoreItems` choice (older payloads without the flag read as
+    /// false). A mismatch (an update changed the food table, kcal restated by
+    /// HealthKit, or the user changed which foods are hidden or the
+    /// representation style) recomputes and re-persists.
     func energyEquivalentEmojis(for workout: WorkoutSummary, hiddenFoods: Set<String>, prefersMoreItems: Bool, usesTotalEnergy: Bool) async -> [String]? {
         let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
@@ -2918,9 +2919,7 @@ final class HealthKitWorkoutStore {
             : workout.activeEnergyKilocalories
 
         if let cached = detailCaches.energyEquivalentCache[workout.id],
-           cached.kilocalories == sourceKilocalories,
-           Set(cached.hiddenFoods) == hiddenFoods,
-           (cached.prefersMoreItems ?? false) == prefersMoreItems {
+           cached.isReusable(kilocalories: sourceKilocalories, hiddenFoods: hiddenFoods, prefersMoreItems: prefersMoreItems) {
             return cached.emojis
         }
 

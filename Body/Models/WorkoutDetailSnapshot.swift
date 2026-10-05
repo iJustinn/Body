@@ -66,9 +66,10 @@ struct WorkoutDetailSnapshot: Codable, Equatable, Sendable {
 
 /// Opportunistic cache of a workout's food-emoji energy breakdown. Pins the
 /// result against later kcal restatement (see `HealthKitWorkoutStore`); a
-/// mismatch on `kilocalories` or `hiddenFoods` invalidates and recomputes.
+/// mismatch on any input `isReusable` checks invalidates and recomputes.
 struct PersistedEnergyEquivalent: Codable, Equatable, Sendable {
-    /// Forensic metadata only — never used to invalidate the cache.
+    /// The `EnergyEquivalent.tuningVersion` this breakdown was drawn under; a
+    /// different one means an older food table, so the breakdown re-rolls once.
     let tuningVersion: Int
     let kilocalories: Double
     let hiddenFoods: [String]
@@ -77,6 +78,15 @@ struct PersistedEnergyEquivalent: Codable, Equatable, Sendable {
     /// reads as false, the setting's default).
     var prefersMoreItems: Bool?
     let emojis: [String]
+
+    /// Whether this breakdown still answers a request: same food table, same
+    /// source kcal, same hidden foods, and the same representation style.
+    func isReusable(kilocalories: Double?, hiddenFoods: Set<String>, prefersMoreItems: Bool) -> Bool {
+        tuningVersion == EnergyEquivalent.tuningVersion
+            && self.kilocalories == kilocalories
+            && Set(self.hiddenFoods) == hiddenFoods
+            && (self.prefersMoreItems ?? false) == prefersMoreItems
+    }
 }
 
 struct PersistedRouteCoordinate: Codable, Equatable, Sendable {

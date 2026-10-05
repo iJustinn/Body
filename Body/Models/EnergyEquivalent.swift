@@ -11,9 +11,10 @@
 import Foundation
 
 enum EnergyEquivalent {
-    /// Forensic metadata only, carried on the persisted payload — bumping this
-    /// never invalidates a cached breakdown (see `HealthKitWorkoutStore`).
-    static let tuningVersion = 1
+    /// Stamped on the persisted payload; a cached breakdown from another
+    /// version is recomputed once (see `PersistedEnergyEquivalent.isReusable`),
+    /// so bump this whenever the food table or the draw changes.
+    static let tuningVersion = 2
 
     struct Food: Identifiable {
         let emoji: String
@@ -50,10 +51,22 @@ enum EnergyEquivalent {
         Food(emoji: "🍇", kilocalories: 90, name: LocalizedStringResource("equivalent.food.grapes", defaultValue: "Grapes")),
         Food(emoji: "🍉", kilocalories: 85, name: LocalizedStringResource("equivalent.food.watermelon", defaultValue: "Watermelon Slice")),
         Food(emoji: "🍞", kilocalories: 80, name: LocalizedStringResource("equivalent.food.bread", defaultValue: "Bread Slice")),
+        Food(emoji: "🥚", kilocalories: 75, name: LocalizedStringResource("equivalent.food.boiledEgg", defaultValue: "Boiled Egg")),
         Food(emoji: "🍪", kilocalories: 70, name: LocalizedStringResource("equivalent.food.cookie", defaultValue: "Cookie")),
         Food(emoji: "🍊", kilocalories: 65, name: LocalizedStringResource("equivalent.food.orange", defaultValue: "Orange")),
         Food(emoji: "🥟", kilocalories: 60, name: LocalizedStringResource("equivalent.food.dumpling", defaultValue: "Dumpling")),
+        Food(emoji: "🍑", kilocalories: 55, name: LocalizedStringResource("equivalent.food.peach", defaultValue: "Peach")),
         Food(emoji: "🍫", kilocalories: 50, name: LocalizedStringResource("equivalent.food.chocolate", defaultValue: "Chocolate Square")),
+        Food(emoji: "🍒", kilocalories: 45, name: LocalizedStringResource("equivalent.food.cherries", defaultValue: "Cherries")),
+        Food(emoji: "🥝", kilocalories: 42, name: LocalizedStringResource("equivalent.food.kiwi", defaultValue: "Kiwi")),
+        Food(emoji: "🍘", kilocalories: 38, name: LocalizedStringResource("equivalent.food.riceCracker", defaultValue: "Rice Cracker")),
+        Food(emoji: "🍓", kilocalories: 35, name: LocalizedStringResource("equivalent.food.strawberries", defaultValue: "Strawberries")),
+        Food(emoji: "🍿", kilocalories: 32, name: LocalizedStringResource("equivalent.food.popcorn", defaultValue: "Popcorn")),
+        Food(emoji: "🥠", kilocalories: 30, name: LocalizedStringResource("equivalent.food.fortuneCookie", defaultValue: "Fortune Cookie")),
+        Food(emoji: "🫐", kilocalories: 28, name: LocalizedStringResource("equivalent.food.blueberries", defaultValue: "Blueberries")),
+        Food(emoji: "🥕", kilocalories: 25, name: LocalizedStringResource("equivalent.food.carrot", defaultValue: "Carrot")),
+        Food(emoji: "🍅", kilocalories: 22, name: LocalizedStringResource("equivalent.food.tomato", defaultValue: "Tomato")),
+        Food(emoji: "🍬", kilocalories: 20, name: LocalizedStringResource("equivalent.food.candy", defaultValue: "Candy")),
     ]
 
     static let maximumCount = 12
@@ -68,6 +81,8 @@ enum EnergyEquivalent {
     /// taking the single largest fit, so the mix varies between workouts —
     /// the draw is seeded by the kcal total, keeping the same input mapping to
     /// the same output (the persisted-breakdown contract relies on that).
+    /// Foods not yet on the card come first, so a food repeats only once no
+    /// unused food is left to take its place (see the loop for the cap guard).
     /// Truncates at `maximumCount`; any remainder below the smallest available
     /// food is dropped rather than rounded up. Returns nil when there is
     /// nothing meaningful to show: a nil/zero/negative total, every food
@@ -93,6 +108,7 @@ enum EnergyEquivalent {
 
         var remainder = kilocalories
         var result: [Food] = []
+        var used: Set<String> = []
         while result.count < maximumCount {
             let fitting = available.filter { $0.kilocalories <= remainder }
             guard let largest = fitting.first, let smallestFit = fitting.last else { break }
@@ -110,8 +126,27 @@ enum EnergyEquivalent {
                 band = fitting.filter { $0.kilocalories >= largest.kilocalories * 0.7 }
             }
 
-            guard let next = band.randomElement(using: &generator) else { break }
+            // Unused band foods first. Once the band is all on the card, the
+            // unused food nearest its target steps in, but only while the slots
+            // left could still cover the rest with the band's own foods, so a
+            // long workout doesn't trade its total for variety at the cap.
+            var pool = band.filter { !used.contains($0.emoji) }
+            if pool.isEmpty {
+                let target = preferringMoreItems ? idealPiece : largest.kilocalories
+                let slotsAfter = Double(maximumCount - result.count - 1)
+                if let nearest = fitting.filter({ !used.contains($0.emoji) })
+                    .min(by: { abs($0.kilocalories - target) < abs($1.kilocalories - target) }),
+                   let bandFloor = band.last?.kilocalories,
+                   remainder - nearest.kilocalories <= slotsAfter * bandFloor {
+                    pool = [nearest]
+                } else {
+                    pool = band
+                }
+            }
+
+            guard let next = pool.randomElement(using: &generator) else { break }
             result.append(next)
+            used.insert(next.emoji)
             remainder -= next.kilocalories
         }
 
