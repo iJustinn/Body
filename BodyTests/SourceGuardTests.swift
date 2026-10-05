@@ -2052,7 +2052,11 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(model.contains("((sleepGoal + (learnedNeed - sleepGoal) / 3) / adjustmentStep).rounded() * adjustmentStep"))
         // The total is capped at 6 hours, and the chart's axis always ends there.
         XCTAssertTrue(model.contains("static let maximumDebt: TimeInterval = 6 * 3_600"))
-        XCTAssertTrue(model.contains("? min(max(0, recordedGaps.reduce(0, +)), maximumDebt)"))
+        XCTAssertTrue(model.contains("? min(max(0, balance(of: recordedGaps)), maximumDebt)"))
+        // Extra sleep banks at most an hour, applied night by night, oldest first.
+        XCTAssertTrue(model.contains("static let maximumReserve: TimeInterval = 3_600"))
+        XCTAssertTrue(model.contains("gaps.reduce(0) { max($0 + $1, -maximumReserve) }"))
+        XCTAssertTrue(model.contains("static let algorithmVersion = 2"))
         XCTAssertTrue(model.contains("static let moderateDebtUpperBound: TimeInterval = 4 * 3_600"))
         XCTAssertTrue(try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift").contains("SleepDebtChartModel.maximumDebt\n    }"))
         // Each night is judged against the need it learned by its own day, never
@@ -4944,7 +4948,7 @@ final class SourceGuardTests: XCTestCase {
         // their Settings toggle row and their About card on the Sleep detail page.
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v3")"#), 0)
         XCTAssertTrue(appearanceSource.contains(#"static let sleepScoreVersionLabel: LocalizedStringKey = "v3""#))
-        XCTAssertTrue(appearanceSource.contains(#"static let sleepDebtVersionLabel: LocalizedStringKey = "v1""#))
+        XCTAssertTrue(appearanceSource.contains(#"static let sleepDebtVersionLabel: LocalizedStringKey = "v2""#))
         XCTAssertEqual(settingsSource.occurrenceCount(of: "versionLabel: BodyHomeCardKind.sleepScoreVersionLabel"), 1)
         XCTAssertEqual(settingsSource.occurrenceCount(of: "versionLabel: BodyHomeCardKind.sleepDebtVersionLabel"), 1)
         // The Readiness AI sheet's toggle row carries the only Beta v2 badge; the

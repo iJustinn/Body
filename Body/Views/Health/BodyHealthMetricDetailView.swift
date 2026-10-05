@@ -3738,7 +3738,7 @@ struct BodyHealthMetricDetailView: View {
                     .background(.blue.opacity(0.14), in: Capsule())
             }
 
-            Text("Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay some of the debt back. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement.")
+            Text("Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay the debt back, and up to 1 hour of extra sleep carries over to later nights. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement.")
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)

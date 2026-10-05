@@ -1757,7 +1757,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
 
     /// The Sleep Debt's own chip. It rides beside the Sleep Debt toggle in Settings
     /// and on the About Sleep Debt card.
-    static let sleepDebtVersionLabel: LocalizedStringKey = "v1"
+    static let sleepDebtVersionLabel: LocalizedStringKey = "v2"
 
     /// True for cards whose headline number Body derives itself (a score, ratio, or
     /// baseline comparison) rather than reading it straight out of HealthKit.

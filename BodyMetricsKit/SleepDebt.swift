@@ -26,9 +26,10 @@ struct SleepDebtNight: Equatable, Identifiable {
     var hrvAdjustment: TimeInterval
     /// Recorded nights in the 14 night window ending on this night.
     var recordedNightCount: Int
-    /// Need minus actual summed over that window's recorded nights, floored at
-    /// zero and capped at 6 hours. Nil when fewer than 5 of them were recorded,
-    /// and for today while today's night hasn't arrived.
+    /// Need minus actual summed over that window's recorded nights, oldest
+    /// first, with at most an hour of extra sleep banked along the way, then
+    /// floored at zero and capped at 6 hours. Nil when fewer than 5 of them
+    /// were recorded, and for today while today's night hasn't arrived.
     var debtAfterNight: TimeInterval?
 
     var id: Date {
@@ -101,9 +102,10 @@ struct SleepDebtRecord: Codable, Equatable, Identifiable {
 /// that night show, or the goal alone until enough nights exist, plus Training
 /// Load and sleep HRV adjustments) against what was slept, summed over a
 /// rolling 14 night calendar window. Nights with no sleep recorded are
-/// skipped, longer nights offset shorter ones, and the total never drops below
-/// zero or climbs past 6 hours. Each night keeps the need it learned on its
-/// own day, so a point on the chart never moves as later nights arrive.
+/// skipped, longer nights offset shorter ones but bank at most an hour against
+/// later nights, and the total never drops below zero or climbs past 6 hours.
+/// Each night keeps the need it learned on its own day, so a point on the
+/// chart never moves as later nights arrive.
 struct SleepDebtChartModel: Equatable {
     struct Entry: Equatable {
         /// Start of the wake day.
@@ -125,7 +127,7 @@ struct SleepDebtChartModel: Equatable {
 
     /// Rides the records' context signature: bumping it drops every frozen
     /// night so the new rule judges them again, like Body Radar's.
-    static let algorithmVersion = 1
+    static let algorithmVersion = 2
     /// Frozen nights older than this many days before today are pruned: the
     /// entry days the model reads, plus a window of slack.
     static let recordRetentionDayCount = entryDayCount + windowNightCount
@@ -157,6 +159,9 @@ struct SleepDebtChartModel: Equatable {
     static let lowDebtUpperBound: TimeInterval = 2 * 3_600
     static let moderateDebtUpperBound: TimeInterval = 4 * 3_600
     static let maximumDebt: TimeInterval = 6 * 3_600
+    /// Extra sleep banks at most this much against later nights, so a run of
+    /// long nights can't hide the short ones after it.
+    static let maximumReserve: TimeInterval = 3_600
     /// A night's learned need reads the recorded nights of the 56 days ending
     /// on it, needs 28 of them, and takes their 75th percentile: what you sleep on
     /// your longer nights, since the median of a short sleeper reflects the
@@ -396,6 +401,12 @@ struct SleepDebtChartModel: Equatable {
         ((sleepGoal + (learnedNeed - sleepGoal) / 3) / adjustmentStep).rounded() * adjustmentStep
     }
 
+    /// A window's recorded gaps summed oldest first, with the running total
+    /// never falling below `-maximumReserve`.
+    static func balance(of gaps: [TimeInterval]) -> TimeInterval {
+        gaps.reduce(0) { max($0 + $1, -maximumReserve) }
+    }
+
     /// Durations are summed as recorded; rounding happens only where values
     /// are shown. Each night is judged against `baseNeed(learnedNeed:sleepGoal:)`
     /// with its own entry's learned need, and against `sleepGoal` alone while
@@ -460,7 +471,7 @@ struct SleepDebtChartModel: Equatable {
             // Today's night may still be syncing, so it has no point until it arrives.
             let isPendingToday = index == todayIndex && actuals[index] == nil
             let debt: TimeInterval? = recordedGaps.count >= minimumRecordedNightCount && !isPendingToday
-                ? min(max(0, recordedGaps.reduce(0, +)), maximumDebt)
+                ? min(max(0, balance(of: recordedGaps)), maximumDebt)
                 : nil
             return SleepDebtNight(
                 day: entries[index].day,

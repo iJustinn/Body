@@ -17,8 +17,9 @@ final class SleepDebtTests: XCTestCase {
     func testShortfallsAndSurplusesSumOverFourteenNights() throws {
         let today = try date(2026, 6, 20)
         var durations: [Int: TimeInterval] = [:]
-        for daysAgo in 0..<7 { durations[daysAgo] = hours(7) }
-        for daysAgo in 7..<14 { durations[daysAgo] = hours(8.5) }
+        // The short nights come first, so the long ones pay their debt down.
+        for daysAgo in 0..<7 { durations[daysAgo] = hours(8.5) }
+        for daysAgo in 7..<14 { durations[daysAgo] = hours(7) }
 
         let model = model(today: today, durations: durations)
 
@@ -31,6 +32,33 @@ final class SleepDebtTests: XCTestCase {
         let model = model(today: today, durations: nights(0..<14, hours(9)))
 
         XCTAssertEqual(model.debt, 0)
+    }
+
+    /// Thirteen long nights bank only an hour, so tonight's 2 hour shortfall
+    /// shows 1 hour of debt, and every short night after the hour shows.
+    func testReserveIsCappedAtOneHour() throws {
+        let today = try date(2026, 6, 20)
+        var durations = nights(1..<14, hours(9.5))
+        durations[0] = hours(6)
+
+        let oneShortNight = model(today: today, durations: durations)
+        XCTAssertEqual(try XCTUnwrap(oneShortNight.debt), hours(1), accuracy: 0.001)
+
+        var twoShortNights = nights(2..<14, hours(9.5))
+        twoShortNights[1] = hours(7)
+        twoShortNights[0] = hours(7)
+
+        let model = model(today: today, durations: twoShortNights)
+        XCTAssertEqual(model.chartNights[12].debtAfterNight, 0)
+        XCTAssertEqual(try XCTUnwrap(model.debt), hours(1), accuracy: 0.001)
+    }
+
+    func testBalanceFloorsTheRunningTotalAtTheReserve() {
+        XCTAssertEqual(SleepDebtChartModel.maximumReserve, hours(1))
+        XCTAssertEqual(SleepDebtChartModel.balance(of: []), 0)
+        XCTAssertEqual(SleepDebtChartModel.balance(of: [-hours(3), hours(1), hours(1)]), hours(1))
+        XCTAssertEqual(SleepDebtChartModel.balance(of: [hours(2), -hours(1.5), -hours(1.5)]), -hours(1))
+        XCTAssertEqual(SleepDebtChartModel.balance(of: [hours(2), -hours(0.5)]), hours(1.5))
     }
 
     func testNightsWithoutUsableSleepAreSkipped() throws {
@@ -277,7 +305,8 @@ final class SleepDebtTests: XCTestCase {
         let model = model(today: today, durations: durations)
         let columns = model.chartNights
 
-        XCTAssertEqual(try XCTUnwrap(columns[12].debtAfterNight), hours(1.25), accuracy: 0.001)
+        // The 10 hour night banks only an hour of its 2 hour surplus.
+        XCTAssertEqual(try XCTUnwrap(columns[12].debtAfterNight), hours(2.25), accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(columns[13].debtAfterNight), hours(3.25), accuracy: 0.001)
     }
 
