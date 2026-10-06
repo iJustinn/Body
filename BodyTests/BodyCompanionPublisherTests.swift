@@ -35,7 +35,11 @@ final class BodyCompanionPublisherTests: XCTestCase {
         workoutColorPalette: BodyWorkoutColorPalette = .builtIn,
         metricWarningsOnHero: Bool = true,
         dismissedMetricWarningsRaw: String = "",
-        metricWarningFoldDates: [String: Date] = [:]
+        metricWarningFoldDates: [String: Date] = [:],
+        metricWarningThresholdsRaw: String = "",
+        warningMaxHeartRate: Double?? = nil,
+        metricWarningNotificationsEnabled: Bool = false,
+        metricWarningNotificationLedgerRaw: String = ""
     ) -> BodyCompanionPublishInput {
         BodyCompanionPublishInput(
             shared: shared ?? Self.makeSharedInput(),
@@ -71,6 +75,10 @@ final class BodyCompanionPublisherTests: XCTestCase {
             metricWarningsOnHero: metricWarningsOnHero,
             dismissedMetricWarningsRaw: dismissedMetricWarningsRaw,
             metricWarningFoldDates: metricWarningFoldDates,
+            metricWarningThresholdsRaw: metricWarningThresholdsRaw,
+            warningMaxHeartRate: warningMaxHeartRate,
+            metricWarningNotificationsEnabled: metricWarningNotificationsEnabled,
+            metricWarningNotificationLedgerRaw: metricWarningNotificationLedgerRaw,
             workoutColorPalette: workoutColorPalette,
             healthDataSourceSelectionRaw: "",
             customHealthSourceGroupsRaw: nil,
@@ -432,6 +440,129 @@ final class BodyCompanionPublisherTests: XCTestCase {
                     metricWarningsOnHero: testCase.onHero,
                     dismissedMetricWarningsRaw: "highWristTemperature@2026-06-20",
                     metricWarningFoldDates: ["highWristTemperature@2026-06-20": stamp]
+                ),
+                isEpochCurrent: { $0 == 3 }
+            )
+
+            await fulfillment(of: [sent], timeout: 5)
+        }
+    }
+
+    // MARK: - Watch warning settings
+
+    nonisolated private static func warningSettings(
+        selectionRaw: String = BodyMetricWarningSelection.defaultRawValue,
+        thresholdsRaw: String = "",
+        maxHeartRate: Double?? = 190,
+        notificationsEnabled: Bool = true,
+        ledgerRaw: String = ""
+    ) -> WatchWarningSettings {
+        BodyCompanionPublisher.watchWarningSettings(
+            selectionRaw: selectionRaw,
+            thresholdsRaw: thresholdsRaw,
+            maxHeartRate: maxHeartRate,
+            notificationsEnabled: notificationsEnabled,
+            ledgerRaw: ledgerRaw
+        )
+    }
+
+    /// A resolved max heart rate gives High Heart Rate its zone 3 default (70 %
+    /// of 190 is 133 bpm); resolved without a birth date it is the 120 bpm
+    /// fallback.
+    func testWatchWarningSettingsResolveTheHighHeartRateDefault() {
+        XCTAssertEqual(
+            Self.warningSettings(maxHeartRate: 190).thresholds,
+            ["lowHeartRate": 40, "highHeartRate": 133, "highWristTemperature": 38]
+        )
+        XCTAssertEqual(Self.warningSettings(maxHeartRate: .some(nil)).thresholds["highHeartRate"], 120)
+    }
+
+    /// Before anything resolved the birth date, High Heart Rate's default is
+    /// unknown, so its limit is left out rather than sent as 120 bpm. A user
+    /// override needs no birth date and always ships.
+    func testWatchWarningSettingsLeaveOutAnUnresolvedHighHeartRateDefault() {
+        XCTAssertNil(Self.warningSettings(maxHeartRate: .none).thresholds["highHeartRate"])
+
+        let override = BodyMetricWarningThresholds(overrides: [.highHeartRate: 150]).rawValue
+        XCTAssertEqual(Self.warningSettings(thresholdsRaw: override, maxHeartRate: .none).thresholds["highHeartRate"], 150)
+        XCTAssertEqual(Self.warningSettings(thresholdsRaw: override, maxHeartRate: 190).thresholds["highHeartRate"], 150)
+    }
+
+    /// Low Heart Rate and High Skin Temperature never wait for the birth date:
+    /// their defaults (40 bpm, 38 °C) or the user's overrides ship whatever
+    /// the max heart rate's state. A kind without a watch card never ships.
+    func testWatchWarningSettingsAlwaysCarryLowHeartRateAndSkinTemperature() {
+        for maxHeartRate: Double?? in [.none, .some(nil), 190] {
+            let thresholds = Self.warningSettings(maxHeartRate: maxHeartRate).thresholds
+            XCTAssertEqual(thresholds["lowHeartRate"], 40)
+            XCTAssertEqual(thresholds["highWristTemperature"], 38)
+        }
+
+        let overrides = BodyMetricWarningThresholds(
+            overrides: [.lowHeartRate: 45, .highWristTemperature: 37.5, .lowBloodOxygen: 92]
+        ).rawValue
+        XCTAssertEqual(
+            Self.warningSettings(thresholdsRaw: overrides, maxHeartRate: .none).thresholds,
+            ["lowHeartRate": 45, "highWristTemperature": 37.5]
+        )
+    }
+
+    /// The enabled kinds ship in kind order however the selection spells
+    /// them, and only those with a watch card. The limits don't follow the
+    /// selection.
+    func testWatchWarningSettingsListTheEnabledCardKindsInKindOrder() {
+        let reordered = Self.warningSettings(selectionRaw: "highWristTemperature,lowBloodOxygen,lowHeartRate")
+        XCTAssertEqual(reordered.enabledKinds, ["lowHeartRate", "highWristTemperature"])
+        XCTAssertEqual(reordered.thresholds.count, 3)
+
+        XCTAssertEqual(Self.warningSettings().enabledKinds, ["lowHeartRate", "highHeartRate", "highWristTemperature"])
+        XCTAssertEqual(Self.warningSettings(selectionRaw: "none").enabledKinds, [])
+    }
+
+    /// The notification switch rides along as is, and the notification ledger
+    /// for the card kinds only, keyed by raw value.
+    func testWatchWarningSettingsCarryTheNotificationSwitchAndLedger() {
+        XCTAssertTrue(Self.warningSettings(notificationsEnabled: true).notifies)
+        XCTAssertFalse(Self.warningSettings(notificationsEnabled: false).notifies)
+
+        let ledgerRaw = #"{"highHeartRate":"2026-06-20","lowBloodOxygen":"2026-06-20","lowHeartRate":"2026-06-19"}"#
+        XCTAssertEqual(
+            Self.warningSettings(ledgerRaw: ledgerRaw).notifiedDays,
+            ["highHeartRate": "2026-06-20", "lowHeartRate": "2026-06-19"]
+        )
+        XCTAssertEqual(Self.warningSettings(ledgerRaw: "").notifiedDays, [:])
+    }
+
+    /// The publish puts the warning settings on the snapshot it sends, the
+    /// same whichever cards the builder made: the watch checks its own
+    /// warnings under its own permissions.
+    func testWarningSettingsRideTheWatchSnapshot() async {
+        let expected = WatchWarningSettings(
+            thresholds: ["lowHeartRate": 45, "highHeartRate": 133, "highWristTemperature": 38],
+            enabledKinds: ["lowHeartRate", "highHeartRate", "highWristTemperature"],
+            notifies: true,
+            notifiedDays: ["highHeartRate": "2026-06-20"]
+        )
+        let cases: [(name: String, permission: BodyHealthPermissionSelection)] = [
+            ("every permission", .defaultValue),
+            ("Heart off", BodyHealthPermissionSelection.defaultValue.setting(.heart, isEnabled: false))
+        ]
+        for testCase in cases {
+            let sent = expectation(description: testCase.name)
+            let publisher = BodyCompanionPublisher(send: { snapshot, _, _, _, _ in
+                XCTAssertEqual(snapshot.warningSettings, expected, testCase.name)
+                sent.fulfill()
+            })
+
+            publisher.publishWatchSnapshot(
+                makeInput(
+                    epoch: 3,
+                    now: Self.warningNow,
+                    permissionSelection: testCase.permission,
+                    metricWarningThresholdsRaw: BodyMetricWarningThresholds(overrides: [.lowHeartRate: 45]).rawValue,
+                    warningMaxHeartRate: 190,
+                    metricWarningNotificationsEnabled: true,
+                    metricWarningNotificationLedgerRaw: #"{"highHeartRate":"2026-06-20"}"#
                 ),
                 isEpochCurrent: { $0 == 3 }
             )

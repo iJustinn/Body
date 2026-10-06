@@ -3,8 +3,8 @@
 //  BodyWatch
 //
 //  The foldable warning cards at the bottom of a watch metric detail page:
-//  the phone's `BodyMetricWarningCard` at watch size, for the warnings the
-//  phone last pushed (`WatchMetricsSnapshot.metricWarnings`). The header row
+//  the phone's `BodyMetricWarningCard` at watch size, for today's warnings,
+//  the phone's and the watch's own (`WatchMetricWarnings.shown`). The header row
 //  (the triangle, the title and a chevron) folds and unfolds the card; the
 //  chevron points left while it is folded and turns to point down once it is
 //  unfolded, like the phone's `BodyWarningCardHeader`. Unfolded, the card

@@ -2,10 +2,18 @@
 //  WatchMetricWarnings.swift
 //  BodyWatch
 //
-//  What the watch draws for the phone's metric threshold warnings
-//  (`WatchMetricsSnapshot.metricWarnings`): the warning rows on a metric's
-//  detail page, the glyph on its dashboard card, and the badges under the
-//  hero number. Pure, so the views stay thin and the rules are testable.
+//  What the watch draws for today's metric threshold warnings: the warning
+//  rows on a metric's detail page, the glyph on its dashboard card, and the
+//  badges under the hero number. Pure, so the views stay thin and the rules
+//  are testable.
+//
+//  The warnings shown (`shown`) are the phone's pushed ones
+//  (`WatchMetricsSnapshot.metricWarnings`) together with the ones this
+//  watch's own compute found (`warningChecks`), checked under the phone's
+//  thresholds and Warnings selection (`warningSettings`); per kind the
+//  earlier start wins. A High Heart Rate warning that starts during a
+//  workout this watch read (`workoutSpans`), or within 30 minutes after it,
+//  is left out, whichever device found it.
 //
 //  Only Heart Rate (Low and High Heart Rate) and Skin Temp (High Skin
 //  Temperature) appear: they are the warned metrics with a watch card and
@@ -44,6 +52,107 @@ struct WatchHeroWarningBadge: Identifiable, Equatable {
 }
 
 enum WatchMetricWarnings {
+    /// Today's warnings for the dashboard and the detail pages: the phone's
+    /// `pushed` warnings and this watch's own, from its compute's `checks`.
+    ///
+    /// * A High Heart Rate warning, pushed or the watch's, that starts inside
+    ///   one of `workoutSpans` or the 30 minutes after it is left out
+    ///   (`startsInsideWorkout`).
+    /// * The watch's own warnings follow the phone's `settings`: an episode
+    ///   that started on `now`'s day, of a kind turned on in Warnings and
+    ///   with a watch card, checked against the limit the phone holds now. A
+    ///   check made under an older limit is set aside until the next compute.
+    /// * Per kind the earlier start wins, a tie going to the phone's. A
+    ///   pushed warning keeps its own fold state; the watch's takes the fold
+    ///   state the phone published for the same fold key.
+    /// * Without `settings` (an older phone) only the pushed warnings show.
+    static func shown(
+        pushed: [WatchMetricWarning],
+        checks: [WatchWarningCheck]?,
+        workoutSpans: [WatchWorkoutSpan]?,
+        settings: WatchWarningSettings?,
+        now: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> [WatchMetricWarning] {
+        let isOutsideWorkouts: (WatchMetricWarning) -> Bool = { warning in
+            guard let kind = MetricWarningKind(rawValue: warning.kind) else { return true }
+            return !startsInsideWorkout(kind: kind, startDate: warning.startDate, spans: workoutSpans)
+        }
+        var shown = pushed.filter(isOutsideWorkouts)
+        let candidates = watchWarnings(pushed: pushed, checks: checks, settings: settings, now: now, calendar: calendar)
+        for candidate in candidates where isOutsideWorkouts(candidate) {
+            if let index = shown.firstIndex(where: { $0.kind == candidate.kind }) {
+                if candidate.startDate < shown[index].startDate {
+                    shown[index] = candidate
+                }
+            } else {
+                shown.append(candidate)
+            }
+        }
+        return shown
+    }
+
+    /// The warnings whose folds the dashboard sends to the phone again on a
+    /// push (`WatchWarningFoldStore.resendUnacknowledged(in:)`): every pushed
+    /// warning and this watch's own, each fold key once (the pushed one
+    /// first). No workout span leaves one out, so a fold on a warning a
+    /// workout now hides, or on one only the watch found, still reaches the
+    /// phone.
+    static func foldResendList(
+        pushed: [WatchMetricWarning],
+        checks: [WatchWarningCheck]?,
+        settings: WatchWarningSettings?,
+        now: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> [WatchMetricWarning] {
+        var foldKeys = Set(pushed.map(\.foldKey))
+        let candidates = watchWarnings(pushed: pushed, checks: checks, settings: settings, now: now, calendar: calendar)
+        return pushed + candidates.filter { foldKeys.insert($0.foldKey).inserted }
+    }
+
+    /// Whether a `kind` warning that started at `startDate` falls inside one
+    /// of this watch's workouts or the 30 minutes after it
+    /// (`MetricThresholdWarning.workoutExclusionInterval`, both ends included,
+    /// as in the phone's detection). Only a kind that leaves workouts out
+    /// (High Heart Rate) can; any other kind never does.
+    static func startsInsideWorkout(kind: MetricWarningKind, startDate: Date, spans: [WatchWorkoutSpan]?) -> Bool {
+        guard kind.excludesWorkouts else { return false }
+        return (spans ?? []).contains { span in
+            MetricThresholdWarning.workoutExclusionInterval(start: span.start, end: span.end).contains(startDate)
+        }
+    }
+
+    /// This watch's own warnings, one per check that `shown` lets through
+    /// before the workout spans, keyed and folded as the phone keys and folds
+    /// its own (`MetricWarningDayKey.foldKey`).
+    private static func watchWarnings(
+        pushed: [WatchMetricWarning],
+        checks: [WatchWarningCheck]?,
+        settings: WatchWarningSettings?,
+        now: Date,
+        calendar: Calendar
+    ) -> [WatchMetricWarning] {
+        guard let settings else { return [] }
+        return (checks ?? []).compactMap { check in
+            guard let kind = MetricWarningKind(rawValue: check.kind),
+                  let episode = check.episode,
+                  calendar.isDate(episode.startDate, inSameDayAs: now),
+                  settings.enabledKinds.contains(check.kind),
+                  settings.thresholds[check.kind] == check.threshold,
+                  title(for: kind) != nil else { return nil }
+            let foldKey = MetricWarningDayKey.foldKey(kind: kind, startDate: episode.startDate, calendar: calendar)
+            let pushedFold = pushed.first { $0.foldKey == foldKey }
+            return WatchMetricWarning(
+                kind: check.kind,
+                startDate: episode.startDate,
+                threshold: check.threshold,
+                foldKey: foldKey,
+                isFolded: pushedFold?.isFolded ?? false,
+                foldChangedAt: pushedFold?.foldChangedAt
+            )
+        }
+    }
+
     /// The warnings shown on the `cardKind` page, in `MetricWarningKind` order
     /// (Low Heart Rate before High Heart Rate), each with `isFolded`'s state.
     /// A warning belongs to the card whose kind matches its metric

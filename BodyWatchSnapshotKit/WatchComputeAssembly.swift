@@ -63,7 +63,8 @@ enum WatchComputeAssembly {
 
     // MARK: - The assembly
 
-    /// `nil` when the compute produced nothing usable.
+    /// `nil` when the compute produced nothing usable. `warningSettings` is
+    /// the iPhone's, from its last push; nil checks no warning.
     static func assemble(
         seed: WatchComputeSeed,
         delta: WatchComputeDelta,
@@ -71,7 +72,8 @@ enum WatchComputeAssembly {
         generation: UInt64,
         windowStart: Date,
         now: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        warningSettings: WatchWarningSettings? = nil
     ) -> WatchComputeResult? {
         // The iPhone's ratings for workouts this watch read as unrated, filled in
         // before anything reads the workouts, so Training Load, the Readiness
@@ -362,6 +364,14 @@ enum WatchComputeAssembly {
         )
         snapshot.source = "watch"
         snapshot.heartCharts = Self.heartCharts(delta: delta, permission: permission)
+        snapshot.workoutSpans = Self.workoutSpans(delta: delta, now: now, calendar: calendar)
+        snapshot.warningChecks = Self.warningChecks(
+            delta: delta,
+            settings: warningSettings,
+            permission: permission,
+            now: now,
+            calendar: calendar
+        )
 
         guard snapshot.metrics.contains(where: \.hasValue) else { return nil }
         return WatchComputeResult(
@@ -783,6 +793,109 @@ enum WatchComputeAssembly {
             charts[WatchMetricKindKey.heartRateVariability] = chart
         }
         return charts.isEmpty ? nil : charts
+    }
+
+    /// The warning kinds the watch checks itself: the ones with a watch card
+    /// (Low and High Heart Rate on Heart Rate, High Skin Temperature on Skin
+    /// Temp), in `MetricWarningKind.allCases` order. `WatchDeltaFetcher`
+    /// reads today's readings for these kinds only.
+    static let checkedWarningKinds: [MetricWarningKind] = [.lowHeartRate, .highHeartRate, .highWristTemperature]
+
+    /// The workouts this run read whose High Heart Rate exclusion (the
+    /// workout plus its 30 minute recovery grace,
+    /// `MetricThresholdWarning.workoutExclusionInterval`) reaches into today,
+    /// in start order (`WatchMetricsSnapshot.workoutSpans`): a workout that
+    /// ran past midnight, or ended no more than 30 minutes before it, still
+    /// counts, and one starting after `now` doesn't. Nil when the workout
+    /// read failed or was skipped (the merge's "keep"), empty when it found
+    /// none (its "clear").
+    static func workoutSpans(
+        delta: WatchComputeDelta,
+        now: Date,
+        calendar: Calendar
+    ) -> [WatchWorkoutSpan]? {
+        guard case .success(let workouts) = delta.workouts else { return nil }
+        let startOfToday = calendar.startOfDay(for: now)
+        return workouts
+            .filter { workout in
+                workout.startDate <= now
+                    && MetricThresholdWarning.workoutExclusionInterval(
+                        start: workout.startDate,
+                        end: workout.effectiveEndDate
+                    ).end >= startOfToday
+            }
+            .map { WatchWorkoutSpan(start: $0.startDate, end: $0.effectiveEndDate) }
+            .sorted { $0.start < $1.start }
+    }
+
+    /// The warnings this run checked itself (`WatchMetricsSnapshot.warningChecks`),
+    /// in `checkedWarningKinds` order: one for each kind with the iPhone's
+    /// threshold and a reading that succeeded, carrying the day's earliest
+    /// episode past that threshold through the iPhone's own detection
+    /// (`MetricThresholdWarning.detect`), or none. High Heart Rate follows the
+    /// iPhone's `fetchTodayHighHeartRateWarning`: it is checked only with
+    /// Workouts on and a workout read that succeeded, and leaves out the
+    /// readings inside today's workouts and their recovery grace. Nil when no
+    /// kind was checked, so such a compute carries no field.
+    static func warningChecks(
+        delta: WatchComputeDelta,
+        settings: WatchWarningSettings?,
+        permission: BodyHealthPermissionSelection,
+        now: Date,
+        calendar: Calendar
+    ) -> [WatchWarningCheck]? {
+        guard let settings else { return nil }
+        let checks = checkedWarningKinds.compactMap { kind -> WatchWarningCheck? in
+            guard let threshold = settings.thresholds[kind.rawValue],
+                  case .success(let readings) = delta.warningReadings[kind] else {
+                return nil
+            }
+            var exclusions: [DateInterval] = []
+            if kind.excludesWorkouts {
+                guard permission.includes(.workouts), case .success(let workouts) = delta.workouts else {
+                    return nil
+                }
+                exclusions = todaysWorkoutExclusions(workouts, now: now, calendar: calendar)
+            }
+            let episode = MetricThresholdWarning.detect(
+                kind,
+                inSamples: readings,
+                threshold: threshold,
+                excluding: exclusions
+            )
+            return WatchWarningCheck(
+                kind: kind.rawValue,
+                checkedAt: now,
+                threshold: threshold,
+                episode: episode.map {
+                    WatchWarningCheck.Episode(startDate: $0.startDate, endDate: $0.endDate, extremeValue: $0.extremeValue)
+                }
+            )
+        }
+        return checks.isEmpty ? nil : checks
+    }
+
+    /// The iPhone's High Heart Rate exclusions over this run's workouts, its
+    /// `fetchTodayWorkoutIntervals` filter: every workout that started before
+    /// `now` and ended after today's start (an overnight one from yesterday
+    /// included), plus its recovery grace.
+    private static func todaysWorkoutExclusions(
+        _ workouts: [WorkoutSummary],
+        now: Date,
+        calendar: Calendar
+    ) -> [DateInterval] {
+        let startOfToday = calendar.startOfDay(for: now)
+        return workouts.compactMap { workout in
+            guard workout.startDate < now,
+                  workout.effectiveEndDate > startOfToday,
+                  workout.startDate <= workout.effectiveEndDate else {
+                return nil
+            }
+            return MetricThresholdWarning.workoutExclusionInterval(
+                start: workout.startDate,
+                end: workout.effectiveEndDate
+            )
+        }
     }
 
     static func temperatureUnitPreference(

@@ -8,7 +8,8 @@
 //  the iOS `HealthKitFetchEngine` also calls (`BodyHealthSourceResolver`,
 //  `BodyHealthQuantityFetch`, `BodyRestingEnergyEstimates`,
 //  `BodyHeartbeatRMSSDFetch`, `BodySleepFetch`, `BodyWorkoutFetch`,
-//  `BodyWorkoutEffortFetcher`). Two leaves are not called by the phone yet:
+//  `BodyWorkoutEffortFetcher`, `BodyMetricWarningFetch`). Two leaves are not
+//  called by the phone yet:
 //  `BodyHealthQuantityFetch.dailyCumulativeSeries`, the week of daily totals
 //  behind the Steps, Active Energy and Resting Energy cards, which mirrors the
 //  engine's `fetchDailyCumulativeQuantitySeries` and shares its resting energy
@@ -47,12 +48,15 @@ actor WatchDeltaFetcher {
     /// week so the weekly workout-minutes bars can be built without a seed.
     /// Steps, active energy and resting energy read a fixed week of daily
     /// totals for the same reason (`weeklyTotalSeries`), whatever the window.
+    /// `warningThresholds` are the iPhone's, for the warnings the watch
+    /// checks itself (`todaysWarningReadings`); a kind without one isn't read.
     func fetchDelta(
         seed: WatchComputeSeed,
         permission: BodyHealthPermissionSelection,
         windowStart: Date,
         now: Date,
-        calendar: Calendar = .bodyGregorian
+        calendar: Calendar = .bodyGregorian,
+        warningThresholds: [MetricWarningKind: Double] = [:]
     ) async -> WatchComputeDelta {
         guard HKHealthStore.isHealthDataAvailable() else { return WatchComputeDelta() }
 
@@ -224,6 +228,13 @@ actor WatchDeltaFetcher {
             .restingEnergy, reads: movementReads,
             start: weekStart, end: now, calendar: calendar
         )
+        // The warnings the watch checks itself: today's readings for each
+        // kind with a watch card and an iPhone threshold, under the kind's
+        // resolution above (see `todaysWarningReadings`).
+        async let warningReadings = todaysWarningReadings(
+            thresholds: warningThresholds, reads: reads,
+            now: now, calendar: calendar
+        )
 
         delta.heartRateSeries = await heartRateSeries
         delta.restingHeartRateSeries = await restingHeartRateSeries
@@ -255,6 +266,8 @@ actor WatchDeltaFetcher {
         delta.stepsWeek = await stepsWeek
         delta.activeEnergyWeek = await activeEnergyWeek
         delta.restingEnergyWeek = await restingEnergyWeek
+
+        delta.warningReadings = await warningReadings
 
         return delta
     }
@@ -567,6 +580,48 @@ actor WatchDeltaFetcher {
             calendar: calendar,
             valueTransform: descriptor.valueTransform
         )
+    }
+
+    // MARK: - Warnings
+
+    /// Today's readings behind each warning the watch checks itself
+    /// (`WatchComputeAssembly.checkedWarningKinds`): the iPhone's own read
+    /// (`BodyMetricWarningFetch.todaysReadings`) under the iPhone's threshold
+    /// and the kind's metric's resolution in `reads`, so both heart rate
+    /// kinds read under Heart Rate's source. A kind without a threshold, or
+    /// whose resolution can't run (its permission off, a selection this
+    /// watch can't match, no source here), isn't read and stays absent; a
+    /// failed read answers `.failure`. Either keeps the kind's last check.
+    private func todaysWarningReadings(
+        thresholds: [MetricWarningKind: Double],
+        reads: [HealthMetricKind: WatchSourceRead],
+        now: Date,
+        calendar: Calendar
+    ) async -> [MetricWarningKind: WatchFetchOutcome<[HealthTrendDataPoint]>] {
+        await withTaskGroup(of: (MetricWarningKind, WatchFetchOutcome<[HealthTrendDataPoint]>?).self) { group in
+            for kind in WatchComputeAssembly.checkedWarningKinds {
+                guard let threshold = thresholds[kind], let read = reads[kind.metric] else { continue }
+                // The resolution crosses into the child task rather than its
+                // predicate: `WatchSourceRead` is the Sendable wrapper.
+                group.addTask { [store] in
+                    guard case .run(let sourcePredicate) = read else { return (kind, nil) }
+                    return (kind, await BodyMetricWarningFetch.todaysReadings(
+                        for: kind,
+                        store: store,
+                        sourcePredicate: sourcePredicate,
+                        threshold: threshold,
+                        now: now,
+                        calendar: calendar
+                    ))
+                }
+            }
+
+            var readings: [MetricWarningKind: WatchFetchOutcome<[HealthTrendDataPoint]>] = [:]
+            for await (kind, outcome) in group {
+                readings[kind] = outcome
+            }
+            return readings
+        }
     }
 
     // MARK: - Sleep

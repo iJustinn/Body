@@ -87,6 +87,21 @@ struct BodyCompanionPublishInput: Sendable {
     /// with its warning so the watch can tell whether its own fold record is
     /// newer than the phone's state (`WatchWarningFoldSync`).
     let metricWarningFoldDates: [String: Date]
+    /// The custom warning limits' raw value (`BodyMetricWarningThresholds`),
+    /// which the watch checks its own warnings against.
+    let metricWarningThresholdsRaw: String
+    /// The max heart rate the High Heart Rate default was last resolved with
+    /// (`BodyAppearancePreference.warningMaxHeartRateKey`): nil when nothing
+    /// has resolved it yet, `.some(nil)` when it resolved without a birth date
+    /// (the 120 bpm fallback).
+    let warningMaxHeartRate: Double??
+    /// The master and Warnings notification switches both on: the watch
+    /// notifies its own warnings only then.
+    let metricWarningNotificationsEnabled: Bool
+    /// The warning notification ledger's raw value
+    /// (`MetricWarningNotificationLedger`), so the watch skips a kind the phone
+    /// already notified that day.
+    let metricWarningNotificationLedgerRaw: String
     let workoutColorPalette: BodyWorkoutColorPalette
     let healthDataSourceSelectionRaw: String
     let customHealthSourceGroupsRaw: String?
@@ -304,6 +319,13 @@ final class BodyCompanionPublisher {
                 cardKinds: Set(snapshot.metrics.map(\.kind)),
                 now: input.now
             )
+            snapshot.warningSettings = Self.watchWarningSettings(
+                selectionRaw: input.metricWarningSelectionRaw,
+                thresholdsRaw: input.metricWarningThresholdsRaw,
+                maxHeartRate: input.warningMaxHeartRate,
+                notificationsEnabled: input.metricWarningNotificationsEnabled,
+                ledgerRaw: input.metricWarningNotificationLedgerRaw
+            )
             if input.homeHeroRaw == BodyStarMetric.dayRing.rawValue {
                 // Yesterday through tomorrow: the watch keeps what overlaps the day
                 // its own clock is on, so a snapshot that outlives midnight still draws.
@@ -456,6 +478,53 @@ final class BodyCompanionPublisher {
             )
         }
         return warnings.isEmpty ? nil : warnings
+    }
+
+    /// The phone's warning settings the watch checks and notifies its own
+    /// warnings under, for the kinds with a watch card (Low and High Heart
+    /// Rate, High Skin Temperature), walked in `MetricWarningKind.allCases`
+    /// order:
+    /// * `thresholds`: each kind's effective limit, the user's override or the
+    ///   default. High Heart Rate's default follows the birth date, which only
+    ///   the engine's Heart Rate read resolves, so while `maxHeartRate` is nil
+    ///   (never resolved) and there is no override its limit is left out
+    ///   rather than sent as the 120 bpm fallback. `.some(nil)` (resolved, no
+    ///   birth date) is that fallback.
+    /// * `enabledKinds`: those turned on in the Warnings selection, in kind
+    ///   order, so the watch's equality early out never sees a reordered list
+    ///   as a change.
+    /// * `notifies`: the master and Warnings notification switches.
+    /// * `notifiedDays`: the notification ledger's day for each of them.
+    nonisolated static func watchWarningSettings(
+        selectionRaw: String,
+        thresholdsRaw: String,
+        maxHeartRate: Double??,
+        notificationsEnabled: Bool,
+        ledgerRaw: String
+    ) -> WatchWarningSettings {
+        let kinds = MetricWarningKind.allCases.filter { [.heartRate, .wristTemperature].contains($0.metric) }
+        let selection = BodyMetricWarningSelection.storedValue(from: selectionRaw)
+        let overrides = BodyMetricWarningThresholds.storedValue(from: thresholdsRaw)
+        let ledger = MetricWarningNotificationLedger.storedValue(from: ledgerRaw)
+        var thresholds: [String: Double] = [:]
+        var notifiedDays: [String: String] = [:]
+        for kind in kinds {
+            if let day = ledger.lastNotifiedDayKeys[kind] {
+                notifiedDays[kind.rawValue] = day
+            }
+            if let resolvedMaxHeartRate = maxHeartRate {
+                thresholds[kind.rawValue] = overrides.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate)
+            } else if kind != .highHeartRate || overrides.override(for: kind) != nil {
+                // Never resolved, which only High Heart Rate's default needs.
+                thresholds[kind.rawValue] = overrides.threshold(for: kind)
+            }
+        }
+        return WatchWarningSettings(
+            thresholds: thresholds,
+            enabledKinds: kinds.filter(selection.includes).map(\.rawValue),
+            notifies: notificationsEnabled,
+            notifiedDays: notifiedDays
+        )
     }
 
     /// Size budget for the compute seed alone (before the display snapshot and

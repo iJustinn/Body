@@ -82,6 +82,13 @@ actor WatchComputeCoordinator {
         now: Date
     ) async -> WatchComputeResult? {
         guard let seed = WatchComputeSeedStore.load() else { return nil }
+        // The iPhone's warning settings, from the snapshot on disk. Safe to
+        // read here: `WatchMetricsModel.apply` persists a push's raw snapshot
+        // synchronously, before the compute Task that push starts, so that
+        // compute checks under the push's own thresholds, and the store's
+        // `load` is lock protected (the watch widget reads it off the main
+        // thread too).
+        let warningSettings = WatchMetricsSnapshotStore.load()?.warningSettings
         let calendar = Calendar.bodyGregorian
         let windowStart: Date
         switch WatchComputeAssembly.windowDecision(seed: seed, now: now, calendar: calendar) {
@@ -91,12 +98,21 @@ actor WatchComputeCoordinator {
             windowStart = start
         }
 
+        let warningThresholds = (warningSettings?.thresholds ?? [:]).reduce(
+            into: [MetricWarningKind: Double]()
+        ) { thresholds, entry in
+            if let kind = MetricWarningKind(rawValue: entry.key) {
+                thresholds[kind] = entry.value
+            }
+        }
+
         let delta = await fetcher.fetchDelta(
             seed: seed,
             permission: permission,
             windowStart: windowStart,
             now: now,
-            calendar: calendar
+            calendar: calendar,
+            warningThresholds: warningThresholds
         )
 
         return WatchComputeAssembly.assemble(
@@ -106,7 +122,8 @@ actor WatchComputeCoordinator {
             generation: generation,
             windowStart: windowStart,
             now: now,
-            calendar: calendar
+            calendar: calendar,
+            warningSettings: warningSettings
         )
     }
 }

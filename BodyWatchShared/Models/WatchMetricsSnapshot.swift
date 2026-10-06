@@ -563,6 +563,53 @@ struct WatchMetricWarning: Codable, Equatable, Identifiable {
     var id: String { foldKey }
 }
 
+/// The phone's warning settings the watch checks and notifies under, for the
+/// kinds with a watch card (Low and High Heart Rate, High Skin Temperature).
+/// Plain values so this file stays free of BodyMetricsKit: kinds are
+/// `MetricWarningKind` raw values.
+struct WatchWarningSettings: Codable, Equatable {
+    /// Each kind's effective limit in its stored unit (bpm, °C): the user's
+    /// own, or the default. High Heart Rate is absent until the phone has
+    /// resolved its birth date based default.
+    var thresholds: [String: Double]
+    /// The kinds turned on in Settings ▸ Metrics ▸ Warnings, in kind order.
+    var enabledKinds: [String]
+    /// Whether the phone's warning notifications are on (its master switch and
+    /// its Warnings switch).
+    var notifies: Bool
+    /// The phone's notification ledger: per kind, the yyyy-MM-dd day it last
+    /// notified (or showed on screen), so the watch never notifies it twice.
+    var notifiedDays: [String: String]
+}
+
+/// One warning kind as this watch's own compute last checked it, against its
+/// own Apple Health data. Plain values, like `WatchMetricWarning`.
+struct WatchWarningCheck: Codable, Equatable {
+    /// The day's earliest episode past the threshold.
+    struct Episode: Codable, Equatable {
+        var startDate: Date
+        /// The episode's last past-threshold reading.
+        var endDate: Date
+        /// Its highest (or, for a low kind, lowest) reading.
+        var extremeValue: Double
+    }
+
+    var kind: String
+    /// When the compute that made this check ran.
+    var checkedAt: Date
+    /// The limit it checked against, so a limit changed on the phone since
+    /// then can set the check aside until the next compute.
+    var threshold: Double
+    /// Nil when nothing was past the threshold today.
+    var episode: Episode?
+}
+
+/// A workout this watch's own compute read: its start and its end.
+struct WatchWorkoutSpan: Codable, Equatable {
+    var start: Date
+    var end: Date
+}
+
 /// Schema evolution: the phone and watch can run different builds, so any new
 /// field here (or on `WatchMetric`) must be optional or defaulted — a required
 /// field would make older watches silently reject the whole payload.
@@ -656,7 +703,8 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// (Heart Rate and Skin Temp), each with the phone's fold state: the
     /// warnings the phone's Home shows, under its Warnings selection. A
     /// display payload like `homeHero`, so only a phone push sets it; the
-    /// watch never detects warnings itself. It follows phone pushes and
+    /// watch's own checks ride `warningChecks`, and `WatchMetricWarnings.shown`
+    /// puts the two together. It follows phone pushes and
     /// survives watch computes with no merge rule of its own:
     /// `WatchComputeMerge.merging` starts from the received push and
     /// `mergingComputed` from the current snapshot. Dropped after midnight by
@@ -669,6 +717,19 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// rides the display payload like `readinessHeroShowsLevel`. Optional so
     /// an older phone's payload decodes; nil reads as on, the phone's default.
     var heroShowsWarnings: Bool? = nil
+    /// The phone's warning thresholds, Warnings selection, notification switch
+    /// and notification ledger, which the watch checks and notifies its own
+    /// warnings under. A display payload, so only a phone push sets it; nil
+    /// (an older phone) means the watch checks nothing itself.
+    var warningSettings: WatchWarningSettings? = nil
+    /// The warnings this watch's own compute last checked, one per kind it
+    /// could read. Watch side only: the phone never sets it.
+    var warningChecks: [WatchWarningCheck]? = nil
+    /// The workouts this watch's own compute last read whose recovery window
+    /// reaches into today, so a High Heart Rate warning that started during
+    /// one of them (or within 30 minutes after) is set aside even before the
+    /// phone has the workout. Watch side only: the phone never sets it.
+    var workoutSpans: [WatchWorkoutSpan]? = nil
 
     /// Identifies the phone install that produced this snapshot: a UUID
     /// persisted in phone UserDefaults, regenerated on reinstall / data reset.
@@ -920,8 +981,10 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// Sixth, independent rule: the metric warnings are today's, so a warning
     /// whose `startDate` isn't `now`'s day is dropped, and the field goes nil
     /// once none remain (an empty list too, so nil is the one "no warnings").
-    /// The phone detects the new day's warnings itself and its next push
-    /// brings them; until then the watch shows none rather than yesterday's.
+    /// The new day's warnings come with the phone's next push or the watch's
+    /// next compute (`warningChecks`, which `WatchMetricWarnings.shown` keeps
+    /// only from today); until then the watch shows none rather than
+    /// yesterday's.
     func sanitized(asOf now: Date = Date()) -> WatchMetricsSnapshot {
         let clearsSleep = metric(forKind: WatchMetricKindKey.sleep) != nil
             && !isSleepNightCurrent(asOf: now)

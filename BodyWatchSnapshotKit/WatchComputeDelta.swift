@@ -69,6 +69,13 @@ struct WatchComputeDelta {
     var activeEnergyWeek: WatchFetchOutcome<HealthTrendSeries> = .failure
     var restingEnergyWeek: WatchFetchOutcome<HealthTrendSeries> = .failure
 
+    /// Today's readings behind the warnings the watch checks itself (the kinds
+    /// with a watch card), read through the iPhone's own query
+    /// (`BodyMetricWarningFetch.todaysReadings`) under the iPhone's threshold.
+    /// A kind is missing when it wasn't read: no threshold from the iPhone yet,
+    /// or its source didn't resolve. `.failure` keeps the last check.
+    var warningReadings: [MetricWarningKind: WatchFetchOutcome<[HealthTrendDataPoint]>] = [:]
+
     /// Source kinds this watch holds no HealthKit source for at all
     /// (`WatchSourceRead.unavailable`). Their series stay `.failure`, so the
     /// seed is preserved, but they do not block Readiness.

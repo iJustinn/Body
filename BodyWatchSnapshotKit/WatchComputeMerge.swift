@@ -205,6 +205,23 @@ enum WatchComputeMerge {
     /// and a kind the compute brought no chart for (its read failed or was
     /// skipped) keeps what's displayed.
     ///
+    /// The workout spans (`workoutSpans`) are replaced whole by a compute
+    /// whose workout read succeeded: an empty read clears them instead of
+    /// being stored, so a persisted snapshot never carries `[]`, and a
+    /// compute whose read failed or was skipped carries no field and keeps
+    /// what's displayed.
+    ///
+    /// The warning checks (`warningChecks`) move per kind: each kind the
+    /// compute checked replaces the displayed check, and a kind it didn't
+    /// check (no threshold from the iPhone yet, a source that didn't resolve,
+    /// a failed read) keeps its own. The list stays in `MetricWarningKind`
+    /// order and is never stored empty. Unlike the charts, neither the spans
+    /// nor the checks are compared by time: the compute's read replaces
+    /// what's displayed.
+    ///
+    /// `warningSettings` is never touched (`merged` starts from `current`):
+    /// only a phone push brings it.
+    ///
     /// Never merges into a reset tombstone. The caller sanitizes.
     static func mergingComputed(
         _ result: WatchComputeResult,
@@ -348,6 +365,25 @@ enum WatchComputeMerge {
             merged.heartCharts = charts.isEmpty ? nil : charts
         }
 
+        // Workout spans: a workout read replaces them, an empty one clears
+        // them, and no read keeps them (see the rules above).
+        if let spans = computed.workoutSpans {
+            merged.workoutSpans = spans.isEmpty ? nil : spans
+        }
+
+        // Warning checks: per kind, in kind order (see the rules above).
+        if let candidates = computed.warningChecks {
+            var checks = Dictionary(
+                (current.warningChecks ?? []).map { ($0.kind, $0) },
+                uniquingKeysWith: { _, last in last }
+            )
+            for candidate in candidates {
+                checks[candidate.kind] = candidate
+            }
+            let ordered = MetricWarningKind.allCases.compactMap { checks[$0.rawValue] }
+            merged.warningChecks = ordered.isEmpty ? nil : ordered
+        }
+
         // Readiness drain: record the watch's report from a compute that
         // STAMPED readiness, or whose workout query succeeded
         // (`drainIsFresh`): the report depends on the workout list alone, so a
@@ -424,6 +460,15 @@ enum WatchComputeMerge {
     /// the push still carries that kind's card (a push without it means
     /// Heart was turned off), outside the settings-change mode, which drops
     /// them all because they were read under the old source selection.
+    ///
+    /// The workout spans and warning checks (`workoutSpans`,
+    /// `warningChecks`) never come from the push either, since only the
+    /// watch's compute builds them: the local ones are kept, outside the
+    /// settings-change mode, which drops them. The only settings change path,
+    /// `WatchMetricsModel.finishReceivedContext`, strips them before it
+    /// merges anyway, so that check is belt and braces, as for the charts.
+    /// `warningSettings` comes from the push (`merged = received`), like the
+    /// other display preferences.
     static func merging(
         _ received: WatchMetricsSnapshot,
         over current: WatchMetricsSnapshot,
@@ -552,6 +597,14 @@ enum WatchComputeMerge {
             merged.heartCharts = kept.isEmpty ? nil : kept
         }
 
+        // Workout spans and warning checks: the push never carries them, so
+        // the local ones stand. The settings-change mode drops them
+        // (`merged = received`), its caller having stripped them already.
+        if !treatingBlanksAsAuthoritative {
+            merged.workoutSpans = current.workoutSpans
+            merged.warningChecks = current.warningChecks
+        }
+
         // Readiness drain: the push's own report replaces the phone's previous
         // one, then whichever metric won above is reconciled against the other
         // side's report. This is what stops a push that has not seen a watch
@@ -595,7 +648,9 @@ enum WatchComputeMerge {
     /// for the same reason. The Heart Rate and HRV charts (`heartCharts`) are
     /// dropped outright: they were read under the old permission or source
     /// selection, and no push brings them back, so they wait for the next
-    /// compute.
+    /// compute. So are the workout spans and the warning checks
+    /// (`workoutSpans`, `warningChecks`), for the same reason; the push's
+    /// `warningSettings` stays.
     static func strippingLocalProvenance(
         from snapshot: WatchMetricsSnapshot
     ) -> WatchMetricsSnapshot {
@@ -603,6 +658,8 @@ enum WatchComputeMerge {
         stripped.sleepDebt?.computedAt = nil
         stripped.stressTimeline?.computedAt = nil
         stripped.heartCharts = nil
+        stripped.workoutSpans = nil
+        stripped.warningChecks = nil
         stripped.metrics = snapshot.metrics.map { metric in
             var cleared = metric
             // The kept drain reports were derived under the old selection too,

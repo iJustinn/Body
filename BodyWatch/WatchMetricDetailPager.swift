@@ -11,8 +11,9 @@
 //  that page's "Last 8 hours" chart fresh (`WatchIntradayChartStore`). The Stress page's "Last 8
 //  hours" chart rides the snapshot instead (the compute builds it alongside
 //  the Stress value), so it is not read here. Each page's warning cards come
-//  from the snapshot's `metricWarnings` with the fold state
-//  `WatchWarningFoldStore` resolves, and a tap on one folds it there.
+//  from the snapshot's warnings, the phone's and the watch's own
+//  (`WatchMetricWarnings.shown`), with the fold state `WatchWarningFoldStore`
+//  resolves, and a tap on one folds it there.
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -73,7 +74,13 @@ struct WatchMetricDetailPager: View {
                         workoutColorOverrides: model.snapshot.workoutColorOverrides,
                         warnings: WatchMetricWarnings.rows(
                             forCardKind: metric.kind,
-                            in: model.snapshot.metricWarnings ?? [],
+                            in: WatchMetricWarnings.shown(
+                                pushed: model.snapshot.metricWarnings ?? [],
+                                checks: model.snapshot.warningChecks,
+                                workoutSpans: model.snapshot.workoutSpans,
+                                settings: model.snapshot.warningSettings,
+                                now: Date()
+                            ),
                             isFolded: warningFolds.isFolded
                         ),
                         onToggleWarningFold: { warningFolds.toggle($0) }

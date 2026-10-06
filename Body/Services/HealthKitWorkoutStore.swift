@@ -8671,6 +8671,22 @@ final class HealthKitWorkoutStore {
                 forKey: BodyAppearancePreference.dismissedMetricWarningsKey
             ) ?? "",
             metricWarningFoldDates: BodyMetricWarningFoldDates.load(),
+            // The watch checks and notifies its own warnings under the phone's
+            // limits, notification switches and notification ledger. The max
+            // heart rate is the engine's last resolved one: absent until a
+            // Heart Rate read resolves it, 0 when there is no birth date.
+            metricWarningThresholdsRaw: UserDefaults.standard.string(
+                forKey: BodyAppearancePreference.metricWarningThresholdsKey
+            ) ?? "",
+            warningMaxHeartRate: (UserDefaults.standard.object(
+                forKey: BodyAppearancePreference.warningMaxHeartRateKey
+            ) as? Double).map { value -> Double? in value > 0 ? value : nil },
+            metricWarningNotificationsEnabled: BodyNotificationPreferences.enabled(
+                BodyAppearancePreference.metricWarningNotificationsKey
+            ),
+            metricWarningNotificationLedgerRaw: UserDefaults.standard.string(
+                forKey: MetricWarningNotificationLedger.metricWarningNotificationLedgerKey
+            ) ?? "",
             workoutColorPalette: BodyWorkoutColorPalette(
                 rawOverrides: BodyWorkoutColorStore.sharedDefaults?.string(
                     forKey: BodyAppearancePreference.workoutColorOverridesKey
