@@ -6001,6 +6001,10 @@ private struct BodyNotificationSettingsSheet: View {
         Binding(get: { value.wrappedValue }, set: { enabled in
             value.wrappedValue = enabled
             BodyNotificationPreferences.changed(key: key)
+            // The watch notifies its own warnings only while both are on.
+            if key == BodyNotificationPreferences.masterKey || key == BodyAppearancePreference.metricWarningNotificationsKey {
+                workoutStore.republishCompanionSnapshots()
+            }
             workoutStore.healthChangeCoordinator?.contextDidChange()
             if enabled {
                 Task { await BodyNotificationPermission.shared.request(); await reflectAuthorization() }

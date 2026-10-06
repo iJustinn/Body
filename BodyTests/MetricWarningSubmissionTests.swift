@@ -1,4 +1,5 @@
 import XCTest
+import HealthKit
 import UserNotifications
 @testable import Body
 
@@ -36,6 +37,12 @@ final class MetricWarningSubmissionTests: XCTestCase {
         var count = 0
         var foreground = false
         var fail = false
+        /// The add count each time a pass handed the ledger over.
+        var notified: [Int] = []
+        func notify() { notified.append(count) }
+        /// Whether the task's lease was valid each time a pass handed the ledger over.
+        var leaseValidity: [Bool?] = []
+        func recordLease(_ valid: Bool?) { leaseValidity.append(valid) }
         private var foregroundChecks = 0
         func foregroundOnCheck(_ target: Int) -> Bool {
             foregroundChecks += 1
@@ -186,6 +193,78 @@ final class MetricWarningSubmissionTests: XCTestCase {
         XCTAssertEqual(count, 2)
     }
 
+    /// The watch skips a kind the phone notified today only once a push
+    /// carries the ledger, so a pass that posted hands it over once, after the
+    /// add. A failed add, or a kind already notified today, hands nothing over.
+    func testAPassThatPostedHandsTheLedgerOverOnce() async throws {
+        let suite = try defaults(), probe = Probe()
+        let warning = event()
+        let evaluator = MetricWarningBackgroundEvaluator(
+            defaults: suite,
+            delivery: .init(authorization: { .authorized }, add: { _ in try await probe.add() }),
+            warningQuery: { _ in [.lowHeartRate: .success(warning)] },
+            isForegroundActive: { false }
+        )
+        let afterPosting: @Sendable () async -> Void = { await probe.notify() }
+
+        await probe.setFailure(true)
+        let failed = await evaluator.evaluate(afterPosting: afterPosting)
+        XCTAssertEqual(failed, .failure)
+        var notified = await probe.notified
+        XCTAssertEqual(notified, [])
+
+        await probe.setFailure(false)
+        let posted = await evaluator.evaluate(afterPosting: afterPosting)
+        XCTAssertEqual(posted, .success)
+        notified = await probe.notified
+        XCTAssertEqual(notified, [2], "Once, after the add that succeeded")
+        XCTAssertNotNil(suite.string(forKey: MetricWarningNotificationLedger.metricWarningNotificationLedgerKey))
+
+        let repeated = await evaluator.evaluate(afterPosting: afterPosting)
+        XCTAssertEqual(repeated, .success)
+        notified = await probe.notified
+        XCTAssertEqual(notified, [2], "Already notified today: nothing posted, nothing handed over")
+    }
+
+    /// The background task runs the pass under its lease, and the watch
+    /// publish after a post needs that lease still valid: the store publishes
+    /// nothing under an invalid one. So the fetch ends only a lease it made
+    /// itself. Unlike the tests above, this goes through the real
+    /// `fetchWarnings`, against a fake store with one low reading.
+    func testTheRealFetchLeavesTheTasksLeaseValidForTheWatchPublish() async throws {
+        let heartRate = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .heartRate))
+        let reading = Date().addingTimeInterval(-60)
+        let fake = FakeHealthStore()
+        fake.scriptSources(for: heartRate, .sources([]))
+        fake.scriptSamples(for: heartRate, .samples([
+            HKQuantitySample(
+                type: heartRate,
+                quantity: HKQuantity(unit: HKUnit.count().unitDivided(by: .minute()), doubleValue: 35),
+                start: reading,
+                end: reading
+            )
+        ]))
+        let suite = try defaults(), probe = Probe()
+        let evaluator = MetricWarningBackgroundEvaluator(
+            defaults: suite,
+            healthStore: fake,
+            delivery: .init(authorization: { .authorized }, add: { _ in try await probe.add() }),
+            isForegroundActive: { false }
+        )
+        let lease = BodyBackgroundLease(duration: .seconds(60))
+
+        let outcome = await lease.run {
+            await evaluator.evaluate(afterPosting: { await probe.recordLease(BodyBackgroundLease.current?.isValid) })
+        }
+
+        XCTAssertEqual(outcome, .success)
+        let count = await probe.count
+        XCTAssertEqual(count, 1)
+        let leaseValidity = await probe.leaseValidity
+        XCTAssertEqual(leaseValidity, [true], "The watch publish runs under the task's lease, still valid")
+        XCTAssertTrue(lease.isValid, "The task ends its own lease, not the fetch")
+    }
+
     func testHeadlessThresholdRemainsCapturedWhileForegroundThresholdTracksSettings() async {
         let key = BodyAppearancePreference.metricWarningThresholdsKey
         let prior = UserDefaults.standard.object(forKey: key)
@@ -225,10 +304,12 @@ final class MetricWarningSubmissionTests: XCTestCase {
                     // Initial admission, optional first add, then reject the last add.
                     isForegroundActive: { await probe.foregroundOnCheck(posted ? 3 : 2) }
                 )
-                let outcome = await evaluator.evaluate()
+                let outcome = await evaluator.evaluate(afterPosting: { await probe.notify() })
                 XCTAssertEqual(outcome, failed ? (posted ? .partialFailure : .failure) : .skipped)
                 let count = await probe.count
                 XCTAssertEqual(count, posted ? 1 : 0, "The final warning must never be submitted")
+                let notified = await probe.notified
+                XCTAssertEqual(notified.count, posted ? 1 : 0, "An admission exit after a post still hands the ledger over")
                 let ledger = MetricWarningNotificationLedger.storedValue(
                     from: suite.string(forKey: MetricWarningNotificationLedger.metricWarningNotificationLedgerKey) ?? "")
                 var expected = MetricWarningNotificationLedger.defaultValue

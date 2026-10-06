@@ -567,6 +567,39 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         }
     }
 
+    /// The watch notifies the warnings it detects itself with the phone's
+    /// notification copy (`MetricWarningNotificationContent`, compiled into
+    /// both apps), so the watch catalog carries every key it can post,
+    /// translated exactly as on the phone.
+    func testWatchWarningNotificationKeysResolveInWatchCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyWatch/Localizable.xcstrings")
+        let phoneCatalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "Low Heart Rate Warning",
+            "High Heart Rate Warning",
+            "Low Blood Oxygen Warning",
+            "High Respiratory Rate Warning",
+            "High Skin Temperature Warning",
+            "A periodic check found a heart rate of %lld bpm today, below your %lld bpm limit.",
+            "A periodic check found a heart rate of %lld bpm today, above your %lld bpm limit.",
+            "A periodic check found a blood oxygen level of %lld%% today, below your %lld%% limit.",
+            "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit.",
+            "A periodic check found a skin temperature of %@ today, above your %@ limit."
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+        for key in keys {
+            for language in ["en", "zh-Hans"] {
+                XCTAssertEqual(
+                    try value(of: key, language: language, in: catalog),
+                    try value(of: key, language: language, in: phoneCatalog),
+                    "\(key) \(language) differs from the phone"
+                )
+            }
+        }
+    }
+
     func testWorkoutRenameKeysResolveInLocalizableCatalog() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 

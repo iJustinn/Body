@@ -51,6 +51,8 @@ actor MetricWarningBackgroundEvaluator {
     private let delivery: Delivery
     private let warningQuery: (@Sendable (Set<MetricWarningKind>) async -> WarningResults?)?
     private var evaluationInFlight = false
+    /// Whether the pass in flight posted anything, for `afterPosting`.
+    private var postedInPass = false
     private let isForegroundActive: @Sendable () async -> Bool
     /// Injected so the deadline behaviour can be exercised against a fake store
     /// whose reads never resume.
@@ -77,11 +79,25 @@ actor MetricWarningBackgroundEvaluator {
         self.isForegroundActive = isForegroundActive
     }
 
+    /// `afterPosting` runs once a pass that posted a notification has saved
+    /// the ledger, after every return path of the pass (an admission exit
+    /// that follows an earlier post included). The background task points it
+    /// at the watch publish: the watch skips a kind the phone notified today
+    /// only once a push carries the ledger (`WatchWarningSettings.notifiedDays`).
     @discardableResult
-    func evaluate() async -> Outcome {
+    func evaluate(afterPosting: (@Sendable () async -> Void)? = nil) async -> Outcome {
         guard !evaluationInFlight, !Task.isCancelled else { return .skipped }
         evaluationInFlight = true
         defer { evaluationInFlight = false }
+        postedInPass = false
+        let outcome = await evaluatePass()
+        if postedInPass, let afterPosting {
+            await afterPosting()
+        }
+        return outcome
+    }
+
+    private func evaluatePass() async -> Outcome {
         let context = evaluationContext()
         let calendar = calendar
         guard BodyNotificationPreferences.enabled(BodyAppearancePreference.metricWarningNotificationsKey, defaults: defaults) else {
@@ -164,6 +180,7 @@ actor MetricWarningBackgroundEvaluator {
                 }
                 saveLedger(latestLedger)
                 postedCount += 1
+                postedInPass = true
             case .success:
                 continue
             case .failure, .none:
@@ -244,10 +261,18 @@ actor MetricWarningBackgroundEvaluator {
         )
 
         let calendar = calendar
+        // Only a lease made here ends here. The background task's own lease
+        // stays valid until the task ends it: the watch publish after a post
+        // (`afterPosting`) runs under it and needs it valid.
+        let inherited = BodyBackgroundLease.current
+        let lease = inherited ?? BodyBackgroundLease(duration: deadline)
+        defer {
+            if inherited == nil {
+                lease.invalidate()
+            }
+        }
         // Detached so the fetch does not sit on this actor's executor while it
         // awaits the engine actor.
-        let lease = BodyBackgroundLease.current ?? BodyBackgroundLease(duration: deadline)
-        defer { lease.invalidate() }
         let work = Task.detached {
             await lease.run {
                 await engine.fetchCurrentMetricWarnings(kinds: kinds, calendar: calendar, now: Date())

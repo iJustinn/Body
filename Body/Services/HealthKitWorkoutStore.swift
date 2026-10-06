@@ -8546,6 +8546,23 @@ final class HealthKitWorkoutStore {
         }
     }
 
+    /// Republishes once the background warning check posted a notification,
+    /// so the watch's copy of the notification ledger
+    /// (`WatchWarningSettings.notifiedDays`) holds that kind for today and the
+    /// watch doesn't notify it too. Direct and awaited, shaped like
+    /// `publishWatchBaselineSync`: the check runs in its own background task
+    /// with no scene, where a debounced republish could be suspended before it
+    /// fires. Same guard (a restored or refreshed state, no cache clear in
+    /// flight); returns at once when it drops the publish.
+    func publishWatchNotificationLedger() async {
+        guard lastVitalsRefreshDate != nil, !isClearingCache else { return }
+        await withCheckedContinuation { continuation in
+            publishWatchSnapshot(shared: makeSharedPublishInput()) {
+                continuation.resume()
+            }
+        }
+    }
+
     /// Captures, synchronously on the main actor, exactly what the watch
     /// snapshot build and send read off this store beyond `shared` (which the
     /// caller captured, also synchronously, immediately before). There is no

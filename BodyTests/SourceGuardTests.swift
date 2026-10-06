@@ -6081,18 +6081,45 @@ final class SourceGuardTests: XCTestCase {
     /// watch fold can launch the app in the background with no scene), the
     /// queued user info path, the phone's fold stamp, and the watch reading
     /// the hero switch, toggling through the fold store and injecting it.
+    ///
+    /// The watch also checks and notifies warnings itself. Pinned here: the
+    /// phone sending its warning settings (and republishing when either
+    /// notification switch flips), its stored max heart rate feeding them,
+    /// both receive paths seeding the phone's notification ledger, the phone's
+    /// background check republishing that ledger once it posts, the
+    /// engine and the watch reading through the one shared warning read, the
+    /// compute loading the phone's settings, the dashboard and pager showing
+    /// the combined list, the notifier running after the compute merge, and
+    /// the permission asked for when the app becomes active.
     func testWatchWarningsFollowThePhone() throws {
         let snapshot = try BodyTestSupport.sourceText(at: "BodyWatchShared/Models/WatchMetricsSnapshot.swift")
         XCTAssertTrue(snapshot.contains("var metricWarnings: [WatchMetricWarning]? = nil"))
         XCTAssertTrue(snapshot.contains("var heroShowsWarnings: Bool? = nil"))
+        XCTAssertTrue(snapshot.contains("var warningSettings: WatchWarningSettings? = nil"))
+        XCTAssertTrue(snapshot.contains("var warningChecks: [WatchWarningCheck]? = nil"))
+        XCTAssertTrue(snapshot.contains("var workoutSpans: [WatchWorkoutSpan]? = nil"))
 
         let publisher = try BodyTestSupport.sourceText(at: "Body/Services/BodyCompanionPublisher.swift")
         XCTAssertTrue(publisher.contains("snapshot.heroShowsWarnings = input.metricWarningsOnHero"))
         XCTAssertTrue(publisher.contains("snapshot.metricWarnings = Self.watchMetricWarnings("))
+        XCTAssertTrue(publisher.contains("snapshot.warningSettings = Self.watchWarningSettings("))
+
+        let store = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+        XCTAssertTrue(store.contains("forKey: BodyAppearancePreference.warningMaxHeartRateKey"))
+        let engine = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitFetchEngine.swift")
+        XCTAssertTrue(engine.contains("let key = BodyAppearancePreference.warningMaxHeartRateKey"))
+        XCTAssertTrue(engine.contains("BodyMetricWarningFetch.todaysReadings("))
 
         let settings = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
         XCTAssertTrue(settings.contains(".onChange(of: metricWarningSelectionRawValue) { workoutStore.republishCompanionSnapshots() }"))
         XCTAssertTrue(settings.contains(".onChange(of: showsWarningsOnHomeHero) { workoutStore.republishCompanionSnapshots() }"))
+        let notificationSwitch = try XCTUnwrap(settings.range(
+            of: "if key == BodyNotificationPreferences.masterKey || key == BodyAppearancePreference.metricWarningNotificationsKey {"
+        ))
+        XCTAssertTrue(
+            settings[notificationSwitch.upperBound...].drop(while: \.isWhitespace)
+                .hasPrefix("workoutStore.republishCompanionSnapshots()")
+        )
 
         let app = try BodyTestSupport.sourceText(at: "Body/BodyApp.swift")
         let handler = try XCTUnwrap(
@@ -6103,18 +6130,42 @@ final class SourceGuardTests: XCTestCase {
 
         let connectivity = try BodyTestSupport.sourceText(at: "Body/Services/WatchConnectivityPublisher.swift")
         XCTAssertTrue(connectivity.contains("didReceiveUserInfo"))
+        XCTAssertTrue(connectivity.contains("WatchWarningNotificationSync.records(from: message)"))
+        XCTAssertTrue(connectivity.contains("WatchWarningNotificationSync.records(from: userInfo)"))
+        XCTAssertEqual(connectivity.occurrenceCount(of: "await MetricWarningBackgroundEvaluator.shared.seed("), 2)
+        let warningRefresh = try BodyTestSupport.sourceText(at: "Body/Services/BodyBackgroundRefreshScheduler.swift")
+        XCTAssertTrue(warningRefresh.contains("MetricWarningBackgroundEvaluator.shared.evaluate(afterPosting:"))
+        XCTAssertTrue(warningRefresh.contains("await BodyAppRuntime.shared.workoutStore.publishWatchNotificationLedger()"))
 
         let detail = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
         XCTAssertTrue(detail.contains("BodyMetricWarningFoldDates.recordChange(of: event)"))
 
+        let fetcher = try BodyTestSupport.sourceText(at: "BodyWatch/WatchDeltaFetcher.swift")
+        XCTAssertTrue(fetcher.contains("BodyMetricWarningFetch.todaysReadings("))
+
+        let coordinator = try BodyTestSupport.sourceText(at: "BodyWatch/WatchComputeCoordinator.swift")
+        XCTAssertTrue(coordinator.contains("WatchMetricsSnapshotStore.load()?.warningSettings"))
+
         let dashboard = try BodyTestSupport.sourceText(at: "BodyWatch/WatchDashboardView.swift")
         XCTAssertTrue(dashboard.contains("heroShowsWarnings ?? true"))
+        XCTAssertTrue(dashboard.contains("WatchMetricWarnings.shown("))
+        XCTAssertTrue(dashboard.contains("WatchMetricWarnings.foldResendList("))
 
         let pager = try BodyTestSupport.sourceText(at: "BodyWatch/WatchMetricDetailPager.swift")
         XCTAssertTrue(pager.contains("warningFolds.toggle("))
+        XCTAssertTrue(pager.contains("WatchMetricWarnings.shown("))
+
+        let model = try BodyTestSupport.sourceText(at: "BodyWatch/WatchMetricsModel.swift")
+        let merge = try XCTUnwrap(model.range(of: "apply(WatchComputeMerge.mergingComputed(result, into: snapshot))")?.lowerBound)
+        let notify = try XCTUnwrap(model.range(of: "await notifier.process(snapshot, now: environment.now())")?.lowerBound)
+        XCTAssertLessThan(merge, notify)
+        XCTAssertEqual(model.occurrenceCount(of: "notifier.process("), 1)
 
         let watchApp = try BodyTestSupport.sourceText(at: "BodyWatch/BodyWatchApp.swift")
         XCTAssertTrue(watchApp.contains(".environmentObject(warningFolds)"))
+        XCTAssertTrue(watchApp.contains(
+            "WatchWarningNotifier.shared.requestAuthorizationIfNeeded(settings: model.snapshot.warningSettings)"
+        ))
     }
 
     /// Concatenates every Swift file backing `HealthKitFetchEngine`. The engine
@@ -6124,7 +6175,8 @@ final class SourceGuardTests: XCTestCase {
     ///
     /// The `BodyWatchSnapshotKit` files are part of that surface too: the
     /// engine's HealthKit query leaves (source discovery + resolution, quantity
-    /// queries, sleep queries/grouping, workout query + mapping) were MOVED
+    /// queries, sleep queries/grouping, workout query + mapping, the metric
+    /// warning read) were MOVED
     /// there so Body and BodyWatch compile the same fetch code, and the engine
     /// now calls in. Grepping the engine alone would silently stop covering
     /// them.
@@ -6142,7 +6194,8 @@ final class SourceGuardTests: XCTestCase {
             "BodyWatchSnapshotKit/BodyHealthSourceResolver.swift",
             "BodyWatchSnapshotKit/BodyHealthQuantityFetch.swift",
             "BodyWatchSnapshotKit/BodySleepFetch.swift",
-            "BodyWatchSnapshotKit/BodyWorkoutFetch.swift"
+            "BodyWatchSnapshotKit/BodyWorkoutFetch.swift",
+            "BodyWatchSnapshotKit/BodyMetricWarningFetch.swift"
         ]
         return try files.map { try text(at: $0) }.joined(separator: "\n")
     }

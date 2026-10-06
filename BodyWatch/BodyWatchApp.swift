@@ -27,11 +27,14 @@ struct BodyWatchApp: App {
             // Background triggers (the workout observer, a pushed context, the
             // 30 minute scheduled refresh) run the same staleness gated compute,
             // but never raise an authorization sheet (see
-            // `WatchMetricsModel.recomputeIfStale`).
+            // `WatchMetricsModel.recomputeIfStale`). The notification
+            // permission is asked for here too, after the reads, and only
+            // while the phone's warning notifications are on.
             if phase == .active {
                 Task {
                     await model.recomputeIfStale()
                     await model.refreshLiveMetricsIfStale()
+                    await WatchWarningNotifier.shared.requestAuthorizationIfNeeded(settings: model.snapshot.warningSettings)
                 }
             }
         }

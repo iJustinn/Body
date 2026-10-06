@@ -54,6 +54,8 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     private let computeCoordinator = WatchComputeCoordinator()
     /// The compute path's outside world (see `WatchComputeEnvironment`).
     private let environment: WatchComputeEnvironment
+    /// Notifies the warnings a compute merge brings (see `WatchWarningNotifier`).
+    private let notifier: WatchWarningNotifier
     private var hasRequestedLiveAuthorization = false
     /// A detected workout change that readiness has not been republished from
     /// yet (see `WatchPendingRecomputePolicy`). PERSISTED for the same reason
@@ -167,10 +169,12 @@ final class WatchMetricsModel: NSObject, ObservableObject {
     init(
         persistSnapshot: @escaping (WatchMetricsSnapshot) -> Bool = { WatchMetricsSnapshotStore.save($0) },
         reloadTimelines: @escaping () -> Void = { WidgetCenter.shared.reloadAllTimelines() },
-        environment: WatchComputeEnvironment? = nil
+        environment: WatchComputeEnvironment? = nil,
+        notifier: WatchWarningNotifier? = nil
     ) {
         self.persistSnapshot = persistSnapshot
         self.reloadTimelines = reloadTimelines
+        self.notifier = notifier ?? .shared
         let environment = environment ?? .live(
             healthStore: healthStore,
             coordinator: computeCoordinator,
@@ -1100,6 +1104,10 @@ final class WatchMetricsModel: NSObject, ObservableObject {
             "Compute merged, background: \(isBackground, privacy: .public), saved: \(persisted, privacy: .public)"
         )
         scheduleNextBackgroundRefresh()
+        // The merge may bring a warning to notify. Last, because notifying
+        // awaits the notification center: a trigger that lands meanwhile
+        // must already find this compute's pending work consumed.
+        await notifier.process(snapshot, now: environment.now())
     }
 
     enum ComputeTrigger {

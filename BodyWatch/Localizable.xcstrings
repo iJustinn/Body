@@ -68,6 +68,91 @@
         }
       }
     },
+    "A periodic check found a blood oxygen level of %lld%% today, below your %lld%% limit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a blood oxygen level of %lld%% today, below your %lld%% limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的血氧水平为 %lld%%，低于您设定的 %lld%% 限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a heart rate of %lld bpm today, above your %lld bpm limit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a heart rate of %lld bpm today, above your %lld bpm limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的心率为 %lld 次/分，高于您设定的 %lld 次/分限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a heart rate of %lld bpm today, below your %lld bpm limit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a heart rate of %lld bpm today, below your %lld bpm limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的心率为 %lld 次/分，低于您设定的 %lld 次/分限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的呼吸频率为 %lld 次/分钟，高于您设定的 %lld 次/分钟限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a skin temperature of %@ today, above your %@ limit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a skin temperature of %@ today, above your %@ limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的皮肤温度为 %@，高于您设定的 %@ 限值。"
+          }
+        }
+      }
+    },
     "All Metrics Hidden" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -305,6 +390,40 @@
         }
       }
     },
+    "High Heart Rate Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Heart Rate Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高心率警告"
+          }
+        }
+      }
+    },
+    "High Respiratory Rate Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Respiratory Rate Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高呼吸频率警告"
+          }
+        }
+      }
+    },
     "High Skin Temperature" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -318,6 +437,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "皮肤温度过高"
+          }
+        }
+      }
+    },
+    "High Skin Temperature Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Skin Temperature Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高皮肤温度警告"
           }
         }
       }
@@ -407,6 +543,23 @@
         }
       }
     },
+    "Low Blood Oxygen Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Blood Oxygen Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低血氧警告"
+          }
+        }
+      }
+    },
     "Low Heart Rate" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -420,6 +573,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "心率过低"
+          }
+        }
+      }
+    },
+    "Low Heart Rate Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Heart Rate Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低心率警告"
           }
         }
       }

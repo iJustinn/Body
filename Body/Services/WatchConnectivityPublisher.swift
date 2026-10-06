@@ -152,6 +152,26 @@ final class WatchConnectivityPublisher: NSObject {
         canPublish && sentContextHasSeed ? .sent : .unavailable
     }
 
+    /// The warnings the watch notified (`WatchWarningNotificationSync`) as the
+    /// kinds `MetricWarningBackgroundEvaluator.seed(kinds:)` marks. Keeps only
+    /// records whose episode started on `now`'s day, since `seed` overwrites a
+    /// kind's day: a queued copy from yesterday arriving late would otherwise
+    /// un-mark today. A kind this build doesn't know is dropped.
+    nonisolated static func notifiedWarningSeed(
+        from records: [WatchWarningNotificationSync.Record],
+        now: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> [MetricWarningKind: Date] {
+        let todays = records.compactMap { record -> (MetricWarningKind, Date)? in
+            guard calendar.isDate(record.startDate, inSameDayAs: now),
+                  let kind = MetricWarningKind(rawValue: record.kind) else {
+                return nil
+            }
+            return (kind, record.startDate)
+        }
+        return Dictionary(todays, uniquingKeysWith: { first, _ in first })
+    }
+
     /// Whether the context last handed to `updateApplicationContext` carries a
     /// compute seed, i.e. whether the watch is about to receive one.
     func sentContextHasSeed() -> Bool {
@@ -371,6 +391,19 @@ extension WatchConnectivityPublisher: WCSessionDelegate {
             }
             return
         }
+        // A warning the watch notified itself, marked in the iPhone's ledger
+        // so the iPhone doesn't notify that kind again today. Nothing waits
+        // on the seed, so the reply goes out at once.
+        if let records = WatchWarningNotificationSync.records(from: message) {
+            replyHandler([:])
+            Task { @MainActor in
+                self.logger.info("Warning notifications received from the watch: \(records.count, privacy: .public)")
+                await MetricWarningBackgroundEvaluator.shared.seed(
+                    kinds: Self.notifiedWarningSeed(from: records, now: Date())
+                )
+            }
+            return
+        }
         guard message[WatchBaselineSync.requestKey] != nil else {
             replyHandler([:])
             return
@@ -395,8 +428,19 @@ extension WatchConnectivityPublisher: WCSessionDelegate {
     /// the same handler as the message but with no completion: nothing waits
     /// on a reply, so the handler republishes through the debounced path, and
     /// a burst of queued copies makes one publish rather than one each. A copy
-    /// that arrives after its message is a tie the handler ignores.
+    /// that arrives after its message is a tie the handler ignores. The queued
+    /// copy of a warning the watch notified is seeded like its message, and
+    /// marks the same day again.
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        if let records = WatchWarningNotificationSync.records(from: userInfo) {
+            Task { @MainActor in
+                self.logger.info("Queued warning notifications received from the watch: \(records.count, privacy: .public)")
+                await MetricWarningBackgroundEvaluator.shared.seed(
+                    kinds: Self.notifiedWarningSeed(from: records, now: Date())
+                )
+            }
+            return
+        }
         guard let records = WatchWarningFoldSync.records(from: userInfo) else {
             return
         }
