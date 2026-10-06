@@ -49,12 +49,32 @@ final class BodyHealthObservationTests: XCTestCase {
         let workout = try XCTUnwrap(entries.first { $0.scansWorkouts })
         XCTAssertEqual(workout.type, HKObjectType.workoutType())
         XCTAssertEqual(workout.frequency, .immediate)
-        XCTAssertTrue(workout.metrics.isEmpty, "workouts keep their existing journal")
+        XCTAssertEqual(workout.metrics, [.heartRate], "workouts keep their journal; their one metric re-checks High Heart Rate")
         XCTAssertTrue(entries.allSatisfy { BodyHealthReadTypes.readObjectTypes(for: permissions).contains($0.type) })
         let sleep = try XCTUnwrap(entries.first { $0.type == HKObjectType.categoryType(forIdentifier: .sleepAnalysis) })
         XCTAssertEqual(sleep.frequency, .immediate)
         XCTAssertTrue(entries.filter { $0.type is HKQuantityType }.allSatisfy { $0.frequency == .hourly })
         XCTAssertEqual(BodyHealthObservationPolicy.fallbackInterval, 1_800)
+    }
+
+    /// High Heart Rate leaves out readings inside a logged workout, so a
+    /// workout delivery queues the Heart Rate read, but only while heart rate
+    /// is readable: with Heart off that read could never be acknowledged.
+    func testWorkoutDeliveryQueuesHeartRateOnlyWhileHeartRateIsReadable() throws {
+        func workoutMetrics(_ permissions: Set<BodyHealthPermission>,
+                            selection: BodyDashboardFetchSelection = .defaultValue,
+                            companion: Bool = false) throws -> Set<HealthMetricKind> {
+            let registrations = BodyHealthObservationPolicy.registrations(
+                permissions: .init(enabledPermissions: permissions), selection: selection,
+                includesCompanionConsumers: companion)
+            return try XCTUnwrap(registrations.first { $0.scansWorkouts }).metrics
+        }
+        XCTAssertEqual(try workoutMetrics([.workouts, .heart]), [.heartRate])
+        XCTAssertEqual(try workoutMetrics([.workouts]), [], "Heart off: no receipt the Heart Rate leaf can't acknowledge")
+        let hidden = BodyDashboardFetchSelection(summaryCards: .init(selectedCards: []), trendCards: .init(selectedCards: []))
+        XCTAssertEqual(try workoutMetrics([.workouts, .heart], selection: hidden), [])
+        XCTAssertEqual(try workoutMetrics([.workouts, .heart], selection: hidden, companion: true), [.heartRate],
+                       "the watch's Heart Rate card still needs it")
     }
 
     func testCompletionIsOneShotUnderConcurrentErrorAndShutdown() async {
@@ -433,6 +453,24 @@ final class BodyHealthObservationTests: XCTestCase {
             let settled = try XCTUnwrap(try savedLedger(file).entries["sleep"])
             XCTAssertFalse(settled.currentPending)
             XCTAssertNil(settled.deferredAt)
+        }
+    }
+
+    /// A workout landing re-runs the Heart Rate read, so a High Heart Rate
+    /// episode its readings raised before the workout itself synced is checked
+    /// again without them. The capture itself stays metadata only.
+    @MainActor
+    func testWorkoutDeliveryMarksHeartRateWorkWithoutAReadOrSpinner() async throws {
+        try await withSleepFixture(permissions: [.heart, .workouts]) { store, coordinator, observer, file in
+            let id = try XCTUnwrap(observer.registrations.first { $0.value.type == HKObjectType.workoutType() }?.key)
+            let captured = expectation(description: "workout captured")
+            observer.fire(id) { captured.fulfill() }
+            await fulfillment(of: [captured], timeout: 3)
+            XCTAssertEqual(try savedLedger(file).entries["heartRate"]?.currentPending, true)
+            let receipts = await coordinator.captureReceipts()
+            XCTAssertTrue(receipts.contains { $0.domain == "heartRate" })
+            XCTAssertFalse(store.isRefreshing)
+            XCTAssertNil(store.refreshStage)
         }
     }
 
