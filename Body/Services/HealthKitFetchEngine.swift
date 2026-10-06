@@ -39,6 +39,9 @@ actor HealthKitFetchEngine {
     var combinesHealthDataSourcesByName: Bool
     var customHealthSourceGroups: [BodyCustomHealthSourceGroup]
     private let capturedWarningThresholds: BodyMetricWarningThresholds?
+    /// Where `userMaxHeartRate` keeps its result for the watch payload:
+    /// `.standard` in the app, a scratch suite in tests.
+    private let maxHeartRateDefaults: UserDefaults
 
     var healthSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:] {
         didSet {
@@ -274,6 +277,7 @@ actor HealthKitFetchEngine {
         healthStore: any BodyHealthQuerying = HKHealthStore(),
         timeZoneLedger: BodyTimeZoneLedger = BodyTimeZoneLedger(),
         capturedWarningThresholds: BodyMetricWarningThresholds? = nil,
+        maxHeartRateDefaults: UserDefaults = .standard,
         effortLedgerDirectoryURL: URL? = WorkoutEffortLedgerStore.defaultDirectoryURL
     ) {
         self.healthStore = healthStore
@@ -284,6 +288,7 @@ actor HealthKitFetchEngine {
         self.combinesHealthDataSourcesByName = combinesHealthDataSourcesByName
         self.customHealthSourceGroups = customHealthSourceGroups
         self.capturedWarningThresholds = capturedWarningThresholds
+        self.maxHeartRateDefaults = maxHeartRateDefaults
         self.effortLedgerDirectoryURL = effortLedgerDirectoryURL
     }
 
@@ -550,7 +555,24 @@ actor HealthKitFetchEngine {
     /// Estimated max heart rate (220 − age) from the user's Apple Health birth date,
     /// used to anchor the workout heart-rate zones. Returns nil when the birth date is
     /// unavailable or unauthorized, so the caller can fall back to the session peak.
+    ///
+    /// Every result is also kept under `BodyAppearancePreference.warningMaxHeartRateKey`,
+    /// written only when it changes: High Heart Rate's default threshold is derived
+    /// from it (`warningThreshold(for:)`), and the watch payload resolves that
+    /// threshold from the stored value synchronously, without a HealthKit read.
+    /// 0 means no readable birth date (the 120 bpm fallback); absent means never
+    /// resolved.
     func userMaxHeartRate(asOf now: Date = Date()) -> Double? {
+        let maxHeartRate = estimatedMaxHeartRate(asOf: now)
+        let key = BodyAppearancePreference.warningMaxHeartRateKey
+        let value = maxHeartRate ?? 0
+        if maxHeartRateDefaults.object(forKey: key) as? Double != value {
+            maxHeartRateDefaults.set(value, forKey: key)
+        }
+        return maxHeartRate
+    }
+
+    private func estimatedMaxHeartRate(asOf now: Date) -> Double? {
         guard permissionSelection.includes(.heart) && permissionSelection.includes(.dateOfBirth) else {
             return nil
         }
@@ -2151,30 +2173,7 @@ actor HealthKitFetchEngine {
         calendar: Calendar,
         excluding intervals: [DateInterval] = []
     ) async -> QueryOutcome<MetricWarningEvent> {
-        let identifier: HKQuantityTypeIdentifier
-        let unit: HKUnit
-        let valueTransform: @Sendable (Double) -> Double
-        switch kind.metric {
-        case .heartRate:
-            identifier = .heartRate
-            unit = HKUnit.count().unitDivided(by: .minute())
-            valueTransform = { $0 }
-        case .oxygenSaturation:
-            identifier = .oxygenSaturation
-            unit = .percent()
-            valueTransform = { Self.normalizedPercentDisplayValue($0) }
-        case .respiratoryRate:
-            identifier = .respiratoryRate
-            unit = HKUnit.count().unitDivided(by: .minute())
-            valueTransform = { $0 }
-        case .wristTemperature:
-            identifier = .appleSleepingWristTemperature
-            unit = .degreeCelsius()
-            valueTransform = { $0 }
-        default:
-            return .success(nil)
-        }
-        guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
+        guard let identifier = HealthMetricQueryDescriptor.descriptor(for: kind.metric)?.quantityType else {
             return .success(nil)
         }
         if sourceSelectionUnresolved(for: kind.metric) {
@@ -2183,38 +2182,16 @@ actor HealthKitFetchEngine {
 
         let thresholdValue = warningThreshold(for: kind)
         let now = anchorDate ?? Date()
-        let windowPredicate = combinedPredicate(
-            startDate: calendar.startOfDay(for: now),
-            endDate: now,
-            sourceKind: kind.metric
-        )
-        // Heart rate is dense (thousands of samples a day), so HealthKit does the
-        // threshold filtering. Blood oxygen is sparse AND stored either as a 0–1
-        // fraction or as 0–100 depending on the source, so a native-unit
-        // threshold predicate would silently miss whole sources: fetch the day
-        // and normalise (`valueTransform`) before comparing. Respiratory rate and
-        // wrist temperature are sparse too (a handful of overnight readings), so
-        // they take the same in-memory path.
-        let thresholdPredicate: NSPredicate? = kind.metric == .heartRate
-            ? HKQuery.predicateForQuantitySamples(
-                with: kind.isAbove ? .greaterThan : .lessThan,
-                quantity: HKQuantity(unit: unit, doubleValue: thresholdValue)
-            )
-            : nil
-        let predicate: NSPredicate?
-        switch (windowPredicate, thresholdPredicate) {
-        case (let window?, let threshold?):
-            predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [window, threshold])
-        case (let window?, nil):
-            predicate = window
-        case (nil, let threshold):
-            predicate = threshold
-        }
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
+        // Resolved beside the gate above, before any suspension, so the read
+        // runs under the selection the gate checked.
+        let selectedSources = sourcePredicate(for: kind.metric)
 
-        // The shared samples seam is the scriptable read every other sample
-        // fetch goes through, and it stops its HKSampleQuery on cancellation.
-        // Same pool permit and query-depth telemetry as `runCancellableQuery`.
+        // The read itself is `BodyMetricWarningFetch.todaysReadings`, shared
+        // with the watch's own check so both devices read a warning the same
+        // way; its doc says why only heart rate filters on the threshold in
+        // HealthKit. It goes through the scriptable samples seam, which stops
+        // its HKSampleQuery on cancellation. Same pool permit and query-depth
+        // telemetry as `runCancellableQuery`.
         let semaphore = HealthKitQueryPool.current.semaphore
         guard await semaphore.acquireForCurrentTask() else { return .failure }
         defer { semaphore.release() }
@@ -2222,30 +2199,23 @@ actor HealthKitFetchEngine {
         guard !Task.isCancelled else { return .failure }
         BodyRefreshProfile.shared.enterQuery()
         defer { BodyRefreshProfile.shared.exitQuery() }
-        let outcome = await healthStore.samples(.init(sampleType: quantityType, predicate: predicate,
-            limit: HKObjectQueryNoLimit, sortDescriptors: [sort]))
+        let store = healthStore
+        let outcome = await BodyMetricWarningFetch.todaysReadings(
+            for: kind,
+            store: store,
+            sourcePredicate: selectedSources,
+            threshold: thresholdValue,
+            now: now,
+            calendar: calendar,
+            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+        )
         // Cancellation counts as a failure, like a query failure, so the
         // resolver keeps the cached event instead of clearing the badge from a
         // partial result.
         switch outcome {
-        case .failure(let error):
-            Self.logTrendQueryFailure(identifier.rawValue, error: error)
+        case .failure:
             return .failure
-        case .cancelled:
-            return .failure
-        case .success(let samples):
-            let points = samples.compactMap { sample -> HealthTrendDataPoint? in
-                guard let quantitySample = sample as? HKQuantitySample else {
-                    return nil
-                }
-                let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
-                guard value.isFinite else {
-                    return nil
-                }
-
-                return HealthTrendDataPoint(date: quantitySample.endDate, value: value)
-            }
-
+        case .success(let points):
             // Nothing past the threshold → `.success(nil)`, which clears a
             // stale cached event rather than keeping yesterday's badge.
             return .success(MetricThresholdWarning.detect(

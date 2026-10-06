@@ -948,10 +948,11 @@ struct BodyDismissedMetricWarnings: Equatable {
 
     /// The entry a threshold warning is stored under: its kind and the day it
     /// started, "highHeartRate@2026-10-04". The watch receives it with the
-    /// warning (`WatchMetricWarning.foldKey`) and sends it back verbatim, so
-    /// this is the one place a fold key is built.
+    /// warning (`WatchMetricWarning.foldKey`) and sends it back verbatim, and
+    /// builds the same key for a warning it detects itself, both through
+    /// `MetricWarningDayKey.foldKey`, the one place a fold key is built.
     static func entryKey(for event: MetricWarningEvent, calendar: Calendar = .bodyGregorian) -> String {
-        entry(name: event.kind.rawValue, date: event.startDate, calendar: calendar)
+        MetricWarningDayKey.foldKey(kind: event.kind, startDate: event.startDate, calendar: calendar)
     }
 
     /// Whether `entry` has the shape `entryKey(for:)` builds: a
@@ -1024,8 +1025,7 @@ struct BodyDismissedMetricWarnings: Equatable {
     }
 
     private static func dayText(for date: Date, calendar: Calendar) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
+        MetricWarningDayKey.dayText(for: date, calendar: calendar)
     }
 }
 

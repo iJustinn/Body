@@ -286,52 +286,22 @@ actor MetricWarningBackgroundEvaluator {
     }
 
     /// Stable per kind per day, so a duplicate add can only ever replace the
-    /// notification already on screen.
+    /// notification already on screen. The watch posts under the same
+    /// identifier (`MetricWarningDayKey`).
     static func notificationIdentifier(for kind: MetricWarningKind, date: Date, calendar: Calendar) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        let dayKey = String(
-            format: "%04d-%02d-%02d",
-            components.year ?? 0,
-            components.month ?? 0,
-            components.day ?? 0
-        )
-        return "warning.\(kind.rawValue).\(dayKey)"
+        MetricWarningDayKey.notificationIdentifier(kind: kind, date: date, calendar: calendar)
     }
 
+    /// The copy the watch's own notifier posts too.
     private static func notificationTitle(for kind: MetricWarningKind) -> String {
-        switch kind {
-        case .lowHeartRate:
-            return String(localized: "Low Heart Rate Warning")
-        case .highHeartRate:
-            return String(localized: "High Heart Rate Warning")
-        case .lowBloodOxygen:
-            return String(localized: "Low Blood Oxygen Warning")
-        case .highRespiratoryRate:
-            return String(localized: "High Respiratory Rate Warning")
-        case .highWristTemperature:
-            return String(localized: "High Skin Temperature Warning")
-        }
+        MetricWarningNotificationContent.title(for: kind)
     }
 
     private static func notificationBody(for event: MetricWarningEvent) -> String {
-        let threshold = Int(event.threshold.rounded())
-        let value = Int(event.extremeValue.rounded())
-
-        switch event.kind {
-        case .lowHeartRate:
-            return String(localized: "A periodic check found a heart rate of \(value) bpm today, below your \(threshold) bpm limit.")
-        case .highHeartRate:
-            return String(localized: "A periodic check found a heart rate of \(value) bpm today, above your \(threshold) bpm limit.")
-        case .lowBloodOxygen:
-            return String(localized: "A periodic check found a blood oxygen level of \(value)% today, below your \(threshold)% limit.")
-        case .highRespiratoryRate:
-            return String(localized: "A periodic check found a respiratory rate of \(value) br/min today, above your \(threshold) br/min limit.")
-        case .highWristTemperature:
-            let unit = HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
-            let reading = BodyMetricWarningTemperatureText.text(celsius: event.extremeValue, temperatureUnitPreference: unit)
-            let limit = BodyMetricWarningTemperatureText.text(celsius: event.threshold, temperatureUnitPreference: unit)
-            return String(localized: "A periodic check found a skin temperature of \(reading) today, above your \(limit) limit.")
-        }
+        MetricWarningNotificationContent.body(
+            for: event,
+            temperatureUnitPreference: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
+        )
     }
 
     // MARK: - Ledger

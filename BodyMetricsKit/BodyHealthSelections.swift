@@ -66,6 +66,12 @@ enum BodyAppearancePreference {
     /// When each threshold warning's fold state last changed, on the iPhone or
     /// the watch. See `BodyMetricWarningFoldDates`.
     static let metricWarningFoldDatesKey = "metricWarningFoldDates"
+    /// The estimated max heart rate (220 − age) the High Heart Rate default
+    /// threshold was last resolved with, kept by
+    /// `HealthKitFetchEngine.userMaxHeartRate` so the watch payload can carry
+    /// the effective threshold without a HealthKit read: 0 when no birth date
+    /// is readable (the 120 bpm fallback), absent until first resolved.
+    static let warningMaxHeartRateKey = "metricWarningMaxHeartRate"
     static let healthPermissionSelectionKey = "healthPermissionSelection"
     static let healthPermissionExpandedMigratedKey = "healthPermissionExpandedMigrated"
     static let healthCardioFitnessMigratedKey = "healthCardioFitnessMigrated"
