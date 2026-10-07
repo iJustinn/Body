@@ -93,6 +93,11 @@
 - **Fold a warning card instead of closing it.** The close button on each metric warning card and the Body Radar warning card is now a chevron, and the whole title row is its button. Tapping it folds the card to its title row, the chevron turning from pointing down to pointing left, and hides that warning's Home card glyph and hero badge, as closing did. Tapping it again unfolds the card and brings the glyph and badge back. The fold is stored where closing was (`dismissedMetricWarnings`), so a card closed on an earlier build now shows folded, and a folded card plays no warning haptic when it appears.
 - **Warning dots on the day picker.** On a metric detail page with warnings (Heart Rate, Blood Oxygen, Respiratory Rate), each day picker tile whose day has a warning card shows a small yellow dot between the weekday and the date, folded warnings included. Days are judged the same way as the cards, by the enabled warnings, their thresholds and the workout exclusion, from one memoized pass over the intraday readings.
 
+## 1.1.3 (build 9)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.3 build 9.
+- **Built with the release Xcode 27.0.** App Store Connect does not accept builds from the Xcode 27.1 beta, so this build is made with Xcode 27.0 and the iOS 27.0 SDK. That SDK has no UIHingeInteraction, so the hinge reader is compiled only against the iOS 27.1 SDK or later. In this build a foldable iPhone's inner screen keeps the flat layout when half open (the right column at the outer screen's width) instead of splitting the columns at the hinge. The two column layout itself is unchanged.
+
 ## 1.1.3 (build 8)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.3 build 8.
