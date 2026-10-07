@@ -22,13 +22,16 @@ final class BodyHingeState {
 
 /// A zero-size view carrying the `UIHingeInteraction` (iOS 27.1) that reports the
 /// hinge posture into `state`. Before iOS 27.1, or off a foldable, the status stays
-/// `.unknown`.
+/// `.unknown`. The interaction is compiled only against the iOS 27.1 SDK or later
+/// (UIKit module 9127.0.85; the 27.0 SDK ships 9127.0.84), so a build from the
+/// release Xcode 27.0 leaves the status `.unknown` too.
 struct BodyHingeReader: UIViewRepresentable {
     let state: BodyHingeState
 
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
         view.isUserInteractionEnabled = false
+        #if canImport(UIKit, _version: 9127.0.85)
         if #available(iOS 27.1, *) {
             let interaction = UIHingeInteraction { _, update in
                 let status: BodyHingeStatus
@@ -45,6 +48,7 @@ struct BodyHingeReader: UIViewRepresentable {
             }
             view.addInteraction(interaction)
         }
+        #endif
         return view
     }
 

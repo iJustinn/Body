@@ -3923,6 +3923,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.5 build 2."))
         XCTAssertTrue(versionHistory.contains("## 1.1.5 (build 1)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.5 build 1."))
+        XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 9)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 9."))
         XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 8)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.3 build 8."))
         XCTAssertTrue(versionHistory.contains("## 1.1.3 (build 7)"))
