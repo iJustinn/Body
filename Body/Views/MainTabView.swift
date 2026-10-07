@@ -55,7 +55,7 @@ struct MainTabView: View {
     @AppStorage(BodyAppearancePreference.navigationBarShowsLabelsKey) private var navigationBarShowsLabels = false
     @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.updateOnboardingCompletedVersionKey) private var updateOnboardingCompletedVersion = ""
-    @AppStorage(BodyAppearancePreference.proIntroPaywallShownKey) private var proIntroPaywallShown = false
+    @AppStorage(BodyAppearancePreference.proIntroPaywallShownVersionKey) private var proIntroPaywallShownVersion = ""
     @State private var isProIntroPresented = false
     /// The page the update cover shows, kept once it has been due: stamping the
     /// completion on dismissal turns `dueUpdatePage` nil while the cover is
@@ -121,15 +121,15 @@ struct MainTabView: View {
         }
     }
 
-    /// Installs set up before the subscriptions existed see the new Body Pro paywall once,
-    /// after onboarding and the update page, and only once the entitlement has resolved
+    /// Installs stamped below `BodyOnboardingGate.proIntroVersion` see the Body Pro paywall
+    /// once, after onboarding and the update page, and only once the entitlement has resolved
     /// so members who already own Pro are never shown it (`BodyOnboardingGate`). The
     /// first run ends on the paywall inside onboarding instead.
     private var proIntroReady: Bool {
         scenePhase == .active
             && (proStore?.hasResolved ?? false)
             && BodyOnboardingGate.shouldPresentProIntro(
-                shown: proIntroPaywallShown,
+                shownVersion: proIntroPaywallShownVersion,
                 completedVersion: onboardingCompletedVersion,
                 updateCompletedVersion: updateOnboardingCompletedVersion,
                 includesStress: updateIncludesStress
@@ -231,8 +231,8 @@ struct MainTabView: View {
                 try? await Task.sleep(for: .milliseconds(700))
                 guard !Task.isCancelled, proIntroReady else { return }
                 // Recorded as soon as it is due, so it shows once even if the app is
-                // closed on it; members who already own Pro just settle the flag.
-                proIntroPaywallShown = true
+                // closed on it; members who already own Pro just settle the stamp.
+                proIntroPaywallShownVersion = BodyOnboardingGate.currentAppVersionAndBuild()
                 if !(proStore?.isPro ?? false) {
                     isProIntroPresented = true
                 }

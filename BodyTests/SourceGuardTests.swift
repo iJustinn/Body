@@ -5362,23 +5362,32 @@ final class SourceGuardTests: XCTestCase {
     }
 
     /// The Body Pro paywall as a step in the app's own flows: first-run onboarding ends on
-    /// it, and installs set up before the subscriptions see it once on launch. Both offer
+    /// it, and installs stamped below `proIntroVersion` see it once on launch. Both offer
     /// Continue for Free, and members who already own Pro never see either.
     func testProPaywallEndsOnboardingAndShowsOnceToExistingInstalls() throws {
         let selections = try BodyTestSupport.sourceText(at: "BodyMetricsKit/BodyHealthSelections.swift")
-        XCTAssertTrue(selections.contains(#"static let proIntroPaywallShownKey = "proIntroPaywallShown""#))
+        XCTAssertTrue(selections.contains(#"static let proIntroPaywallShownVersionKey = "proIntroPaywallShownVersion""#))
+        XCTAssertFalse(selections.contains(#"static let proIntroPaywallShownKey = "proIntroPaywallShown""#))
+        XCTAssertEqual(BodyOnboardingGate.proIntroVersion, "1.1.5.8")
 
         // Due only for an install that finished onboarding (a fresh install gets the
         // paywall at the end of onboarding instead), after the update page, and once.
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: nil, updateCompletedVersion: nil, includesStress: false))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "", updateCompletedVersion: nil, includesStress: false))
-        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: false))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: true, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: false))
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.0.3", updateCompletedVersion: nil, includesStress: false))
-        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.0.3", updateCompletedVersion: "1.1.3.3", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shownVersion: nil, completedVersion: nil, updateCompletedVersion: nil, includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shownVersion: "", completedVersion: "", updateCompletedVersion: nil, includesStress: false))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shownVersion: "", completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: false))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shownVersion: nil, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shownVersion: "", completedVersion: "1.0.3", updateCompletedVersion: nil, includesStress: false))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shownVersion: "", completedVersion: "1.0.3", updateCompletedVersion: "1.1.3.3", includesStress: false))
+        // An install that saw it on an earlier build, or finished onboarding there, sees it
+        // once more on build 8; stamped on build 8 or later, it stays away.
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shownVersion: "1.1.5.7", completedVersion: "1.1.5", updateCompletedVersion: "1.1.5.7", includesStress: false))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shownVersion: "1.1.3.8", completedVersion: "1.1.3", updateCompletedVersion: "1.1.3.8", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shownVersion: "1.1.5.8", completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shownVersion: "1.1.5.10", completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: false))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shownVersion: "1.2.0.1", completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: false))
         // A due Stress update page holds the paywall back too, until it is done.
-        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: true))
-        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shown: false, completedVersion: "1.1.2", updateCompletedVersion: "1.1.5.5", includesStress: true))
+        XCTAssertFalse(BodyOnboardingGate.shouldPresentProIntro(shownVersion: "1.1.3.8", completedVersion: "1.1.2", updateCompletedVersion: "1.1.2.8", includesStress: true))
+        XCTAssertTrue(BodyOnboardingGate.shouldPresentProIntro(shownVersion: "1.1.3.8", completedVersion: "1.1.2", updateCompletedVersion: "1.1.5.5", includesStress: true))
 
         // Onboarding: Get Started and Skip both lead to the paywall on the first run,
         // and only its Continue for Free (or a purchase) finishes the flow, which also
@@ -5387,14 +5396,14 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertEqual(onboardingView.occurrenceCount(of: "finishPages()"), 2 + 1)
         XCTAssertTrue(onboardingView.contains("guard mode == .firstRun, !(proStore?.isPro ?? false) else {"))
         XCTAssertTrue(onboardingView.contains("BodyProView(onContinue: finish)"))
-        XCTAssertTrue(onboardingView.contains("if mode == .firstRun {\n            proIntroPaywallShown = true\n        }"))
+        XCTAssertTrue(onboardingView.contains("if mode == .firstRun {\n            proIntroPaywallShownVersion = BodyOnboardingGate.currentAppVersionAndBuild()\n        }"))
 
         // Launch: shown once, recorded the moment it is due, never to Pro members, and
         // the notification prompt waits for it.
         let mainTabView = try BodyTestSupport.sourceText(at: "Body/Views/MainTabView.swift")
         XCTAssertTrue(mainTabView.contains("&& (proStore?.hasResolved ?? false)"))
         XCTAssertTrue(mainTabView.contains("BodyOnboardingGate.shouldPresentProIntro("))
-        XCTAssertTrue(mainTabView.contains("proIntroPaywallShown = true\n                if !(proStore?.isPro ?? false) {\n                    isProIntroPresented = true"))
+        XCTAssertTrue(mainTabView.contains("proIntroPaywallShownVersion = BodyOnboardingGate.currentAppVersionAndBuild()\n                if !(proStore?.isPro ?? false) {\n                    isProIntroPresented = true"))
         XCTAssertTrue(mainTabView.contains(".fullScreenCover(isPresented: $isProIntroPresented)"))
         XCTAssertTrue(mainTabView.contains("BodyProView(onContinue: { isProIntroPresented = false })"))
         XCTAssertTrue(mainTabView.contains("&& !isProIntroPresented && !workoutStore.needsInitialHealthDataLoad"))

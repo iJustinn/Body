@@ -86,10 +86,13 @@ enum BodyAppearancePreference {
     /// cache rebuild explainer or the Stress update) on; empty until then. See
     /// `BodyOnboardingGate`.
     static let updateOnboardingCompletedVersionKey = "updateOnboardingCompletedVersion"
-    /// Set once the Body Pro paywall has been shown as part of a flow: at the end
-    /// of first-run onboarding, or once to installs that were set up before the
-    /// subscriptions arrived. See `BodyOnboardingGate.shouldPresentProIntro`.
-    static let proIntroPaywallShownKey = "proIntroPaywallShown"
+    /// Marketing version plus build the Body Pro paywall was last shown on as
+    /// part of a flow: at the end of first-run onboarding, or once on launch to
+    /// installs stamped below `BodyOnboardingGate.proIntroVersion`; empty until
+    /// then. Replaces the 1.1.3 `proIntroPaywallShown` flag, so every install
+    /// from before build 8 sees it once more. See
+    /// `BodyOnboardingGate.shouldPresentProIntro`.
+    static let proIntroPaywallShownVersionKey = "proIntroPaywallShownVersion"
 
     /// Whether the app's UI is currently running in English. Short uppercase
     /// month names only read correctly in English, so the setting that turns
@@ -946,6 +949,12 @@ enum BodyOnboardingGate {
     /// Stress update page once, if it shows Stress.
     static let stressUpdateVersion = "1.1.5.5"
 
+    /// Marketing version plus build ("1.1.5.8") the Body Pro paywall stamp must
+    /// reach. An install that finished onboarding and is stamped below it,
+    /// including one that already saw the paywall on an earlier build, sees it
+    /// once more on launch. Raise it to show the paywall again.
+    static let proIntroVersion = "1.1.5.8"
+
     /// The one-time update pages, both stamped on the same key. The cache
     /// rebuild comes first: its full load brings the current Stress too, so an
     /// install due both sees only it.
@@ -1015,17 +1024,18 @@ enum BodyOnboardingGate {
     }
 
     /// Whether the one-time Body Pro paywall is due on launch: an install that
-    /// finished onboarding before the subscriptions existed (first-run onboarding
-    /// now ends on the paywall and sets the flag itself), once any update page is
-    /// out of the way, and only until it has been shown. Whether the customer
-    /// already owns Pro is the caller's check, once the entitlement resolves.
+    /// finished onboarding and whose paywall stamp is below `proIntroVersion`
+    /// (first-run onboarding ends on the paywall and stamps it itself), once
+    /// any update page is out of the way, and only until it has been stamped.
+    /// Whether the customer already owns Pro is the caller's check, once the
+    /// entitlement resolves.
     static func shouldPresentProIntro(
-        shown: Bool,
+        shownVersion: String?,
         completedVersion: String?,
         updateCompletedVersion: String?,
         includesStress: Bool
     ) -> Bool {
-        !shown
+        (shownVersion ?? "").compare(proIntroVersion, options: .numeric) == .orderedAscending
             && !shouldPresent(completedVersion: completedVersion)
             && !shouldPresentUpdate(
                 completedVersion: completedVersion,
