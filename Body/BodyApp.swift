@@ -56,7 +56,17 @@ struct BodyApp: App {
         _proStore = State(initialValue: BodyProStore())
 
         // Activate WatchConnectivity at startup so the session is ready and the
-        // first snapshot push doesn't have to wait for activation.
+        // first snapshot push doesn't have to wait for activation. The watch's
+        // Sync Baseline handler goes in first, so a request that wakes the app
+        // can't arrive before it. Same for the warning fold handler: a fold on
+        // the watch can wake the app in the background too, with no scene to
+        // observe the change, so it's applied and republished from here.
+        WatchConnectivityPublisher.shared.baselineSyncHandler = { reply in
+            BodyAppRuntime.shared.workoutStore.publishWatchBaselineSync(reply: reply)
+        }
+        WatchConnectivityPublisher.shared.warningFoldHandler = { records, completion in
+            BodyAppRuntime.shared.workoutStore.applyWatchWarningFolds(records, completion: completion)
+        }
         WatchConnectivityPublisher.shared.activate()
 
         // BGTask handlers must be registered before launch finishes, so this

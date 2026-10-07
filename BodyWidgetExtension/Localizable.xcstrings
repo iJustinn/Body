@@ -136,6 +136,70 @@
         }
       }
     },
+    "Bridge End": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bridge End"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桥接结束"
+          }
+        }
+      }
+    },
+    "Bridge Start": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bridge Start"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桥接起点"
+          }
+        }
+      }
+    },
+    "Bridge Y End": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bridge Y End"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桥接Y轴终点"
+          }
+        }
+      }
+    },
+    "Bridge Y Start": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bridge Y Start"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桥接Y轴起点"
+          }
+        }
+      }
+    },
     "Chart a metric's weekly or monthly trend.": {
       "extractionState": "manual",
       "localizations": {

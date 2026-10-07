@@ -120,6 +120,12 @@ struct HealthTrendSnapshot: Codable, Equatable {
     var activeEnergyDaySamplesSecondary: HealthTrendSeries
     var stepsDaySamples: HealthTrendSeries
     var stepsDaySamplesSecondary: HealthTrendSeries
+    /// Stress's movement mask: 15 minute steps and active energy sums from each
+    /// midnight, one bucket per Stress window. Their own series because the
+    /// hourly fields above draw the Day View; they ride the steps / energy
+    /// permission, source scope and travel signature like those.
+    var stressStepsDaySamples: HealthTrendSeries
+    var stressActiveEnergyDaySamples: HealthTrendSeries
     /// Per-day stress rollups, each carrying the day's quiet-HR and RMSSD
     /// medians so the baselines outlive the ~32-day day-sample cache. Persisted
     /// in the MAIN snapshot (day samples are stripped from it on save), which is
@@ -163,6 +169,20 @@ struct HealthTrendSnapshot: Codable, Equatable {
     /// three metrics read different inputs, so a change to one must not drop the
     /// others' records (see `recalculatingBodyRadar`).
     var recordedBodyRadarContext: String
+    /// Per night frozen Sleep Debt records, keyed by `startOfDay` of the wake
+    /// day. A night is frozen by the first recompute on a whole year history
+    /// after its day has passed and is never rewritten, so a later revision of
+    /// the sleep history, the Training Load or the learned need cannot move a
+    /// past point on the chart (`SleepDebtChartModel.make(records:)`). Carried
+    /// forward across refreshes like `recordedBodyRadar`: Sleep Debt is
+    /// derived, never fetched. Shipped to the watch in the compute seed.
+    var recordedSleepDebt: [SleepDebtRecord]
+    /// Signature of the Sleep Debt input context (sleep goal, sleep and
+    /// Training Load permissions and sources, awake stage prefs, algorithm
+    /// version) under which `recordedSleepDebt` was captured. A mismatch drops
+    /// the records so a recompute under the new inputs is authoritative
+    /// (see `recalculatingSleepDebt`).
+    var recordedSleepDebtContext: String
 
     static let empty = HealthTrendSnapshot(
         sleep: .empty,
@@ -218,6 +238,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         activeEnergyDaySamplesSecondary: .empty,
         stepsDaySamples: .empty,
         stepsDaySamplesSecondary: .empty,
+        stressStepsDaySamples: .empty,
+        stressActiveEnergyDaySamples: .empty,
         recordedStressDays: [],
         recordedStressContext: "",
         stressBackfillScannedThrough: nil,
@@ -225,7 +247,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         recordedReadiness: [],
         recordedReadinessContext: "",
         recordedBodyRadar: [],
-        recordedBodyRadarContext: ""
+        recordedBodyRadarContext: "",
+        recordedSleepDebt: [],
+        recordedSleepDebtContext: ""
     )
 
     var isEmpty: Bool {
@@ -285,9 +309,12 @@ struct HealthTrendSnapshot: Codable, Equatable {
             activeEnergyDaySamplesSecondary.isEmpty &&
             stepsDaySamples.isEmpty &&
             stepsDaySamplesSecondary.isEmpty &&
+            stressStepsDaySamples.isEmpty &&
+            stressActiveEnergyDaySamples.isEmpty &&
             recordedStressDays.isEmpty &&
             recordedReadiness.isEmpty &&
-            recordedBodyRadar.isEmpty
+            recordedBodyRadar.isEmpty &&
+            recordedSleepDebt.isEmpty
     }
 
     init(
@@ -347,6 +374,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         activeEnergyDaySamplesSecondary: HealthTrendSeries = .empty,
         stepsDaySamples: HealthTrendSeries = .empty,
         stepsDaySamplesSecondary: HealthTrendSeries = .empty,
+        stressStepsDaySamples: HealthTrendSeries = .empty,
+        stressActiveEnergyDaySamples: HealthTrendSeries = .empty,
         recordedStressDays: [StressDaySummary] = [],
         recordedStressContext: String = "",
         stressBackfillScannedThrough: Date? = nil,
@@ -354,7 +383,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
         recordedReadiness: [RecordedReadinessEntry] = [],
         recordedReadinessContext: String = "",
         recordedBodyRadar: [BodyRadarNight] = [],
-        recordedBodyRadarContext: String = ""
+        recordedBodyRadarContext: String = "",
+        recordedSleepDebt: [SleepDebtRecord] = [],
+        recordedSleepDebtContext: String = ""
     ) {
         self.sleep = sleep
         self.sleepSecondary = sleepSecondary
@@ -412,6 +443,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.activeEnergyDaySamplesSecondary = activeEnergyDaySamplesSecondary
         self.stepsDaySamples = stepsDaySamples
         self.stepsDaySamplesSecondary = stepsDaySamplesSecondary
+        self.stressStepsDaySamples = stressStepsDaySamples
+        self.stressActiveEnergyDaySamples = stressActiveEnergyDaySamples
         self.recordedStressDays = recordedStressDays
         self.recordedStressContext = recordedStressContext
         self.stressBackfillScannedThrough = stressBackfillScannedThrough
@@ -420,6 +453,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         self.recordedReadinessContext = recordedReadinessContext
         self.recordedBodyRadar = recordedBodyRadar
         self.recordedBodyRadarContext = recordedBodyRadarContext
+        self.recordedSleepDebt = recordedSleepDebt
+        self.recordedSleepDebtContext = recordedSleepDebtContext
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -479,6 +514,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case activeEnergyDaySamplesSecondary
         case stepsDaySamples
         case stepsDaySamplesSecondary
+        case stressStepsDaySamples
+        case stressActiveEnergyDaySamples
         case recordedStressDays
         case recordedStressContext
         case stressBackfillScannedThrough
@@ -487,6 +524,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         case recordedReadinessContext
         case recordedBodyRadar
         case recordedBodyRadarContext
+        case recordedSleepDebt
+        case recordedSleepDebtContext
     }
 
     /// Decodes tolerantly: a missing series key is treated as an empty series rather than a
@@ -628,6 +667,16 @@ struct HealthTrendSnapshot: Codable, Equatable {
             HealthTrendSeries.self,
             forKey: .stepsDaySamplesSecondary
         ) ?? .empty
+        // Absent in snapshots written before the 15 minute mask; empty reads as
+        // "not fetched yet", and the Stress input load fills the window once.
+        stressStepsDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .stressStepsDaySamples
+        ) ?? .empty
+        stressActiveEnergyDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self,
+            forKey: .stressActiveEnergyDaySamples
+        ) ?? .empty
         recordedStressDays = try container.decodeIfPresent(
             [StressDaySummary].self,
             forKey: .recordedStressDays
@@ -659,6 +708,14 @@ struct HealthTrendSnapshot: Codable, Equatable {
         recordedBodyRadarContext = try container.decodeIfPresent(
             String.self,
             forKey: .recordedBodyRadarContext
+        ) ?? ""
+        recordedSleepDebt = try container.decodeIfPresent(
+            [SleepDebtRecord].self,
+            forKey: .recordedSleepDebt
+        ) ?? []
+        recordedSleepDebtContext = try container.decodeIfPresent(
+            String.self,
+            forKey: .recordedSleepDebtContext
         ) ?? ""
     }
 
@@ -895,6 +952,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.sleepSecondary = refreshed.sleepSecondary
             next.sleepHistory = refreshed.sleepHistory
             next.sleepHistorySecondary = refreshed.sleepHistorySecondary
+            next.recordedSleepDebt = refreshed.recordedSleepDebt
+            next.recordedSleepDebtContext = refreshed.recordedSleepDebtContext
         case .basics:
             next.bodyMass = refreshed.bodyMass
             next.bodyFatPercentage = refreshed.bodyFatPercentage
@@ -953,6 +1012,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.activeEnergySecondary = refreshed.activeEnergySecondary
             next.activeEnergyDaySamples = refreshed.activeEnergyDaySamples
             next.activeEnergyDaySamplesSecondary = refreshed.activeEnergyDaySamplesSecondary
+            next.stressActiveEnergyDaySamples = refreshed.stressActiveEnergyDaySamples
         case .restingEnergy:
             next.restingEnergy = refreshed.restingEnergy
             next.restingEnergySecondary = refreshed.restingEnergySecondary
@@ -970,6 +1030,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             next.stepsSecondary = refreshed.stepsSecondary
             next.stepsDaySamples = refreshed.stepsDaySamples
             next.stepsDaySamplesSecondary = refreshed.stepsDaySamplesSecondary
+            next.stressStepsDaySamples = refreshed.stressStepsDaySamples
         case .vitals:
             next.sleep = refreshed.sleep
             next.sleepSecondary = refreshed.sleepSecondary
@@ -1021,6 +1082,9 @@ struct HealthTrendSnapshot: Codable, Equatable {
             // Body Radar is scored end to end from the overnight signals, so the
             // frozen nights go with the history they were scored from.
             filtered.recordedBodyRadar = []
+            // Sleep Debt is judged night by night from the same history, so
+            // its frozen nights go with it too.
+            filtered.recordedSleepDebt = []
         }
         if !selection.includes(.heart) {
             filtered.heartRate = .empty
@@ -1101,6 +1165,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.activeEnergySecondary = .empty
             filtered.activeEnergyDaySamples = .empty
             filtered.activeEnergyDaySamplesSecondary = .empty
+            filtered.stressActiveEnergyDaySamples = .empty
             filtered.restingEnergy = .empty
             filtered.restingEnergySecondary = .empty
         }
@@ -1128,6 +1193,7 @@ struct HealthTrendSnapshot: Codable, Equatable {
             filtered.stepsSecondary = .empty
             filtered.stepsDaySamples = .empty
             filtered.stepsDaySamplesSecondary = .empty
+            filtered.stressStepsDaySamples = .empty
         }
         if !selection.includes(.cardioFitness) {
             filtered.cardioFitness = .empty
@@ -1181,6 +1247,8 @@ struct HealthTrendSnapshot: Codable, Equatable {
         stripped.activeEnergyDaySamplesSecondary = .empty
         stripped.stepsDaySamples = .empty
         stripped.stepsDaySamplesSecondary = .empty
+        stripped.stressStepsDaySamples = .empty
+        stripped.stressActiveEnergyDaySamples = .empty
         return stripped
     }
 
@@ -1207,8 +1275,11 @@ struct HealthTrendSnapshot: Codable, Equatable {
             stripped.oxygenSaturationDaySamples = .empty
         case .activeEnergy:
             stripped.activeEnergyDaySamples = .empty
+            // Stress's 15 minute series is read under this metric's source too.
+            stripped.stressActiveEnergyDaySamples = .empty
         case .steps:
             stripped.stepsDaySamples = .empty
+            stripped.stressStepsDaySamples = .empty
         case .sleep,
              .readiness,
              .basics,
@@ -1279,7 +1350,23 @@ struct HealthTrendSnapshot: Codable, Equatable {
         if merged.stepsDaySamplesSecondary.isEmpty {
             merged.stepsDaySamplesSecondary = daySamples.stepsDaySamplesSecondary
         }
+        if merged.stressStepsDaySamples.isEmpty {
+            merged.stressStepsDaySamples = daySamples.stressStepsDaySamples
+        }
+        if merged.stressActiveEnergyDaySamples.isEmpty {
+            merged.stressActiveEnergyDaySamples = daySamples.stressActiveEnergyDaySamples
+        }
         return merged
+    }
+
+    /// True while a Stress movement series has not been fetched though its hourly
+    /// Day View counterpart holds data: both read the same samples under the same
+    /// permission and source scope, so an empty 15 minute series beside a
+    /// non-empty hourly one means not loaded yet (the first launch after the 15
+    /// minute mask arrived), never "no movement".
+    var stressMovementInputsPending: Bool {
+        (stressStepsDaySamples.isEmpty && !stepsDaySamples.isEmpty)
+            || (stressActiveEnergyDaySamples.isEmpty && !activeEnergyDaySamples.isEmpty)
     }
 }
 
@@ -1325,6 +1412,11 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
     var activeEnergyDaySamplesSecondary: HealthTrendSeries
     var stepsDaySamples: HealthTrendSeries
     var stepsDaySamplesSecondary: HealthTrendSeries
+    /// Stress's 15 minute movement mask. Additive within schema 3: a sidecar
+    /// written before it decodes these as empty and the Stress input load
+    /// fetches the window once, so no other series is dropped to add them.
+    var stressStepsDaySamples: HealthTrendSeries
+    var stressActiveEnergyDaySamples: HealthTrendSeries
     /// `nil` on a legacy (pre-scoping) sidecar; set to `currentSchemaVersion`
     /// once the source/permission stamps below are recorded.
     var schemaVersion: Int?
@@ -1358,6 +1450,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         activeEnergyDaySamplesSecondary = trends.activeEnergyDaySamplesSecondary
         stepsDaySamples = trends.stepsDaySamples
         stepsDaySamplesSecondary = trends.stepsDaySamplesSecondary
+        stressStepsDaySamples = trends.stressStepsDaySamples
+        stressActiveEnergyDaySamples = trends.stressActiveEnergyDaySamples
         schemaVersion = signatures == nil ? nil : Self.currentSchemaVersion
         primarySelectionSignature = signatures?.primarySelectionSignature
         secondarySelectionSignature = signatures?.secondarySelectionSignature
@@ -1383,6 +1477,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         case activeEnergyDaySamplesSecondary
         case stepsDaySamples
         case stepsDaySamplesSecondary
+        case stressStepsDaySamples
+        case stressActiveEnergyDaySamples
         case schemaVersion
         case primarySelectionSignature
         case secondarySelectionSignature
@@ -1442,6 +1538,12 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         stepsDaySamplesSecondary = try container.decodeIfPresent(
             HealthTrendSeries.self, forKey: .stepsDaySamplesSecondary
         ) ?? .empty
+        stressStepsDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .stressStepsDaySamples
+        ) ?? .empty
+        stressActiveEnergyDaySamples = try container.decodeIfPresent(
+            HealthTrendSeries.self, forKey: .stressActiveEnergyDaySamples
+        ) ?? .empty
         schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
         primarySelectionSignature = try container.decodeIfPresent(
             String.self, forKey: .primarySelectionSignature
@@ -1472,7 +1574,9 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             activeEnergyDaySamples.isEmpty &&
             activeEnergyDaySamplesSecondary.isEmpty &&
             stepsDaySamples.isEmpty &&
-            stepsDaySamplesSecondary.isEmpty
+            stepsDaySamplesSecondary.isEmpty &&
+            stressStepsDaySamples.isEmpty &&
+            stressActiveEnergyDaySamples.isEmpty
     }
 
     /// Drops every comparison-source series, keeping the primary ones. Used to
@@ -1518,9 +1622,15 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         if !matches(.respiratoryRate) { next.respiratoryRateDaySamples = .empty }
         if !matches(.oxygenSaturation) { next.oxygenSaturationDaySamples = .empty }
         if !matches(.oxygenSaturation, secondary: true) { next.oxygenSaturationDaySamplesSecondary = .empty }
-        if !matches(.activeEnergy) { next.activeEnergyDaySamples = .empty }
+        if !matches(.activeEnergy) {
+            next.activeEnergyDaySamples = .empty
+            next.stressActiveEnergyDaySamples = .empty
+        }
         if !matches(.activeEnergy, secondary: true) { next.activeEnergyDaySamplesSecondary = .empty }
-        if !matches(.steps) { next.stepsDaySamples = .empty }
+        if !matches(.steps) {
+            next.stepsDaySamples = .empty
+            next.stressStepsDaySamples = .empty
+        }
         if !matches(.steps, secondary: true) { next.stepsDaySamplesSecondary = .empty }
         return next
     }
@@ -1574,6 +1684,8 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
             scoped.oxygenSaturationDaySamples = .empty
             scoped.activeEnergyDaySamples = .empty
             scoped.stepsDaySamples = .empty
+            scoped.stressActiveEnergyDaySamples = .empty
+            scoped.stressStepsDaySamples = .empty
         }
         if !usesMetricScopes, !secondaryScopeMatches {
             scoped.heartRateDaySamplesSecondary = .empty
@@ -1614,10 +1726,12 @@ struct HealthTrendDaySampleSnapshot: Codable, Equatable {
         if !permission.includes(.energy) {
             scoped.activeEnergyDaySamples = .empty
             scoped.activeEnergyDaySamplesSecondary = .empty
+            scoped.stressActiveEnergyDaySamples = .empty
         }
         if !permission.includes(.steps) {
             scoped.stepsDaySamples = .empty
             scoped.stepsDaySamplesSecondary = .empty
+            scoped.stressStepsDaySamples = .empty
         }
 
         if comparisonDisabledKinds.contains(.heartRate) {

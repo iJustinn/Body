@@ -311,13 +311,13 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertTrue(project.contains("SUPPORTS_MACCATALYST = NO;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;"))
         XCTAssertTrue(project.contains("INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"))
-        XCTAssertTrue(project.contains("MARKETING_VERSION = 1.1.3;"))
-        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 9;"))
+        XCTAssertTrue(project.contains("MARKETING_VERSION = 1.1.5;"))
+        XCTAssertTrue(project.contains("CURRENT_PROJECT_VERSION = 8;"))
         // All six targets (app, widget, tests, watch app, watch complications, watch tests)
         // × Debug/Release must move together on a version bump — `contains`
         // alone would pass with a stale target left behind.
-        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.1.3;"), 12)
-        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 9;"), 12)
+        XCTAssertEqual(project.occurrenceCount(of: "MARKETING_VERSION = 1.1.5;"), 12)
+        XCTAssertEqual(project.occurrenceCount(of: "CURRENT_PROJECT_VERSION = 8;"), 12)
         // Strict concurrency stays on project-wide (targeted for now; complete and
         // Swift 6 are separate migrations) so actor and Sendable annotations are checked.
         XCTAssertEqual(project.occurrenceCount(of: "SWIFT_STRICT_CONCURRENCY = targeted;"), 2)
@@ -332,22 +332,42 @@ final class ProjectConfigurationTests: XCTestCase {
             (WatchMetricKindKey.heartRate, .heartRate),
             (WatchMetricKindKey.heartRateVariability, .heartRateVariability),
             (WatchMetricKindKey.restingHeartRate, .restingHeartRate),
+            (WatchMetricKindKey.steps, .steps),
+            (WatchMetricKindKey.activeEnergy, .activeEnergy),
+            (WatchMetricKindKey.restingEnergy, .restingEnergy),
             (WatchMetricKindKey.wristTemperature, .wristTemperature)
         ]
 
-        XCTAssertEqual(pairs.map(\.kind), WatchMetricKindKey.displayOrder)
+        // Stress has no iPhone widget, so it is pinned separately below.
+        XCTAssertEqual(pairs.map(\.kind), WatchMetricKindKey.displayOrder.filter { $0 != WatchMetricKindKey.stress })
 
-        for (kind, widgetMetric) in pairs {
-            XCTAssertEqual(kind, widgetMetric.rawValue)
-            XCTAssertEqual(WatchMetricKindKey.symbolName(forKind: kind), widgetMetric.symbolName, kind)
-
+        func assertTint(_ color: Color, matches kind: String) {
             let tint = WatchMetricKindKey.tint(forKind: kind)
-            let components = UIColor(widgetMetric.tintColor).cgColor.components ?? []
+            let components = UIColor(color).cgColor.components ?? []
             XCTAssertGreaterThanOrEqual(components.count, 3, kind)
+            guard components.count >= 3 else { return }
             XCTAssertEqual(Double(components[0]), tint.red, accuracy: 0.001, kind)
             XCTAssertEqual(Double(components[1]), tint.green, accuracy: 0.001, kind)
             XCTAssertEqual(Double(components[2]), tint.blue, accuracy: 0.001, kind)
         }
+
+        for (kind, widgetMetric) in pairs {
+            XCTAssertEqual(kind, widgetMetric.rawValue)
+            XCTAssertEqual(WatchMetricKindKey.symbolName(forKind: kind), widgetMetric.symbolName, kind)
+            assertTint(widgetMetric.tintColor, matches: kind)
+        }
+
+        // Stress is the third card, after Sleep and Training Load, and looks
+        // like the iPhone's Stress row.
+        XCTAssertEqual(WatchMetricKindKey.displayOrder.firstIndex(of: WatchMetricKindKey.stress), 3)
+        XCTAssertEqual(WatchMetricKindKey.stress, HealthMetricKind.stress.rawValue)
+        let stressPresentation = try XCTUnwrap(HealthMetricPresentation.presentation(for: .stress))
+        XCTAssertEqual(WatchMetricKindKey.symbolName(forKind: WatchMetricKindKey.stress), stressPresentation.symbolName)
+        assertTint(stressPresentation.tint, matches: WatchMetricKindKey.stress)
+
+        // Steps, Active Energy and Resting Energy follow Resting HR, so Steps
+        // is the eighth entry.
+        XCTAssertEqual(WatchMetricKindKey.displayOrder.firstIndex(of: WatchMetricKindKey.steps), 7)
 
         // Exercise Minutes rides the watch snapshot for the rectangular
         // complication only: it has no dashboard card, no detail page and no
@@ -365,6 +385,49 @@ final class ProjectConfigurationTests: XCTestCase {
         // `pairs` table above, and it must stay out of `displayOrder` for the
         // same reason: no dashboard card, no detail page, no ring.
         XCTAssertFalse(WatchMetricKindKey.displayOrder.contains(WatchMetricKindKey.workoutMinutes))
+    }
+
+    func testWatchStressBandsMatchStressBand() {
+        // The watch widget extension has no BodyMetricsKit, so the Stress
+        // bands complication draws `StressBand`'s ranges and colors from this
+        // copy. One entry per band, in display order.
+        let bands = StressBand.displayOrder
+        XCTAssertEqual(WatchStressBands.scoreRanges.count, bands.count)
+        XCTAssertEqual(WatchStressBands.tints.count, bands.count)
+
+        // The ranges tile 0..<101 back to back.
+        XCTAssertEqual(WatchStressBands.scoreRanges.first?.lowerBound, 0)
+        XCTAssertEqual(WatchStressBands.scoreRanges.last?.upperBound, 101)
+        for (lower, upper) in zip(WatchStressBands.scoreRanges, WatchStressBands.scoreRanges.dropFirst()) {
+            XCTAssertEqual(lower.upperBound, upper.lowerBound)
+        }
+
+        // Every score lands in the same band either way.
+        for score in 0...100 {
+            let index = WatchStressBands.scoreRanges.firstIndex { $0.contains(score) }
+            XCTAssertEqual(index, bands.firstIndex(of: StressBand.band(for: score)), "\(score)")
+        }
+
+        for (tint, band) in zip(WatchStressBands.tints, bands) {
+            XCTAssertEqual(tint.red, band.rgbComponents.red, "\(band)")
+            XCTAssertEqual(tint.green, band.rgbComponents.green, "\(band)")
+            XCTAssertEqual(tint.blue, band.rgbComponents.blue, "\(band)")
+        }
+        XCTAssertEqual(WatchStressBands.tint(forScore: 25), WatchStressBands.tints[0])
+        XCTAssertEqual(WatchStressBands.tint(forScore: 26), WatchStressBands.tints[1])
+        XCTAssertEqual(WatchStressBands.tint(forScore: 140), WatchStressBands.tints[3])
+    }
+
+    func testWatchStressChartComplicationMatchesStressChartStyle() {
+        // The watch widget extension has no BodyMetricsKit either, so the
+        // Stress chart complication shades sleep in the Sleep tint and draws
+        // its band grid from `WatchStressChartGeometry`'s copy. Both must
+        // match the Stress page's `StressChartStyle`.
+        let sleep = WatchMetricKindKey.tint(forKind: WatchMetricKindKey.sleep)
+        XCTAssertEqual(sleep.red, StressChartStyle.sleepRGB.red)
+        XCTAssertEqual(sleep.green, StressChartStyle.sleepRGB.green)
+        XCTAssertEqual(sleep.blue, StressChartStyle.sleepRGB.blue)
+        XCTAssertEqual(WatchStressChartGeometry.gridFractions, StressChartStyle.gridFractions)
     }
 
     func testHealthKitUsageDescriptionListsRequestedHealthCategories() throws {
@@ -533,7 +596,8 @@ final class ProjectConfigurationTests: XCTestCase {
     func testTestPlanCoversCurrentBranchAndBodyProSurface() throws {
         let testPlan = try BodyTestSupport.sourceText(at: "TestPlan.md")
 
-        XCTAssertTrue(testPlan.contains("branch `body-v1.1.3`"))
+        XCTAssertTrue(testPlan.contains("branch `body-v1.1.5`"))
+        XCTAssertFalse(testPlan.contains("branch `body-v1.1.3`"))
         XCTAssertFalse(testPlan.contains("branch `body-v1.1.2`"))
         XCTAssertFalse(testPlan.contains("branch `body-v1.1.1`"))
         XCTAssertFalse(testPlan.contains("branch `body-v1.1.0`"))
@@ -542,7 +606,14 @@ final class ProjectConfigurationTests: XCTestCase {
         XCTAssertFalse(testPlan.contains("branch `body-0.9.12`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.11`"))
         XCTAssertFalse(testPlan.contains("branch `body-0.9.10`"))
-        XCTAssertTrue(testPlan.contains("app version 1.1.3 build 9)"))
+        XCTAssertTrue(testPlan.contains("app version 1.1.5 build 8)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.5 build 7)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.5 build 6)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.5 build 5)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.5 build 4)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.5 build 3)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.5 build 2)"))
+        XCTAssertFalse(testPlan.contains("app version 1.1.5 build 1)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.3 build 8)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.3 build 7)"))
         XCTAssertFalse(testPlan.contains("app version 1.1.3 build 6)"))

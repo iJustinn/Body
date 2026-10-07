@@ -21,6 +21,12 @@ enum WatchMetricsSnapshotBuilder {
         lastRefreshDate: Date?,
         permissionSelection: BodyHealthPermissionSelection,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        // The unit Active Energy and Resting Energy are formatted in, their
+        // headline and week alike, as the iPhone cards show them. The phone
+        // passes the user's preference and the watch's compute the one the
+        // seed carries. Kilocalories (the default) keeps every caller that
+        // predates these metrics compiling and formatting as before.
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference = .kilocalories,
         idealSleepDuration: TimeInterval,
         showSleepScore: Bool = true,
         now: Date = Date(),
@@ -44,7 +50,21 @@ enum WatchMetricsSnapshotBuilder {
         // per-kind watermarks (e.g. a workout-only refresh that only moved
         // Training Load) instead of a single stale-looking timestamp for every
         // metric. `nil` (the default) reproduces today's uniform stamping.
-        perKindDataAsOf: ((String) -> Date?)? = nil
+        perKindDataAsOf: ((String) -> Date?)? = nil,
+        // Whether to build the Sleep page's Sleep Debt (the last
+        // `SleepDebtChartModel.watchNightCount` nights of the iPhone card's
+        // 14 night debt). The phone passes its Body Pro and Summary Cards
+        // toggle; the watch's compute always builds it, since the phone's
+        // pushed flag decides visibility. `false` (the default) omits it, so
+        // a caller that doesn't show it never pays for the model.
+        includesSleepDebt: Bool = false,
+        // The Stress page's "Last 12 hours" chart, built by the caller with
+        // `WatchStressTimelineBuilder` (it needs the intraday day samples and
+        // the workouts, which this builder never reads). Stamped as passed.
+        stressTimeline: WatchStressTimeline? = nil,
+        // The phone's custom workout colors for that chart's shading, a
+        // display preference only the phone's publish passes.
+        workoutColorOverrides: String? = nil
     ) -> WatchMetricsSnapshot {
         let tempPref = temperatureUnitPreference
 
@@ -65,6 +85,7 @@ enum WatchMetricsSnapshotBuilder {
         // complication — MAIN SESSION only, so naps stay out of the bar,
         // matching the iPhone Home Screen Sleep Stages widget.
         var sleepStages: [WatchSleepStageSegment]? = nil
+        var sleepDebt: WatchSleepDebt? = nil
 
         if permissionSelection.includes(.sleep) {
             // Guards against carrying over a stale, previously-completed night
@@ -84,6 +105,24 @@ enum WatchMetricsSnapshotBuilder {
                 idealSleepDuration: idealSleepDuration,
                 showScore: showSleepScore
             ))
+            if includesSleepDebt {
+                // The raw summary, as the iPhone card passes it: the model
+                // applies the same `asOf` guard itself, filling in today only.
+                sleepDebt = sleepDebtSnapshot(
+                    sleepHistory: trends.sleepHistory,
+                    currentDaySummary: summary.sleep,
+                    trainingLoad: trends.trainingLoad,
+                    records: trends.recordedSleepDebt,
+                    sleepGoal: idealSleepDuration,
+                    now: now,
+                    // The information cutoff of both inputs: the sleep read
+                    // and the Training Load the needs were raised by.
+                    computedAt: [
+                        perKindDataAsOf?(WatchMetricKindKey.sleep) ?? lastRefreshDate,
+                        perKindDataAsOf?(WatchMetricKindKey.trainingLoad)
+                    ].compactMap { $0 }.max()
+                )
+            }
         }
         if permissionSelection.includes(.heart) {
             metrics.append(rangeMetric(
@@ -103,6 +142,64 @@ enum WatchMetricsSnapshotBuilder {
                 unit: "bpm", decimals: 0,
                 seriesValues: values(trends.restingHeartRate), invert: true,
                 overrideRange: seriesRangeOverride?(WatchMetricKindKey.restingHeartRate)
+            ))
+            // Stress is heart-derived end to end, so it rides Heart too.
+            metrics.append(stressMetric(summary: summary, now: now))
+        }
+
+        // The day's running totals (Steps, Active Energy, Resting Energy).
+        // Build-time day guard, like the first of Stress's two guards (in
+        // `stressMetric`): their `HealthMetricSummary` carries no date, so a
+        // phone republish after midnight over a cached summary (a settings
+        // change or a toggle before any overnight refresh) would otherwise
+        // ship yesterday's total under `weeklyAsOf = now`, which the
+        // display-time rule in `sanitized` then keeps, beside a week whose
+        // today slot is blank. So the headline is published only when the
+        // kind's watermark (the same one stamped as `computedAt` below) falls
+        // on `now`'s day; the week is unaffected. The watch's compute stamps a
+        // successful read with `now`, so there the guard never fires. Inline
+        // because the stamping runs after the metrics are built.
+        func todaysTotal(_ value: Double?, kind: String) -> Double? {
+            guard let watermark = perKindDataAsOf?(kind) ?? lastRefreshDate,
+                  Calendar.bodyGregorian.isDate(watermark, inSameDayAs: now) else { return nil }
+            return value
+        }
+        // Energy in the display unit, the headline and the week alike (the
+        // rule Skin Temp's week follows), so the chart and the value agree.
+        func energyDisplay(kilocalories: Double) -> (value: Double, unit: String) {
+            BodyValueFormat.energyValue(kilocalories: kilocalories, energyUnitPreference: energyUnitPreference)
+        }
+        func energyWeek(_ series: HealthTrendSeries) -> [Double?] {
+            weekly(series, now: now).map { day in day.map { energyDisplay(kilocalories: $0).value } }
+        }
+        if permissionSelection.includes(.steps) {
+            // No unit string, like the iPhone Steps card's summary: the title
+            // already says Steps.
+            metrics.append(dailyTotalMetric(
+                kind: WatchMetricKindKey.steps, title: String(localized: "Steps", table: "BodyWatchSnapshotKit"),
+                value: todaysTotal(summary.steps.value, kind: WatchMetricKindKey.steps),
+                unit: "",
+                weekValues: weekly(trends.steps, now: now)
+            ))
+        }
+        if permissionSelection.includes(.energy) {
+            let activeEnergy = todaysTotal(summary.activeEnergy.value, kind: WatchMetricKindKey.activeEnergy)
+                .map { energyDisplay(kilocalories: $0) }
+            metrics.append(dailyTotalMetric(
+                kind: WatchMetricKindKey.activeEnergy, title: String(localized: "Active Energy", table: "BodyWatchSnapshotKit"),
+                value: activeEnergy?.value,
+                unit: activeEnergy?.unit ?? "",
+                weekValues: energyWeek(trends.activeEnergy),
+                usesKilojoules: energyUnitPreference == .kilojoules
+            ))
+            let restingEnergy = todaysTotal(summary.restingEnergy.value, kind: WatchMetricKindKey.restingEnergy)
+                .map { energyDisplay(kilocalories: $0) }
+            metrics.append(dailyTotalMetric(
+                kind: WatchMetricKindKey.restingEnergy, title: String(localized: "Resting Energy", table: "BodyWatchSnapshotKit"),
+                value: restingEnergy?.value,
+                unit: restingEnergy?.unit ?? "",
+                weekValues: energyWeek(trends.restingEnergy),
+                usesKilojoules: energyUnitPreference == .kilojoules
             ))
         }
         if permissionSelection.includes(.workouts) {
@@ -145,6 +242,11 @@ enum WatchMetricsSnapshotBuilder {
             case WatchMetricKindKey.heartRateVariability: return weekly(trends.heartRateVariability, now: now)
             case WatchMetricKindKey.restingHeartRate: return weekly(trends.restingHeartRate, now: now)
             case WatchMetricKindKey.trainingLoad: return weekly(trends.trainingLoad, now: now)
+            case WatchMetricKindKey.stress: return weekly(trends.stress, now: now)
+            // The same daily totals the cards' fill was scaled against.
+            case WatchMetricKindKey.steps: return weekly(trends.steps, now: now)
+            case WatchMetricKindKey.activeEnergy: return energyWeek(trends.activeEnergy)
+            case WatchMetricKindKey.restingEnergy: return energyWeek(trends.restingEnergy)
             case WatchMetricKindKey.workoutMinutes: return workoutWeeklyMinutes
             // The legacy compatibility copy carries the same week (see the
             // version-skew comment where both metrics are appended).
@@ -154,6 +256,19 @@ enum WatchMetricsSnapshotBuilder {
                 return weekly(trends.wristTemperature, now: now).map { day in
                     day.map { BodyValueFormat.temperatureValue(celsius: $0, temperatureUnitPreference: tempPref).value }
                 }
+            default: return nil
+            }
+        }
+
+        // Each day's min/max under the Heart Rate, HRV and Stress week charts
+        // (the iPhone trend charts' range bars), windowed exactly like
+        // `weekly` above, so slot i is the same day in both. nil for every
+        // other kind.
+        func weeklyRangeValues(forKind kind: String) -> [WatchDayRange?]? {
+            switch kind {
+            case WatchMetricKindKey.heartRate: return weeklyRanges(trends.heartRateRanges, now: now)
+            case WatchMetricKindKey.heartRateVariability: return weeklyRanges(trends.heartRateVariabilityRanges, now: now)
+            case WatchMetricKindKey.stress: return weeklyRanges(trends.stressRanges, now: now)
             default: return nil
             }
         }
@@ -177,6 +292,7 @@ enum WatchMetricsSnapshotBuilder {
             stampedMetric.computedAt = perKindDataAsOf?(metric.kind) ?? lastRefreshDate
             stampedMetric.measuredAt = measuredAt(forKind: metric.kind)
             stampedMetric.weekly = weeklyValues(forKind: metric.kind)
+            stampedMetric.weeklyRanges = weeklyRangeValues(forKind: metric.kind)
             stampedMetric.weeklyAsOf = stampedMetric.weekly == nil ? nil : now
             return stampedMetric
         }
@@ -185,7 +301,10 @@ enum WatchMetricsSnapshotBuilder {
             lastRefreshDate: lastRefreshDate,
             metrics: stamped,
             sleepNight: sleepNight,
-            sleepStages: sleepStages
+            sleepStages: sleepStages,
+            sleepDebt: sleepDebt,
+            stressTimeline: stressTimeline,
+            workoutColorOverrides: workoutColorOverrides
         )
     }
 
@@ -303,6 +422,44 @@ enum WatchMetricsSnapshotBuilder {
         )
     }
 
+    /// The last `SleepDebtChartModel.watchNightCount` nights of the iPhone
+    /// Sleep Debt card, built by the same shared model: a night reads only its
+    /// own 14 night window, the day before it, and the history behind them,
+    /// so each one carries the debt the card shows for it. `records` are the
+    /// phone's frozen nights, which the model emits unchanged and sums into
+    /// the later windows, as the card does. Nil when the model has no nights.
+    private static func sleepDebtSnapshot(
+        sleepHistory: SleepHistorySnapshot,
+        currentDaySummary: SleepSummary,
+        trainingLoad: HealthTrendSeries,
+        records: [SleepDebtRecord],
+        sleepGoal: TimeInterval,
+        now: Date,
+        computedAt: Date?
+    ) -> WatchSleepDebt? {
+        let nightCount = SleepDebtChartModel.watchNightCount
+        let model = SleepDebtChartModel.make(
+            entries: SleepDebtChartModel.entries(
+                sleepHistory: sleepHistory,
+                currentDaySummary: currentDaySummary,
+                trainingLoad: trainingLoad,
+                nightCount: nightCount,
+                today: now
+            ),
+            sleepGoal: sleepGoal,
+            nightCount: nightCount,
+            records: records
+        )
+        guard !model.nights.isEmpty else { return nil }
+        return WatchSleepDebt(
+            debt: model.debt,
+            nights: model.nights.map {
+                WatchSleepDebt.Night(day: $0.day, debt: $0.debtAfterNight, isRecorded: $0.isRecorded)
+            },
+            computedAt: computedAt
+        )
+    }
+
     private static func rangeMetric(
         kind: String,
         title: String,
@@ -352,6 +509,78 @@ enum WatchMetricsSnapshotBuilder {
                     min: $0.lowerBound, max: $0.upperBound,
                     label: $0.title)
             }
+        )
+    }
+
+    /// Today's Stress, the same number the iPhone card shows: the latest
+    /// reading while it is current (`stressCurrentScore`), otherwise the
+    /// day's average, with the status band, gauge bounds and tint of that same
+    /// score, so the number and the band beside it always agree. Published
+    /// only when the day's rollup is dated `now`'s day (a summary that
+    /// outlived midnight reads "--", and `weeklyAsOf` lets the watch re-check
+    /// the day at display time), so a reading from before midnight never
+    /// heads a day with no average. A blank card carries no band, like an
+    /// unavailable Readiness. The week's today slot stays the average.
+    private static func stressMetric(summary: HealthSummarySnapshot, now: Date) -> WatchMetric {
+        let average = summary.stress.flatMap { stress in
+            Calendar.bodyGregorian.isDate(stress.date, inSameDayAs: now) ? stress.averageScore : nil
+        }
+        let current = average.flatMap { _ in summary.stressCurrentScore }
+        let score = current ?? average
+        let band = score.map { StressBand.band(for: $0) }
+        return WatchMetric(
+            kind: WatchMetricKindKey.stress,
+            title: String(localized: "Stress", table: "BodyWatchSnapshotKit"),
+            displayValue: score.map { "\($0)" } ?? "--",
+            unit: "",
+            score: score,
+            fillFraction: score.map { min(max(Double($0) / 100, 0), 1) } ?? 0,
+            rawValue: score.map(Double.init),
+            rangeMin: 0,
+            rangeMax: 100,
+            levelMin: band?.scoreBounds.min,
+            levelMax: band?.scoreBounds.max,
+            tint: band?.watchTintComponents,
+            statusBand: band.map {
+                WatchStatusBand(min: $0.lowerBound, max: $0.upperBound, label: $0.title)
+            }
+        )
+    }
+
+    /// A running daily total (Steps, Active Energy, Resting Energy): today's
+    /// total so far as the headline, already in the display unit and grouped
+    /// with no decimals like the iPhone card's summary, with the ring filled
+    /// against the best day of the week the card carries (`weekValues`, the
+    /// same display unit; today included). No ring band and no `measuredAt`:
+    /// the headline is a sum over the day, not one sample, so `computedAt` is
+    /// the honest watermark. `usesKilojoules` is set for the two energy kinds
+    /// only.
+    private static func dailyTotalMetric(
+        kind: String,
+        title: String,
+        value: Double?,
+        unit: String,
+        weekValues: [Double?],
+        usesKilojoules: Bool? = nil
+    ) -> WatchMetric {
+        let high = (weekValues + [value]).compactMap { $0 }.max()
+        let fill: Double
+        if let value, let high, high > 0 {
+            fill = min(max(value / high, 0), 1)
+        } else {
+            fill = 0
+        }
+        return WatchMetric(
+            kind: kind,
+            title: title,
+            displayValue: value.map { BodyValueFormat.numberText($0, decimals: 0) } ?? "--",
+            unit: value == nil ? "" : unit,
+            score: nil,
+            fillFraction: fill,
+            rawValue: value,
+            rangeMin: 0,
+            rangeMax: high,
+            usesKilojoules: usesKilojoules
         )
     }
 
@@ -410,6 +639,18 @@ enum WatchMetricsSnapshotBuilder {
     /// reading), using the same daily aggregation as the iPhone "Week" trend chart.
     private static func weekly(_ series: HealthTrendSeries, now: Date) -> [Double?] {
         series.calendarPoints(to: .recentWeek, date: now).map(\.value)
+    }
+
+    /// The recent week's daily min/max as 7 slots (oldest → today; `nil` for a
+    /// day without a finite low and high, which `calendarPoints` already
+    /// drops), over the same days as `weekly(_:now:)`. `nil` when no day has
+    /// one, so a trend snapshot without the range series ships no field.
+    private static func weeklyRanges(_ series: HealthTrendRangeSeries, now: Date) -> [WatchDayRange?]? {
+        let days = series.calendarPoints(to: .recentWeek, date: now).map { point -> WatchDayRange? in
+            guard let low = point.lowValue, let high = point.highValue else { return nil }
+            return WatchDayRange(low: low, high: high)
+        }
+        return days.contains { $0 != nil } ? days : nil
     }
 
     /// The lower of the local series' minimum and an optional override bound —

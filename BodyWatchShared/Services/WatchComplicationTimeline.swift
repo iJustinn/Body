@@ -19,12 +19,19 @@ enum WatchComplicationTimeline {
 
     /// Entries at `now` and at the next local midnight (snapshot re-sanitized
     /// for that instant so a sleep night that ends at midnight clears, and
-    /// `weeklyRewound` consumers shift, without an app launch), plus the
-    /// fallback reload date. Real refreshes still come from the app's
-    /// `reloadTimelines` after a persisted change.
+    /// `weeklyRewound` consumers shift, without an app launch), plus one at
+    /// the instant the Stress complication's reading ages out
+    /// (`WatchStressTimeline.latestReading(asOf:)`), so it blanks on time, and
+    /// the fallback reload date. With a `slidingWindow` (the intraday chart
+    /// complications' window length), also one at every local half hour from
+    /// `now` through `now + slidingWindow`: the chart ends at its entry's date,
+    /// so it slides on a slot at a time, until everything it held has slid
+    /// out. Dates shared between the rules get a single entry. Real refreshes
+    /// still come from the app's `reloadTimelines` after a persisted change.
     static func entries(
         snapshot: WatchMetricsSnapshot,
         now: Date,
+        slidingWindow: TimeInterval? = nil,
         calendar: Calendar = .current
     ) -> (entries: [(date: Date, snapshot: WatchMetricsSnapshot)], reloadAfter: Date) {
         let todayStart = calendar.startOfDay(for: now)
@@ -32,10 +39,27 @@ enum WatchComplicationTimeline {
         // window by one day, so a reading exactly at the 365-day edge clears
         // one day early in that entry; harmless.
         let midnight = calendar.date(byAdding: .day, value: 1, to: todayStart) ?? now.addingTimeInterval(24 * 60 * 60)
+        let stressExpiry = snapshot.stressTimeline?.latestScoredWindow
+            .map { $0.end.addingTimeInterval(WatchStressTimeline.readingMaxAge) }
 
+        var dates: Set<Date> = [midnight]
+        if let stressExpiry {
+            dates.insert(stressExpiry)
+        }
+        if let slidingWindow {
+            // Each step is the current slot's end, the charts' own half hour
+            // alignment (`WatchIntradayWindow.endingAt`), and always lies
+            // past the date it started from.
+            let last = now.addingTimeInterval(slidingWindow)
+            var boundary = WatchIntradayWindow.endingAt(now, calendar: calendar).plotEnd
+            while boundary <= last {
+                dates.insert(boundary)
+                boundary = WatchIntradayWindow.endingAt(boundary, calendar: calendar).plotEnd
+            }
+        }
         var entries: [(date: Date, snapshot: WatchMetricsSnapshot)] = [(now, snapshot.sanitized(asOf: now))]
-        if midnight > now {
-            entries.append((midnight, snapshot.sanitized(asOf: midnight)))
+        for date in dates.sorted() where date > now {
+            entries.append((date, snapshot.sanitized(asOf: date)))
         }
         return (entries, now.addingTimeInterval(refreshInterval))
     }

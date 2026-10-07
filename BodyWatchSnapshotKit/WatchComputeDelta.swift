@@ -24,11 +24,57 @@ struct WatchComputeDelta {
     var heartRateSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var restingHeartRateSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var heartRateVariabilitySeries: WatchFetchOutcome<HealthTrendSeries> = .failure
+    /// The Heart Rate and HRV week charts' daily min/max capsules
+    /// (`trends.heartRateRanges` / `heartRateVariabilityRanges`). Display only:
+    /// deliberately NOT readiness inputs (`WatchComputeAssembly.readinessBlockers`),
+    /// so a failed range read keeps the seed's capsules and never blocks a score.
+    var heartRateRanges: WatchFetchOutcome<HealthTrendRangeSeries> = .failure
+    var heartRateVariabilityRanges: WatchFetchOutcome<HealthTrendRangeSeries> = .failure
+    /// The Heart Rate and HRV chart complications' last 8 hours
+    /// (`WatchMetricsSnapshot.heartCharts`), in the detail pages' 30 minute
+    /// slots. Display only: never a Readiness or Stress input, so a failed
+    /// read blocks nothing. `.success` with an empty chart means the read ran
+    /// and found nothing, which removes the displayed chart; `.failure` means
+    /// it failed or was skipped, which keeps what's displayed.
+    var heartRateIntraday: WatchFetchOutcome<WatchIntradayChart> = .failure
+    var heartRateVariabilityIntraday: WatchFetchOutcome<WatchIntradayChart> = .failure
     var respiratoryRateSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var oxygenSaturationSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var wristTemperatureSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var sleepNights: WatchFetchOutcome<[SleepDaySummary]> = .failure
     var workouts: WatchFetchOutcome<[WorkoutSummary]> = .failure
+
+    /// Stress's intraday inputs over whole days (`WatchDeltaFetcher`'s Stress
+    /// window: today, plus yesterday when the last 12 hours reach into it), in
+    /// the shape of the phone's day-sample series: raw heart rate and SDNN
+    /// samples, RMSSD points (Recovery HRV, or one per heartbeat series), and
+    /// 15 minute step and active energy sums from midnight (the movement mask).
+    /// Stress is stamped only when every
+    /// permitted one succeeded (`WatchComputeAssembly.dataAsOf`).
+    var stressHeartRateSamples: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var stressSDNNSamples: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var stressRMSSDSamples: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var stressQuarterHourSteps: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var stressQuarterHourActiveEnergy: WatchFetchOutcome<HealthTrendSeries> = .failure
+
+    /// The Steps, Active Energy and Resting Energy cards' trailing week of
+    /// daily totals (`WatchDeltaFetcher`'s fixed week: today and the six days
+    /// before it, one point per day with a sum), read by the watch alone:
+    /// there is no seeded history for these kinds (the seed collapses their
+    /// series to `.empty`), so a successful read replaces the series wholesale
+    /// and feeds both the card's headline (today's point) and its 7 day bars.
+    /// Stamped in `WatchComputeAssembly.dataAsOf` only on success, so a failed
+    /// read is never adopted over what the card shows.
+    var stepsWeek: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var activeEnergyWeek: WatchFetchOutcome<HealthTrendSeries> = .failure
+    var restingEnergyWeek: WatchFetchOutcome<HealthTrendSeries> = .failure
+
+    /// Today's readings behind the warnings the watch checks itself (the kinds
+    /// with a watch card), read through the iPhone's own query
+    /// (`BodyMetricWarningFetch.todaysReadings`) under the iPhone's threshold.
+    /// A kind is missing when it wasn't read: no threshold from the iPhone yet,
+    /// or its source didn't resolve. `.failure` keeps the last check.
+    var warningReadings: [MetricWarningKind: WatchFetchOutcome<[HealthTrendDataPoint]>] = [:]
 
     /// Source kinds this watch holds no HealthKit source for at all
     /// (`WatchSourceRead.unavailable`). Their series stay `.failure`, so the

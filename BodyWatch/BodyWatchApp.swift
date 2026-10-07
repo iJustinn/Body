@@ -10,25 +10,31 @@ import WatchKit
 struct BodyWatchApp: App {
     @WKApplicationDelegateAdaptor(WatchAppDelegate.self) private var delegate
     @StateObject private var model = WatchMetricsModel.shared
+    @StateObject private var warningFolds = WatchWarningFoldStore.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             WatchDashboardView()
                 .environmentObject(model)
+                .environmentObject(model.intradayCharts)
+                .environmentObject(warningFolds)
         }
         .onChange(of: scenePhase) { _, phase in
             // `onAppear` doesn't reliably re-fire when watchOS returns the app
             // to the foreground, so re-check staleness here too. Compute first,
             // then the live HR/HRV fallback — see `WatchMetricsModel.onAppear`.
             // Background triggers (the workout observer, a pushed context, the
-            // hourly scheduled refresh) run the same staleness gated compute,
+            // 30 minute scheduled refresh) run the same staleness gated compute,
             // but never raise an authorization sheet (see
-            // `WatchMetricsModel.recomputeIfStale`).
+            // `WatchMetricsModel.recomputeIfStale`). The notification
+            // permission is asked for here too, after the reads, and only
+            // while the phone's warning notifications are on.
             if phase == .active {
                 Task {
                     await model.recomputeIfStale()
                     await model.refreshLiveMetricsIfStale()
+                    await WatchWarningNotifier.shared.requestAuthorizationIfNeeded(settings: model.snapshot.warningSettings)
                 }
             }
         }
@@ -62,7 +68,7 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate {
                     WatchMetricsModel.shared.handleConnectivityBackgroundTask(wcTask)
                 }
             } else if let refreshTask = task as? WKApplicationRefreshBackgroundTask {
-                // The model's standing hourly wake, or an earlier retry for
+                // The model's standing 30 minute wake, or an earlier retry for
                 // pending workout work. The model completes the task, once,
                 // after the compute or on expiration. `apply` reloads the
                 // complication timelines itself, so no snapshot is requested.

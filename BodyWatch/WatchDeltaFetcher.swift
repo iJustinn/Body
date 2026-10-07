@@ -6,11 +6,20 @@
 //  phone's seeded history. Deliberately a THIN SHIM: every query and every
 //  transformation below is a call into the shared `BodyWatchSnapshotKit` leaves
 //  the iOS `HealthKitFetchEngine` also calls (`BodyHealthSourceResolver`,
-//  `BodyHealthQuantityFetch`, `BodySleepFetch`, `BodyWorkoutFetch`,
-//  `BodyWorkoutEffortFetcher`). It owns no query logic of its own — a
-//  hand-forked watch fetch layer drifted from the phone within a day in the
-//  June 2026 standalone-compute attempt (a 26-hour night), and this file exists
-//  precisely so there is nothing left to drift.
+//  `BodyHealthQuantityFetch`, `BodyRestingEnergyEstimates`,
+//  `BodyHeartbeatRMSSDFetch`, `BodySleepFetch`, `BodyWorkoutFetch`,
+//  `BodyWorkoutEffortFetcher`, `BodyMetricWarningFetch`). Two leaves are not
+//  called by the phone yet:
+//  `BodyHealthQuantityFetch.dailyCumulativeSeries`, the week of daily totals
+//  behind the Steps, Active Energy and Resting Energy cards, which mirrors the
+//  engine's `fetchDailyCumulativeQuantitySeries` and shares its resting energy
+//  estimate fold; and `BodyHealthQuantityFetch.intradayRangeBuckets`, the 30
+//  minute slots behind the Heart Rate and HRV chart complications, which the
+//  watch's own detail pages read through too (`WatchHealthStore`), so a
+//  complication and its page chart the same slots. This file owns no query
+//  logic of its own — a hand-forked watch fetch layer drifted from the phone
+//  within a day in the June 2026 standalone-compute attempt (a 26-hour
+//  night), and this file exists precisely so there is nothing left to drift.
 //
 //  Two rules run through everything here:
 //  * Source parity — every source-selectable read resolves the PHONE's synced
@@ -18,7 +27,8 @@
 //    to one of its own `HKSource`s resolves `.unresolved` and the read is
 //    SKIPPED with failure semantics (keep the seed) rather than silently
 //    widening to all sources. Widening is what made the first attempt disagree
-//    with the phone.
+//    with the phone. Steps, active energy and resting energy are the one
+//    documented exception (see `fetchDelta`).
 //  * Tri-state outcomes — a query failure (`.failure`) preserves the seed
 //    untouched, while a genuine empty result still clears its window. See
 //    `WatchFetchOutcome`.
@@ -36,12 +46,17 @@ actor WatchDeltaFetcher {
     /// starts one day earlier so a night that BEGAN before the window but wakes
     /// inside it is still sessionized whole, and workouts reach back a full
     /// week so the weekly workout-minutes bars can be built without a seed.
+    /// Steps, active energy and resting energy read a fixed week of daily
+    /// totals for the same reason (`weeklyTotalSeries`), whatever the window.
+    /// `warningThresholds` are the iPhone's, for the warnings the watch
+    /// checks itself (`todaysWarningReadings`); a kind without one isn't read.
     func fetchDelta(
         seed: WatchComputeSeed,
         permission: BodyHealthPermissionSelection,
         windowStart: Date,
         now: Date,
-        calendar: Calendar = .bodyGregorian
+        calendar: Calendar = .bodyGregorian,
+        warningThresholds: [MetricWarningKind: Double] = [:]
     ) async -> WatchComputeDelta {
         guard HKHealthStore.isHealthDataAvailable() else { return WatchComputeDelta() }
 
@@ -56,7 +71,7 @@ actor WatchDeltaFetcher {
         // Resolve every source-selectable kind's predicate up front (one
         // `HKSourceQuery` fan-out per kind), so the reads below only ever run
         // with a predicate the phone would have produced.
-        let reads = await WatchSourceResolver.reads(
+        async let resolvedReads = WatchSourceResolver.reads(
             for: BodyHealthSourceResolver.watchComputeSourceKinds,
             selection: selection,
             expectedSourceIDsByKind: seed.expectedSourceIDsByKind,
@@ -64,6 +79,35 @@ actor WatchDeltaFetcher {
             permission: permission,
             store: store
         )
+        // Steps, active energy and resting energy, resolved ONCE per run
+        // beside the kinds above and handed to every read that uses them:
+        // Stress's 15 minute movement mask and the week of daily totals behind
+        // their own cards. A permission that is off resolves `.skip`.
+        //
+        // A deliberate deviation from the source parity rule above: these
+        // kinds resolve WITHOUT the phone's expected source universe
+        // (`expectedSourceIDsByKind: nil`), so a pinned or custom selection
+        // stays strict but All Sources reads the sources this watch can see.
+        // The iPhone's pedometer is almost always a phone source the watch
+        // never sees, so the universe check would skip these reads, and with
+        // them Stress and the three cards, for nearly everyone. The mask is a
+        // per window threshold (more than 300 steps or 15 kcal in 15 minutes) that only matters
+        // where the wrist is producing the heart rate being scored, and the
+        // watch sees its own movement. The cards accept the cost: a total
+        // built here counts only what this watch sees, so it can read lower
+        // than the iPhone's while the watch is off the wrist, until a fresher
+        // iPhone push replaces it (the merge keeps whichever is fresher, as
+        // for Stress).
+        async let resolvedMovementReads = WatchSourceResolver.reads(
+            for: [.steps, .activeEnergy, .restingEnergy],
+            selection: selection,
+            expectedSourceIDsByKind: nil,
+            customGroups: customGroups,
+            permission: permission,
+            store: store
+        )
+        let reads = await resolvedReads
+        let movementReads = await resolvedMovementReads
 
         var delta = WatchComputeDelta()
         delta.carriedKinds = Set(reads.compactMap { kind, read in
@@ -95,6 +139,16 @@ actor WatchDeltaFetcher {
             .wristTemperature, reads: reads,
             start: windowStart, end: now, calendar: calendar
         )
+        // The HR / HRV week charts' daily min/max capsules, over the same
+        // window and source predicate as their averages above.
+        async let heartRateRanges = dailyRangeSeries(
+            .heartRate, reads: reads,
+            start: windowStart, end: now, calendar: calendar
+        )
+        async let heartRateVariabilityRanges = dailyRangeSeries(
+            .heartRateVariability, reads: reads,
+            start: windowStart, end: now, calendar: calendar
+        )
         // Latest-sample summaries: bounded to the daily trend window, matching
         // the phone's `latestQuantity`, so a local read can never introduce a
         // reading older than the charts can show. The value on the card and its
@@ -121,6 +175,66 @@ actor WatchDeltaFetcher {
         async let workouts = workoutDelta(
             permission: permission, windowStart: windowStart, now: now, calendar: calendar
         )
+        // Stress's intraday inputs, in the shapes the phone's
+        // `fetchIntradayDaySamples` and heartbeat scan read. WHOLE days only:
+        // the window opens at the midnight before the last 13 hours (the 12
+        // hour chart's reach plus slack), so once those hours cross midnight
+        // yesterday is read whole. The assembly recomputes each day these series
+        // touch, and a partial yesterday would replace its seeded record with a
+        // short day.
+        let stressStart = calendar.startOfDay(for: now.addingTimeInterval(-WatchStressTimelineBuilder.span))
+        async let stressHeartRateSamples = sampleSeries(
+            .heartRate, reads: reads, start: stressStart, end: now
+        )
+        async let stressSDNNSamples = sampleSeries(
+            .heartRateVariability, reads: reads, start: stressStart, end: now
+        )
+        async let stressRMSSDSamples = rmssdSamples(
+            reads: reads, start: stressStart, end: now
+        )
+        // `stressStart` is a midnight, the 15 minute buckets' anchor.
+        async let stressQuarterHourSteps = stressMovementSeries(
+            .steps, reads: movementReads,
+            start: stressStart, end: now, calendar: calendar
+        )
+        async let stressQuarterHourActiveEnergy = stressMovementSeries(
+            .activeEnergy, reads: movementReads,
+            start: stressStart, end: now, calendar: calendar
+        )
+        // The Heart Rate and HRV chart complications: the detail pages'
+        // "Last 8 hours" read, in the same 30 minute slots on the same
+        // window, under the kinds' resolution above (see `intradayChart`).
+        let intradayWindow = WatchIntradayWindow.endingAt(now, calendar: calendar)
+        async let heartRateIntraday = intradayChart(
+            .heartRate, reads: reads, window: intradayWindow
+        )
+        async let heartRateVariabilityIntraday = intradayChart(
+            .heartRateVariability, reads: reads, window: intradayWindow
+        )
+        // The Steps, Active Energy and Resting Energy cards: a fixed trailing
+        // week of daily totals, today included, so every day the 7 day bars
+        // draw sits inside the query (see `weeklyTotalSeries`).
+        let today = calendar.startOfDay(for: now)
+        let weekStart = calendar.date(byAdding: .day, value: -6, to: today) ?? today
+        async let stepsWeek = weeklyTotalSeries(
+            .steps, reads: movementReads,
+            start: weekStart, end: now, calendar: calendar
+        )
+        async let activeEnergyWeek = weeklyTotalSeries(
+            .activeEnergy, reads: movementReads,
+            start: weekStart, end: now, calendar: calendar
+        )
+        async let restingEnergyWeek = weeklyTotalSeries(
+            .restingEnergy, reads: movementReads,
+            start: weekStart, end: now, calendar: calendar
+        )
+        // The warnings the watch checks itself: today's readings for each
+        // kind with a watch card and an iPhone threshold, under the kind's
+        // resolution above (see `todaysWarningReadings`).
+        async let warningReadings = todaysWarningReadings(
+            thresholds: warningThresholds, reads: reads,
+            now: now, calendar: calendar
+        )
 
         delta.heartRateSeries = await heartRateSeries
         delta.restingHeartRateSeries = await restingHeartRateSeries
@@ -128,6 +242,8 @@ actor WatchDeltaFetcher {
         delta.respiratoryRateSeries = await respiratoryRateSeries
         delta.oxygenSaturationSeries = await oxygenSaturationSeries
         delta.wristTemperatureSeries = await wristTemperatureSeries
+        delta.heartRateRanges = await heartRateRanges
+        delta.heartRateVariabilityRanges = await heartRateVariabilityRanges
         delta.heartRateSample = await heartRateSample
         delta.restingHeartRateSample = await restingHeartRateSample
         delta.heartRateVariabilitySample = await heartRateVariabilitySample
@@ -137,6 +253,21 @@ actor WatchDeltaFetcher {
         delta.latestNight = resolvedSleep.latestNight
 
         delta.workouts = await workouts
+
+        delta.stressHeartRateSamples = await stressHeartRateSamples
+        delta.stressSDNNSamples = await stressSDNNSamples
+        delta.stressRMSSDSamples = await stressRMSSDSamples
+        delta.stressQuarterHourSteps = await stressQuarterHourSteps
+        delta.stressQuarterHourActiveEnergy = await stressQuarterHourActiveEnergy
+
+        delta.heartRateIntraday = await heartRateIntraday
+        delta.heartRateVariabilityIntraday = await heartRateVariabilityIntraday
+
+        delta.stepsWeek = await stepsWeek
+        delta.activeEnergyWeek = await activeEnergyWeek
+        delta.restingEnergyWeek = await restingEnergyWeek
+
+        delta.warningReadings = await warningReadings
 
         return delta
     }
@@ -179,6 +310,40 @@ actor WatchDeltaFetcher {
             ),
             aggregation: aggregation,
             unit: unit,
+            start: start,
+            end: end,
+            calendar: calendar,
+            valueTransform: descriptor.valueTransform
+        )
+    }
+
+    /// `dailySeries`' daily min/max counterpart for the Heart Rate and HRV
+    /// week charts' capsules: the same descriptor, source predicate and
+    /// window, through the shared leaf that applies the phone's range point
+    /// rule. `.failure` keeps the seed's capsules, and is never a readiness
+    /// blocker.
+    private func dailyRangeSeries(
+        _ kind: HealthMetricKind,
+        reads: [HealthMetricKind: WatchSourceRead],
+        start: Date,
+        end: Date,
+        calendar: Calendar
+    ) async -> WatchFetchOutcome<HealthTrendRangeSeries> {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType),
+              case .run(let resolvedSourcePredicate) = reads[descriptor.sourceKind] else {
+            return .failure
+        }
+
+        return await BodyHealthQuantityFetch.dailyQuantityRangeSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: BodyHealthSourceResolver.combinedPredicate(
+                startDate: start,
+                endDate: end,
+                sourcePredicate: resolvedSourcePredicate
+            ),
+            unit: descriptor.unit,
             start: start,
             end: end,
             calendar: calendar,
@@ -235,6 +400,228 @@ actor WatchDeltaFetcher {
         let value = sample.quantity.doubleValue(for: unit)
         guard value.isFinite else { return nil }
         return WatchDeltaSample(value: value, measuredAt: sample.endDate)
+    }
+
+    // MARK: - Stress
+
+    /// Raw samples for a Stress input (heart rate, SDNN): the descriptor's
+    /// intraday `.sampleSeries` row under the kind's resolved source, so the
+    /// watch scores the same points the phone's day-sample series holds. The
+    /// `.heart` permission gate rides `reads`, which resolves `.skip` for a
+    /// hidden category; any read that can't run leaves `.failure`.
+    private func sampleSeries(
+        _ kind: HealthMetricKind,
+        reads: [HealthMetricKind: WatchSourceRead],
+        start: Date,
+        end: Date
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              descriptor.intradayDaySamples == .sampleSeries,
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType),
+              case .run(let resolvedSourcePredicate) = reads[descriptor.sourceKind] else {
+            return .failure
+        }
+
+        return await BodyHealthQuantityFetch.quantitySampleSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: BodyHealthSourceResolver.combinedPredicate(
+                startDate: start,
+                endDate: end,
+                sourcePredicate: resolvedSourcePredicate
+            ),
+            unit: descriptor.unit,
+            valueTransform: descriptor.valueTransform
+        )
+    }
+
+    /// Stress's RMSSD: Recovery HRV, else the beat-to-beat scan under the
+    /// watch's capped limits. An HRV input, so it runs under the HRV source,
+    /// exactly as on the phone.
+    private func rmssdSamples(
+        reads: [HealthMetricKind: WatchSourceRead],
+        start: Date,
+        end: Date
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        guard case .run(let resolvedSourcePredicate) = reads[.heartRateVariability] else {
+            return .failure
+        }
+
+        return await BodyHeartbeatRMSSDFetch.rmssdSamples(
+            store: store,
+            predicate: BodyHealthSourceResolver.combinedPredicate(
+                startDate: start,
+                endDate: end,
+                sourcePredicate: resolvedSourcePredicate
+            ),
+            limits: .watch
+        )
+    }
+
+    /// 15 minute sums for Stress's movement mask (steps, active energy), from
+    /// `start`'s midnight like the phone's: the descriptor's intraday
+    /// `.hourlyCumulative` row read in Stress's own buckets, under the kind's
+    /// resolution in `movementReads` (resolved without the phone's source
+    /// universe; see `fetchDelta`). A permission that is off resolves `.skip`
+    /// and leaves `.failure`.
+    private func stressMovementSeries(
+        _ kind: HealthMetricKind,
+        reads: [HealthMetricKind: WatchSourceRead],
+        start: Date,
+        end: Date,
+        calendar: Calendar
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              descriptor.intradayDaySamples == .hourlyCumulative,
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType),
+              case .run(let resolvedSourcePredicate) = reads[descriptor.sourceKind] else {
+            return .failure
+        }
+
+        return await BodyHealthQuantityFetch.intradayCumulativeSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: BodyHealthSourceResolver.combinedPredicate(
+                startDate: start,
+                endDate: end,
+                sourcePredicate: resolvedSourcePredicate
+            ),
+            unit: descriptor.unit,
+            bucket: .quarterHour,
+            start: start,
+            end: end,
+            calendar: calendar,
+            valueTransform: descriptor.valueTransform
+        )
+    }
+
+    // MARK: - Chart complications
+
+    /// A Heart Rate or HRV chart complication's last 8 hours: the detail
+    /// page's read (`WatchHealthStore.intradayBuckets`) through the same
+    /// shared leaf, with the descriptor's type and unit (SDNN in ms for HRV,
+    /// as on the page) under the kind's resolution in `reads`. The predicate
+    /// is the page's own, open ended on purpose (`endDate: nil`), so a heart
+    /// rate series that started before the window still contributes its
+    /// in-window beats. A kind with no source on this watch at all
+    /// (`.unavailable`) reads as an empty chart, as the page's does, which
+    /// removes the displayed one. A skipped resolution (Heart off, or a
+    /// selection this watch can't match), a missing read or a failed query
+    /// leaves `.failure`, which keeps it.
+    private func intradayChart(
+        _ kind: HealthMetricKind,
+        reads: [HealthMetricKind: WatchSourceRead],
+        window: WatchIntradayWindow
+    ) async -> WatchFetchOutcome<WatchIntradayChart> {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType) else {
+            return .failure
+        }
+
+        switch reads[descriptor.sourceKind] {
+        case .run(let resolvedSourcePredicate):
+            let outcome = await BodyHealthQuantityFetch.intradayRangeBuckets(
+                store: store,
+                quantityType: quantityType,
+                predicate: BodyHealthSourceResolver.combinedPredicate(
+                    startDate: window.start,
+                    endDate: nil,
+                    sourcePredicate: resolvedSourcePredicate
+                ),
+                unit: descriptor.unit,
+                start: window.start,
+                end: window.end
+            )
+            guard case .success(let buckets) = outcome else { return .failure }
+            return .success(WatchIntradayChart(window: window, buckets: buckets))
+        case .unavailable:
+            return .success(WatchIntradayChart(window: window, buckets: []))
+        default:
+            return .failure
+        }
+    }
+
+    // MARK: - Daily totals
+
+    /// A week of daily totals for the Steps, Active Energy and Resting Energy
+    /// cards and their 7 day bars: the descriptor's `.dailyCumulative` trend
+    /// row, under the kind's resolution in `movementReads` (see `fetchDelta`),
+    /// through the shared leaf that also applies the phone's resting energy
+    /// scale-estimate rule. The window is a fixed week, like `workoutDelta`'s
+    /// floor, rather than the delta window: there is no seeded history for
+    /// these kinds to splice onto, so the assembly replaces their series with
+    /// this read wholesale. A permission that is off resolves `.skip`, and any
+    /// read that can't run leaves `.failure`, which stamps nothing.
+    private func weeklyTotalSeries(
+        _ kind: HealthMetricKind,
+        reads: [HealthMetricKind: WatchSourceRead],
+        start: Date,
+        end: Date,
+        calendar: Calendar
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        guard let descriptor = HealthMetricQueryDescriptor.descriptor(for: kind),
+              descriptor.trend == .dailyCumulative,
+              let quantityType = HKObjectType.quantityType(forIdentifier: descriptor.quantityType),
+              case .run(let resolvedSourcePredicate) = reads[descriptor.sourceKind] else {
+            return .failure
+        }
+
+        return await BodyHealthQuantityFetch.dailyCumulativeSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: BodyHealthSourceResolver.combinedPredicate(
+                startDate: start,
+                endDate: end,
+                sourcePredicate: resolvedSourcePredicate
+            ),
+            unit: descriptor.unit,
+            start: start,
+            end: end,
+            calendar: calendar,
+            valueTransform: descriptor.valueTransform
+        )
+    }
+
+    // MARK: - Warnings
+
+    /// Today's readings behind each warning the watch checks itself
+    /// (`WatchComputeAssembly.checkedWarningKinds`): the iPhone's own read
+    /// (`BodyMetricWarningFetch.todaysReadings`) under the iPhone's threshold
+    /// and the kind's metric's resolution in `reads`, so both heart rate
+    /// kinds read under Heart Rate's source. A kind without a threshold, or
+    /// whose resolution can't run (its permission off, a selection this
+    /// watch can't match, no source here), isn't read and stays absent; a
+    /// failed read answers `.failure`. Either keeps the kind's last check.
+    private func todaysWarningReadings(
+        thresholds: [MetricWarningKind: Double],
+        reads: [HealthMetricKind: WatchSourceRead],
+        now: Date,
+        calendar: Calendar
+    ) async -> [MetricWarningKind: WatchFetchOutcome<[HealthTrendDataPoint]>] {
+        await withTaskGroup(of: (MetricWarningKind, WatchFetchOutcome<[HealthTrendDataPoint]>?).self) { group in
+            for kind in WatchComputeAssembly.checkedWarningKinds {
+                guard let threshold = thresholds[kind], let read = reads[kind.metric] else { continue }
+                // The resolution crosses into the child task rather than its
+                // predicate: `WatchSourceRead` is the Sendable wrapper.
+                group.addTask { [store] in
+                    guard case .run(let sourcePredicate) = read else { return (kind, nil) }
+                    return (kind, await BodyMetricWarningFetch.todaysReadings(
+                        for: kind,
+                        store: store,
+                        sourcePredicate: sourcePredicate,
+                        threshold: threshold,
+                        now: now,
+                        calendar: calendar
+                    ))
+                }
+            }
+
+            var readings: [MetricWarningKind: WatchFetchOutcome<[HealthTrendDataPoint]>] = [:]
+            for await (kind, outcome) in group {
+                readings[kind] = outcome
+            }
+            return readings
+        }
     }
 
     // MARK: - Sleep

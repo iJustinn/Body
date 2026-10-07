@@ -298,22 +298,6 @@
         }
       }
     },
-    "%@ Avg %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ Avg %2$@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@平均%2$@"
-          }
-        }
-      }
-    },
     "%@ End" : {
       "localizations" : {
         "en" : {
@@ -2630,22 +2614,6 @@
         }
       }
     },
-    "Avg %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Avg %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "平均%@"
-          }
-        }
-      }
-    },
     "Back" : {
       "localizations" : {
         "en" : {
@@ -4389,6 +4357,23 @@
         }
       }
     },
+    "Collapse Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collapse Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起警告"
+          }
+        }
+      }
+    },
     "Collision Vibration" : {
       "localizations" : {
         "en" : {
@@ -5437,6 +5422,210 @@
         }
       }
     },
+    "detail.dailyAvgShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "D Avg"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日均"
+          }
+        }
+      }
+    },
+    "detail.dailyRangeShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "D Range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日范围"
+          }
+        }
+      }
+    },
+    "detail.dailyTotalShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "D Total"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日总计"
+          }
+        }
+      }
+    },
+    "detail.hourlyAvgShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "H Avg"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "时均"
+          }
+        }
+      }
+    },
+    "detail.monthlyAvgShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "M Avg"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月均"
+          }
+        }
+      }
+    },
+    "detail.monthlyRangeShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "M Range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月范围"
+          }
+        }
+      }
+    },
+    "detail.sixMonthAvgShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6M Avg"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6个月均"
+          }
+        }
+      }
+    },
+    "detail.sixMonthRangeShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6M Range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6个月范围"
+          }
+        }
+      }
+    },
+    "detail.weeklyAvgShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "W Avg"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "周均"
+          }
+        }
+      }
+    },
+    "detail.weeklyRangeShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "W Range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "周范围"
+          }
+        }
+      }
+    },
+    "detail.yearlyAvgShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Y Avg"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "年均"
+          }
+        }
+      }
+    },
+    "detail.yearlyRangeShortPrefix" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Y Range"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "年范围"
+          }
+        }
+      }
+    },
     "Detailed Scoring" : {
       "localizations" : {
         "en" : {
@@ -6009,6 +6198,38 @@
         }
       }
     },
+    "equivalent.food.blueberries" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blueberries"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "蓝莓"
+          }
+        }
+      }
+    },
+    "equivalent.food.boiledEgg" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boiled Egg"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "水煮蛋"
+          }
+        }
+      }
+    },
     "equivalent.food.bread" : {
       "localizations" : {
         "en" : {
@@ -6053,6 +6274,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "汉堡"
+          }
+        }
+      }
+    },
+    "equivalent.food.candy" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Candy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "糖果"
+          }
+        }
+      }
+    },
+    "equivalent.food.carrot" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Carrot"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "胡萝卜"
+          }
+        }
+      }
+    },
+    "equivalent.food.cherries" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cherries"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "樱桃"
           }
         }
       }
@@ -6133,6 +6402,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "饺子"
+          }
+        }
+      }
+    },
+    "equivalent.food.fortuneCookie" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fortune Cookie"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "幸运饼干"
           }
         }
       }
@@ -6233,6 +6518,22 @@
         }
       }
     },
+    "equivalent.food.kiwi" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kiwi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "猕猴桃"
+          }
+        }
+      }
+    },
     "equivalent.food.latte" : {
       "localizations" : {
         "en" : {
@@ -6297,6 +6598,22 @@
         }
       }
     },
+    "equivalent.food.peach" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Peach"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "桃子"
+          }
+        }
+      }
+    },
     "equivalent.food.pizza" : {
       "localizations" : {
         "en" : {
@@ -6309,6 +6626,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "一块披萨"
+          }
+        }
+      }
+    },
+    "equivalent.food.popcorn" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Popcorn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "爆米花"
           }
         }
       }
@@ -6345,6 +6678,22 @@
         }
       }
     },
+    "equivalent.food.riceCracker" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rice Cracker"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仙贝"
+          }
+        }
+      }
+    },
     "equivalent.food.soda" : {
       "localizations" : {
         "en" : {
@@ -6357,6 +6706,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "汽水"
+          }
+        }
+      }
+    },
+    "equivalent.food.strawberries" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Strawberries"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "草莓"
           }
         }
       }
@@ -6389,6 +6754,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "塔可"
+          }
+        }
+      }
+    },
+    "equivalent.food.tomato" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tomato"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "番茄"
           }
         }
       }
@@ -6521,6 +6902,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "运动时长"
+          }
+        }
+      }
+    },
+    "Expand Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展开警告"
           }
         }
       }
@@ -15667,18 +16065,18 @@
         }
       }
     },
-    "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay some of the debt back. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement." : {
+    "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay the debt back, and up to 1 hour of extra sleep carries over to later nights. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay some of the debt back. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement."
+            "value" : "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay the debt back, and up to 1 hour of extra sleep carries over to later nights. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "睡眠负债估算你在最近14晚中少睡了多少。Body会把每晚的实际睡眠与所需睡眠进行比较。所需睡眠以你的睡眠目标为起点，向最近8周里你在睡得较久的夜晚所达到的时长靠近三分之一，并在高强度训练后或夜间心率变异性偏低的夜晚之后再额外增加一些。在记录满28晚之前，会以你的睡眠目标代替学习得出的所需睡眠。睡得更久的夜晚可以偿还部分负债。图表中的虚线标出了2小时和4小时，负债在这两处由低变为中等，再变为高，总量最多计为6小时。这只是帮助你发现趋势的估算，并非医学测量。"
+            "value" : "睡眠负债估算你在最近14晚中少睡了多少。Body会把每晚的实际睡眠与所需睡眠进行比较。所需睡眠以你的睡眠目标为起点，向最近8周里你在睡得较久的夜晚所达到的时长靠近三分之一，并在高强度训练后或夜间心率变异性偏低的夜晚之后再额外增加一些。在记录满28晚之前，会以你的睡眠目标代替学习得出的所需睡眠。睡得更久的夜晚可以偿还负债，多睡的时间最多保留1小时，用来抵扣之后的夜晚。图表中的虚线标出了2小时和4小时，负债在这两处由低变为中等，再变为高，总量最多计为6小时。这只是帮助你发现趋势的估算，并非医学测量。"
           }
         }
       }
@@ -16411,6 +16809,227 @@
         }
       }
     },
+    "stress.dayNight.allDay" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All day"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全天"
+          }
+        }
+      }
+    },
+    "stress.dayNight.day" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Day"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日间"
+          }
+        }
+      }
+    },
+    "stress.dayNight.night" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Night"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "夜间"
+          }
+        }
+      }
+    },
+    "stress.dayNight.noRestless" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No restless time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "整晚平静"
+          }
+        }
+      }
+    },
+    "stress.dayNight.noSleep" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No sleep recorded"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无睡眠记录"
+          }
+        }
+      }
+    },
+    "stress.dayNight.notEnoughData" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not enough data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数据不足"
+          }
+        }
+      }
+    },
+    "stress.dayNight.peak %lld %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Peak %1$lld at %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%2$@ 最高 %1$lld"
+          }
+        }
+      }
+    },
+    "stress.dayNight.restless %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ restless"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不平静 %@"
+          }
+        }
+      }
+    },
+    "stress.dayNight.restlessAt %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ restless at %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%2$@ 不平静 %1$@"
+          }
+        }
+      }
+    },
+    "stress.dayNight.span %@ %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ to %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 至 %2$@"
+          }
+        }
+      }
+    },
+    "stress.dayNight.spanToMidnight %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ to midnight"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 至午夜"
+          }
+        }
+      }
+    },
+    "stress.dayNight.spanToNow %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ to now"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 至现在"
+          }
+        }
+      }
+    },
+    "stress.dayNight.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Day and Night"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日间与夜间"
+          }
+        }
+      }
+    },
     "stress.stage.activity" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -16445,6 +17064,74 @@
         }
       }
     },
+    "stress.stage.breakdownAccessibility %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stress breakdown. %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压力细分：%@。"
+          }
+        }
+      }
+    },
+    "stress.stage.showingBar" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Showing one bar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在显示堆叠条形图"
+          }
+        }
+      }
+    },
+    "stress.stage.showingRows" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Showing rows"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在显示列表"
+          }
+        }
+      }
+    },
+    "stress.stage.switchHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switches between rows and one bar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在列表和堆叠条形图之间切换"
+          }
+        }
+      }
+    },
     "stress.status.noData" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -16458,6 +17145,125 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无数据"
+          }
+        }
+      }
+    },
+    "stressUpdate.feature.recovery.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A walk or yoga gets a short recovery before Stress scores again, harder training a longer one."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步行或瑜伽之后只需短暂恢复，压力就会重新评分；强度更高的训练之后，恢复期会更长。"
+          }
+        }
+      }
+    },
+    "stressUpdate.feature.recovery.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recovery after workouts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "锻炼后的恢复"
+          }
+        }
+      }
+    },
+    "stressUpdate.feature.windows.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only the windows you actually moved in are set aside as Activity, not the whole hour around them."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有你真正在活动的时段才会归为活动，不再连带前后整个小时。"
+          }
+        }
+      }
+    },
+    "stressUpdate.feature.windows.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More of your day scored"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一天中更多时段有评分"
+          }
+        }
+      }
+    },
+    "stressUpdate.load" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Load Now"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即载入"
+          }
+        }
+      }
+    },
+    "stressUpdate.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stress now judges each 15 minute window by its own movement, so more of your day gets a level. Body reloads your data from Apple Health once and rescores your recent Stress before you continue. It takes a moment. Nothing in Apple Health changes, and older Stress history keeps filling in in the background."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压力现在会按每个 15 分钟时段各自的活动来判断，一天中会有更多时段得到压力等级。Body 需要从 Apple 健康重新载入一次数据，并在你继续之前重新计算近期的压力。这会花一点时间。Apple 健康中的内容不会有任何改变，更早的压力记录会在后台继续补齐。"
+          }
+        }
+      }
+    },
+    "stressUpdate.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stress Updated"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压力已更新"
           }
         }
       }
@@ -18522,6 +19328,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "对比30天平均值"
+          }
+        }
+      }
+    },
+    "Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "警告"
           }
         }
       }

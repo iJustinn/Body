@@ -5,7 +5,9 @@ struct BodyHealthObservation {
     let type: HKSampleType
     let frequency: HKUpdateFrequency
     /// Quantity/sleep obligations use the small domain ledger. Workout sample
-    /// notifications use the existing journal's scan-needed receipt instead.
+    /// notifications use the existing journal's scan-needed receipt instead;
+    /// their one metric is Heart Rate, whose High Heart Rate warning leaves out
+    /// the readings inside a logged workout.
     let metrics: Set<HealthMetricKind>
     let scansWorkouts: Bool
     /// Current ring invalidation uses its existing snapshot/repair owner.
@@ -47,9 +49,14 @@ enum BodyHealthObservationPolicy {
         let readable = BodyHealthReadTypes.readObjectTypes(for: permissions)
         // The app maintains the shared widget snapshot and watch payload even
         // when a metric's phone card is hidden. Reuse their canonical mappings.
+        // Except Stress: the phone computes it only for its own card
+        // (`startStressInputLoadIfNeeded` is card gated), so a companion
+        // registration would enqueue an obligation the refresh can never
+        // complete, the same rule as the sleep readable guard below.
         let companionKinds: Set<HealthMetricKind> = includesCompanionConsumers
             ? Set(HealthWidgetMetric.allCases.map(\.healthMetricKind))
                 .union(WatchMetricKindKey.displayOrder.compactMap(HealthMetricKind.init(rawValue:)))
+                .subtracting([.stress])
             : []
         // Notification-only consumers require a wake, not dashboard history
         // repair. Their current-day inputs are read by the transient evaluator.
@@ -82,7 +89,12 @@ enum BodyHealthObservationPolicy {
         func quantity(_ id: HKQuantityTypeIdentifier, _ metrics: Set<HealthMetricKind>) {
             add(HKObjectType.quantityType(forIdentifier: id), metrics: metrics)
         }
-        add(HKObjectType.workoutType(), metrics: [], immediate: true, workouts: true)
+        // High Heart Rate leaves out readings inside a logged workout and its 30
+        // minute recovery, so a workout landing after its heart rate re-runs the
+        // Heart Rate leaf. Only while heart rate is readable: with Heart off that
+        // leaf reads nothing and its receipt could never be acknowledged.
+        let heartRateReadable = HKObjectType.quantityType(forIdentifier: .heartRate).map { readable.contains($0) } ?? false
+        add(HKObjectType.workoutType(), metrics: heartRateReadable ? [.heartRate] : [], immediate: true, workouts: true)
         add(HKObjectType.categoryType(forIdentifier: .sleepAnalysis), metrics: [.sleep], immediate: true)
         quantity(.heartRate, [.heartRate, .sleep])
         quantity(.heartRateVariabilitySDNN, [.heartRateVariability, .sleep])

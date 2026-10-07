@@ -265,6 +265,26 @@ enum MetricThresholdWarning {
         )
     }
 
+    /// Every past-threshold reading in the series, grouped by the day it fell on,
+    /// in one pass. The detail page's day picker marks a day as warned when
+    /// `detect(_:inSamples:threshold:excluding:)` finds an episode in that day's
+    /// group, which is the same answer as detecting over the whole day.
+    static func pastThresholdPointsByDay(
+        _ kind: MetricWarningKind,
+        in series: HealthTrendSeries,
+        threshold: Double,
+        calendar: Calendar = .bodyGregorian
+    ) -> [Date: [HealthTrendDataPoint]] {
+        var pointsByDay: [Date: [HealthTrendDataPoint]] = [:]
+        for point in series.points where point.value.isFinite {
+            guard kind.isAbove ? point.value > threshold : point.value < threshold else {
+                continue
+            }
+            pointsByDay[calendar.startOfDay(for: point.date), default: []].append(point)
+        }
+        return pointsByDay
+    }
+
     /// Padded window around the episode, clamped to the day it happened on. Always
     /// non-degenerate so the chart has an x-domain to scale against.
     static func chartWindow(
@@ -366,5 +386,22 @@ enum MetricThresholdWarning {
     private struct Pair: Hashable {
         var date: Date
         var value: Double
+    }
+}
+
+/// Wrist temperature thresholds and readings are stored in °C; every place
+/// that prints one (the Settings row, the warning card, the notification, the
+/// watch warning card) shows it in the user's temperature unit through this
+/// one formatter.
+enum BodyMetricWarningTemperatureText {
+    static func text(
+        celsius: Double,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
+    ) -> String {
+        let display = BodyValueFormat.temperatureDisplay(
+            celsius: celsius,
+            temperatureUnitPreference: temperatureUnitPreference
+        )
+        return "\(display.value)°\(display.unit)"
     }
 }

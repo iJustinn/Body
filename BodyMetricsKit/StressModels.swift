@@ -109,6 +109,50 @@ enum StressBand: String, Codable, Equatable, CaseIterable {
             )
         }
     }
+
+    /// The band's color as literal sRGB components: a cool to warm
+    /// progression, calm blue at Rest through red at High. The one palette the
+    /// iPhone's Stress charts and the watch's Stress page both draw from.
+    var rgbComponents: (red: Double, green: Double, blue: Double) {
+        switch self {
+        case .rest: return (0.20, 0.70, 0.95)
+        case .low: return (0.20, 0.80, 0.45)
+        case .medium: return (1.00, 0.72, 0.15)
+        case .high: return (1.00, 0.30, 0.20)
+        }
+    }
+}
+
+/// The intraday Stress plot's drawing constants, shared by the iPhone's Day
+/// View (`BodyStressIntradayPlot`) and the watch's "Last 8 hours" Stress chart
+/// so the two can't drift apart.
+enum StressChartStyle {
+    /// Dashed gridlines at the band boundaries' quarters. No y labels: the
+    /// score is banded, so the gridlines alone carry the scale.
+    static let gridFractions: [Double] = [0, 0.25, 0.5, 0.75, 1]
+    static let gridDash: [Double] = [4, 4]
+    static let gridLineWidth: Double = 1
+    static let gridOpacity: Double = 0.26
+    /// The faint column from a window's score down to the floor.
+    static let columnOpacity: Double = 0.10
+    static let columnCornerRadius: Double = 2
+    /// A window carries one score, not a range, so every mark is a centered
+    /// capsule of this fixed height.
+    static let capsuleHeight: Double = 6
+    /// The gray stub on the floor for a window masked as movement.
+    static let activityStubHeight: Double = 6
+    static let activityOpacity: Double = 0.45
+    /// Inset on each side of a window's mark, so neighbors don't touch.
+    static let markHorizontalInset: Double = 1
+    static let markMinimumWidth: Double = 2
+    /// Sleep and workout shading: a translucent fill and a full color top
+    /// stripe, the iPhone's day chart context bands.
+    static let sleepFillOpacity: Double = 0.14
+    static let workoutFillOpacity: Double = 0.10
+    static let topStripeHeightRatio: Double = 0.006
+    static let topStripeMinimumHeight: Double = 1.5
+    /// The sleep shading color, the Sleep metric's blue.
+    static let sleepRGB: (red: Double, green: Double, blue: Double) = (0.20, 0.72, 1.00)
 }
 
 /// One 15-minute slice of a day's stress curve.

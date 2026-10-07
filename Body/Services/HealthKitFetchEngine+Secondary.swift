@@ -107,9 +107,10 @@ extension HealthKitFetchEngine {
                 endDate: endDate
             )
         case .hourlyCumulative:
-            return await fetchHourlyCumulativeQuantitySeries(
+            return await fetchIntradayCumulativeQuantitySeries(
                 for: descriptor.quantityType,
                 unit: descriptor.unit,
+                bucket: .hour,
                 calendar: calendar,
                 sourceKind: descriptor.sourceKind,
                 sourceOption: secondaryOption,

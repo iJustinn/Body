@@ -378,14 +378,17 @@ struct BodyHeartRateRangeTrendChart: View {
         )
     }
 
+    /// "48-142 bpm": the unit once, after the high end.
+    private func rangeText(_ low: Double, _ high: Double) -> String {
+        BodyHealthStatFormat.rangeText(min(low, high)...max(low, high), formatter: valueFormatter)
+    }
+
     private var selectedRangePoint: HealthTrendRangeCalendarPoint? {
         guard let selectedDate else {
             return nil
         }
 
-        return finiteRangePoints.min { first, second in
-            abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
-        }
+        return bodyNearestDayPoint(to: selectedDate, in: finiteRangePoints) { $0.date }
     }
 
     private var rangeBarColor: Color {
@@ -401,7 +404,7 @@ struct BodyHeartRateRangeTrendChart: View {
             return [
                 BodyChartSelectionValue(
                     title: nil,
-                    value: "\(valueFormatter(lowValue))-\(valueFormatter(highValue))",
+                    value: rangeText(lowValue, highValue),
                     color: symbolColor
                 )
             ]
@@ -410,7 +413,7 @@ struct BodyHeartRateRangeTrendChart: View {
         var values = [
             BodyChartSelectionValue(
                 title: String(localized: "chart.legendRange", defaultValue: "Range"),
-                value: "\(valueFormatter(lowValue))-\(valueFormatter(highValue))",
+                value: rangeText(lowValue, highValue),
                 color: Color.secondary
             )
         ]

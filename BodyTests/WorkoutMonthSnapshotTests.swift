@@ -3000,7 +3000,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
     func testVitalsHomeCardKindConfiguration() {
         XCTAssertEqual(BodyHomeCardKind.vitals.healthMetricKind, .vitals)
-        // Readiness carries the "v2" chip and Stress "v1"; Body Radar carries
+        // Readiness carries the "v2" chip and Stress "v2"; Body Radar carries
         // "Beta v3" instead (all still count as isBeta via betaVersionLabel).
         XCTAssertFalse(BodyHomeCardKind.vitals.isBeta)
         XCTAssertFalse(BodyHomeCardKind.cardioFitness.isBeta)
@@ -3014,7 +3014,7 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
     /// owns the metric, so the two surfaces can never disagree.
     func testAboutCardVersionLabelsMatchTheSummaryCardChips() {
         XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .readiness), "v2")
-        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .stress), "v1")
+        XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .stress), "v2")
         XCTAssertEqual(BodyHomeCardKind.betaVersionLabel(for: .bodyRadar), "Beta v3")
         XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .vitals))
         XCTAssertNil(BodyHomeCardKind.betaVersionLabel(for: .sleep))
@@ -6034,7 +6034,11 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
         XCTAssertNotEqual(primary.id, secondary.id, "Identical sourceName must not collide across roles")
     }
 
-    func testBodyHealthSourceTrendAverageValueComputesOverComparisonBuckets() throws {
+    /// A source's average is its daily mean over the whole range, as the
+    /// single source readout reads it. The chart's comparison buckets drop
+    /// the oldest partial one (Year's 24 day buckets leave 5 days out), so
+    /// they read 185.5 for the year below, not 183.
+    func testBodyHealthSourceTrendAverageValueIsTheDailyMeanOverTheRange() throws {
         let calendar = Calendar.bodyGregorian
         let currentDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 15)))
         let currentDayStart = calendar.startOfDay(for: currentDate)
@@ -6061,6 +6065,41 @@ final class WorkoutMonthSnapshotTests: XCTestCase {
 
         let emptyTrend = BodyHealthSourceTrend(role: .primary, sourceName: "Apple Watch", series: .empty)
         XCTAssertNil(emptyTrend.averageValue(in: .recentWeek, calendar: calendar, date: currentDate))
+
+        // A year of days valued 1 (the oldest) to 365 (today), after one
+        // day before the year that must not count.
+        let yearDayCount = BodyHealthTrendRange.recentYear.dayCount
+        let yearStart = try XCTUnwrap(calendar.date(byAdding: .day, value: -(yearDayCount - 1), to: currentDayStart))
+        let yearSeries = HealthTrendSeries(points: try (-1..<yearDayCount).map { offset in
+            HealthTrendDataPoint(
+                date: try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: yearStart)),
+                value: offset < 0 ? 10_000 : Double(offset + 1)
+            )
+        })
+        let yearTrend = BodyHealthSourceTrend(role: .primary, sourceName: "Apple Watch", series: yearSeries)
+        XCTAssertEqual(
+            try XCTUnwrap(yearTrend.averageValue(in: .recentYear, calendar: calendar, date: currentDate)),
+            183,
+            accuracy: 0.0001
+        )
+
+        // A range chart's source averages each day's own average the same way.
+        let yearRangeTrend = BodyHealthSourceRangeTrend(
+            role: .primary,
+            sourceName: "Apple Watch",
+            series: HealthTrendRangeSeries(points: yearSeries.points.map {
+                HealthTrendRangeDataPoint(date: $0.date, lowValue: $0.value - 5, highValue: $0.value + 5, averageValue: $0.value)
+            })
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(yearRangeTrend.averageValue(in: .recentYear, calendar: calendar, date: currentDate)),
+            183,
+            accuracy: 0.0001
+        )
+        XCTAssertNil(
+            BodyHealthSourceRangeTrend(role: .primary, sourceName: "Apple Watch", series: .empty)
+                .averageValue(in: .recentYear, calendar: calendar, date: currentDate)
+        )
     }
 
     func testSecondaryDataSourceSelectionSignatureIsDeterministicAndKeyOrderInvariant() {

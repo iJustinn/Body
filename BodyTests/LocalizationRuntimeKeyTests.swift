@@ -440,6 +440,33 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         XCTAssertEqual(try value(of: "chart.legendRange", language: "zh-Hans", in: catalog), "范围")
     }
 
+    /// The detail pages' window labels, all in letters on every screen, so
+    /// none falls back to its key: the chart's range ("W Avg" through
+    /// "Y Range") and the Day View's day ("D Avg", "D Total", "H Avg").
+    func testDetailStatWindowLabelsResolveInLocalizableCatalog() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+        let expected: [(key: String, english: String, chinese: String)] = [
+            ("detail.weeklyAvgShortPrefix", "W Avg", "周均"),
+            ("detail.weeklyRangeShortPrefix", "W Range", "周范围"),
+            ("detail.monthlyAvgShortPrefix", "M Avg", "月均"),
+            ("detail.monthlyRangeShortPrefix", "M Range", "月范围"),
+            ("detail.sixMonthAvgShortPrefix", "6M Avg", "6个月均"),
+            ("detail.sixMonthRangeShortPrefix", "6M Range", "6个月范围"),
+            ("detail.yearlyAvgShortPrefix", "Y Avg", "年均"),
+            ("detail.yearlyRangeShortPrefix", "Y Range", "年范围"),
+            ("detail.dailyAvgShortPrefix", "D Avg", "日均"),
+            ("detail.dailyRangeShortPrefix", "D Range", "日范围"),
+            ("detail.dailyTotalShortPrefix", "D Total", "日总计"),
+            ("detail.hourlyAvgShortPrefix", "H Avg", "时均")
+        ]
+
+        try assertKeysTranslated(expected.map(\.key), in: catalog)
+        for entry in expected {
+            XCTAssertEqual(try value(of: entry.key, language: "en", in: catalog), entry.english, entry.key)
+            XCTAssertEqual(try value(of: entry.key, language: "zh-Hans", in: catalog), entry.chinese, entry.key)
+        }
+    }
+
     func testBucketedSeriesElevationAndHeartRateKeysResolveInBodyMetricsKitCatalog() throws {
         let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
 
@@ -490,8 +517,11 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "If you were working out, this warning will disappear once the workout is logged.",
             "Default: %@",
             "%lld bpm",
-            // Warning card close button and the Body Radar warning card.
-            "Close",
+            // Warning card fold chevron and the Body Radar warning card.
+            "Expand Warning",
+            "Collapse Warning",
+            // The metric day picker's warning dot.
+            "Warning",
             "bodyRadar.warning.sentence",
             "bodyRadar.warning.sameNight",
             "bodyRadar.warning.persistence",
@@ -501,6 +531,73 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         ]
 
         try assertKeysTranslated(keys, in: catalog)
+    }
+
+    /// The watch's warning badges, card glyphs and detail page warning cards
+    /// reuse the phone's copy, so the watch catalog carries the same keys,
+    /// translated exactly as on the phone.
+    func testWatchMetricWarningKeysResolveInWatchCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyWatch/Localizable.xcstrings")
+        let phoneCatalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            // Card titles, glyph and badge accessibility labels.
+            "Low Heart Rate",
+            "High Heart Rate",
+            "High Skin Temperature",
+            // The unfolded card's sentence and the High Heart Rate footnote.
+            "Your heart rate fell below %lld BPM starting at %@.",
+            "Your heart rate rose above %lld BPM starting at %@.",
+            "Your skin temperature rose above %@ starting at %@.",
+            "If you were working out, this warning will disappear once the workout is logged.",
+            // The fold button's accessibility hint.
+            "Expand Warning",
+            "Collapse Warning"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+        for key in keys {
+            for language in ["en", "zh-Hans"] {
+                XCTAssertEqual(
+                    try value(of: key, language: language, in: catalog),
+                    try value(of: key, language: language, in: phoneCatalog),
+                    "\(key) \(language) differs from the phone"
+                )
+            }
+        }
+    }
+
+    /// The watch notifies the warnings it detects itself with the phone's
+    /// notification copy (`MetricWarningNotificationContent`, compiled into
+    /// both apps), so the watch catalog carries every key it can post,
+    /// translated exactly as on the phone.
+    func testWatchWarningNotificationKeysResolveInWatchCatalog() throws {
+        let catalog = try loadCatalog(at: "BodyWatch/Localizable.xcstrings")
+        let phoneCatalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "Low Heart Rate Warning",
+            "High Heart Rate Warning",
+            "Low Blood Oxygen Warning",
+            "High Respiratory Rate Warning",
+            "High Skin Temperature Warning",
+            "A periodic check found a heart rate of %lld bpm today, below your %lld bpm limit.",
+            "A periodic check found a heart rate of %lld bpm today, above your %lld bpm limit.",
+            "A periodic check found a blood oxygen level of %lld%% today, below your %lld%% limit.",
+            "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit.",
+            "A periodic check found a skin temperature of %@ today, above your %@ limit."
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+        for key in keys {
+            for language in ["en", "zh-Hans"] {
+                XCTAssertEqual(
+                    try value(of: key, language: language, in: catalog),
+                    try value(of: key, language: language, in: phoneCatalog),
+                    "\(key) \(language) differs from the phone"
+                )
+            }
+        }
     }
 
     func testWorkoutRenameKeysResolveInLocalizableCatalog() throws {
@@ -611,7 +708,8 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         // BodyCacheRebuildView: the update-onboarding entry and the Settings ›
         // Data › Cache › Rebuild Cache entry share every row and reuse the
         // catalog's existing "Try Again", "Loading data...", and
-        // "onboarding.close" keys.
+        // "onboarding.close" keys; the Stress update entry adds its own title,
+        // subtitle, feature rows, and button.
         let keys = [
             "updateOnboarding.title",
             "updateOnboarding.subtitle",
@@ -623,9 +721,40 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "updateOnboarding.getStarted",
             "updateOnboarding.done",
             "updateOnboarding.keepOpen",
+            "stressUpdate.title",
+            "stressUpdate.subtitle",
+            "stressUpdate.feature.windows.title",
+            "stressUpdate.feature.windows.subtitle",
+            "stressUpdate.feature.recovery.title",
+            "stressUpdate.feature.recovery.subtitle",
+            "stressUpdate.load",
             "onboarding.close",
             "Loading data...",
             "Try Again"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+    }
+
+    /// The Stress page's Day and Night card builds every line as an interpolated
+    /// `Text` key, so extraction would only see them after a build in Xcode.
+    func testStressDayNightCardStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        let keys = [
+            "stress.dayNight.title",
+            "stress.dayNight.day",
+            "stress.dayNight.night",
+            "stress.dayNight.span %@ %@",
+            "stress.dayNight.spanToNow %@",
+            "stress.dayNight.spanToMidnight %@",
+            "stress.dayNight.allDay",
+            "stress.dayNight.peak %lld %@",
+            "stress.dayNight.restlessAt %@ %@",
+            "stress.dayNight.restless %@",
+            "stress.dayNight.noRestless",
+            "stress.dayNight.noSleep",
+            "stress.dayNight.notEnoughData"
         ]
 
         try assertKeysTranslated(keys, in: catalog)
@@ -942,6 +1071,10 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             "stress.status.noData",
             "stress.stage.activity",
             "stress.stage.baselineLegend",
+            "stress.stage.breakdownAccessibility %@",
+            "stress.stage.showingBar",
+            "stress.stage.showingRows",
+            "stress.stage.switchHint",
             "No Stress yet today"
         ]
 
@@ -979,7 +1112,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let keys = EnergyEquivalent.foods.map(\.name.key) + [EnergyEquivalent.iceCube.name.key]
         // Guards the enumeration itself: a refactor dropping foods would otherwise
         // silently check fewer keys and still pass.
-        XCTAssertEqual(keys.count, 29, "expected one key per EnergyEquivalent.Food plus the ice cube")
+        XCTAssertEqual(keys.count, 41, "expected one key per EnergyEquivalent.Food plus the ice cube")
 
         try assertKeysTranslated(keys, in: catalog)
     }

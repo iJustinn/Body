@@ -343,6 +343,29 @@ final class HealthKitWorkoutStoreComputeSeedTests: XCTestCase {
     /// (no `customHealthSourceGroupsRaw` argument at all) is spelled out here
     /// deliberately rather than reusing the fixture's default — that's the call
     /// the shipped build made.
+    // MARK: - computeSettingsSignature: energy unit
+
+    /// The energy unit extends the signature only for kilojoules (the phone
+    /// passes nil for kilocalories), so a kilocalorie seed signs as it did
+    /// before the Active and Resting Energy cards, while a switch either way
+    /// still re-seeds.
+    func testSettingsSignatureAddsTheEnergyUnitOnlyForKilojoules() {
+        let base = settingsFixture()
+        var kilojoules = base
+        kilojoules.selectedEnergyUnitRaw = BodyValueFormat.EnergyUnitPreference.kilojoules.rawValue
+
+        XCTAssertEqual(
+            HealthKitWorkoutStore.computeSettingsSignature(base),
+            HealthKitWorkoutStore.computeSettingsSignature(settingsFixture()),
+            "a kilocalorie seed (nil raw) signs the pre-feature bytes"
+        )
+        XCTAssertNotEqual(
+            HealthKitWorkoutStore.computeSettingsSignature(base),
+            HealthKitWorkoutStore.computeSettingsSignature(kilojoules)
+        )
+        XCTAssertTrue(HealthKitWorkoutStore.computeSettingsSignature(kilojoules).contains(";e[kilojoules]"))
+    }
+
     func testSettingsSignatureIsUnchangedWithoutCustomGroups() {
         let preFeatureSettings = WatchComputeSettings(
             idealSleepDurationMinutes: 480,

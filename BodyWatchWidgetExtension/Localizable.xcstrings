@@ -1,6 +1,57 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ KCAL THIS WEEK" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ KCAL THIS WEEK"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周 %@ 千卡"
+          }
+        }
+      }
+    },
+    "%@ KJ THIS WEEK" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ KJ THIS WEEK"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周 %@ 千焦"
+          }
+        }
+      }
+    },
+    "%@ STEPS THIS WEEK" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ STEPS THIS WEEK"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本周 %@ 步"
+          }
+        }
+      }
+    },
     "%lld MIN THIS WEEK" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -35,19 +86,19 @@
         }
       }
     },
-    "Heart Rate" : {
+    "Active Energy" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Heart Rate"
+            "value" : "Active Energy"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "心率"
+            "value" : "活动能量"
           }
         }
       }
@@ -65,6 +116,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "心率变异性"
+          }
+        }
+      }
+    },
+    "Heart Rate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率"
           }
         }
       }
@@ -103,6 +171,23 @@
         }
       }
     },
+    "Nothing to chart yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing to chart yet"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无图表数据"
+          }
+        }
+      }
+    },
     "Open Body on iPhone" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -133,6 +218,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复状态"
+          }
+        }
+      }
+    },
+    "Resting Energy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resting Energy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "静息能量"
           }
         }
       }
@@ -205,6 +307,40 @@
         }
       }
     },
+    "Steps" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Steps"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步数"
+          }
+        }
+      }
+    },
+    "Stress" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stress"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "压力"
+          }
+        }
+      }
+    },
     "This week's daily workout minutes." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -218,6 +354,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本周每日运动时长。"
+          }
+        }
+      }
+    },
+    "Today's active energy, or this week's daily active energy." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's active energy, or this week's daily active energy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的活动能量，或本周每日活动能量。"
+          }
+        }
+      }
+    },
+    "Today's resting energy, or this week's daily resting energy." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's resting energy, or this week's daily resting energy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的静息能量，或本周每日静息能量。"
+          }
+        }
+      }
+    },
+    "Today's steps, or this week's daily steps." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Today's steps, or this week's daily steps."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天的步数，或本周每日步数。"
           }
         }
       }
@@ -256,6 +443,23 @@
         }
       }
     },
+    "Your heart rate over the last 8 hours." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate over the last 8 hours."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你最近 8 小时的心率。"
+          }
+        }
+      }
+    },
     "Your heart rate ring." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -269,6 +473,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "心率圆环。"
+          }
+        }
+      }
+    },
+    "Your heart rate variability over the last 8 hours." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate variability over the last 8 hours."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你最近 8 小时的心率变异性。"
           }
         }
       }
@@ -290,6 +511,40 @@
         }
       }
     },
+    "Your latest stress reading and its level." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your latest stress reading and its level."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最新压力读数及其等级。"
+          }
+        }
+      }
+    },
+    "Your latest stress reading." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your latest stress reading."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的最新压力读数。"
+          }
+        }
+      }
+    },
     "Your readiness ring." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -303,6 +558,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "恢复状态圆环。"
+          }
+        }
+      }
+    },
+    "Your readiness score ring." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your readiness score ring."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复状态分数圆环。"
           }
         }
       }
@@ -354,6 +626,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "睡眠分数圆环。"
+          }
+        }
+      }
+    },
+    "Your stress over the last 12 hours." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your stress over the last 12 hours."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你最近 12 小时的压力。"
           }
         }
       }

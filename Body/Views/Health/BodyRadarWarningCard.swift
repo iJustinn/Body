@@ -10,7 +10,10 @@ import SwiftUI
 /// says which night, why the verdict was confirmed, and which signals moved.
 struct BodyRadarWarningCard: View {
     let night: BodyRadarNight
-    var onDismiss: (() -> Void)? = nil
+    /// Folded, the card shows only its title row.
+    var isFolded = false
+    /// Folds or unfolds the card. Nil hides the chevron.
+    var onToggleFold: (() -> Void)? = nil
 
     private var tint: Color {
         BodyRadarChartStyle.color(for: night.region)
@@ -18,46 +21,44 @@ struct BodyRadarWarningCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 20, weight: .bold))
+            BodyWarningCardHeader(isFolded: isFolded, onToggleFold: onToggleFold) {
                 Text(night.state.title)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-
-                Spacer(minLength: 0)
-
-                if let onDismiss {
-                    BodyWarningCardCloseButton(action: onDismiss)
-                }
             }
             .foregroundStyle(tint)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(sentence)
-
-                if let corroborationText {
-                    Text(corroborationText)
-                }
+            if !isFolded {
+                details
             }
-            .font(.system(.subheadline, design: .rounded))
-            .fontWeight(.semibold)
-            .foregroundColor(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-
-            signalRows
-
-            Text(String(
-                localized: "bodyRadar.warning.footnote",
-                defaultValue: "Rest and notice how you feel. Body Radar is not a medical device."
-            ))
-            .font(.system(.footnote, design: .rounded))
-            .fontWeight(.semibold)
-            .foregroundColor(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .bodyCardBackground(translucent: true)
+    }
+
+    @ViewBuilder
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(sentence)
+
+            if let corroborationText {
+                Text(corroborationText)
+            }
+        }
+        .font(.system(.subheadline, design: .rounded))
+        .fontWeight(.semibold)
+        .foregroundColor(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+        signalRows
+
+        Text(String(
+            localized: "bodyRadar.warning.footnote",
+            defaultValue: "Rest and notice how you feel. Body Radar is not a medical device."
+        ))
+        .font(.system(.footnote, design: .rounded))
+        .fontWeight(.semibold)
+        .foregroundColor(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// The flagged signals, each with the way it moved. A combination can reach

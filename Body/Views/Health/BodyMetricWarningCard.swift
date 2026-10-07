@@ -6,28 +6,57 @@
 import Charts
 import SwiftUI
 
-/// The close button at a warning card's top right. Shared by the threshold
-/// warning cards and the Body Radar card.
-struct BodyWarningCardCloseButton: View {
-    /// Grows the tap area to the 44 pt minimum without moving the glyph or the
-    /// header's height: the slop is padded in and cancelled out again.
-    private static let tapSlop: CGFloat = 11
+/// A warning card's title row: the warning triangle, the title and, when the
+/// card can fold, a chevron at the top right. Shared by the threshold warning
+/// cards and the Body Radar card. The whole row folds and unfolds the card; the
+/// chevron points left while it is folded and turns to point down once it is
+/// unfolded. The caller tints the row.
+struct BodyWarningCardHeader<Title: View>: View {
+    /// Grows the row's tap area to the 44 pt minimum without moving anything or
+    /// changing the header's height: the slop is padded in and cancelled out again.
+    private static var tapSlop: CGFloat { 8 }
 
-    let action: () -> Void
+    let isFolded: Bool
+    /// Folds or unfolds the card. Nil leaves a plain row with no chevron.
+    let onToggleFold: (() -> Void)?
+    @ViewBuilder let title: Title
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 22, weight: .semibold))
-                // A plain gray, not the hierarchical style, which would take the
-                // card header's warning tint.
-                .foregroundStyle(Color.secondary)
-                .padding(Self.tapSlop)
-                .contentShape(Rectangle())
+        if let onToggleFold {
+            Button(action: onToggleFold) {
+                row
+                    .padding(Self.tapSlop)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(-Self.tapSlop)
+            .accessibilityHint(isFolded ? Text("Expand Warning") : Text("Collapse Warning"))
+        } else {
+            row
         }
-        .buttonStyle(.plain)
-        .padding(-Self.tapSlop)
-        .accessibilityLabel(Text("Close"))
+    }
+
+    private var row: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 20, weight: .bold))
+            title
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+
+            Spacer(minLength: 0)
+
+            if onToggleFold != nil {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 18, weight: .semibold))
+                    // A plain gray, not the hierarchical style, which would take the
+                    // card header's warning tint.
+                    .foregroundStyle(Color.secondary)
+                    .rotationEffect(.degrees(isFolded ? 0 : -90))
+                    // A fixed square, so the turning glyph never shifts the title.
+                    .frame(width: 22, height: 22)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 }
 
@@ -46,8 +75,10 @@ struct BodyMetricWarningCard: View {
     /// Optional report-out of the scrub callout, so the detail page can float it on the
     /// topmost layer (above the nav bar). Nil keeps the in-chart annotation.
     var floatingCallout: BodyChartFloatingCalloutState? = nil
-    /// Closes the card once the user has read it. Nil hides the close button.
-    var onDismiss: (() -> Void)? = nil
+    /// Folded, the card shows only its title row.
+    var isFolded = false
+    /// Folds or unfolds the card. Nil hides the chevron.
+    var onToggleFold: (() -> Void)? = nil
 
     @AppStorage(BodyAppearancePreference.followsSystemUnitsKey) private var followsSystemUnits = true
     @AppStorage(BodyAppearancePreference.selectedTemperatureUnitKey) private var selectedTemperatureUnitRawValue = BodyValueFormat.TemperatureUnitPreference.defaultValue.rawValue
@@ -109,51 +140,54 @@ struct BodyMetricWarningCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 20, weight: .bold))
+            BodyWarningCardHeader(isFolded: isFolded, onToggleFold: onToggleFold) {
                 title
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-
-                Spacer(minLength: 0)
-
-                if let onDismiss {
-                    BodyWarningCardCloseButton(action: onDismiss)
-                }
             }
             .foregroundStyle(.yellow)
 
-            Text(sentence)
-                .font(.system(.subheadline, design: .rounded))
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if event.kind.excludesWorkouts {
-                Text("If you were working out, this warning will disappear once the workout is logged.")
-                    .font(.system(.footnote, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if !samples.isEmpty {
-                chart
-                    // Scoped like the Day View chart: only sample changes animate,
-                    // so the marks glide instead of snapping when the day (or the
-                    // threshold) moves, and the outer transaction keeps inherited
-                    // scroll/date-picker animations out.
-                    .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: samples)
-                    .transition(chartTransition)
-                    .transaction { transaction in
-                        transaction.animation = nil
-                    }
+            if !isFolded {
+                details
             }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .bodyCardBackground(translucent: true)
-        .onAppear { BodyConfirmationHaptics.playWarningAppeared(event) }
+        .onAppear {
+            // A card the user already folded has been read, so it arrives quietly.
+            if !isFolded {
+                BodyConfirmationHaptics.playWarningAppeared(event)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var details: some View {
+        Text(sentence)
+            .font(.system(.subheadline, design: .rounded))
+            .fontWeight(.semibold)
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        if event.kind.excludesWorkouts {
+            Text("If you were working out, this warning will disappear once the workout is logged.")
+                .font(.system(.footnote, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if !samples.isEmpty {
+            chart
+                // Scoped like the Day View chart: only sample changes animate,
+                // so the marks glide instead of snapping when the day (or the
+                // threshold) moves, and the outer transaction keeps inherited
+                // scroll/date-picker animations out.
+                .animation(reduceMotion ? nil : .smooth(duration: 0.45, extraBounce: 0), value: samples)
+                .transition(chartTransition)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
+        }
     }
 
     @ViewBuilder

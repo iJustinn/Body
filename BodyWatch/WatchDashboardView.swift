@@ -8,12 +8,19 @@
 //  complication on the watch face — opens that metric's detail page in a
 //  vertical-paging carousel.
 //
+//  Today's metric warnings, the phone's and the watch's own
+//  (`WatchMetricWarnings.shown`), show as a yellow triangle on their card and,
+//  while the phone's Show on Home Hero switch is on, as a badge under the hero
+//  for each shown card with one. A warning folded on either device
+//  (`WatchWarningFoldStore`) leaves both.
+//
 
 import SwiftUI
 import WatchKit
 
 struct WatchDashboardView: View {
     @EnvironmentObject private var model: WatchMetricsModel
+    @EnvironmentObject private var warningFolds: WatchWarningFoldStore
     @State private var path: [String] = []
     /// Bumped on every complication deep-link, folded into the detail pager's
     /// `.id`. Re-tapping the complication for the metric already on screen sets
@@ -54,6 +61,31 @@ struct WatchDashboardView: View {
 
     private var cardMetrics: [WatchMetric] {
         showsDayRing ? visibleMetrics : visibleMetrics.filter { $0.kind != WatchMetricKindKey.readiness }
+    }
+
+    /// Today's warnings, the phone's and the watch's own: `sanitized(asOf:)`
+    /// drops any pushed one not dated today when the snapshot is loaded or
+    /// applied and when the dashboard appears, and `shown` keeps only the
+    /// watch's own from today.
+    private var warnings: [WatchMetricWarning] {
+        WatchMetricWarnings.shown(
+            pushed: model.snapshot.metricWarnings ?? [],
+            checks: model.snapshot.warningChecks,
+            workoutSpans: model.snapshot.workoutSpans,
+            settings: model.snapshot.warningSettings,
+            now: Date()
+        )
+    }
+
+    /// One badge per shown card with an unfolded warning, so a hidden metric
+    /// (or Readiness while it is the hero) gets none.
+    private var heroWarningBadges: [WatchHeroWarningBadge] {
+        WatchMetricWarnings.heroBadges(
+            cardKinds: cardMetrics.map(\.kind),
+            warnings: warnings,
+            showsOnHero: model.snapshot.heroShowsWarnings ?? true,
+            isFolded: warningFolds.isFolded
+        )
     }
 
     var body: some View {
@@ -112,7 +144,8 @@ struct WatchDashboardView: View {
                                             showsCaption: model.snapshot.dayRingShowsCaption ?? true,
                                             width: heroWidth,
                                             progress: progress,
-                                            pull: pull
+                                            pull: pull,
+                                            warningBadges: heroWarningBadges
                                         )
                                     }
                                 } else if let heroMetric, heroWidth > 0 {
@@ -129,7 +162,8 @@ struct WatchDashboardView: View {
                                                 showsLevel: model.snapshot.readinessHeroShowsLevel ?? true,
                                                 width: heroWidth,
                                                 progress: progress,
-                                                pull: pull
+                                                pull: pull,
+                                                warningBadges: heroWarningBadges
                                             )
                                         }
                                         .buttonStyle(.plain)
@@ -138,7 +172,14 @@ struct WatchDashboardView: View {
 
                                 ForEach(cardMetrics) { metric in
                                     NavigationLink(value: metric.kind) {
-                                        WatchMetricCardView(metric: metric)
+                                        WatchMetricCardView(
+                                            metric: metric,
+                                            warningAccessibilityLabel: WatchMetricWarnings.glyphLabel(
+                                                forCardKind: metric.kind,
+                                                in: warnings,
+                                                isFolded: warningFolds.isFolded
+                                            )
+                                        )
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -198,6 +239,19 @@ struct WatchDashboardView: View {
             }
         }
         .onAppear { model.onAppear() }
+        // Once per phone push (the revision advances with each phone publish and
+        // never for a watch refresh) and on first appear: a fold the phone's
+        // push doesn't reflect yet, sent before the session activated or lost
+        // with the phone's stamps on a reinstall, goes to the phone again. So
+        // does a fold on a warning only the watch found.
+        .onChange(of: model.snapshot.revision, initial: true) {
+            warningFolds.resendUnacknowledged(in: WatchMetricWarnings.foldResendList(
+                pushed: model.snapshot.metricWarnings ?? [],
+                checks: model.snapshot.warningChecks,
+                settings: model.snapshot.warningSettings,
+                now: Date()
+            ))
+        }
         .onOpenURL { url in
             // A metric complication deep-links straight to its detail page. Bump
             // the token first so re-tapping the metric already on screen still

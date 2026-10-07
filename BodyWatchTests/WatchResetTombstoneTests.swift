@@ -91,6 +91,27 @@ final class WatchResetTombstoneTests: XCTestCase {
         XCTAssertEqual(tombstone.revision, 6)
     }
 
+    /// The Heart Rate and HRV chart complications' slots (`heartCharts`) are
+    /// the watch's own, and the phone never sends them: the tombstone
+    /// replaces the snapshot wholesale, so they are cleared with everything
+    /// else.
+    func testResetDropsTheHeartCharts() throws {
+        var current = dataSnapshot(epoch: "A", revision: 5, generatedAt: t1)
+        let window = WatchIntradayWindow.endingAt(t1)
+        current.heartCharts = [
+            WatchMetricKindKey.heartRate: WatchIntradayChart(
+                window: window,
+                buckets: [WatchIntradayBucket(start: window.start, minimum: 57, maximum: 75, average: 64)]
+            )
+        ]
+        let reset = resetSnapshot(epoch: "A", revision: 6, generatedAt: t2)
+
+        let tombstone = try XCTUnwrap(WatchMetricsModel.resolvedSnapshot(applying: reset, over: current))
+
+        XCTAssertEqual(tombstone.isReset, true)
+        XCTAssertNil(tombstone.heartCharts)
+    }
+
     func testStaleLowerRevisionPushAfterResetIsRejected() {
         let tombstone = resetSnapshot(epoch: "A", revision: 6, generatedAt: t2)
         // A delayed pre-clear publish: same epoch, lower revision, carries data.

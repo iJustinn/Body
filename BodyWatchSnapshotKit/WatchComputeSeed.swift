@@ -51,6 +51,12 @@ struct WatchComputeSettings: Codable, Equatable {
     /// Nil when the phone has no groups (or Body Pro has lapsed), which keeps
     /// the encoding byte-identical to a pre-feature seed.
     var customHealthSourceGroupsRaw: String?
+    /// `BodyValueFormat.EnergyUnitPreference.rawValue` the phone formats Active
+    /// Energy and Resting Energy in, so the watch's compute formats them the
+    /// same way. Nil means kilocalories: the phone passes nil for kilocalorie
+    /// users, which keeps their encoding and settings signature byte-identical
+    /// to a pre-feature seed, so only kilojoule users re-seed once.
+    var selectedEnergyUnitRaw: String?
     /// Recent per-night time zones, keyed by ISO day string (`"yyyy-MM-dd"`) —
     /// NEVER `[Date: String]`, whose JSON encoding is a nondeterministic
     /// unkeyed array of key/value pairs that would defeat `.sortedKeys`
@@ -70,6 +76,7 @@ struct WatchComputeSettings: Codable, Equatable {
         case healthDataSourceSelectionRaw
         case combinesHealthDataSourcesByName
         case customHealthSourceGroupsRaw
+        case selectedEnergyUnitRaw
         case recentTimeZoneIdentifiersByDay
     }
 
@@ -83,6 +90,7 @@ struct WatchComputeSettings: Codable, Equatable {
         healthDataSourceSelectionRaw: String,
         combinesHealthDataSourcesByName: Bool,
         customHealthSourceGroupsRaw: String? = nil,
+        selectedEnergyUnitRaw: String? = nil,
         recentTimeZoneIdentifiersByDay: [String: String]? = nil
     ) {
         self.idealSleepDurationMinutes = idealSleepDurationMinutes
@@ -94,6 +102,7 @@ struct WatchComputeSettings: Codable, Equatable {
         self.healthDataSourceSelectionRaw = healthDataSourceSelectionRaw
         self.combinesHealthDataSourcesByName = combinesHealthDataSourcesByName
         self.customHealthSourceGroupsRaw = customHealthSourceGroupsRaw
+        self.selectedEnergyUnitRaw = selectedEnergyUnitRaw
         self.recentTimeZoneIdentifiersByDay = recentTimeZoneIdentifiersByDay
     }
 
@@ -113,6 +122,7 @@ struct WatchComputeSettings: Codable, Equatable {
         healthDataSourceSelectionRaw = try container.decodeIfPresent(String.self, forKey: .healthDataSourceSelectionRaw) ?? ""
         combinesHealthDataSourcesByName = try container.decodeIfPresent(Bool.self, forKey: .combinesHealthDataSourcesByName) ?? false
         customHealthSourceGroupsRaw = try container.decodeIfPresent(String.self, forKey: .customHealthSourceGroupsRaw)
+        selectedEnergyUnitRaw = try container.decodeIfPresent(String.self, forKey: .selectedEnergyUnitRaw)
         recentTimeZoneIdentifiersByDay = try container.decodeIfPresent([String: String].self, forKey: .recentTimeZoneIdentifiersByDay)
     }
 }
@@ -169,6 +179,17 @@ struct WatchComputeSeed: Codable, Equatable {
     /// reaches its delta window — otherwise the uncovered days between the two
     /// watermarks would be silently zero-filled as fabricated rest days.
     var trainingLoadDataThrough: Date?
+    /// The iPhone's effort ratings for the recent workouts (the last
+    /// `maxComputeAge` days), keyed by workout UUID, which is identical on
+    /// both devices. The watch overwrites every day of its delta window with
+    /// its own workout reads, so without these a rating made on the iPhone
+    /// (Fitness, the Effort card, Auto-Apply) counts at the default effort
+    /// until it replicates to the watch's own store, and the watch's newer
+    /// compute then outranks the iPhone's corrected number in the merge.
+    /// `WatchComputeAssembly.applyingEffortHints` fills only workouts the
+    /// watch read as unrated; a rating the watch read itself wins. `nil` from
+    /// a phone build that predates them.
+    var trainingLoadEffortHints: [String: Double]?
 
     /// The phone's own discovered source universe per compute kind (keyed by
     /// `HealthMetricKind.rawValue`, values = sorted disambiguated identity
@@ -191,6 +212,16 @@ struct WatchComputeSeed: Codable, Equatable {
     /// seed's `dataThrough`.
     static let trendDayCount = 70
 
+    /// Nights of sleep history carried in `trends.sleepHistory`, more than
+    /// `trendDayCount`: the watch's Sleep Debt (`SleepDebtChartModel.watchNightCount`
+    /// nights) reads each night's 14 night window, the day before them, two
+    /// days of time zone slack, and a whole 56 day HRV baseline and learned
+    /// need behind those (`SleepDebtChartModel.historyDayCount(nightCount:)`),
+    /// so the watch reads exactly the nights the phone's model does. Only the
+    /// history is widened; `trends.sleep` and every other series stay at
+    /// `trendDayCount`.
+    static let sleepHistoryDayCount = SleepDebtChartModel.historyDayCount(nightCount: SleepDebtChartModel.watchNightCount)
+
     /// Nights of FULL sleep-stage detail kept in `trends.sleepHistory`; older
     /// nights collapse to one synthesized segment (see
     /// `SleepHistorySnapshot.watchComputeTrimmed`). Must cover the 14-day
@@ -198,6 +229,14 @@ struct WatchComputeSeed: Codable, Equatable {
     /// `consistencyBaselineDayCount`) so collapsing a night never changes a
     /// still-relevant score — 15 covers "today" plus the full 14-day lookback.
     static let sleepSegmentDayCount = 15
+
+    /// Days of `trends.recordedStressDays` carried, whole records, ending at
+    /// `dataThrough`. The watch keeps only about a week of HealthKit, so these
+    /// records are where its Stress baselines come from: each scored day reads
+    /// the quiet heart rate and RMSSD medians of the 56 days before it
+    /// (`ReadinessScoreCalculator.baselineDayCount`), plus a few days of slack
+    /// at the calendar edges. They also draw the 7 day chart and its ranges.
+    static let stressRecordDayCount = 60
 
     /// The watch's assumed HealthKit retention: the compute's ENTIRE delta
     /// window (which opens two calendar days before `dataThrough` for the
@@ -234,6 +273,7 @@ struct WatchComputeSeed: Codable, Equatable {
         case trainingLoadStartDay
         case trainingLoadDailyLoads
         case trainingLoadDataThrough
+        case trainingLoadEffortHints
         case expectedSourceIDsByKind
         case settings
         case settingsSignature
@@ -250,6 +290,7 @@ struct WatchComputeSeed: Codable, Equatable {
         trainingLoadStartDay: Date? = nil,
         trainingLoadDailyLoads: [Double]? = nil,
         trainingLoadDataThrough: Date? = nil,
+        trainingLoadEffortHints: [String: Double]? = nil,
         expectedSourceIDsByKind: [String: [String]]? = nil,
         settings: WatchComputeSettings,
         settingsSignature: String
@@ -264,6 +305,7 @@ struct WatchComputeSeed: Codable, Equatable {
         self.trainingLoadStartDay = trainingLoadStartDay
         self.trainingLoadDailyLoads = trainingLoadDailyLoads
         self.trainingLoadDataThrough = trainingLoadDataThrough
+        self.trainingLoadEffortHints = trainingLoadEffortHints
         self.expectedSourceIDsByKind = expectedSourceIDsByKind
         self.settings = settings
         self.settingsSignature = settingsSignature
@@ -286,6 +328,7 @@ struct WatchComputeSeed: Codable, Equatable {
         trainingLoadStartDay = try container.decodeIfPresent(Date.self, forKey: .trainingLoadStartDay)
         trainingLoadDailyLoads = try container.decodeIfPresent([Double].self, forKey: .trainingLoadDailyLoads)
         trainingLoadDataThrough = try container.decodeIfPresent(Date.self, forKey: .trainingLoadDataThrough)
+        trainingLoadEffortHints = try container.decodeIfPresent([String: Double].self, forKey: .trainingLoadEffortHints)
         expectedSourceIDsByKind = try container.decodeIfPresent([String: [String]].self, forKey: .expectedSourceIDsByKind)
         settings = try container.decodeIfPresent(WatchComputeSettings.self, forKey: .settings) ?? WatchComputeSeed.fallbackSettings
         settingsSignature = try container.decodeIfPresent(String.self, forKey: .settingsSignature) ?? ""
@@ -310,6 +353,7 @@ struct WatchComputeSeed: Codable, Equatable {
         try container.encodeIfPresent(trainingLoadStartDay, forKey: .trainingLoadStartDay)
         try container.encodeIfPresent(trainingLoadDailyLoads, forKey: .trainingLoadDailyLoads)
         try container.encodeIfPresent(trainingLoadDataThrough, forKey: .trainingLoadDataThrough)
+        try container.encodeIfPresent(trainingLoadEffortHints, forKey: .trainingLoadEffortHints)
         try container.encodeIfPresent(expectedSourceIDsByKind, forKey: .expectedSourceIDsByKind)
         try container.encode(settings, forKey: .settings)
         try container.encode(settingsSignature, forKey: .settingsSignature)
@@ -362,9 +406,13 @@ extension WatchComputeSeed {
 extension HealthTrendSnapshot {
     /// The compute-relevant slice of this snapshot for the phone→watch seed:
     /// windowed to `WatchComputeSeed.trendDayCount` most-recent days ending at
-    /// `anchor`, keeping only the series the watch's on-device recompute
-    /// reads (readiness, HR/RHR/HRV, respiratory, SpO₂, Training Load, wrist
-    /// temperature, sleep + sleep history, recorded-readiness + its context)
+    /// `anchor` (the sleep history to `WatchComputeSeed.sleepHistoryDayCount`),
+    /// keeping only the series the watch's on-device recompute
+    /// reads (readiness, HR/RHR/HRV, the HR/HRV daily ranges for one week,
+    /// respiratory, SpO₂, Training Load, wrist temperature, sleep + sleep
+    /// history, recorded-readiness + its context, the recorded Stress days for
+    /// `WatchComputeSeed.stressRecordDayCount` days + their context, the
+    /// frozen Sleep Debt nights the watch's 14 night model reads + their context)
     /// — everything else (secondary-source series, day-sample series, Basics,
     /// Activity Rings inputs, …) collapses to `.empty` since the watch never
     /// computes those.
@@ -381,6 +429,17 @@ extension HealthTrendSnapshot {
         trimmed.oxygenSaturation = watchComputeWindowed(oxygenSaturation, dayCount: days, anchor: anchor, calendar: calendar)
         trimmed.trainingLoad = watchComputeWindowed(trainingLoad, dayCount: days, anchor: anchor, calendar: calendar)
         trimmed.wristTemperature = watchComputeWindowed(wristTemperature, dayCount: days, anchor: anchor, calendar: calendar)
+        // The Heart Rate and HRV week charts' daily min/max capsules keep only
+        // a week, not `trendDayCount`: the builder reads them through
+        // `.recentWeek` alone (nothing scores them), a seed is at most
+        // `maxComputeAge` (7 days) old, and the delta re-reads them from
+        // `dataThrough`'s day minus 2 days, so these 7 days plus the delta
+        // always cover the 7 the chart draws. 70 would only grow the push.
+        let rangeDays = BodyHealthTrendRange.recentWeek.dayCount
+        trimmed.heartRateRanges = watchComputeWindowed(heartRateRanges, dayCount: rangeDays, anchor: anchor, calendar: calendar)
+        trimmed.heartRateVariabilityRanges = watchComputeWindowed(
+            heartRateVariabilityRanges, dayCount: rangeDays, anchor: anchor, calendar: calendar
+        )
         trimmed.sleepHistory = sleepHistory.watchComputeTrimmed(anchor: anchor, calendar: calendar)
 
         let anchorDay = calendar.startOfDay(for: anchor)
@@ -390,6 +449,36 @@ extension HealthTrendSnapshot {
             return day >= oldestKeptDay && day <= anchorDay
         }
         trimmed.recordedReadinessContext = recordedReadinessContext
+
+        // Stress's baselines and week, same day bounds as the records above.
+        let oldestStressDay = calendar.date(
+            byAdding: .day,
+            value: -(WatchComputeSeed.stressRecordDayCount - 1),
+            to: anchorDay
+        ) ?? anchorDay
+        trimmed.recordedStressDays = recordedStressDays.filter { entry in
+            let day = calendar.startOfDay(for: entry.date)
+            return day >= oldestStressDay && day <= anchorDay
+        }
+        trimmed.recordedStressContext = recordedStressContext
+
+        // The frozen Sleep Debt nights of the entry days the watch's model
+        // reads (`watchNightCount + windowNightCount`, 28) ending at the anchor.
+        // The watch never freezes a night itself: the phone is authoritative,
+        // as for the readiness morning records (see the deviation note in
+        // `WatchComputeAssembly`). So after midnight and before the next push
+        // the watch computes yesterday live, and the next seed brings the
+        // phone's record. The context rides along as is; the watch never re-keys.
+        let oldestSleepDebtDay = calendar.date(
+            byAdding: .day,
+            value: -(SleepDebtChartModel.watchNightCount + SleepDebtChartModel.windowNightCount - 1),
+            to: anchorDay
+        ) ?? anchorDay
+        trimmed.recordedSleepDebt = recordedSleepDebt.filter { record in
+            let day = calendar.startOfDay(for: record.day)
+            return day >= oldestSleepDebtDay && day <= anchorDay
+        }
+        trimmed.recordedSleepDebtContext = recordedSleepDebtContext
 
         return trimmed
     }
@@ -413,9 +502,26 @@ private func watchComputeWindowed(
     )
 }
 
+/// `watchComputeWindowed` for a daily range series, with the same day-boundary
+/// math (for `.recentWeek`'s 7 days it equals `HealthTrendRangeSeries.limited(to:)`).
+private func watchComputeWindowed(
+    _ series: HealthTrendRangeSeries,
+    dayCount: Int,
+    anchor: Date,
+    calendar: Calendar
+) -> HealthTrendRangeSeries {
+    let anchorDayStart = calendar.startOfDay(for: anchor)
+    let startDate = calendar.date(byAdding: .day, value: -(dayCount - 1), to: anchorDayStart) ?? anchorDayStart
+    let endDate = calendar.date(byAdding: .day, value: 1, to: anchorDayStart) ?? anchor
+    return HealthTrendRangeSeries(
+        points: series.points.filter { $0.date >= startDate && $0.date < endDate }
+    )
+}
+
 extension SleepHistorySnapshot {
-    /// Keeps the same 70-day lookback as the compute trends (including the
-    /// 56-day readiness baseline), then collapses stage detail for nights `WatchComputeSeed.sleepSegmentDayCount`
+    /// Keeps a `WatchComputeSeed.sleepHistoryDayCount` (86) day lookback, the
+    /// compute trends' 70 days (including the 56-day readiness baseline)
+    /// widened to everything the watch's Sleep Debt reads, then collapses stage detail for nights `WatchComputeSeed.sleepSegmentDayCount`
     /// (or more) days before `anchor` into a single synthesized segment
     /// spanning the night's main-session interval — full per-stage detail
     /// (REM/Core/Deep/Awake) only matters for tonight's own sleep score and the
@@ -423,8 +529,8 @@ extension SleepHistorySnapshot {
     /// both of which stay inside the retained window for any anchor within
     /// `WatchComputeSeed.maxComputeAge` of `dataThrough`. `date`,
     /// `timeZoneIdentifier`, the day's `duration`, and `vitals` are untouched —
-    /// baselines and the duration/vitals score categories read those, not the
-    /// segments.
+    /// baselines, the duration/vitals score categories, and Sleep Debt (stored
+    /// duration and sleep HRV only) read those, not the segments.
     ///
     /// Deviation from a literal "unspecified sleep" stage: `SleepStage` has no
     /// such case, so `.core` stands in for the collapsed span. `.core` is one
@@ -437,7 +543,7 @@ extension SleepHistorySnapshot {
         let trimmedDays = days.compactMap { day -> SleepDaySummary? in
             let dayStart = calendar.startOfDay(for: day.date)
             let ageInDays = calendar.dateComponents([.day], from: dayStart, to: anchorDay).day ?? 0
-            guard ageInDays < WatchComputeSeed.trendDayCount else { return nil }
+            guard ageInDays < WatchComputeSeed.sleepHistoryDayCount else { return nil }
             guard ageInDays >= WatchComputeSeed.sleepSegmentDayCount else {
                 return day
             }

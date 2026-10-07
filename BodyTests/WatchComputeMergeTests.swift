@@ -37,6 +37,7 @@ final class WatchComputeMergeTests: XCTestCase {
         levelMax: Double? = nil,
         tint: WatchMetricColor? = nil,
         weekly: [Double?]? = nil,
+        weeklyRanges: [WatchDayRange?]? = nil,
         statusBand: WatchStatusBand? = nil,
         weeklyCurrentValue: Double? = nil,
         liveUpdatedAt: Date? = nil,
@@ -60,6 +61,7 @@ final class WatchComputeMergeTests: XCTestCase {
             measuredAt: measuredAt,
             tint: tint,
             weekly: weekly,
+            weeklyRanges: weeklyRanges,
             statusBand: statusBand,
             weeklyCurrentValue: weeklyCurrentValue
         )
@@ -71,6 +73,10 @@ final class WatchComputeMergeTests: XCTestCase {
         lastRefreshDate: Date?,
         sleepNight: Date? = nil,
         sleepStages: [WatchSleepStageSegment]? = nil,
+        sleepDebt: WatchSleepDebt? = nil,
+        showsSleepDebt: Bool? = nil,
+        stressTimeline: WatchStressTimeline? = nil,
+        workoutColorOverrides: String? = nil,
         isReset: Bool? = nil
     ) -> WatchMetricsSnapshot {
         WatchMetricsSnapshot(
@@ -80,6 +86,10 @@ final class WatchComputeMergeTests: XCTestCase {
             source: "phone",
             sleepNight: sleepNight,
             sleepStages: sleepStages,
+            sleepDebt: sleepDebt,
+            showsSleepDebt: showsSleepDebt,
+            stressTimeline: stressTimeline,
+            workoutColorOverrides: workoutColorOverrides,
             publisherEpoch: "epoch-A",
             revision: 7,
             isReset: isReset
@@ -98,6 +108,9 @@ final class WatchComputeMergeTests: XCTestCase {
         chartDataAsOf: [String: Date] = [:],
         sleepNight: Date? = nil,
         sleepStages: [WatchSleepStageSegment]? = nil,
+        sleepDebt: WatchSleepDebt? = nil,
+        sleepDebtAsOf: Date? = nil,
+        stressTimeline: WatchStressTimeline? = nil,
         coverage: Date? = nil,
         generation: UInt64 = 3
     ) -> WatchComputeResult {
@@ -106,7 +119,9 @@ final class WatchComputeMergeTests: XCTestCase {
             lastRefreshDate: t2,
             metrics: metrics,
             sleepNight: sleepNight,
-            sleepStages: sleepStages
+            sleepStages: sleepStages,
+            sleepDebt: sleepDebt,
+            stressTimeline: stressTimeline
         )
         computed.source = "watch"
         // Default coverage `t2`: "the compute's queries ran at t2" — the
@@ -116,7 +131,17 @@ final class WatchComputeMergeTests: XCTestCase {
             dataAsOf: dataAsOf,
             chartDataAsOf: chartDataAsOf,
             coverage: coverage ?? t2,
-            generation: generation
+            generation: generation,
+            sleepDebtAsOf: sleepDebtAsOf
+        )
+    }
+
+    /// A one-night Sleep Debt with the headline `hours` (nil: too few nights).
+    private func sleepDebt(_ hours: Double?, computedAt: Date?) -> WatchSleepDebt {
+        WatchSleepDebt(
+            debt: hours.map { $0 * 3_600 },
+            nights: [WatchSleepDebt.Night(day: t0, debt: hours.map { $0 * 3_600 }, isRecorded: true)],
+            computedAt: computedAt
         )
     }
 
@@ -917,12 +942,15 @@ final class WatchComputeMergeTests: XCTestCase {
         let merged = WatchComputeMerge.mergingComputed(
             result(
                 metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "71", rawValue: 71)],
-                dataAsOf: [WatchMetricKindKey.heartRate: t2]
+                dataAsOf: [WatchMetricKindKey.heartRate: t2],
+                sleepDebt: sleepDebt(3, computedAt: nil),
+                sleepDebtAsOf: t2
             ),
             into: tombstone
         )
 
         XCTAssertTrue(merged.metrics.isEmpty)
+        XCTAssertNil(merged.sleepDebt)
         XCTAssertEqual(merged.isReset, true)
     }
 
@@ -1111,5 +1139,796 @@ final class WatchComputeMergeTests: XCTestCase {
             WatchComputeMerge.merging(push, over: current, treatingBlanksAsAuthoritative: true)
                 .metric(forKind: WatchMetricKindKey.heartRate)?.rawValue
         )
+    }
+
+    // MARK: - Sleep Debt
+
+    func testComputedSleepDebtIsAdoptedOnlyWithItsOwnWatermark() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(2, computedAt: t0),
+            showsSleepDebt: true
+        )
+
+        // No watermark: some input was carried from the seed, so the debt it
+        // produced must not be presented as computed on the watch just now.
+        let unstamped = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [:], sleepDebt: sleepDebt(3, computedAt: t1)),
+            into: current
+        )
+        XCTAssertEqual(unstamped.sleepDebt, sleepDebt(2, computedAt: t0))
+
+        let stamped = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [:], sleepDebt: sleepDebt(3, computedAt: t1), sleepDebtAsOf: t2),
+            into: current
+        )
+        XCTAssertEqual(
+            stamped.sleepDebt,
+            sleepDebt(3, computedAt: t2),
+            "adopted and stamped with its own watermark, not the builder's stamp"
+        )
+    }
+
+    func testComputedSleepDebtOlderThanTheDisplayedOneIsSkipped() {
+        // A phone push stamped after the compute's coverage landed mid-compute.
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t3,
+            sleepDebt: sleepDebt(2, computedAt: t3),
+            showsSleepDebt: true
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [:], sleepDebt: sleepDebt(3, computedAt: nil), sleepDebtAsOf: t2),
+            into: current
+        )
+
+        XCTAssertEqual(merged.sleepDebt, sleepDebt(2, computedAt: t3))
+    }
+
+    func testBlankComputedSleepDebtNeverReplacesAValue() {
+        // Too few nights on this watch is not an authoritative clear.
+        let blank = result(metrics: [], dataAsOf: [:], sleepDebt: sleepDebt(nil, computedAt: nil), sleepDebtAsOf: t2)
+        let current = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0, sleepDebt: sleepDebt(2, computedAt: t0))
+        XCTAssertEqual(WatchComputeMerge.mergingComputed(blank, into: current).sleepDebt, sleepDebt(2, computedAt: t0))
+
+        // Over a blank headline, or no debt at all, the nights still move on.
+        let blankCurrent = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0, sleepDebt: sleepDebt(nil, computedAt: t0))
+        XCTAssertEqual(WatchComputeMerge.mergingComputed(blank, into: blankCurrent).sleepDebt, sleepDebt(nil, computedAt: t2))
+        let noDebt = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0)
+        XCTAssertEqual(WatchComputeMerge.mergingComputed(blank, into: noDebt).sleepDebt, sleepDebt(nil, computedAt: t2))
+    }
+
+    func testComputedSleepDebtIsAdoptedEvenWhenTheSleepMetricIsNot() {
+        // The Sleep card isn't adopted (the displayed one is stamped after the
+        // compute's coverage, as after midnight or a night with no sleep), but
+        // the debt's window still has to move on.
+        let current = snapshot(
+            metrics: [metric(WatchMetricKindKey.sleep, displayValue: "7h 32m", rawValue: 85, computedAt: t3)],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepNight: t0,
+            sleepDebt: sleepDebt(2, computedAt: t0),
+            showsSleepDebt: true
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [metric(WatchMetricKindKey.sleep, displayValue: "6h 02m", rawValue: 70)],
+                dataAsOf: [WatchMetricKindKey.sleep: t1],
+                sleepNight: t2,
+                sleepDebt: sleepDebt(3, computedAt: nil),
+                sleepDebtAsOf: t2
+            ),
+            into: current
+        )
+
+        XCTAssertEqual(merged.metric(forKind: WatchMetricKindKey.sleep)?.rawValue, 85, "the Sleep card stays")
+        XCTAssertEqual(merged.sleepNight, t0)
+        XCTAssertEqual(merged.sleepDebt, sleepDebt(3, computedAt: t2))
+    }
+
+    func testComputeNeverChangesTheSleepDebtFlag() {
+        // The flag is the phone's display preference: the watch computes the
+        // debt either way, and its own snapshot never carries a flag.
+        for shows in [true, false] {
+            let current = snapshot(
+                metrics: [],
+                generatedAt: t0,
+                lastRefreshDate: t0,
+                sleepDebt: sleepDebt(2, computedAt: t0),
+                showsSleepDebt: shows
+            )
+            let merged = WatchComputeMerge.mergingComputed(
+                result(metrics: [], dataAsOf: [:], sleepDebt: sleepDebt(3, computedAt: nil), sleepDebtAsOf: t2),
+                into: current
+            )
+
+            XCTAssertEqual(merged.showsSleepDebt, shows)
+            XCTAssertEqual(merged.sleepDebt?.debt, 3 * 3_600)
+        }
+    }
+
+    func testPushKeepsAFresherLocalSleepDebt() {
+        // The watch computed at t2, after a night the phone's t1 refresh hadn't seen.
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(3, computedAt: t2),
+            showsSleepDebt: true
+        )
+        let push = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t1,
+            sleepDebt: sleepDebt(2, computedAt: t1),
+            showsSleepDebt: true
+        )
+
+        let merged = WatchComputeMerge.merging(push, over: current)
+
+        XCTAssertEqual(merged.sleepDebt, sleepDebt(3, computedAt: t2))
+        XCTAssertEqual(merged.showsSleepDebt, true)
+    }
+
+    func testNewerPushReplacesTheLocalSleepDebt() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(3, computedAt: t2),
+            showsSleepDebt: true
+        )
+        let push = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t3,
+            sleepDebt: sleepDebt(2, computedAt: t3),
+            showsSleepDebt: true
+        )
+        XCTAssertEqual(WatchComputeMerge.merging(push, over: current).sleepDebt, sleepDebt(2, computedAt: t3))
+
+        // A pushed debt without its own stamp is judged by the push's refresh date.
+        let unstampedNewer = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t3,
+            sleepDebt: sleepDebt(2, computedAt: nil),
+            showsSleepDebt: true
+        )
+        XCTAssertEqual(WatchComputeMerge.merging(unstampedNewer, over: current).sleepDebt?.debt, 2 * 3_600)
+        let unstampedOlder = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t1,
+            sleepDebt: sleepDebt(2, computedAt: nil),
+            showsSleepDebt: true
+        )
+        XCTAssertEqual(WatchComputeMerge.merging(unstampedOlder, over: current).sleepDebt?.debt, 3 * 3_600)
+    }
+
+    func testPushThatHidesSleepDebtAlwaysWins() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(3, computedAt: t2),
+            showsSleepDebt: true
+        )
+        // Body Pro lapsed or the toggle went off (false), or an older phone
+        // that never shipped a debt (nil): no debt is pushed, and none stays.
+        for shows in [false, nil] as [Bool?] {
+            let push = snapshot(metrics: [], generatedAt: t3, lastRefreshDate: t1, showsSleepDebt: shows)
+
+            let merged = WatchComputeMerge.merging(push, over: current)
+
+            XCTAssertNil(merged.sleepDebt)
+            XCTAssertEqual(merged.showsSleepDebt, shows)
+        }
+    }
+
+    func testSettingsChangePushAlwaysWinsTheSleepDebt() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(3, computedAt: t2),
+            showsSleepDebt: true
+        )
+        let push = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t1,
+            sleepDebt: sleepDebt(2, computedAt: t1),
+            showsSleepDebt: true
+        )
+
+        XCTAssertEqual(
+            WatchComputeMerge.merging(push, over: current, treatingBlanksAsAuthoritative: true).sleepDebt,
+            sleepDebt(2, computedAt: t1)
+        )
+    }
+
+    func testStrippingLocalProvenanceClearsTheSleepDebtStamp() {
+        let onWatch = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            sleepDebt: sleepDebt(3, computedAt: t2),
+            showsSleepDebt: true
+        )
+        let stripped = WatchComputeMerge.strippingLocalProvenance(from: onWatch)
+        XCTAssertEqual(stripped.sleepDebt, sleepDebt(3, computedAt: nil), "the value stays until the push replaces it")
+
+        // So the push announcing a permission change wins, though its inputs are older.
+        let push = snapshot(
+            metrics: [],
+            generatedAt: t3,
+            lastRefreshDate: t1,
+            sleepDebt: sleepDebt(2, computedAt: t1),
+            showsSleepDebt: true
+        )
+        XCTAssertEqual(WatchComputeMerge.merging(push, over: stripped).sleepDebt, sleepDebt(2, computedAt: t1))
+        XCTAssertEqual(
+            WatchComputeMerge.merging(push, over: onWatch).sleepDebt,
+            sleepDebt(3, computedAt: t2),
+            "unstripped, the fresher local debt would have stayed"
+        )
+    }
+
+    // MARK: - Weekly ranges (the HR / HRV week charts' capsules)
+
+    private let phoneRanges: [WatchDayRange?] = [nil, nil, WatchDayRange(low: 50, high: 80), nil, nil, nil, WatchDayRange(low: 55, high: 82)]
+    private let watchRanges: [WatchDayRange?] = [nil, WatchDayRange(low: 50, high: 80), nil, nil, nil, WatchDayRange(low: 55, high: 82), WatchDayRange(low: 58, high: 91)]
+
+    /// The capsules are windowed with `weekly`, so an adopted compute's week
+    /// brings its own: the displayed ones would sit a day off under it.
+    func testAdoptedComputedHeartRateBringsItsWeeklyRanges() {
+        let current = snapshot(
+            metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "62", rawValue: 62, weeklyRanges: phoneRanges, computedAt: t0)],
+            generatedAt: t0,
+            lastRefreshDate: t0
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "71", rawValue: 71, weeklyRanges: watchRanges)],
+                dataAsOf: [WatchMetricKindKey.heartRate: t1]
+            ),
+            into: current
+        )
+
+        XCTAssertEqual(merged.metric(forKind: WatchMetricKindKey.heartRate)?.weeklyRanges, watchRanges)
+    }
+
+    func testChartOnlyChannelCarriesWeeklyRangesWithWeekly() {
+        let current = snapshot(
+            metrics: [
+                metric(
+                    WatchMetricKindKey.heartRateVariability,
+                    displayValue: "48", rawValue: 48,
+                    weekly: [40, 42, 44, 46, 48, 50, 52],
+                    weeklyRanges: phoneRanges,
+                    computedAt: t0
+                )
+            ],
+            generatedAt: t0,
+            lastRefreshDate: t0
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(
+                metrics: [
+                    metric(
+                        WatchMetricKindKey.heartRateVariability,
+                        displayValue: "55", rawValue: 55,
+                        weekly: [42, 44, 46, 48, 50, 52, 55],
+                        weeklyRanges: watchRanges
+                    )
+                ],
+                dataAsOf: [:],
+                chartDataAsOf: [WatchMetricKindKey.heartRateVariability: t2],
+                coverage: t2
+            ),
+            into: current
+        )
+
+        let hrv = merged.metric(forKind: WatchMetricKindKey.heartRateVariability)
+        XCTAssertEqual(hrv?.weekly?.last, 55)
+        XCTAssertEqual(hrv?.weeklyRanges, watchRanges, "a chart adoption moves the capsules with the line")
+        XCTAssertEqual(hrv?.displayValue, "48", "the headline stays the phone's")
+    }
+
+    /// The live HR/HRV read derives only the value: the push's newer week of
+    /// capsules must reach the card under it.
+    func testLiveOnlyLocalHeartRateTakesThePushsWeeklyRanges() {
+        let local = metric(
+            WatchMetricKindKey.heartRate,
+            displayValue: "71", rawValue: 71, fillFraction: 0.71,
+            weeklyRanges: phoneRanges,
+            liveUpdatedAt: t2,
+            computedAt: t0
+        )
+        let current = snapshot(metrics: [local], generatedAt: t0, lastRefreshDate: t0)
+        let push = snapshot(
+            metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "58", rawValue: 58, weeklyRanges: watchRanges, computedAt: t1)],
+            generatedAt: t1,
+            lastRefreshDate: t1
+        )
+
+        let heartRate = WatchComputeMerge.merging(push, over: current).metric(forKind: WatchMetricKindKey.heartRate)
+        XCTAssertEqual(heartRate?.rawValue, 71, "the fresher live value is kept")
+        XCTAssertEqual(heartRate?.weeklyRanges, watchRanges)
+    }
+
+    /// A watch-COMPUTED local metric keeps its whole display set over an older
+    /// push, its capsules included.
+    func testWatchComputedLocalHeartRateKeepsItsWeeklyRangesOverAnOlderPush() {
+        let local = metric(
+            WatchMetricKindKey.heartRate,
+            displayValue: "71", rawValue: 71,
+            weeklyRanges: watchRanges,
+            liveUpdatedAt: t2,
+            computedAt: t2
+        )
+        let current = snapshot(metrics: [local], generatedAt: t0, lastRefreshDate: t0)
+        let stalePush = snapshot(
+            metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "58", rawValue: 58, weeklyRanges: phoneRanges, computedAt: t1)],
+            generatedAt: t1,
+            lastRefreshDate: t1
+        )
+
+        XCTAssertEqual(
+            WatchComputeMerge.merging(stalePush, over: current).metric(forKind: WatchMetricKindKey.heartRate)?.weeklyRanges,
+            watchRanges
+        )
+    }
+
+    // MARK: - Stress ("Last 8 hours" timeline and the card's day)
+
+    /// A timeline with marks whose first slot's score tells the assertions
+    /// which side it came from.
+    private func stressTimeline(_ firstSlot: Int, computedAt: Date?) -> WatchStressTimeline {
+        WatchStressTimeline(
+            start: t0,
+            end: t1,
+            slots: [firstSlot, nil, WatchStressTimeline.activityMarker],
+            context: [],
+            computedAt: computedAt
+        )
+    }
+
+    private func stressCard(_ displayValue: String, weeklyAsOf: Date?, liveUpdatedAt: Date? = nil, computedAt: Date?) -> WatchMetric {
+        var card = metric(
+            WatchMetricKindKey.stress,
+            displayValue: displayValue,
+            rawValue: Double(displayValue),
+            score: Int(displayValue),
+            weekly: [30, 35, 40, 45, 50, 55, Double(displayValue)],
+            liveUpdatedAt: liveUpdatedAt,
+            computedAt: computedAt
+        )
+        card.weeklyAsOf = weeklyAsOf
+        return card
+    }
+
+    /// After midnight the new day's average is still blank, so the card is
+    /// not adopted over yesterday's value, but the windows keep coming: the
+    /// timeline moves on its own (the Stress) watermark and is stamped with it.
+    func testComputedStressTimelineIsAdoptedOnItsOwnWatermarkWhileTheCardStaysBlank() {
+        let current = snapshot(
+            metrics: [stressCard("42", weeklyAsOf: t0, computedAt: t0)],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(42, computedAt: t0)
+        )
+        let computed = result(
+            metrics: [stressCard("--", weeklyAsOf: t2, computedAt: nil)],
+            dataAsOf: [WatchMetricKindKey.stress: t2],
+            stressTimeline: stressTimeline(60, computedAt: nil)
+        )
+
+        let merged = WatchComputeMerge.mergingComputed(computed, into: current)
+
+        XCTAssertEqual(merged.metric(forKind: WatchMetricKindKey.stress)?.displayValue, "42", "a blank never replaces a value")
+        XCTAssertEqual(merged.stressTimeline, stressTimeline(60, computedAt: t2))
+
+        // No Stress watermark (an input wasn't re-read): neither moves.
+        let unstamped = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [:], stressTimeline: stressTimeline(60, computedAt: nil)),
+            into: current
+        )
+        XCTAssertEqual(unstamped.stressTimeline, current.stressTimeline)
+    }
+
+    func testComputedStressTimelineOlderThanTheDisplayedOneIsSkipped() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(42, computedAt: t3)
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [WatchMetricKindKey.stress: t2], stressTimeline: stressTimeline(60, computedAt: nil)),
+            into: current
+        )
+        XCTAssertEqual(merged.stressTimeline, current.stressTimeline)
+    }
+
+    /// "Nothing scored on this watch" is never a clear of a drawn timeline.
+    func testEmptyComputedStressTimelineNeverReplacesOneWithMarks() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(42, computedAt: t0)
+        )
+        let empty = WatchStressTimeline(start: t1, end: t2, slots: [nil], context: [], computedAt: nil)
+        XCTAssertFalse(empty.hasMarks)
+
+        for candidate in [nil, empty] as [WatchStressTimeline?] {
+            let merged = WatchComputeMerge.mergingComputed(
+                result(metrics: [], dataAsOf: [WatchMetricKindKey.stress: t2], stressTimeline: candidate),
+                into: current
+            )
+            XCTAssertEqual(merged.stressTimeline, current.stressTimeline)
+        }
+
+        // Over nothing at all, a timeline with marks is adopted.
+        let bare = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0)
+        XCTAssertEqual(
+            WatchComputeMerge.mergingComputed(
+                result(metrics: [], dataAsOf: [WatchMetricKindKey.stress: t2], stressTimeline: stressTimeline(60, computedAt: nil)),
+                into: bare
+            ).stressTimeline,
+            stressTimeline(60, computedAt: t2)
+        )
+    }
+
+    func testComputeNeverRepopulatesAResetTombstonesStressTimeline() {
+        let tombstone = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0, isReset: true)
+        let merged = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [WatchMetricKindKey.stress: t2], stressTimeline: stressTimeline(60, computedAt: nil)),
+            into: tombstone
+        )
+        XCTAssertNil(merged.stressTimeline)
+    }
+
+    /// A push whose reads predate the watch's last compute keeps the local
+    /// timeline; a newer one, or one without a timeline but with a newer
+    /// refresh, replaces it.
+    func testPushKeepsANewerLocalStressTimeline() {
+        let current = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(60, computedAt: t2)
+        )
+        func merged(timeline: WatchStressTimeline?, lastRefreshDate: Date) -> WatchStressTimeline? {
+            WatchComputeMerge.merging(
+                snapshot(metrics: [], generatedAt: t3, lastRefreshDate: lastRefreshDate, stressTimeline: timeline),
+                over: current
+            ).stressTimeline
+        }
+
+        XCTAssertEqual(merged(timeline: stressTimeline(42, computedAt: t1), lastRefreshDate: t1), current.stressTimeline)
+        XCTAssertEqual(merged(timeline: stressTimeline(42, computedAt: t3), lastRefreshDate: t1), stressTimeline(42, computedAt: t3))
+        // An unstamped push timeline is judged by the push's refresh date.
+        XCTAssertEqual(merged(timeline: stressTimeline(42, computedAt: nil), lastRefreshDate: t1), current.stressTimeline)
+        XCTAssertEqual(merged(timeline: stressTimeline(42, computedAt: nil), lastRefreshDate: t3), stressTimeline(42, computedAt: nil))
+        XCTAssertEqual(merged(timeline: nil, lastRefreshDate: t1), current.stressTimeline)
+        XCTAssertNil(merged(timeline: nil, lastRefreshDate: t3))
+
+        // The settings-change push always wins.
+        XCTAssertEqual(
+            WatchComputeMerge.merging(
+                snapshot(metrics: [], generatedAt: t3, lastRefreshDate: t1, stressTimeline: stressTimeline(42, computedAt: t1)),
+                over: current,
+                treatingBlanksAsAuthoritative: true
+            ).stressTimeline,
+            stressTimeline(42, computedAt: t1)
+        )
+    }
+
+    /// A push that carries the Stress card but no windows (the phone published
+    /// before its Stress inputs loaded) never erases a local chart that has
+    /// some, however new its refresh: the card's blank-preserve rule. Windows
+    /// in the push, or a stripped local stamp, still let the push win.
+    func testPushWithoutWindowsKeepsALocalStressTimelineWithMarks() {
+        let current = snapshot(
+            metrics: [stressCard("42", weeklyAsOf: t0, computedAt: t0)],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(60, computedAt: t2)
+        )
+        let empty = WatchStressTimeline(start: t1, end: t3, slots: [nil], context: [], computedAt: t3)
+        for pushed in [nil, empty] as [WatchStressTimeline?] {
+            let push = snapshot(
+                metrics: [stressCard("42", weeklyAsOf: t3, computedAt: t3)],
+                generatedAt: t3,
+                lastRefreshDate: t3,
+                stressTimeline: pushed
+            )
+            XCTAssertEqual(WatchComputeMerge.merging(push, over: current).stressTimeline, current.stressTimeline)
+            XCTAssertEqual(
+                WatchComputeMerge.merging(push, over: WatchComputeMerge.strippingLocalProvenance(from: current)).stressTimeline,
+                pushed,
+                "a local chart from before a permission change is not kept"
+            )
+        }
+
+        let withWindows = snapshot(
+            metrics: [stressCard("42", weeklyAsOf: t3, computedAt: t3)],
+            generatedAt: t3,
+            lastRefreshDate: t3,
+            stressTimeline: stressTimeline(42, computedAt: t3)
+        )
+        XCTAssertEqual(WatchComputeMerge.merging(withWindows, over: current).stressTimeline, stressTimeline(42, computedAt: t3))
+    }
+
+    func testStrippingLocalProvenanceClearsTheStressTimelineStamp() {
+        let onWatch = snapshot(
+            metrics: [],
+            generatedAt: t0,
+            lastRefreshDate: t0,
+            stressTimeline: stressTimeline(60, computedAt: t2)
+        )
+        let stripped = WatchComputeMerge.strippingLocalProvenance(from: onWatch)
+        XCTAssertEqual(stripped.stressTimeline, stressTimeline(60, computedAt: nil), "the windows stay until the push replaces them")
+
+        let push = snapshot(metrics: [], generatedAt: t3, lastRefreshDate: t1, stressTimeline: stressTimeline(42, computedAt: t1))
+        XCTAssertEqual(WatchComputeMerge.merging(push, over: stripped).stressTimeline, stressTimeline(42, computedAt: t1))
+        XCTAssertEqual(
+            WatchComputeMerge.merging(push, over: onWatch).stressTimeline,
+            stressTimeline(60, computedAt: t2),
+            "unstripped, the fresher local timeline would have stayed"
+        )
+    }
+
+    /// The custom workout colors are the phone's display preference: every
+    /// push brings its own, and a compute never touches them.
+    func testWorkoutColorOverridesComeOnlyFromThePush() {
+        let current = snapshot(metrics: [], generatedAt: t0, lastRefreshDate: t0, workoutColorOverrides: "running:335BB0")
+
+        let computed = WatchComputeMerge.mergingComputed(
+            result(metrics: [], dataAsOf: [WatchMetricKindKey.stress: t2], stressTimeline: stressTimeline(60, computedAt: nil)),
+            into: current
+        )
+        XCTAssertEqual(computed.workoutColorOverrides, "running:335BB0")
+
+        let push = snapshot(metrics: [], generatedAt: t1, lastRefreshDate: t1, workoutColorOverrides: "")
+        XCTAssertEqual(WatchComputeMerge.merging(push, over: current).workoutColorOverrides, "")
+    }
+
+    /// `weeklyAsOf` is the day the Stress card was built on, which the
+    /// display-time midnight guard reads, so it must travel with the value
+    /// whichever side's value wins.
+    func testStressCardsDayTravelsWithItsValueThroughEveryMerge() {
+        let twoDaysEarlier = t2.addingTimeInterval(-2 * 86_400)
+        let current = snapshot(
+            metrics: [stressCard("42", weeklyAsOf: twoDaysEarlier, computedAt: t0)],
+            generatedAt: t0,
+            lastRefreshDate: t0
+        )
+
+        // A compute adopted over the phone's card brings its own day…
+        let adopted = WatchComputeMerge.mergingComputed(
+            result(metrics: [stressCard("55", weeklyAsOf: t2, computedAt: nil)], dataAsOf: [WatchMetricKindKey.stress: t2]),
+            into: current
+        )
+        XCTAssertEqual(adopted.metric(forKind: WatchMetricKindKey.stress)?.displayValue, "55")
+        XCTAssertEqual(adopted.metric(forKind: WatchMetricKindKey.stress)?.weeklyAsOf, t2)
+        XCTAssertEqual(adopted.sanitized(asOf: t2).metric(forKind: WatchMetricKindKey.stress)?.displayValue, "55")
+        XCTAssertEqual(current.sanitized(asOf: t2).metric(forKind: WatchMetricKindKey.stress)?.displayValue, "--")
+
+        // …a blank push keeps the local value with its day, so the guard
+        // still catches it…
+        let blankPush = snapshot(metrics: [stressCard("--", weeklyAsOf: t3, computedAt: t3)], generatedAt: t3, lastRefreshDate: t3)
+        let preserved = WatchComputeMerge.merging(blankPush, over: current)
+        XCTAssertEqual(preserved.metric(forKind: WatchMetricKindKey.stress)?.displayValue, "42")
+        XCTAssertEqual(preserved.metric(forKind: WatchMetricKindKey.stress)?.weeklyAsOf, twoDaysEarlier)
+
+        // …and an older push keeps a watch-computed card's whole display set.
+        let onWatch = snapshot(
+            metrics: [stressCard("55", weeklyAsOf: t2, liveUpdatedAt: t2, computedAt: t2)],
+            generatedAt: t0,
+            lastRefreshDate: t0
+        )
+        let olderPush = snapshot(metrics: [stressCard("42", weeklyAsOf: twoDaysEarlier, computedAt: t1)], generatedAt: t3, lastRefreshDate: t1)
+        let kept = WatchComputeMerge.merging(olderPush, over: onWatch).metric(forKind: WatchMetricKindKey.stress)
+        XCTAssertEqual(kept?.displayValue, "55")
+        XCTAssertEqual(kept?.weeklyAsOf, t2)
+    }
+}
+
+// MARK: - The day's running totals (Steps, Active Energy, Resting Energy)
+
+extension WatchComputeMergeTests {
+    private func totalMetric(
+        _ kind: String,
+        displayValue: String,
+        rawValue: Double?,
+        weekly: [Double?],
+        weeklyAsOf: Date?,
+        computedAt: Date? = nil,
+        usesKilojoules: Bool? = nil
+    ) -> WatchMetric {
+        WatchMetric(
+            kind: kind,
+            title: kind,
+            displayValue: displayValue,
+            unit: kind == WatchMetricKindKey.steps ? "" : "kcal",
+            score: nil,
+            fillFraction: 0.5,
+            rawValue: rawValue,
+            rangeMin: 0,
+            rangeMax: weekly.compactMap { $0 }.max(),
+            computedAt: computedAt,
+            weekly: weekly,
+            weeklyAsOf: weeklyAsOf,
+            usesKilojoules: usesKilojoules
+        )
+    }
+
+    func testStampedDailyTotalReplacesThePhonesHeadlineAndWeek() throws {
+        let phoneWeek: [Double?] = [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 8_432]
+        let watchWeek: [Double?] = [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 9_101]
+        let current = WatchMetricsSnapshot(
+            generatedAt: t0, lastRefreshDate: t0,
+            metrics: [totalMetric(WatchMetricKindKey.steps, displayValue: "8,432", rawValue: 8_432, weekly: phoneWeek, weeklyAsOf: t0, computedAt: t0)]
+        )
+        let merged = WatchComputeMerge.mergingComputed(
+            WatchComputeResult(
+                snapshot: WatchMetricsSnapshot(
+                    generatedAt: t1, lastRefreshDate: t0,
+                    metrics: [totalMetric(WatchMetricKindKey.steps, displayValue: "9,101", rawValue: 9_101, weekly: watchWeek, weeklyAsOf: t1)]
+                ),
+                dataAsOf: [WatchMetricKindKey.steps: t1],
+                chartDataAsOf: [:],
+                coverage: t1,
+                generation: 1
+            ),
+            into: current
+        )
+
+        let steps = try XCTUnwrap(merged.metric(forKind: WatchMetricKindKey.steps))
+        XCTAssertEqual(steps.displayValue, "9,101")
+        XCTAssertEqual(steps.weekly, watchWeek)
+        XCTAssertEqual(steps.weeklyAsOf, t1)
+        XCTAssertEqual(steps.computedAt, t1)
+        XCTAssertEqual(steps.liveUpdatedAt, t1)
+        XCTAssertEqual(merged.generatedAt, t0, "the publication line is never advanced by a compute")
+    }
+
+    func testAdoptedEnergyTotalCarriesItsUnitFlag() throws {
+        let current = WatchMetricsSnapshot(
+            generatedAt: t0, lastRefreshDate: t0,
+            metrics: [totalMetric(WatchMetricKindKey.activeEnergy, displayValue: "512", rawValue: 512, weekly: [430, 610, 380, 720, 290, 540, 512], weeklyAsOf: t0, computedAt: t0, usesKilojoules: false)]
+        )
+        var candidate = totalMetric(WatchMetricKindKey.activeEnergy, displayValue: "2,301", rawValue: 2_301, weekly: [1_799, 2_552, 1_590, 3_013, 1_213, 2_259, 2_301], weeklyAsOf: t1, usesKilojoules: true)
+        candidate.unit = "kJ"
+        let merged = WatchComputeMerge.mergingComputed(
+            WatchComputeResult(
+                snapshot: WatchMetricsSnapshot(generatedAt: t1, lastRefreshDate: t0, metrics: [candidate]),
+                dataAsOf: [WatchMetricKindKey.activeEnergy: t1],
+                chartDataAsOf: [:],
+                coverage: t1,
+                generation: 1
+            ),
+            into: current
+        )
+
+        let active = try XCTUnwrap(merged.metric(forKind: WatchMetricKindKey.activeEnergy))
+        XCTAssertEqual(active.unit, "kJ")
+        XCTAssertEqual(active.usesKilojoules, true, "the flag travels with the unit it describes")
+    }
+
+    func testUnstampedOrBlankDailyTotalNeverOverwritesThePhones() throws {
+        let phoneWeek: [Double?] = [430, 610, 380, 720, 290, 540, 512]
+        let current = WatchMetricsSnapshot(
+            generatedAt: t0, lastRefreshDate: t0,
+            metrics: [totalMetric(WatchMetricKindKey.activeEnergy, displayValue: "512", rawValue: 512, weekly: phoneWeek, weeklyAsOf: t0, computedAt: t0)]
+        )
+
+        // The week read failed: the assembly leaves the kind out of `dataAsOf`
+        // even though the builder still shows the seed's headline over empty
+        // bars. Neither the headline nor the week may move.
+        let unstamped = WatchComputeMerge.mergingComputed(
+            WatchComputeResult(
+                snapshot: WatchMetricsSnapshot(
+                    generatedAt: t1, lastRefreshDate: t0,
+                    metrics: [totalMetric(WatchMetricKindKey.activeEnergy, displayValue: "512", rawValue: 512, weekly: Array(repeating: nil, count: 7), weeklyAsOf: t1)]
+                ),
+                dataAsOf: [WatchMetricKindKey.heartRate: t1],
+                chartDataAsOf: [:],
+                coverage: t1,
+                generation: 1
+            ),
+            into: current
+        )
+        let kept = try XCTUnwrap(unstamped.metric(forKind: WatchMetricKindKey.activeEnergy))
+        XCTAssertEqual(kept.weekly, phoneWeek)
+        XCTAssertEqual(kept.weeklyAsOf, t0)
+        XCTAssertEqual(kept.computedAt, t0)
+
+        // A stamped but blank total (a successful read with nothing today)
+        // never clears a shown value either.
+        let blank = WatchComputeMerge.mergingComputed(
+            WatchComputeResult(
+                snapshot: WatchMetricsSnapshot(
+                    generatedAt: t1, lastRefreshDate: t0,
+                    metrics: [totalMetric(WatchMetricKindKey.activeEnergy, displayValue: "--", rawValue: nil, weekly: [610, 380, 720, 290, 540, 512, nil], weeklyAsOf: t1)]
+                ),
+                dataAsOf: [WatchMetricKindKey.activeEnergy: t1],
+                chartDataAsOf: [:],
+                coverage: t1,
+                generation: 1
+            ),
+            into: current
+        )
+        let preserved = try XCTUnwrap(blank.metric(forKind: WatchMetricKindKey.activeEnergy))
+        XCTAssertEqual(preserved.displayValue, "512")
+        XCTAssertEqual(preserved.weekly, phoneWeek)
+    }
+
+    func testDailyTotalThePhoneNeverSentIsAppendedOnlyWhenStampedWithAValue() {
+        // The iPhone's own Steps card hidden: its push carries a blank Steps
+        // metric or none. The watch's stamped total fills the card in.
+        let current = WatchMetricsSnapshot(
+            generatedAt: t0, lastRefreshDate: t0,
+            metrics: [metric(WatchMetricKindKey.heartRate, displayValue: "62", rawValue: 62, computedAt: t0)]
+        )
+        let week: [Double?] = [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 8_432]
+        let appended = WatchComputeMerge.mergingComputed(
+            WatchComputeResult(
+                snapshot: WatchMetricsSnapshot(
+                    generatedAt: t1, lastRefreshDate: t0,
+                    metrics: [
+                        totalMetric(WatchMetricKindKey.steps, displayValue: "8,432", rawValue: 8_432, weekly: week, weeklyAsOf: t1),
+                        totalMetric(WatchMetricKindKey.restingEnergy, displayValue: "--", rawValue: nil, weekly: Array(repeating: nil, count: 7), weeklyAsOf: t1)
+                    ]
+                ),
+                dataAsOf: [WatchMetricKindKey.steps: t1, WatchMetricKindKey.restingEnergy: t1],
+                chartDataAsOf: [:],
+                coverage: t1,
+                generation: 1
+            ),
+            into: current
+        )
+        XCTAssertEqual(appended.metric(forKind: WatchMetricKindKey.steps)?.weekly, week)
+        XCTAssertEqual(appended.metric(forKind: WatchMetricKindKey.steps)?.computedAt, t1)
+        XCTAssertNil(appended.metric(forKind: WatchMetricKindKey.restingEnergy), "a blank card the phone never sent is not appended")
+    }
+
+    /// Push over local: a blank push (the iPhone card hidden) keeps the whole
+    /// watch-computed card, bars included; a non-blank push wins unless the
+    /// watch's compute is the fresher of the two.
+    func testPushKeepsAWatchComputedDailyTotalBehindABlankOrOlderCard() throws {
+        let watchWeek: [Double?] = [6_210, 9_870, 7_540, 11_020, 4_980, 8_300, 9_101]
+        var local = totalMetric(WatchMetricKindKey.steps, displayValue: "9,101", rawValue: 9_101, weekly: watchWeek, weeklyAsOf: t2, computedAt: t2)
+        local.liveUpdatedAt = t2
+        let current = WatchMetricsSnapshot(generatedAt: t0, lastRefreshDate: t0, metrics: [local])
+
+        let blankPush = WatchMetricsSnapshot(
+            generatedAt: t3, lastRefreshDate: t3,
+            metrics: [totalMetric(WatchMetricKindKey.steps, displayValue: "--", rawValue: nil, weekly: Array(repeating: nil, count: 7), weeklyAsOf: t3, computedAt: t3)]
+        )
+        let afterBlank = WatchComputeMerge.merging(blankPush, over: current)
+        XCTAssertEqual(afterBlank.metric(forKind: WatchMetricKindKey.steps)?.weekly, watchWeek)
+        XCTAssertEqual(afterBlank.metric(forKind: WatchMetricKindKey.steps)?.displayValue, "9,101")
+
+        let olderPush = WatchMetricsSnapshot(
+            generatedAt: t1, lastRefreshDate: t1,
+            metrics: [totalMetric(WatchMetricKindKey.steps, displayValue: "8,432", rawValue: 8_432, weekly: [1, 2, 3, 4, 5, 6, 7], weeklyAsOf: t1, computedAt: t1)]
+        )
+        let afterOlder = WatchComputeMerge.merging(olderPush, over: current)
+        XCTAssertEqual(afterOlder.metric(forKind: WatchMetricKindKey.steps)?.weekly, watchWeek, "the watch's fresher compute keeps its whole card")
+
+        let newerPush = WatchMetricsSnapshot(
+            generatedAt: t3, lastRefreshDate: t3,
+            metrics: [totalMetric(WatchMetricKindKey.steps, displayValue: "12,004", rawValue: 12_004, weekly: [1, 2, 3, 4, 5, 6, 12_004], weeklyAsOf: t3, computedAt: t3)]
+        )
+        let afterNewer = WatchComputeMerge.merging(newerPush, over: current)
+        XCTAssertEqual(afterNewer.metric(forKind: WatchMetricKindKey.steps)?.displayValue, "12,004", "a later iPhone refresh wins back")
     }
 }

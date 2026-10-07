@@ -39,6 +39,9 @@ actor HealthKitFetchEngine {
     var combinesHealthDataSourcesByName: Bool
     var customHealthSourceGroups: [BodyCustomHealthSourceGroup]
     private let capturedWarningThresholds: BodyMetricWarningThresholds?
+    /// Where `userMaxHeartRate` keeps its result for the watch payload:
+    /// `.standard` in the app, a scratch suite in tests.
+    private let maxHeartRateDefaults: UserDefaults
 
     var healthSourcesByKind: [HealthMetricKind: [String: [HKSource]]] = [:] {
         didSet {
@@ -260,10 +263,9 @@ actor HealthKitFetchEngine {
 
     /// Sleep-history window when no card renders sleep and it is fetched only as
     /// a Stress input: the 56-day readiness/sleep-score vitals baseline plus the
-    /// ~34-day recomputed-day reach, plus margin. The contract is query days —
-    /// the oldest wake day may lose the leading samples of its prior evening at
-    /// the boundary (the Stress backfill queries one day early for exactly that,
-    /// `+Sleep.swift`), which the margin covers for every consumer.
+    /// ~34-day recomputed-day reach, plus margin. The contract is query days,
+    /// and the oldest wake day is whole: `sleepHistoryQueryWindow` queries one
+    /// day early and drops the partial day before the boundary.
     static let stressInputSleepHistoryDays = 100
 
     init(
@@ -275,6 +277,7 @@ actor HealthKitFetchEngine {
         healthStore: any BodyHealthQuerying = HKHealthStore(),
         timeZoneLedger: BodyTimeZoneLedger = BodyTimeZoneLedger(),
         capturedWarningThresholds: BodyMetricWarningThresholds? = nil,
+        maxHeartRateDefaults: UserDefaults = .standard,
         effortLedgerDirectoryURL: URL? = WorkoutEffortLedgerStore.defaultDirectoryURL
     ) {
         self.healthStore = healthStore
@@ -285,6 +288,7 @@ actor HealthKitFetchEngine {
         self.combinesHealthDataSourcesByName = combinesHealthDataSourcesByName
         self.customHealthSourceGroups = customHealthSourceGroups
         self.capturedWarningThresholds = capturedWarningThresholds
+        self.maxHeartRateDefaults = maxHeartRateDefaults
         self.effortLedgerDirectoryURL = effortLedgerDirectoryURL
     }
 
@@ -551,7 +555,24 @@ actor HealthKitFetchEngine {
     /// Estimated max heart rate (220 − age) from the user's Apple Health birth date,
     /// used to anchor the workout heart-rate zones. Returns nil when the birth date is
     /// unavailable or unauthorized, so the caller can fall back to the session peak.
+    ///
+    /// Every result is also kept under `BodyAppearancePreference.warningMaxHeartRateKey`,
+    /// written only when it changes: High Heart Rate's default threshold is derived
+    /// from it (`warningThreshold(for:)`), and the watch payload resolves that
+    /// threshold from the stored value synchronously, without a HealthKit read.
+    /// 0 means no readable birth date (the 120 bpm fallback); absent means never
+    /// resolved.
     func userMaxHeartRate(asOf now: Date = Date()) -> Double? {
+        let maxHeartRate = estimatedMaxHeartRate(asOf: now)
+        let key = BodyAppearancePreference.warningMaxHeartRateKey
+        let value = maxHeartRate ?? 0
+        if maxHeartRateDefaults.object(forKey: key) as? Double != value {
+            maxHeartRateDefaults.set(value, forKey: key)
+        }
+        return maxHeartRate
+    }
+
+    private func estimatedMaxHeartRate(asOf now: Date) -> Double? {
         guard permissionSelection.includes(.heart) && permissionSelection.includes(.dateOfBirth) else {
             return nil
         }
@@ -925,6 +946,47 @@ actor HealthKitFetchEngine {
             return interval.start
         }
         return calendar.startOfDay(for: clampedStart)
+    }
+
+    /// Where a windowed sleep history query starts, and the oldest wake day it
+    /// may keep. A wake day's night can start any time the day before, so a
+    /// query from the boundary itself would return that night cut short, or
+    /// miss it, and the merge would then replace the cached whole night with
+    /// it. Querying one day early, as the watch (`WatchDeltaFetcher.sleepStart`)
+    /// and the Stress backfill already do, makes the boundary wake day whole.
+    ///
+    /// `boundaryDay` is `clampedTrendStart` when it actually clamps, else `nil`
+    /// (the whole interval is queried and nothing is trimmed). Because it is the
+    /// same day `fetchHealthTrends` hands `mergeWindowedSleepHistory` as its
+    /// window start, the query and the merge agree on the boundary by
+    /// construction: the boundary day comes whole from the fetch, the day
+    /// before it from the cache.
+    nonisolated static func sleepHistoryQueryWindow(
+        interval: (start: Date, end: Date),
+        maxDays: Int?,
+        calendar: Calendar
+    ) -> (queryStart: Date, boundaryDay: Date?) {
+        let clampedStart = clampedTrendStart(interval: interval, maxDays: maxDays, calendar: calendar)
+        guard clampedStart != interval.start else {
+            return (interval.start, nil)
+        }
+        let queryStart = calendar.date(byAdding: .day, value: -1, to: clampedStart) ?? clampedStart
+        return (queryStart, clampedStart)
+    }
+
+    /// Drops the wake days a `sleepHistoryQueryWindow` query read only for
+    /// their evening: anything before `boundaryDay` holds just the tail of a
+    /// night whose start lies outside the query, and the merge keeps the cached
+    /// whole copy of it instead. `nil` keeps every grouping.
+    nonisolated static func trimmedSleepDayGroupings(
+        _ groupings: [SleepDayGrouping],
+        from boundaryDay: Date?,
+        calendar: Calendar
+    ) -> [SleepDayGrouping] {
+        guard let boundaryDay else {
+            return groupings
+        }
+        return groupings.filter { calendar.startOfDay(for: $0.day.date) >= boundaryDay }
     }
 
     /// Merge a windowed phase-1 fetch back into a full-span series.
@@ -1772,9 +1834,10 @@ actor HealthKitFetchEngine {
         }
     }
 
-    func fetchHourlyCumulativeQuantitySeries(
+    func fetchIntradayCumulativeQuantitySeries(
         for identifier: HKQuantityTypeIdentifier,
         unit: HKUnit,
+        bucket: BodyIntradayBucket,
         calendar: Calendar,
         sourceKind: HealthMetricKind? = nil,
         sourceOption: BodyHealthDataSourceOption? = nil,
@@ -1798,50 +1861,33 @@ actor HealthKitFetchEngine {
             sourceKind: sourceKind,
             sourceOption: sourceOption
         )
-        var intervalComponents = DateComponents()
-        intervalComponents.hour = 1
-        let anchorDate = calendar.dateInterval(of: .hour, for: effectiveStart)?.start ?? effectiveStart
 
-        return await trackedHealthQuery(cancelledValue: nil) { resume in
-            let query = HKStatisticsCollectionQuery(
-                quantityType: quantityType,
-                quantitySamplePredicate: predicate,
-                options: .cumulativeSum,
-                anchorDate: anchorDate,
-                intervalComponents: intervalComponents
-            )
-
-            query.initialResultsHandler = { _, statisticsCollection, error in
-                guard let statisticsCollection else {
-                    Self.logTrendQueryFailure(identifier.rawValue, error: error)
-                    resume(nil)
-                    return
-                }
-
-                var points: [HealthTrendDataPoint] = []
-                statisticsCollection.enumerateStatistics(from: effectiveStart, to: effectiveEnd) { statistics, _ in
-                    guard let quantity = statistics.sumQuantity() else {
-                        return
-                    }
-
-                    let value = valueTransform(quantity.doubleValue(for: unit))
-                    guard value.isFinite, value > 0 else {
-                        return
-                    }
-
-                    points.append(
-                        HealthTrendDataPoint(
-                            date: statistics.startDate,
-                            value: value
-                        )
-                    )
-                }
-
-                resume(HealthTrendSeries(points: points))
-            }
-
-            healthStore.execute(query)
-        }
+        // Same bracket as `fetchQuantitySampleSeries`: the shared collection
+        // seam stops its query on cancellation, so it is awaited directly under
+        // the pool permit. The bucketed collection and its points live in the
+        // shared `BodyHealthQuantityFetch`.
+        let semaphore = HealthKitQueryPool.current.semaphore
+        guard await semaphore.acquireForCurrentTask() else { return nil }
+        defer { semaphore.release() }
+        guard BodyBackgroundLease.current?.isValid != false else { return nil }
+        guard !Task.isCancelled else { return nil }
+        BodyRefreshProfile.shared.enterQuery()
+        defer { BodyRefreshProfile.shared.exitQuery() }
+        let store = healthStore
+        let outcome = await BodyHealthQuantityFetch.intradayCumulativeSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: predicate,
+            unit: unit,
+            bucket: bucket,
+            start: effectiveStart,
+            end: effectiveEnd,
+            calendar: calendar,
+            valueTransform: valueTransform,
+            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+        )
+        guard case .success(let series) = outcome else { return nil }
+        return series
     }
 
     /// A scale writes its whole-day resting energy estimate at every weigh-in
@@ -1908,54 +1954,22 @@ actor HealthKitFetchEngine {
         let days: [Date: DayEstimates]
     }
 
-    struct DayEstimates: Equatable {
-        /// What the day's large samples add to the sum of its small ones.
-        var total = 0.0
-        /// The estimates behind an averaged day, by time, for the chart
-        /// callout. Empty when no source repeated an estimate.
-        var records: [HealthTrendDataPoint] = []
-    }
+    // The fold itself lives in the shared kit (`BodyRestingEnergyEstimates`)
+    // so the watch's week of daily resting energy totals counts a scale's
+    // estimates exactly as this engine does. These names forward to it, so
+    // the queries above and the estimate tests read unchanged.
+    typealias DayEstimates = BodyRestingEnergyEstimates.Day
+    typealias DailyEstimateSample = BodyRestingEnergyEstimates.Sample
 
-    struct DailyEstimateSample: Hashable {
-        let start: Date
-        let end: Date
-        let source: String
-        let value: Double
-    }
+    nonisolated static let dailyEstimateMinimumKilocalories = BodyRestingEnergyEstimates.minimumKilocalories
 
-    nonisolated static let dailyEstimateMinimumKilocalories = 500.0
-
-    /// A large sample logged over under an hour is a whole-day estimate, not
-    /// energy burned in that time: per source and day, exact duplicates
-    /// collapse and the rest count once, at their average. A large sample
-    /// logged over longer is ordinary energy and counts in full.
+    /// `BodyRestingEnergyEstimates.fold(samples:calendar:)`, under the
+    /// engine's own name.
     nonisolated static func dailyEstimates(
         samples: [DailyEstimateSample],
         calendar: Calendar
     ) -> [Date: DayEstimates] {
-        struct Key: Hashable {
-            let day: Date
-            let source: String
-        }
-        var days: [Date: DayEstimates] = [:]
-        var estimates: [DailyEstimateSample] = []
-        for sample in samples {
-            if sample.end.timeIntervalSince(sample.start) < 3600 {
-                estimates.append(sample)
-            } else {
-                days[calendar.startOfDay(for: sample.start), default: .init()].total += sample.value
-            }
-        }
-        let groups = Dictionary(grouping: Set(estimates)) { Key(day: calendar.startOfDay(for: $0.start), source: $0.source) }
-        for (key, group) in groups {
-            days[key.day, default: .init()].total += group.reduce(0) { $0 + $1.value } / Double(group.count)
-            if group.count > 1 {
-                days[key.day, default: .init()].records += group.map { HealthTrendDataPoint(date: $0.start, value: $0.value) }
-            }
-        }
-        return days.mapValues { day in
-            DayEstimates(total: day.total, records: day.records.sorted { ($0.date, $0.value) < ($1.date, $1.value) })
-        }
+        BodyRestingEnergyEstimates.fold(samples: samples, calendar: calendar)
     }
 
     func fetchDailyCumulativeQuantitySeries(
@@ -2108,11 +2122,11 @@ actor HealthKitFetchEngine {
             sourceKind: sourceKind,
             sourceOption: sourceOption
         )
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
 
         // The shared samples seam stops its HKSampleQuery on cancellation.
         // Await it directly so cancellation reaches that query, while retaining
-        // the same pool permit and existing query-depth telemetry.
+        // the same pool permit and existing query-depth telemetry. The query
+        // and its points live in the shared `BodyHealthQuantityFetch`.
         let semaphore = HealthKitQueryPool.current.semaphore
         guard await semaphore.acquireForCurrentTask() else { return nil }
         defer { semaphore.release() }
@@ -2120,19 +2134,17 @@ actor HealthKitFetchEngine {
         guard !Task.isCancelled else { return nil }
         BodyRefreshProfile.shared.enterQuery()
         defer { BodyRefreshProfile.shared.exitQuery() }
-        let outcome = await healthStore.samples(.init(sampleType: quantityType, predicate: predicate,
-            limit: HKObjectQueryNoLimit, sortDescriptors: [sort]))
-        if case .failure(let error) = outcome {
-            Self.logTrendQueryFailure(identifier.rawValue, error: error)
-        }
-        guard case .success(let samples) = outcome, !Task.isCancelled else { return nil }
-        let points = samples.compactMap { sample -> HealthTrendDataPoint? in
-            guard let quantitySample = sample as? HKQuantitySample else { return nil }
-            let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
-            guard value.isFinite else { return nil }
-            return HealthTrendDataPoint(date: quantitySample.endDate, value: value)
-        }
-        return HealthTrendSeries(points: points)
+        let store = healthStore
+        let outcome = await BodyHealthQuantityFetch.quantitySampleSeries(
+            store: store,
+            quantityType: quantityType,
+            predicate: predicate,
+            unit: unit,
+            valueTransform: valueTransform,
+            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+        )
+        guard case .success(let series) = outcome, !Task.isCancelled else { return nil }
+        return series
     }
 
     /// Today's earliest past-threshold episode for one warning kind, backing the
@@ -2161,30 +2173,7 @@ actor HealthKitFetchEngine {
         calendar: Calendar,
         excluding intervals: [DateInterval] = []
     ) async -> QueryOutcome<MetricWarningEvent> {
-        let identifier: HKQuantityTypeIdentifier
-        let unit: HKUnit
-        let valueTransform: @Sendable (Double) -> Double
-        switch kind.metric {
-        case .heartRate:
-            identifier = .heartRate
-            unit = HKUnit.count().unitDivided(by: .minute())
-            valueTransform = { $0 }
-        case .oxygenSaturation:
-            identifier = .oxygenSaturation
-            unit = .percent()
-            valueTransform = { Self.normalizedPercentDisplayValue($0) }
-        case .respiratoryRate:
-            identifier = .respiratoryRate
-            unit = HKUnit.count().unitDivided(by: .minute())
-            valueTransform = { $0 }
-        case .wristTemperature:
-            identifier = .appleSleepingWristTemperature
-            unit = .degreeCelsius()
-            valueTransform = { $0 }
-        default:
-            return .success(nil)
-        }
-        guard let quantityType = HKObjectType.quantityType(forIdentifier: identifier) else {
+        guard let identifier = HealthMetricQueryDescriptor.descriptor(for: kind.metric)?.quantityType else {
             return .success(nil)
         }
         if sourceSelectionUnresolved(for: kind.metric) {
@@ -2193,38 +2182,16 @@ actor HealthKitFetchEngine {
 
         let thresholdValue = warningThreshold(for: kind)
         let now = anchorDate ?? Date()
-        let windowPredicate = combinedPredicate(
-            startDate: calendar.startOfDay(for: now),
-            endDate: now,
-            sourceKind: kind.metric
-        )
-        // Heart rate is dense (thousands of samples a day), so HealthKit does the
-        // threshold filtering. Blood oxygen is sparse AND stored either as a 0–1
-        // fraction or as 0–100 depending on the source, so a native-unit
-        // threshold predicate would silently miss whole sources: fetch the day
-        // and normalise (`valueTransform`) before comparing. Respiratory rate and
-        // wrist temperature are sparse too (a handful of overnight readings), so
-        // they take the same in-memory path.
-        let thresholdPredicate: NSPredicate? = kind.metric == .heartRate
-            ? HKQuery.predicateForQuantitySamples(
-                with: kind.isAbove ? .greaterThan : .lessThan,
-                quantity: HKQuantity(unit: unit, doubleValue: thresholdValue)
-            )
-            : nil
-        let predicate: NSPredicate?
-        switch (windowPredicate, thresholdPredicate) {
-        case (let window?, let threshold?):
-            predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [window, threshold])
-        case (let window?, nil):
-            predicate = window
-        case (nil, let threshold):
-            predicate = threshold
-        }
-        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
+        // Resolved beside the gate above, before any suspension, so the read
+        // runs under the selection the gate checked.
+        let selectedSources = sourcePredicate(for: kind.metric)
 
-        // The shared samples seam is the scriptable read every other sample
-        // fetch goes through, and it stops its HKSampleQuery on cancellation.
-        // Same pool permit and query-depth telemetry as `runCancellableQuery`.
+        // The read itself is `BodyMetricWarningFetch.todaysReadings`, shared
+        // with the watch's own check so both devices read a warning the same
+        // way; its doc says why only heart rate filters on the threshold in
+        // HealthKit. It goes through the scriptable samples seam, which stops
+        // its HKSampleQuery on cancellation. Same pool permit and query-depth
+        // telemetry as `runCancellableQuery`.
         let semaphore = HealthKitQueryPool.current.semaphore
         guard await semaphore.acquireForCurrentTask() else { return .failure }
         defer { semaphore.release() }
@@ -2232,30 +2199,23 @@ actor HealthKitFetchEngine {
         guard !Task.isCancelled else { return .failure }
         BodyRefreshProfile.shared.enterQuery()
         defer { BodyRefreshProfile.shared.exitQuery() }
-        let outcome = await healthStore.samples(.init(sampleType: quantityType, predicate: predicate,
-            limit: HKObjectQueryNoLimit, sortDescriptors: [sort]))
+        let store = healthStore
+        let outcome = await BodyMetricWarningFetch.todaysReadings(
+            for: kind,
+            store: store,
+            sourcePredicate: selectedSources,
+            threshold: thresholdValue,
+            now: now,
+            calendar: calendar,
+            onFailure: { Self.logTrendQueryFailure(identifier.rawValue, error: $0) }
+        )
         // Cancellation counts as a failure, like a query failure, so the
         // resolver keeps the cached event instead of clearing the badge from a
         // partial result.
         switch outcome {
-        case .failure(let error):
-            Self.logTrendQueryFailure(identifier.rawValue, error: error)
+        case .failure:
             return .failure
-        case .cancelled:
-            return .failure
-        case .success(let samples):
-            let points = samples.compactMap { sample -> HealthTrendDataPoint? in
-                guard let quantitySample = sample as? HKQuantitySample else {
-                    return nil
-                }
-                let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
-                guard value.isFinite else {
-                    return nil
-                }
-
-                return HealthTrendDataPoint(date: quantitySample.endDate, value: value)
-            }
-
+        case .success(let points):
             // Nothing past the threshold → `.success(nil)`, which clears a
             // stale cached event rather than keeping yesterday's badge.
             return .success(MetricThresholdWarning.detect(
@@ -3825,6 +3785,9 @@ actor HealthKitFetchEngine {
         // forward explicitly, exactly like `recordedReadiness`.
         let cachedHeartbeatRMSSDDaySamples = cachedTrends.heartbeatRMSSDDaySamples
         let cachedRecoveryHRVDaySamplesSecondary = cachedTrends.recoveryHRVDaySamplesSecondary
+        // Stress's own 15 minute movement mask, kept by the Stress input load.
+        let cachedStressStepsDaySamples = cachedTrends.stressStepsDaySamples
+        let cachedStressActiveEnergyDaySamples = cachedTrends.stressActiveEnergyDaySamples
         let cachedStress = cachedTrends.stress
         let cachedStressRanges = cachedTrends.stressRanges
         let cachedRecordedStressDays = cachedTrends.recordedStressDays
@@ -3836,6 +3799,10 @@ actor HealthKitFetchEngine {
         // reason the recorded stress days do.
         let cachedRecordedBodyRadar = cachedTrends.recordedBodyRadar
         let cachedRecordedBodyRadarContext = cachedTrends.recordedBodyRadarContext
+        // Sleep Debt's frozen nights carry forward for the same reason: a
+        // record is never rebuilt from the history, only applied to it.
+        let cachedRecordedSleepDebt = cachedTrends.recordedSleepDebt
+        let cachedRecordedSleepDebtContext = cachedTrends.recordedSleepDebtContext
 
         // Oldest day a windowed leaf queries, and the boundary the merge splices
         // on. Every windowed leaf below reads `trendWindowDays` as its `maxDays`
@@ -4288,6 +4255,8 @@ actor HealthKitFetchEngine {
             activeEnergyDaySamplesSecondary: cachedActiveEnergyDaySamplesSecondary,
             stepsDaySamples: cachedStepsDaySamples,
             stepsDaySamplesSecondary: cachedStepsDaySamplesSecondary,
+            stressStepsDaySamples: cachedStressStepsDaySamples,
+            stressActiveEnergyDaySamples: cachedStressActiveEnergyDaySamples,
             recordedStressDays: cachedRecordedStressDays,
             recordedStressContext: cachedRecordedStressContext,
             stressBackfillScannedThrough: cachedStressBackfillScannedThrough,
@@ -4295,7 +4264,9 @@ actor HealthKitFetchEngine {
             recordedReadiness: cachedTrends.recordedReadiness,
             recordedReadinessContext: cachedTrends.recordedReadinessContext,
             recordedBodyRadar: cachedRecordedBodyRadar,
-            recordedBodyRadarContext: cachedRecordedBodyRadarContext
+            recordedBodyRadarContext: cachedRecordedBodyRadarContext,
+            recordedSleepDebt: cachedRecordedSleepDebt,
+            recordedSleepDebtContext: cachedRecordedSleepDebtContext
         )
         // These domains have no retained intraday dependency. A full primary
         // and configured comparison read can therefore settle their history.
@@ -4763,6 +4734,24 @@ actor HealthKitFetchEngine {
             trends.activeEnergySecondary = resolvedTrend(await activeEnergySecondaryTrend, cached: existing.trends.activeEnergySecondary)
             trends.activeEnergyDaySamples = resolvedDaySamples(await activeEnergyDaySamples, cached: existing.trends.activeEnergyDaySamples, series: .activeEnergyDaySamples)
             trends.activeEnergyDaySamplesSecondary = resolvedDaySamples(await activeEnergyDaySamplesSecondary, cached: existing.trends.activeEnergyDaySamplesSecondary, series: .activeEnergyDaySamplesSecondary)
+            // Stress's 15 minute movement mask follows the energy it is read
+            // from, so a Stress recompute after this refresh (the background
+            // observed one included) keeps a current mask. Without Heart Stress
+            // cannot score: the cache is carried, never marked authoritative.
+            if permissionSelection.includes(.heart) {
+                trends.stressActiveEnergyDaySamples = resolvedDaySamples(
+                    await refreshedStressMovementSamples(
+                        for: .activeEnergy,
+                        cached: existing.trends.stressActiveEnergyDaySamples,
+                        calendar: calendar,
+                        reconcilesRetainedWindow: reconcilesRetainedIntradayWindow
+                    ),
+                    cached: existing.trends.stressActiveEnergyDaySamples,
+                    series: .stressActiveEnergyDaySamples
+                )
+            } else {
+                trends.stressActiveEnergyDaySamples = existing.trends.stressActiveEnergyDaySamples
+            }
         case .restingEnergy:
             async let restingEnergy = summaryLeaf(.restingEnergy, calendar: calendar)
             async let restingEnergyTrend: HealthTrendSeries? = trendLeaf(.restingEnergy, calendar: calendar)
@@ -4824,6 +4813,21 @@ actor HealthKitFetchEngine {
             trends.stepsSecondary = resolvedTrend(await stepsSecondaryTrend, cached: existing.trends.stepsSecondary)
             trends.stepsDaySamples = resolvedDaySamples(await stepsDaySamples, cached: existing.trends.stepsDaySamples, series: .stepsDaySamples)
             trends.stepsDaySamplesSecondary = resolvedDaySamples(await stepsDaySamplesSecondary, cached: existing.trends.stepsDaySamplesSecondary, series: .stepsDaySamplesSecondary)
+            // Stress's 15 minute movement mask, as for `.activeEnergy` above.
+            if permissionSelection.includes(.heart) {
+                trends.stressStepsDaySamples = resolvedDaySamples(
+                    await refreshedStressMovementSamples(
+                        for: .steps,
+                        cached: existing.trends.stressStepsDaySamples,
+                        calendar: calendar,
+                        reconcilesRetainedWindow: reconcilesRetainedIntradayWindow
+                    ),
+                    cached: existing.trends.stressStepsDaySamples,
+                    series: .stressStepsDaySamples
+                )
+            } else {
+                trends.stressStepsDaySamples = existing.trends.stressStepsDaySamples
+            }
         case .cardioFitness:
             // Latest reading in the trend window + the sparse daily series, same
             // shapes as the dashboard leaves. The demographics ride along so the

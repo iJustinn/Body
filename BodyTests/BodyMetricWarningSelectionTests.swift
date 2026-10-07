@@ -111,6 +111,32 @@ final class BodyDismissedMetricWarningsTests: XCTestCase {
         XCTAssertFalse(dismissed.contains(event(.highHeartRate, date(2026, 9, 26))))
     }
 
+    func testUnfoldingRestoresOnlyThatWarning() {
+        let now = date(2026, 9, 26, 12)
+        let night = BodyRadarNight(date: calendar.startOfDay(for: date(2026, 9, 26)), state: .minorSigns)
+        let folded = BodyDismissedMetricWarnings.storedValue(from: "")
+            .dismissing(event(.highHeartRate, date(2026, 9, 26, 9)), now: now)
+            .dismissing(event(.lowBloodOxygen, date(2026, 9, 26, 9)), now: now)
+            .dismissing(night, now: now)
+
+        let unfolded = folded.unfolding(event(.highHeartRate, date(2026, 9, 26, 15)))
+        XCTAssertFalse(unfolded.contains(event(.highHeartRate, date(2026, 9, 26, 9))))
+        XCTAssertTrue(unfolded.contains(event(.lowBloodOxygen, date(2026, 9, 26, 9))))
+        XCTAssertTrue(unfolded.contains(night))
+
+        let radarUnfolded = unfolded.unfolding(night)
+        XCTAssertFalse(radarUnfolded.contains(night))
+        XCTAssertTrue(radarUnfolded.contains(event(.lowBloodOxygen, date(2026, 9, 26, 9))))
+        XCTAssertEqual(BodyDismissedMetricWarnings.storedValue(from: radarUnfolded.rawValue), radarUnfolded)
+    }
+
+    func testUnfoldingAWarningThatWasNeverFoldedChangesNothing() {
+        let folded = BodyDismissedMetricWarnings.storedValue(from: "")
+            .dismissing(event(.highHeartRate, date(2026, 9, 26)), now: date(2026, 9, 26))
+
+        XCTAssertEqual(folded.unfolding(event(.lowHeartRate, date(2026, 9, 26))), folded)
+    }
+
     func testDismissingPrunesEntriesPastTheRetentionWindow() {
         let old = BodyDismissedMetricWarnings.storedValue(from: "")
             .dismissing(event(.highHeartRate, date(2026, 6, 1)), now: date(2026, 6, 1))
@@ -118,5 +144,68 @@ final class BodyDismissedMetricWarningsTests: XCTestCase {
 
         XCTAssertFalse(next.contains(event(.highHeartRate, date(2026, 6, 1))))
         XCTAssertTrue(next.contains(event(.lowHeartRate, date(2026, 9, 26))))
+    }
+
+    /// A watch fold record carries the entry itself, which must fold exactly
+    /// what the event based fold does.
+    func testDismissingAnEntryMatchesDismissingItsEvent() {
+        let now = date(2026, 9, 26, 12)
+        let warning = event(.highHeartRate, date(2026, 9, 26, 9))
+        let key = BodyDismissedMetricWarnings.entryKey(for: warning)
+
+        let byEntry = BodyDismissedMetricWarnings.storedValue(from: "").dismissing(entry: key, now: now)
+
+        XCTAssertEqual(byEntry, BodyDismissedMetricWarnings.storedValue(from: "").dismissing(warning, now: now))
+        XCTAssertTrue(byEntry.contains(event(.highHeartRate, date(2026, 9, 26, 15))))
+    }
+
+    func testDismissingAnEntryPrunesLikeTheEventPath() {
+        let old = BodyDismissedMetricWarnings.storedValue(from: "")
+            .dismissing(event(.highHeartRate, date(2026, 6, 1)), now: date(2026, 6, 1))
+        let key = BodyDismissedMetricWarnings.entryKey(for: event(.lowHeartRate, date(2026, 9, 26)))
+
+        let next = old.dismissing(entry: key, now: date(2026, 9, 26))
+
+        XCTAssertEqual(next.entries, [key])
+    }
+
+    func testUnfoldingAnEntryRestoresOnlyThatWarning() {
+        let now = date(2026, 9, 26, 12)
+        let high = event(.highHeartRate, date(2026, 9, 26, 9))
+        let low = event(.lowHeartRate, date(2026, 9, 26, 9))
+        let folded = BodyDismissedMetricWarnings.storedValue(from: "")
+            .dismissing(high, now: now)
+            .dismissing(low, now: now)
+
+        let unfolded = folded.unfolding(entry: BodyDismissedMetricWarnings.entryKey(for: high))
+
+        XCTAssertEqual(unfolded, folded.unfolding(high))
+        XCTAssertFalse(unfolded.contains(high))
+        XCTAssertTrue(unfolded.contains(low))
+        // An entry that was never folded changes nothing.
+        XCTAssertEqual(unfolded.unfolding(entry: "highHeartRate@2026-09-25"), unfolded)
+    }
+
+    /// `isRetained` is the cutoff `dismissing` prunes with: an entry it keeps
+    /// survives the next fold, one it drops is pruned by it.
+    func testIsRetainedFollowsTheDismissalCutoff() {
+        let now = date(2026, 9, 26, 12)
+        let lastKeptDay = calendar.date(byAdding: .day, value: -BodyDismissedMetricWarnings.retentionDayCount, to: now)!
+        let firstDroppedDay = calendar.date(byAdding: .day, value: -1, to: lastKeptDay)!
+        let kept = BodyDismissedMetricWarnings.entryKey(for: event(.highHeartRate, lastKeptDay))
+        let dropped = BodyDismissedMetricWarnings.entryKey(for: event(.highHeartRate, firstDroppedDay))
+
+        XCTAssertTrue(BodyDismissedMetricWarnings.isRetained(kept, now: now, calendar: calendar))
+        XCTAssertFalse(BodyDismissedMetricWarnings.isRetained(dropped, now: now, calendar: calendar))
+        XCTAssertTrue(BodyDismissedMetricWarnings.isRetained(
+            BodyDismissedMetricWarnings.entryKey(for: event(.lowHeartRate, now)),
+            now: now,
+            calendar: calendar
+        ))
+
+        let next = BodyDismissedMetricWarnings(entries: [kept, dropped])
+            .dismissing(event(.lowHeartRate, now), now: now)
+        XCTAssertTrue(next.entries.contains(kept))
+        XCTAssertFalse(next.entries.contains(dropped))
     }
 }

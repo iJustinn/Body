@@ -64,6 +64,25 @@ enum WatchDeltaSplicer {
         return HealthTrendSeries(points: outsideWindow + insideDelta)
     }
 
+    /// `splice`'s exact semantics for a daily range series (the Heart Rate and
+    /// HRV week charts' min/max capsules): `.failure` returns `seedSeries`
+    /// unchanged, `.success` replaces the `[windowStart, …)` slice wholesale
+    /// (`.success(.empty)` clears it), and a delta point outside the window is
+    /// ignored.
+    static func spliceRanges(
+        seedSeries: HealthTrendRangeSeries,
+        delta: WatchFetchOutcome<HealthTrendRangeSeries>,
+        from windowStart: Date
+    ) -> HealthTrendRangeSeries {
+        guard case .success(let deltaSeries) = delta else {
+            return seedSeries
+        }
+
+        let outsideWindow = seedSeries.points.filter { $0.date < windowStart }
+        let insideDelta = deltaSeries.points.filter { $0.date >= windowStart }
+        return HealthTrendRangeSeries(points: outsideWindow + insideDelta)
+    }
+
     /// Same failure/empty/out-of-window semantics as `splice`, but for
     /// `SleepHistorySnapshot` — keyed by the night's wake day (`SleepDaySummary.date`)
     /// rather than a `HealthTrendSeries` point date, since a night isn't a

@@ -362,6 +362,107 @@ final class StressIntegrationTests: XCTestCase {
         XCTAssertNil(dropped.trends.stressBackfillScannedThrough)
     }
 
+    /// The first refresh after updating still holds the hourly movement series but
+    /// not the 15 minute ones the Stress input load fetches next: a context change
+    /// then keeps the old records instead of rescoring them with no movement mask,
+    /// and goes ahead once the 15 minute series exists. A recompute that changes no
+    /// context, or the watch's (no context at all), never waits.
+    func testContextChangeWaitsForTheQuarterHourMovementSeries() {
+        let scoringDay = day(2025, 3, 10)
+        let now = scoringDay.addingTimeInterval(12 * 3_600)
+
+        var trends = HealthTrendSnapshot.empty
+        trends.recordedStressContext = "p[heart:1]"
+        trends.recordedStressDays = recordedBaselineDays(
+            endingBefore: scoringDay,
+            dayCount: 20,
+            quietHRMedian: 60
+        ) + [StressDaySummary(date: scoringDay, averageScore: 44, scoredWindowCount: 16, quietHRMedian: 62)]
+        trends.heartRateDaySamples = HealthTrendSeries(
+            points: heartRateSamples(dayStart: scoringDay, windowRange: 32..<48, value: 62)
+        )
+        trends.stepsDaySamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: scoringDay.addingTimeInterval(9 * 3_600), value: 900)
+        ])
+        XCTAssertTrue(trends.stressMovementInputsPending)
+        let pending = snapshot(trends: trends)
+
+        let waited = pending.recalculatingStress(
+            on: scoringDay,
+            calendar: calendar,
+            now: now,
+            recordedStressContext: "p[heart:1];stress[2]"
+        )
+        XCTAssertEqual(waited.trends.recordedStressContext, "p[heart:1]")
+        XCTAssertEqual(waited.trends.recordedStressDays, trends.recordedStressDays)
+        // A fresh fetch leaves today's summary blank; the record stands in.
+        XCTAssertEqual(waited.summary.stress?.averageScore, 44)
+
+        let sameContext = pending.recalculatingStress(
+            on: scoringDay,
+            calendar: calendar,
+            now: now,
+            recordedStressContext: "p[heart:1]"
+        )
+        XCTAssertEqual(sameContext.trends.recordedStressDays.count, 21)
+
+        let watch = pending.recalculatingStress(on: scoringDay, calendar: calendar, now: now)
+        XCTAssertNotNil(watch.summary.stress)
+
+        var loaded = trends
+        loaded.stressStepsDaySamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: scoringDay.addingTimeInterval(9 * 3_600), value: 400)
+        ])
+        XCTAssertFalse(loaded.stressMovementInputsPending)
+        let rescored = snapshot(trends: loaded).recalculatingStress(
+            on: scoringDay,
+            calendar: calendar,
+            now: now,
+            recordedStressContext: "p[heart:1];stress[2]"
+        )
+        XCTAssertEqual(rescored.trends.recordedStressContext, "p[heart:1];stress[2]")
+        XCTAssertFalse(rescored.trends.recordedStressDays.contains { $0.date < scoringDay })
+    }
+
+    /// The hourly series draw the Steps and Active Energy Day View only; Stress
+    /// masks movement from its own 15 minute series, one bucket per window.
+    func testMovementMaskReadsTheQuarterHourSeriesNotTheDayViewHours() {
+        let scoringDay = day(2025, 3, 10)
+        let now = scoringDay.addingTimeInterval(20 * 3_600)
+        let noon = scoringDay.addingTimeInterval(12 * 3_600)
+
+        var trends = HealthTrendSnapshot.empty
+        trends.recordedStressDays = recordedBaselineDays(
+            endingBefore: scoringDay,
+            dayCount: 20,
+            quietHRMedian: 60
+        )
+        trends.heartRateDaySamples = HealthTrendSeries(
+            points: heartRateSamples(dayStart: scoringDay, windowRange: 40..<56, value: 62)
+        )
+        trends.stepsDaySamples = HealthTrendSeries(points: [HealthTrendDataPoint(date: noon, value: 900)])
+
+        let hourlyOnly = snapshot(trends: trends).stressWindows(for: scoringDay, calendar: calendar, now: now)
+        XCTAssertTrue((48..<52).allSatisfy { hourlyOnly[$0].isScored })
+
+        trends.stressStepsDaySamples = HealthTrendSeries(points: [HealthTrendDataPoint(date: noon, value: 900)])
+        let masked = snapshot(trends: trends).stressWindows(for: scoringDay, calendar: calendar, now: now)
+        XCTAssertEqual(masked[48].state, .activity)
+        XCTAssertTrue(masked[49].isScored)
+    }
+
+    func testStressRecordContextSignatureCarriesTheAlgorithmVersion() {
+        XCTAssertEqual(StressScoreCalculator.algorithmVersion, 2)
+        let signature = HealthKitWorkoutStore.stressRecordContextSignature(
+            permissionSelection: .defaultValue,
+            healthDataSourceSelection: .defaultValue,
+            combinesHealthDataSourcesByName: false,
+            showsSubMinuteAwakeStages: false,
+            showsLeadingTrailingAwakeStages: false
+        )
+        XCTAssertTrue(signature.hasSuffix(";stress[\(StressScoreCalculator.algorithmVersion)]"))
+    }
+
     // MARK: - History backfill
 
     /// Recorded days, both stress series and the walk marker move together in
@@ -483,8 +584,8 @@ final class StressIntegrationTests: XCTestCase {
             to: chunkEnd,
             heartRateSamples: samples,
             sdnnSamples: [],
-            hourlySteps: [],
-            hourlyActiveEnergy: [],
+            quarterHourSteps: [],
+            quarterHourActiveEnergy: [],
             workouts: [],
             sleepIntervalsByDay: [:],
             calendar: calendar
@@ -536,8 +637,8 @@ final class StressIntegrationTests: XCTestCase {
             to: chunkEnd,
             heartRateSamples: heartRateSamples(dayStart: chunkStart, windowRange: 32..<48, value: 90),
             sdnnSamples: [],
-            hourlySteps: [],
-            hourlyActiveEnergy: [],
+            quarterHourSteps: [],
+            quarterHourActiveEnergy: [],
             workouts: [],
             sleepIntervalsByDay: [:],
             calendar: calendar
@@ -1122,13 +1223,48 @@ final class StressIntegrationTests: XCTestCase {
         XCTAssertEqual(half.tracks[1].opacity, 0.5, accuracy: 0.0001)
     }
 
+    // MARK: - Several days at once
+
+    /// The watch's "Last 8 hours" scores one or two days in one call: each day
+    /// must come out exactly as the one-day call scores it, and a day with no
+    /// heart rate coverage is absent rather than empty.
+    func testStressWindowsForDaysMatchesTheOneDayCallForEachDay() throws {
+        let fixture = goldenFixture()
+        let recomputed = fixture.snapshot.recalculatingStress(
+            on: fixture.scoringDay,
+            workouts: fixture.workouts,
+            calendar: calendar,
+            now: fixture.now
+        )
+        let days = try [0, 1, 6, 17].map { offset in
+            try XCTUnwrap(calendar.date(byAdding: .day, value: -offset, to: fixture.scoringDay))
+        }
+        let uncovered = try XCTUnwrap(calendar.date(byAdding: .day, value: -30, to: fixture.scoringDay))
+
+        let byDay = recomputed.stressWindows(
+            forDays: days + [uncovered],
+            workouts: fixture.workouts,
+            calendar: calendar,
+            now: fixture.now
+        )
+
+        XCTAssertEqual(Set(byDay.keys), Set(days.map { calendar.startOfDay(for: $0) }))
+        XCTAssertNil(byDay[calendar.startOfDay(for: uncovered)])
+        for day in days {
+            let single = recomputed.stressWindows(for: day, workouts: fixture.workouts, calendar: calendar, now: fixture.now)
+            XCTAssertFalse(single.isEmpty)
+            XCTAssertEqual(byDay[calendar.startOfDay(for: day)], single, "\(day)")
+        }
+        XCTAssertTrue(recomputed.stressWindows(forDays: [], calendar: calendar, now: fixture.now).isEmpty)
+    }
+
     // MARK: - Golden oracle
 
     /// A fixed multi-day fixture: 18 days of intraday heart rate inside the
     /// computed window (rising afternoons, a hot evening block), SDNN and
-    /// beat-to-beat RMSSD on some of them, an hourly step spike and a workout as
-    /// the two activity masks, and 25 older recorded days feeding the cross-day
-    /// robust baseline.
+    /// beat-to-beat RMSSD on some of them, a 15 minute step spike and workouts
+    /// (runs and one walk, for both recovery tails) as the activity masks, and 25
+    /// older recorded days feeding the cross-day robust baseline.
     private func goldenFixture() -> (snapshot: HealthDashboardSnapshot, scoringDay: Date, workouts: [WorkoutSummary], now: Date) {
         let scoringDay = day(2025, 3, 10)
         let now = scoringDay.addingTimeInterval(14 * 3_600 + 30 * 60)
@@ -1165,14 +1301,15 @@ final class StressIntegrationTests: XCTestCase {
                 rmssd.append(HealthTrendDataPoint(date: dayStart.addingTimeInterval(13 * 3_600), value: 33 + Double(offset % 6)))
             }
             if offset % 5 == 2 {
-                // One hour past the movement threshold — the coarse mask.
-                steps.append(HealthTrendDataPoint(date: dayStart.addingTimeInterval(12 * 3_600), value: 900))
+                // One window past the movement line, the next one under it.
+                steps.append(HealthTrendDataPoint(date: dayStart.addingTimeInterval(12 * 3_600), value: 400))
+                steps.append(HealthTrendDataPoint(date: dayStart.addingTimeInterval(12 * 3_600 + 900), value: 250))
             }
             if offset % 6 == 3 {
                 let start = dayStart.addingTimeInterval(9 * 3_600)
                 workouts.append(
                     WorkoutSummary(
-                        type: .running,
+                        type: offset == 3 ? .walking : .running,
                         startDate: start,
                         duration: 3_600,
                         endDate: start.addingTimeInterval(3_600)
@@ -1184,7 +1321,7 @@ final class StressIntegrationTests: XCTestCase {
         trends.heartRateDaySamples = HealthTrendSeries(points: heartRate)
         trends.heartRateVariabilityDaySamples = HealthTrendSeries(points: sdnn)
         trends.heartbeatRMSSDDaySamples = HealthTrendSeries(points: rmssd)
-        trends.stepsDaySamples = HealthTrendSeries(points: steps)
+        trends.stressStepsDaySamples = HealthTrendSeries(points: steps)
         trends.heartRateVariability = HealthTrendSeries(points: dailySDNN)
 
         return (snapshot(trends: trends), scoringDay, workouts, now)
@@ -1318,22 +1455,22 @@ final class StressIntegrationTests: XCTestCase {
     day 02-18 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
     day 02-19 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
     day 02-20 avg=30 min=- max=- scored=40 hrv=0 quiet=61.0000 rmssd=- activity=0 rest:0,low:0,medium:0,high:0
-    day 02-21 avg=82 min=62 max=100 scored=36 hrv=0 quiet=75.0000 rmssd=38.0000 activity=60 rest:0,low:0,medium:240,high:300
+    day 02-21 avg=83 min=62 max=100 scored=39 hrv=0 quiet=75.0000 rmssd=38.0000 activity=15 rest:0,low:0,medium:240,high:345
     day 02-22 avg=40 min=14 max=98 scored=40 hrv=0 quiet=64.0000 rmssd=- activity=0 rest:240,low:240,medium:0,high:120
     day 02-23 avg=52 min=38 max=99 scored=34 hrv=0 quiet=64.0000 rmssd=- activity=90 rest:0,low:390,medium:0,high:120
     day 02-24 avg=88 min=70 max=100 scored=40 hrv=0 quiet=84.0000 rmssd=- activity=0 rest:0,low:0,medium:240,high:360
     day 02-25 avg=64 min=18 max=98 scored=40 hrv=0 quiet=73.0000 rmssd=34.0000 activity=0 rest:240,low:0,medium:0,high:360
-    day 02-26 avg=73 min=46 max=100 scored=36 hrv=0 quiet=73.0000 rmssd=- activity=60 rest:0,low:240,medium:0,high:300
+    day 02-26 avg=75 min=46 max=100 scored=39 hrv=0 quiet=73.0000 rmssd=- activity=15 rest:0,low:240,medium:0,high:345
     day 02-27 avg=32 min=8 max=96 scored=40 hrv=0 quiet=62.0000 rmssd=- activity=0 rest:480,low:0,medium:0,high:120
     day 02-28 avg=39 min=24 max=99 scored=40 hrv=0 quiet=62.0000 rmssd=- activity=0 rest:480,low:0,medium:0,high:120
     day 03-01 avg=84 min=54 max=100 scored=34 hrv=0 quiet=82.0000 rmssd=36.0000 activity=90 rest:0,low:0,medium:180,high:330
     day 03-02 avg=58 min=10 max=97 scored=40 hrv=0 quiet=71.0000 rmssd=- activity=0 rest:240,low:0,medium:0,high:360
-    day 03-03 avg=64 min=30 max=99 scored=36 hrv=0 quiet=71.0000 rmssd=- activity=60 rest:0,low:240,medium:0,high:300
+    day 03-03 avg=66 min=30 max=99 scored=39 hrv=0 quiet=71.0000 rmssd=- activity=15 rest:0,low:240,medium:0,high:345
     day 03-04 avg=79 min=62 max=100 scored=40 hrv=0 quiet=71.0000 rmssd=- activity=0 rest:0,low:0,medium:240,high:360
     day 03-05 avg=31 min=14 max=98 scored=40 hrv=0 quiet=60.0000 rmssd=38.0000 activity=0 rest:480,low:0,medium:0,high:120
     day 03-06 avg=75 min=38 max=99 scored=40 hrv=0 quiet=80.0000 rmssd=- activity=0 rest:0,low:240,medium:0,high:360
-    day 03-07 avg=87 min=70 max=100 scored=34 hrv=5 quiet=80.0000 rmssd=- activity=90 rest:0,low:0,medium:180,high:330
-    day 03-08 avg=55 min=18 max=98 scored=36 hrv=0 quiet=69.0000 rmssd=- activity=60 rest:240,low:0,medium:0,high:300
+    day 03-07 avg=87 min=70 max=100 scored=35 hrv=6 quiet=80.0000 rmssd=- activity=75 rest:0,low:0,medium:180,high:345
+    day 03-08 avg=57 min=18 max=98 scored=39 hrv=0 quiet=69.0000 rmssd=- activity=15 rest:240,low:0,medium:0,high:345
     day 03-09 avg=69 min=46 max=100 scored=40 hrv=0 quiet=69.0000 rmssd=34.0000 activity=0 rest:0,low:240,medium:0,high:360
     day 03-10 avg=13 min=8 max=96 scored=34 hrv=6 quiet=58.0000 rmssd=- activity=0 rest:480,low:0,medium:0,high:30
     series=43
@@ -1362,40 +1499,40 @@ final class StressIntegrationTests: XCTestCase {
     point 02-18 30.0000
     point 02-19 30.0000
     point 02-20 30.0000
-    point 02-21 82.0000
+    point 02-21 83.0000
     point 02-22 40.0000
     point 02-23 52.0000
     point 02-24 88.0000
     point 02-25 64.0000
-    point 02-26 73.0000
+    point 02-26 75.0000
     point 02-27 32.0000
     point 02-28 39.0000
     point 03-01 84.0000
     point 03-02 58.0000
-    point 03-03 64.0000
+    point 03-03 66.0000
     point 03-04 79.0000
     point 03-05 31.0000
     point 03-06 75.0000
     point 03-07 87.0000
-    point 03-08 55.0000
+    point 03-08 57.0000
     point 03-09 69.0000
     point 03-10 13.0000
-    range 02-21 62.0000 100.0000 82.0000
+    range 02-21 62.0000 100.0000 83.0000
     range 02-22 14.0000 98.0000 40.0000
     range 02-23 38.0000 99.0000 52.0000
     range 02-24 70.0000 100.0000 88.0000
     range 02-25 18.0000 98.0000 64.0000
-    range 02-26 46.0000 100.0000 73.0000
+    range 02-26 46.0000 100.0000 75.0000
     range 02-27 8.0000 96.0000 32.0000
     range 02-28 24.0000 99.0000 39.0000
     range 03-01 54.0000 100.0000 84.0000
     range 03-02 10.0000 97.0000 58.0000
-    range 03-03 30.0000 99.0000 64.0000
+    range 03-03 30.0000 99.0000 66.0000
     range 03-04 62.0000 100.0000 79.0000
     range 03-05 14.0000 98.0000 31.0000
     range 03-06 38.0000 99.0000 75.0000
     range 03-07 70.0000 100.0000 87.0000
-    range 03-08 18.0000 98.0000 55.0000
+    range 03-08 18.0000 98.0000 57.0000
     range 03-09 46.0000 100.0000 69.0000
     range 03-10 8.0000 96.0000 13.0000
     windows=58

@@ -48,8 +48,8 @@ enum BodyHealthReadTypes {
             // Ultra 4 on watchOS 27. Stress prefers it over the beat-to-beat scan
             // below and the HRV page shows it as its Recovery view. Folded into
             // the standard request like `workoutRoute()`, so existing users are
-            // re-prompted on the next refresh. The watch's compute set doesn't
-            // need it.
+            // re-prompted on the next refresh. The watch's compute set asks for
+            // it too, for its own Stress.
             if #available(iOS 27, watchOS 27, *) {
                 quantityIdentifiers.append(.heartRateVariabilityRMSSD)
             }
@@ -57,7 +57,7 @@ enum BodyHealthReadTypes {
             // metric on watches that don't write Recovery HRV. Folded into the
             // standard request like `workoutRoute()` above, so existing users are
             // re-prompted on the next refresh; without it Stress falls back to
-            // the SDNN path. The watch's compute set doesn't need it.
+            // the SDNN path. The watch's compute set asks for it too.
             types.insert(HKSeriesType.heartbeat())
             // Birth date (a read-only characteristic) anchors the workout heart-rate
             // zones at a percentage of the age-estimated max HR (220 − age). Gated on
@@ -163,18 +163,27 @@ enum BodyHealthReadTypes {
 
     /// The read set the WATCH's on-device compute needs — a strict subset of
     /// `readObjectTypes`, covering only what `WatchDeltaFetcher` actually
-    /// queries for the seven watch metrics: workouts (+ effort scores) for
-    /// Training Load and the readiness activity drain, the three heart types,
+    /// queries for the watch metrics: workouts (+ effort scores) for Training
+    /// Load and the readiness activity drain, the three heart types,
     /// respiratory rate and blood oxygen (readiness autonomic inputs and
-    /// nocturnal vitals), sleep, and wrist temperature.
+    /// nocturnal vitals), sleep, and wrist temperature; steps, active energy
+    /// and resting energy, each feeding its own card and 7 day bars (a week
+    /// of daily totals), with steps and active energy also Stress's movement
+    /// mask; and Stress's own inputs, Recovery HRV and beat-to-beat series
+    /// (its RMSSD).
     ///
     /// Deliberately narrower than the phone's request: no workout routes, body
-    /// measurements, energy, exercise minutes, daylight, steps, activity
-    /// summaries or date of birth — the watch renders none of those, and a
-    /// HealthKit read prompt should ask for no more than the app will read.
+    /// measurements, exercise minutes, daylight, activity summaries or date of
+    /// birth — the watch reads none of those, and a HealthKit read prompt
+    /// should ask for no more than the app will read.
     /// Each entry is still gated on the phone's permission selection, which the
     /// watch adopts one-way, so a category hidden on the phone is never
     /// requested here either.
+    ///
+    /// Widening this set re-prompts existing users on the watch: compute
+    /// authorization (`statusForAuthorizationRequest`) reads as unsettled until
+    /// the new prompt is answered, so background computes wait for the watch
+    /// app to be opened.
     nonisolated static func watchComputeReadObjectTypes(
         for selection: BodyHealthPermissionSelection = .defaultValue
     ) -> Set<HKObjectType> {
@@ -194,6 +203,12 @@ enum BodyHealthReadTypes {
                 .restingHeartRate,
                 .heartRateVariabilitySDNN
             ]
+            // Stress's RMSSD: Recovery HRV where the watch writes it, else the
+            // beat-to-beat series scan (`BodyHeartbeatRMSSDFetch`).
+            if #available(iOS 27, watchOS 27, *) {
+                quantityIdentifiers.append(.heartRateVariabilityRMSSD)
+            }
+            types.insert(HKSeriesType.heartbeat())
         }
         if selection.includes(.respiratory) {
             quantityIdentifiers.append(.respiratoryRate)
@@ -203,6 +218,18 @@ enum BodyHealthReadTypes {
         }
         if selection.includes(.wristTemperature) {
             quantityIdentifiers.append(.appleSleepingWristTemperature)
+        }
+        // The Steps, Active Energy and Resting Energy cards (a week of daily
+        // totals each), and Stress's movement mask (hourly steps and active
+        // energy).
+        if selection.includes(.steps) {
+            quantityIdentifiers.append(.stepCount)
+        }
+        if selection.includes(.energy) {
+            quantityIdentifiers += [
+                .activeEnergyBurned,
+                .basalEnergyBurned
+            ]
         }
 
         quantityIdentifiers

@@ -941,8 +941,9 @@ struct HealthDashboardSnapshot: Codable, Equatable {
     ///
     /// `workouts` is passed explicitly — the snapshot holds no workout months,
     /// as with `recalculatingReadiness(todaysWorkouts:)`. Stress needs them
-    /// across the whole scanned window rather than just today: workouts are the
-    /// fine activity mask, and a masked window is never scored.
+    /// across the whole scanned window rather than just today: each workout
+    /// masks its own span plus a recovery tail sized by its type, and a masked
+    /// window is never scored.
     ///
     /// Baseline inputs are reduced ONCE into a single `StressDailySeriesContext`
     /// (quiet-HR medians: recorded days unioned with freshly computed ones, fresh
@@ -958,6 +959,25 @@ struct HealthDashboardSnapshot: Codable, Equatable {
     ) -> HealthDashboardSnapshot {
         var next = self
         let scoreDay = calendar.startOfDay(for: date)
+
+        // A context change drops every record and rescores, so it must not run on
+        // inputs that cannot describe the new rules yet: the first refresh after
+        // updating still holds the hourly movement series but not the 15 minute
+        // ones the Stress input load fetches next, and rescoring now would mint
+        // records with no movement mask (and push them to the watch). Keep the
+        // old records until the load lands, with today's record standing in for
+        // the summary a fresh fetch leaves blank. Only a context change waits, so
+        // a later failed fetch never freezes Stress; the watch passes no context.
+        if let recordedStressContext,
+           next.trends.recordedStressContext != recordedStressContext,
+           trends.stressMovementInputsPending {
+            if next.summary.stress == nil {
+                next.summary.stress = next.trends.recordedStressDays.last {
+                    calendar.startOfDay(for: $0.date) == scoreDay
+                }
+            }
+            return next
+        }
 
         // Recorded days captured under different inputs (a permission or source
         // change) no longer describe the same signal, so drop them. The signature
@@ -1087,6 +1107,54 @@ struct HealthDashboardSnapshot: Codable, Equatable {
     ) -> [BodyRadarNight] {
         let cutoff = calendar.date(byAdding: .day, value: -bodyRadarRecordedDayRetention, to: scoreDay) ?? scoreDay
         return nights.filter { $0.date >= cutoff }.sorted { $0.date < $1.date }
+    }
+
+    /// The Sleep Debt records as the Sleep page's model would leave them: the
+    /// records are dropped when `recordedSleepDebtContext` no longer matches
+    /// (the goal, a source, a permission or the algorithm changed), the 30
+    /// night model is built on the sleep history, today's live sleep and the
+    /// Training Load with the surviving records applied, and, with `freezes`,
+    /// every night before today that has sleep and no record yet is frozen
+    /// (`SleepDebtChartModel.freezing`). `freezes` is false on a phase 1
+    /// refresh, whose short sleep window may still carry a night an earlier
+    /// build cut at its boundary: a record is never rewritten, so one minted
+    /// from that history would make the wrong need permanent. Only the
+    /// records change; nothing else in the snapshot is touched.
+    func recalculatingSleepDebt(
+        on date: Date = Date(),
+        calendar: Calendar = .bodyGregorian,
+        now: Date = Date(),
+        sleepGoal: TimeInterval,
+        freezes: Bool,
+        recordedSleepDebtContext: String? = nil
+    ) -> HealthDashboardSnapshot {
+        var next = self
+        if let recordedSleepDebtContext, next.trends.recordedSleepDebtContext != recordedSleepDebtContext {
+            next.trends.recordedSleepDebt = []
+            next.trends.recordedSleepDebtContext = recordedSleepDebtContext
+        }
+
+        let todayStart = calendar.startOfDay(for: date)
+        let model = SleepDebtChartModel.make(
+            entries: SleepDebtChartModel.entries(
+                sleepHistory: next.trends.sleepHistory,
+                currentDaySummary: next.summary.sleep,
+                trainingLoad: next.trends.trainingLoad,
+                today: date,
+                calendar: calendar
+            ),
+            sleepGoal: sleepGoal,
+            records: next.trends.recordedSleepDebt,
+            calendar: calendar
+        )
+        next.trends.recordedSleepDebt = SleepDebtChartModel.freezing(
+            records: next.trends.recordedSleepDebt,
+            nights: freezes ? model.nights : [],
+            today: todayStart,
+            now: now,
+            calendar: calendar
+        )
+        return next
     }
 
     /// A reading older than this is history, not "right now": the home card must
@@ -1245,11 +1313,29 @@ struct HealthDashboardSnapshot: Codable, Equatable {
         calendar: Calendar = .bodyGregorian,
         now: Date = Date()
     ) -> [StressWindow] {
+        stressWindows(forDays: [day], workouts: workouts, calendar: calendar, now: now)[calendar.startOfDay(for: day)] ?? []
+    }
+
+    /// `stressWindows(for:)` for several days at once, keyed by each day's
+    /// start. The scan and the baseline context are built once for all of
+    /// them, which is what lets the watch's "Last 8 hours" (one or two days)
+    /// cost one scan instead of one per day. A day with no heart rate coverage
+    /// is absent from the result.
+    func stressWindows(
+        forDays days: [Date],
+        workouts: [WorkoutSummary] = [],
+        calendar: Calendar = .bodyGregorian,
+        now: Date = Date()
+    ) -> [Date: [StressWindow]] {
         let scoreDay = calendar.startOfDay(for: now)
         let inputs = stressDayInputs(through: scoreDay, workouts: workouts, calendar: calendar)
         let analyses = inputs.map { StressDayAnalysis(input: $0, calendar: calendar, now: now) }
-        guard let analysis = analyses.first(where: { calendar.isDate($0.date, inSameDayAs: day) }) else {
-            return []
+        let requested = days.map { calendar.startOfDay(for: $0) }
+        let requestedAnalyses = analyses.filter { analysis in
+            requested.contains { calendar.isDate(analysis.date, inSameDayAs: $0) }
+        }
+        guard !requestedAnalyses.isEmpty else {
+            return [:]
         }
 
         let context = StressDailySeriesContext(
@@ -1267,7 +1353,12 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             calendar: calendar
         )
 
-        return analysis.windows(baselines: context.baselines(for: day))
+        var windowsByDay: [Date: [StressWindow]] = [:]
+        for analysis in requestedAnalyses {
+            let day = calendar.startOfDay(for: analysis.date)
+            windowsByDay[day] = analysis.windows(baselines: context.baselines(for: day))
+        }
+        return windowsByDay
     }
 
     /// One quiet-HR median per distinct day. Recorded days carry the history
@@ -1355,13 +1446,13 @@ struct HealthDashboardSnapshot: Codable, Equatable {
             calendar: calendar
         )
         let stepsByDay = Self.stressPointsByDay(
-            trends.stepsDaySamples.points,
+            trends.stressStepsDaySamples.points,
             from: windowStart,
             through: scoreDay,
             calendar: calendar
         )
         let energyByDay = Self.stressPointsByDay(
-            trends.activeEnergyDaySamples.points,
+            trends.stressActiveEnergyDaySamples.points,
             from: windowStart,
             through: scoreDay,
             calendar: calendar
@@ -1379,9 +1470,9 @@ struct HealthDashboardSnapshot: Codable, Equatable {
                 heartRateSamples: heartRateByDay[day] ?? [],
                 sdnnSamples: sdnnByDay[day] ?? [],
                 rmssdSamples: rmssdByDay[day] ?? [],
-                hourlySteps: stepsByDay[day] ?? [],
-                hourlyActiveEnergy: energyByDay[day] ?? [],
-                workoutIntervals: StressDayInput.workoutIntervals(for: dayWorkouts),
+                quarterHourSteps: stepsByDay[day] ?? [],
+                quarterHourActiveEnergy: energyByDay[day] ?? [],
+                workoutMaskIntervals: StressDayInput.workoutMaskIntervals(for: dayWorkouts),
                 sleepInterval: stressSleepInterval(on: day, scoreDay: scoreDay, calendar: calendar)
             )
         }

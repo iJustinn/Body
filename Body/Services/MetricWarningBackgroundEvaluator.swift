@@ -51,6 +51,8 @@ actor MetricWarningBackgroundEvaluator {
     private let delivery: Delivery
     private let warningQuery: (@Sendable (Set<MetricWarningKind>) async -> WarningResults?)?
     private var evaluationInFlight = false
+    /// Whether the pass in flight posted anything, for `afterPosting`.
+    private var postedInPass = false
     private let isForegroundActive: @Sendable () async -> Bool
     /// Injected so the deadline behaviour can be exercised against a fake store
     /// whose reads never resume.
@@ -77,11 +79,25 @@ actor MetricWarningBackgroundEvaluator {
         self.isForegroundActive = isForegroundActive
     }
 
+    /// `afterPosting` runs once a pass that posted a notification has saved
+    /// the ledger, after every return path of the pass (an admission exit
+    /// that follows an earlier post included). The background task points it
+    /// at the watch publish: the watch skips a kind the phone notified today
+    /// only once a push carries the ledger (`WatchWarningSettings.notifiedDays`).
     @discardableResult
-    func evaluate() async -> Outcome {
+    func evaluate(afterPosting: (@Sendable () async -> Void)? = nil) async -> Outcome {
         guard !evaluationInFlight, !Task.isCancelled else { return .skipped }
         evaluationInFlight = true
         defer { evaluationInFlight = false }
+        postedInPass = false
+        let outcome = await evaluatePass()
+        if postedInPass, let afterPosting {
+            await afterPosting()
+        }
+        return outcome
+    }
+
+    private func evaluatePass() async -> Outcome {
         let context = evaluationContext()
         let calendar = calendar
         guard BodyNotificationPreferences.enabled(BodyAppearancePreference.metricWarningNotificationsKey, defaults: defaults) else {
@@ -164,6 +180,7 @@ actor MetricWarningBackgroundEvaluator {
                 }
                 saveLedger(latestLedger)
                 postedCount += 1
+                postedInPass = true
             case .success:
                 continue
             case .failure, .none:
@@ -244,10 +261,18 @@ actor MetricWarningBackgroundEvaluator {
         )
 
         let calendar = calendar
+        // Only a lease made here ends here. The background task's own lease
+        // stays valid until the task ends it: the watch publish after a post
+        // (`afterPosting`) runs under it and needs it valid.
+        let inherited = BodyBackgroundLease.current
+        let lease = inherited ?? BodyBackgroundLease(duration: deadline)
+        defer {
+            if inherited == nil {
+                lease.invalidate()
+            }
+        }
         // Detached so the fetch does not sit on this actor's executor while it
         // awaits the engine actor.
-        let lease = BodyBackgroundLease.current ?? BodyBackgroundLease(duration: deadline)
-        defer { lease.invalidate() }
         let work = Task.detached {
             await lease.run {
                 await engine.fetchCurrentMetricWarnings(kinds: kinds, calendar: calendar, now: Date())
@@ -286,52 +311,22 @@ actor MetricWarningBackgroundEvaluator {
     }
 
     /// Stable per kind per day, so a duplicate add can only ever replace the
-    /// notification already on screen.
+    /// notification already on screen. The watch posts under the same
+    /// identifier (`MetricWarningDayKey`).
     static func notificationIdentifier(for kind: MetricWarningKind, date: Date, calendar: Calendar) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        let dayKey = String(
-            format: "%04d-%02d-%02d",
-            components.year ?? 0,
-            components.month ?? 0,
-            components.day ?? 0
-        )
-        return "warning.\(kind.rawValue).\(dayKey)"
+        MetricWarningDayKey.notificationIdentifier(kind: kind, date: date, calendar: calendar)
     }
 
+    /// The copy the watch's own notifier posts too.
     private static func notificationTitle(for kind: MetricWarningKind) -> String {
-        switch kind {
-        case .lowHeartRate:
-            return String(localized: "Low Heart Rate Warning")
-        case .highHeartRate:
-            return String(localized: "High Heart Rate Warning")
-        case .lowBloodOxygen:
-            return String(localized: "Low Blood Oxygen Warning")
-        case .highRespiratoryRate:
-            return String(localized: "High Respiratory Rate Warning")
-        case .highWristTemperature:
-            return String(localized: "High Skin Temperature Warning")
-        }
+        MetricWarningNotificationContent.title(for: kind)
     }
 
     private static func notificationBody(for event: MetricWarningEvent) -> String {
-        let threshold = Int(event.threshold.rounded())
-        let value = Int(event.extremeValue.rounded())
-
-        switch event.kind {
-        case .lowHeartRate:
-            return String(localized: "A periodic check found a heart rate of \(value) bpm today, below your \(threshold) bpm limit.")
-        case .highHeartRate:
-            return String(localized: "A periodic check found a heart rate of \(value) bpm today, above your \(threshold) bpm limit.")
-        case .lowBloodOxygen:
-            return String(localized: "A periodic check found a blood oxygen level of \(value)% today, below your \(threshold)% limit.")
-        case .highRespiratoryRate:
-            return String(localized: "A periodic check found a respiratory rate of \(value) br/min today, above your \(threshold) br/min limit.")
-        case .highWristTemperature:
-            let unit = HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
-            let reading = BodyMetricWarningTemperatureText.text(celsius: event.extremeValue, temperatureUnitPreference: unit)
-            let limit = BodyMetricWarningTemperatureText.text(celsius: event.threshold, temperatureUnitPreference: unit)
-            return String(localized: "A periodic check found a skin temperature of \(reading) today, above your \(limit) limit.")
-        }
+        MetricWarningNotificationContent.body(
+            for: event,
+            temperatureUnitPreference: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference()
+        )
     }
 
     // MARK: - Ledger

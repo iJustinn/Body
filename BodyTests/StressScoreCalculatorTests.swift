@@ -148,13 +148,13 @@ final class StressScoreCalculatorTests: XCTestCase {
 
     // MARK: - Masking
 
-    func testWorkoutOverlapAndTailAreMasked() {
+    func testWorkoutMaskIntervalsAreMaskedAsGiven() {
         let scoringDay = day(2024, 5, 15)
         let workoutStart = scoringDay.addingTimeInterval(10 * 3600)
         let input = StressDayInput(
             date: scoringDay,
             heartRateSamples: heartRateSamples(dayStart: scoringDay, windowRange: 0..<96, value: 70),
-            workoutIntervals: [
+            workoutMaskIntervals: [
                 DateInterval(start: workoutStart, end: workoutStart.addingTimeInterval(3600))
             ]
         )
@@ -165,36 +165,73 @@ final class StressScoreCalculatorTests: XCTestCase {
             now: day(2024, 5, 20)
         )
 
-        // 10:00-11:00 is the workout, 11:00-11:30 the recovery tail; 11:30 is clear again.
+        // The interval is the whole mask: the calculator adds no tail of its own,
+        // so 11:00 is clear again.
         XCTAssertTrue(windows[39].isScored)
         XCTAssertEqual(windows[40].state, .activity)
         XCTAssertEqual(windows[43].state, .activity)
-        XCTAssertEqual(windows[45].state, .activity)
-        XCTAssertNotEqual(windows[46].state, .activity)
+        XCTAssertTrue(windows[44].isScored)
     }
 
-    func testWorkoutIntervalsUseEffectiveEndDate() {
+    func testRecoveryTailDependsOnWorkoutType() {
+        let scoringDay = day(2024, 5, 15)
+        let start = scoringDay.addingTimeInterval(10 * 3600)
+        func windows(after type: BodyWorkoutType) -> [StressWindow] {
+            let workout = makeWorkout(start: start, duration: 1800, endDate: start.addingTimeInterval(1800), type: type)
+            return StressScoreCalculator.windows(
+                for: StressDayInput(
+                    date: scoringDay,
+                    heartRateSamples: heartRateSamples(dayStart: scoringDay, windowRange: 0..<96, value: 70),
+                    workoutMaskIntervals: StressDayInput.workoutMaskIntervals(for: [workout])
+                ),
+                baselines: makeBaselines(scoringDay: scoringDay),
+                calendar: calendar,
+                now: day(2024, 5, 20)
+            )
+        }
+
+        // A run 10:00-10:30 keeps the half hour tail: masked through 11:00.
+        let run = windows(after: .running)
+        XCTAssertEqual(run[40].state, .activity)
+        XCTAssertEqual(run[43].state, .activity)
+        XCTAssertTrue(run[44].isScored)
+        // A walk earns 5 minutes: 10:30-10:35 greys only the 10:30 window.
+        let walk = windows(after: .walking)
+        XCTAssertEqual(walk[42].state, .activity)
+        XCTAssertTrue(walk[43].isScored)
+
+        XCTAssertEqual(StressScoreCalculator.Tuning.recoveryTail(for: .yoga), 5 * 60)
+        XCTAssertEqual(StressScoreCalculator.Tuning.recoveryTail(for: .hiking), 30 * 60)
+        XCTAssertEqual(StressScoreCalculator.Tuning.recoveryTail(for: .other), 30 * 60)
+    }
+
+    func testWorkoutMaskIntervalsUseEffectiveEndDate() {
         let start = day(2024, 5, 15).addingTimeInterval(10 * 3600)
         let paused = makeWorkout(start: start, duration: 1800, endDate: start.addingTimeInterval(3600))
         let legacy = makeWorkout(start: start, duration: 1800, endDate: nil)
+        let pausedWalk = makeWorkout(start: start, duration: 1800, endDate: start.addingTimeInterval(3600), type: .walking)
 
-        let intervals = StressDayInput.workoutIntervals(for: [paused, legacy])
+        let intervals = StressDayInput.workoutMaskIntervals(for: [paused, legacy, pausedWalk])
 
-        XCTAssertEqual(intervals[0].end, start.addingTimeInterval(3600))
-        XCTAssertEqual(intervals[1].end, start.addingTimeInterval(1800))
+        // HealthKit's end (or the duration fallback), then the type's tail.
+        XCTAssertEqual(intervals[0].end, start.addingTimeInterval(3600 + 1800))
+        XCTAssertEqual(intervals[1].end, start.addingTimeInterval(1800 + 1800))
+        XCTAssertEqual(intervals[2].end, start.addingTimeInterval(3600 + 300))
     }
 
-    func testStepAndEnergyDensityMaskWindows() {
+    func testStepsAndEnergyMaskOnlyTheirOwnWindow() {
         let scoringDay = day(2024, 5, 15)
         let input = StressDayInput(
             date: scoringDay,
             heartRateSamples: heartRateSamples(dayStart: scoringDay, windowRange: 0..<96, value: 70),
-            hourlySteps: [
+            quarterHourSteps: [
                 HealthTrendDataPoint(date: scoringDay.addingTimeInterval(10 * 3600), value: 900),
+                HealthTrendDataPoint(date: scoringDay.addingTimeInterval(10 * 3600 + 900), value: 300),
                 HealthTrendDataPoint(date: scoringDay.addingTimeInterval(12 * 3600), value: 100)
             ],
-            hourlyActiveEnergy: [
-                HealthTrendDataPoint(date: scoringDay.addingTimeInterval(14 * 3600), value: 80)
+            quarterHourActiveEnergy: [
+                HealthTrendDataPoint(date: scoringDay.addingTimeInterval(14 * 3600), value: 80),
+                HealthTrendDataPoint(date: scoringDay.addingTimeInterval(14 * 3600 + 900), value: 15)
             ]
         )
         let windows = StressScoreCalculator.windows(
@@ -204,10 +241,45 @@ final class StressScoreCalculatorTests: XCTestCase {
             now: day(2024, 5, 20)
         )
 
+        // A busy window greys only itself; the rest of its hour stays scored, and a
+        // window right at a line is not past it.
         XCTAssertEqual(windows[40].state, .activity)
-        XCTAssertEqual(windows[43].state, .activity)
-        XCTAssertNotEqual(windows[48].state, .activity)
+        XCTAssertTrue(windows[41].isScored)
+        XCTAssertTrue(windows[42].isScored)
+        XCTAssertTrue(windows[43].isScored)
+        XCTAssertTrue(windows[48].isScored)
         XCTAssertEqual(windows[56].state, .activity)
+        XCTAssertTrue(windows[57].isScored)
+    }
+
+    /// Movement buckets land on their own window on both DST days, where the grid
+    /// has 92 and 100 windows.
+    func testMovementBucketsLandOnTheirWindowAcrossDST() {
+        func windows(on scoringDay: Date, busyWindow: Int, count: Int, now: Date) -> [StressWindow] {
+            StressScoreCalculator.windows(
+                for: StressDayInput(
+                    date: scoringDay,
+                    heartRateSamples: heartRateSamples(dayStart: scoringDay, windowRange: 0..<count, value: 70),
+                    quarterHourSteps: [
+                        HealthTrendDataPoint(date: scoringDay.addingTimeInterval(Double(busyWindow) * 900), value: 900)
+                    ]
+                ),
+                baselines: makeBaselines(scoringDay: scoringDay),
+                calendar: calendar,
+                now: now
+            )
+        }
+
+        let springForward = windows(on: day(2024, 3, 10), busyWindow: 40, count: 92, now: day(2024, 3, 20))
+        XCTAssertEqual(springForward.count, 92)
+        XCTAssertTrue(springForward[39].isScored)
+        XCTAssertEqual(springForward[40].state, .activity)
+        XCTAssertTrue(springForward[41].isScored)
+
+        let fallBack = windows(on: day(2024, 11, 3), busyWindow: 99, count: 100, now: day(2024, 11, 10))
+        XCTAssertEqual(fallBack.count, 100)
+        XCTAssertTrue(fallBack[98].isScored)
+        XCTAssertEqual(fallBack[99].state, .activity)
     }
 
     func testMaskedWindowsAreExcludedFromTheDailyAverage() {
@@ -218,7 +290,7 @@ final class StressScoreCalculatorTests: XCTestCase {
         let input = StressDayInput(
             date: scoringDay,
             heartRateSamples: samples,
-            workoutIntervals: [
+            workoutMaskIntervals: [
                 DateInterval(start: workoutStart, end: workoutStart.addingTimeInterval(3600))
             ]
         )
@@ -434,7 +506,7 @@ final class StressScoreCalculatorTests: XCTestCase {
             for: StressDayInput(
                 date: scoringDay,
                 heartRateSamples: heartRateSamples(dayStart: scoringDay, windowRange: 0..<96, value: 70),
-                workoutIntervals: [DateInterval(start: workoutStart, end: workoutStart.addingTimeInterval(3600))]
+                workoutMaskIntervals: [DateInterval(start: workoutStart, end: workoutStart.addingTimeInterval(3600))]
             ),
             baselines: baselines,
             calendar: calendar,
@@ -569,7 +641,7 @@ final class StressScoreCalculatorTests: XCTestCase {
         let input = StressDayInput(
             date: scoringDay,
             heartRateSamples: samples,
-            workoutIntervals: [DateInterval(start: workoutStart, end: workoutStart.addingTimeInterval(3600))],
+            workoutMaskIntervals: [DateInterval(start: workoutStart, end: workoutStart.addingTimeInterval(3600))],
             sleepInterval: DateInterval(start: scoringDay, end: scoringDay.addingTimeInterval(6 * 3600))
         )
 
@@ -582,6 +654,30 @@ final class StressScoreCalculatorTests: XCTestCase {
         )
 
         XCTAssertEqual(median, 70, accuracy: 0.0001)
+    }
+
+    /// The quiet HR median is persisted and feeds every later baseline, so which
+    /// windows the movement mask removes must move it: here the busy windows
+    /// outnumber the quiet ones, so the median flips with the mask.
+    func testQuietHeartRateDailyMedianExcludesMovementMaskedWindows() throws {
+        let scoringDay = day(2024, 5, 15)
+        var samples = heartRateSamples(dayStart: scoringDay, windowRange: 24..<30, value: 70)
+        samples += heartRateSamples(dayStart: scoringDay, windowRange: 30..<96, value: 110)
+        let busyWindows = (30..<96).map {
+            HealthTrendDataPoint(date: scoringDay.addingTimeInterval(Double($0) * 900), value: 400)
+        }
+        func median(steps: [HealthTrendDataPoint]) throws -> Double {
+            try XCTUnwrap(
+                StressScoreCalculator.quietHeartRateDailyMedian(
+                    for: StressDayInput(date: scoringDay, heartRateSamples: samples, quarterHourSteps: steps),
+                    calendar: calendar,
+                    now: day(2024, 5, 20)
+                )
+            )
+        }
+
+        XCTAssertEqual(try median(steps: busyWindows), 70, accuracy: 0.0001)
+        XCTAssertEqual(try median(steps: []), 110, accuracy: 0.0001)
     }
 
     // MARK: - Daily series
@@ -730,7 +826,8 @@ final class StressScoreCalculatorTests: XCTestCase {
         let workoutStart = scoringDay.addingTimeInterval(10 * 3600)
 
         // 00:00-06:00 asleep at 55 bpm, 08:00-09:00 desk work at 73, 09:00-10:00 an acute
-        // stressor at 80.5, a workout 10:00-11:00 and its 30-minute tail.
+        // stressor at 80.5, a run 10:00-11:00 and its 30 minute tail, then recovery HR
+        // still raised past the tail.
         var samples = heartRateSamples(dayStart: scoringDay, windowRange: 0..<24, value: 55)
         samples += heartRateSamples(dayStart: scoringDay, windowRange: 32..<36, value: 73)
         samples += heartRateSamples(dayStart: scoringDay, windowRange: 36..<40, value: 80.5)
@@ -740,9 +837,9 @@ final class StressScoreCalculatorTests: XCTestCase {
             for: StressDayInput(
                 date: scoringDay,
                 heartRateSamples: samples,
-                workoutIntervals: [
-                    DateInterval(start: workoutStart, end: workoutStart.addingTimeInterval(3600))
-                ],
+                workoutMaskIntervals: StressDayInput.workoutMaskIntervals(for: [
+                    makeWorkout(start: workoutStart, duration: 3600, endDate: workoutStart.addingTimeInterval(3600))
+                ]),
                 sleepInterval: DateInterval(start: scoringDay, end: scoringDay.addingTimeInterval(6 * 3600))
             ),
             baselines: baselines,
@@ -755,6 +852,7 @@ final class StressScoreCalculatorTests: XCTestCase {
         XCTAssertEqual(windows[38].band, .high, "acute stressor")
         XCTAssertEqual(windows[41].state, .activity, "workout")
         XCTAssertEqual(windows[45].state, .activity, "post-workout tail")
+        XCTAssertEqual(windows[46].band, .high, "past the tail")
     }
 
     // MARK: - RMSSD math
@@ -811,8 +909,13 @@ final class StressScoreCalculatorTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makeWorkout(start: Date, duration: TimeInterval, endDate: Date?) -> WorkoutSummary {
-        WorkoutSummary(type: .running, startDate: start, duration: duration, endDate: endDate)
+    private func makeWorkout(
+        start: Date,
+        duration: TimeInterval,
+        endDate: Date?,
+        type: BodyWorkoutType = .running
+    ) -> WorkoutSummary {
+        WorkoutSummary(type: type, startDate: start, duration: duration, endDate: endDate)
     }
 
     // MARK: - Personal baseline shares

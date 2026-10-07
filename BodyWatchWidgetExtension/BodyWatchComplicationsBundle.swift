@@ -4,10 +4,19 @@
 //
 //  One ring-style complication per metric (matches the existing iOS
 //  BodyWidgetExtensionBundle's static-per-widget pattern), each supporting
-//  the circular ring, the rectangular row, and the corner gauge, plus two
-//  rectangular-only bar complications (weekly Exercise minutes, last night's
-//  Sleep stages) that lead the list. Readiness draws the home hero's
-//  segmented bands instead of the single ring (`ReadinessComplicationView`).
+//  the circular ring, the rectangular row, and the corner gauge, plus the bar
+//  and intraday chart complications. The picker lists Sleep Stages first,
+//  then the week bar charts (Weekly Workout Time, then this week's daily
+//  Steps, Active Energy and Resting Energy), then the intraday charts
+//  (Stress, Heart Rate, HRV), then the rest in the watch's card order. Steps,
+//  Active Energy and Resting Energy are also rings in circular slots, so they
+//  lead that list too, and gauges in corner slots like the rest. Readiness
+//  draws the home hero's segmented bands instead of the single ring
+//  (`ReadinessComplicationView`), and a second circular Readiness
+//  complication draws the single ring. Stress has its own
+//  circular, rectangular and corner complication (`StressComplication`), which
+//  shows the latest reading rather than the card's daily average, and a second
+//  circular one draws that reading on Stress's bands.
 //
 //  Note: full magenta renders in the Smart Stack and full-color faces; in
 //  tinted watch-face accessory slots the system recolors the ring (or bars)
@@ -20,14 +29,23 @@ import WidgetKit
 @main
 struct BodyWatchComplicationsBundle: WidgetBundle {
     var body: some Widget {
-        ExerciseWeekComplication()
         SleepStagesComplication()
+        ExerciseWeekComplication()
+        StepsWeekComplication()
+        ActiveEnergyWeekComplication()
+        RestingEnergyWeekComplication()
+        StressChartComplication()
+        HeartRateChartComplication()
+        HRVChartComplication()
         ReadinessComplication()
+        ReadinessRingComplication()
         SleepComplication()
+        TrainingLoadComplication()
+        StressComplication()
+        StressBandsComplication()
         HeartRateComplication()
         HRVComplication()
         RestingHeartRateComplication()
-        TrainingLoadComplication()
         SkinTemperatureComplication()
     }
 }
@@ -69,6 +87,20 @@ struct ReadinessComplication: Widget {
             widgetKind: "BodyWatchReadiness", metricKind: WatchMetricKindKey.readiness,
             displayName: String(localized: "Readiness"), description: String(localized: "Your readiness ring.")
         )
+    }
+}
+
+/// Readiness in the single ring the other metrics draw (`WatchComplicationView`),
+/// circular only. A tap opens the home page, like the bands complication.
+struct ReadinessRingComplication: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "BodyWatchReadinessRing", provider: WatchMetricProvider()) { entry in
+            WatchComplicationView(metricKind: WatchMetricKindKey.readiness, entry: entry)
+                .widgetURL(WatchMetricDeepLink.homeURL)
+        }
+        .configurationDisplayName(String(localized: "Readiness"))
+        .description(String(localized: "Your readiness score ring."))
+        .supportedFamilies([.accessoryCircular])
     }
 }
 

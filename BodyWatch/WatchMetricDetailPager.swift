@@ -6,7 +6,14 @@
 //  metric's detail page, in the dashboard's order. Swipe up/down or turn the
 //  Digital Crown to move between metrics (the right-edge page dots track
 //  position). Entered from a dashboard card or a complication tap, it opens
-//  positioned on the chosen metric — the order doesn't change.
+//  positioned on the chosen metric — the order doesn't change. While the
+//  Heart Rate, HRV, Steps or Active Energy page is the visible one, it keeps
+//  that page's "Last 8 hours" chart fresh (`WatchIntradayChartStore`). The Stress page's "Last 8
+//  hours" chart rides the snapshot instead (the compute builds it alongside
+//  the Stress value), so it is not read here. Each page's warning cards come
+//  from the snapshot's warnings, the phone's and the watch's own
+//  (`WatchMetricWarnings.shown`), with the fold state `WatchWarningFoldStore`
+//  resolves, and a tap on one folds it there.
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -15,11 +22,27 @@ import SwiftUI
 
 struct WatchMetricDetailPager: View {
     @EnvironmentObject private var model: WatchMetricsModel
+    @EnvironmentObject private var intradayCharts: WatchIntradayChartStore
+    @EnvironmentObject private var warningFolds: WatchWarningFoldStore
+    @Environment(\.scenePhase) private var scenePhase
     private let initialKind: String
     @State private var selection: String?
 
     init(initialKind: String) {
         self.initialKind = initialKind
+    }
+
+    /// What the "Last 8 hours" read loop runs for: restarting it whenever the
+    /// visible page, the scene's activity, or the store's generation changes.
+    private struct IntradayRefreshKey: Equatable {
+        let kind: String?
+        let isActive: Bool
+        let generation: UInt64
+    }
+
+    /// The visible page's kind when it carries a "Last 8 hours" chart.
+    private var intradayKind: String? {
+        selection.flatMap { WatchIntradayChartStore.chartKinds.contains($0) ? $0 : nil }
     }
 
     /// Dashboard order, unchanged — plus the entry metric even if it's hidden (a
@@ -44,12 +67,42 @@ struct WatchMetricDetailPager: View {
                         metric: metric,
                         generatedAt: model.snapshot.generatedAt,
                         sleepStages: model.snapshot.sleepStages,
-                        exerciseWeekMetric: WatchComplicationTimeline.exerciseWeekMetric(in: model.snapshot)
+                        sleepDebt: model.snapshot.showsSleepDebt == true ? model.snapshot.sleepDebt : nil,
+                        exerciseWeekMetric: WatchComplicationTimeline.exerciseWeekMetric(in: model.snapshot),
+                        intradayChart: intradayCharts.charts[metric.kind],
+                        stressTimeline: model.snapshot.stressTimeline,
+                        workoutColorOverrides: model.snapshot.workoutColorOverrides,
+                        warnings: WatchMetricWarnings.rows(
+                            forCardKind: metric.kind,
+                            in: WatchMetricWarnings.shown(
+                                pushed: model.snapshot.metricWarnings ?? [],
+                                checks: model.snapshot.warningChecks,
+                                workoutSpans: model.snapshot.workoutSpans,
+                                settings: model.snapshot.warningSettings,
+                                now: Date()
+                            ),
+                            isFolded: warningFolds.isFolded
+                        ),
+                        onToggleWarningFold: { warningFolds.toggle($0) }
                     )
                         .tag(metric.kind as String?)
                 }
             }
             .tabViewStyle(.verticalPage)
+            .task(id: IntradayRefreshKey(kind: intradayKind, isActive: scenePhase == .active, generation: intradayCharts.generation)) {
+                // Only the VISIBLE page reads: the loop follows `selection`,
+                // which stays nil until `onAppear` below sets it, so the
+                // neighbor pages the pager builds off screen never read.
+                // Swiping away, leaving the pager, or lowering the wrist (the
+                // scene is no longer active) cancels the loop and its in flight
+                // HealthKit query; a `clear()` bumps `generation`, restarting
+                // the loop so the visible page reads again right away.
+                guard let kind = intradayKind, scenePhase == .active else { return }
+                while !Task.isCancelled {
+                    let delay = await intradayCharts.refreshIfStale(kind: kind)
+                    try? await Task.sleep(for: .seconds(max(delay, 1)))
+                }
+            }
             .onAppear {
                 // Open positioned on the tapped metric while keeping the dashboard
                 // order. `.verticalPage` ignores the *initial* selection (it lands on

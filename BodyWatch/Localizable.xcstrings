@@ -68,6 +68,91 @@
         }
       }
     },
+    "A periodic check found a blood oxygen level of %lld%% today, below your %lld%% limit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a blood oxygen level of %lld%% today, below your %lld%% limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的血氧水平为 %lld%%，低于您设定的 %lld%% 限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a heart rate of %lld bpm today, above your %lld bpm limit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a heart rate of %lld bpm today, above your %lld bpm limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的心率为 %lld 次/分，高于您设定的 %lld 次/分限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a heart rate of %lld bpm today, below your %lld bpm limit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a heart rate of %lld bpm today, below your %lld bpm limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的心率为 %lld 次/分，低于您设定的 %lld 次/分限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a respiratory rate of %lld br/min today, above your %lld br/min limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的呼吸频率为 %lld 次/分钟，高于您设定的 %lld 次/分钟限值。"
+          }
+        }
+      }
+    },
+    "A periodic check found a skin temperature of %@ today, above your %@ limit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A periodic check found a skin temperature of %@ today, above your %@ limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "定期检查发现今天的皮肤温度为 %@，高于您设定的 %@ 限值。"
+          }
+        }
+      }
+    },
     "All Metrics Hidden" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -81,6 +166,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "所有指标已隐藏"
+          }
+        }
+      }
+    },
+    "Average" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Average"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均"
           }
         }
       }
@@ -187,6 +289,40 @@
         }
       }
     },
+    "Collapse Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collapse Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起警告"
+          }
+        }
+      }
+    },
+    "Couldn't reach Body on iPhone. Open it and try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't reach Body on iPhone. Open it and try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法连接 iPhone 上的 Body。请打开它后重试。"
+          }
+        }
+      }
+    },
     "Day Ring, %lld percent of the day passed" : {
       "localizations" : {
         "en" : {
@@ -220,6 +356,244 @@
         }
       }
     },
+    "Expand Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展开警告"
+          }
+        }
+      }
+    },
+    "High Heart Rate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率过高"
+          }
+        }
+      }
+    },
+    "High Heart Rate Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Heart Rate Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高心率警告"
+          }
+        }
+      }
+    },
+    "High Respiratory Rate Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Respiratory Rate Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高呼吸频率警告"
+          }
+        }
+      }
+    },
+    "High Skin Temperature" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Skin Temperature"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "皮肤温度过高"
+          }
+        }
+      }
+    },
+    "High Skin Temperature Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Skin Temperature Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高皮肤温度警告"
+          }
+        }
+      }
+    },
+    "If you were working out, this warning will disappear once the workout is logged." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If you were working out, this warning will disappear once the workout is logged."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "如果您当时正在体能训练，该警告会在训练记录同步后消失。"
+          }
+        }
+      }
+    },
+    "iPhone has no baseline yet. Open Body on iPhone." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone has no baseline yet. Open Body on iPhone."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone 上还没有基准。请在 iPhone 上打开 Body。"
+          }
+        }
+      }
+    },
+    "Last 8 hours" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last 8 hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近 8 小时"
+          }
+        }
+      }
+    },
+    "Last 12 hours" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last 12 hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近 12 小时"
+          }
+        }
+      }
+    },
+    "Last synced %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last synced %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次同步：%@。"
+          }
+        }
+      }
+    },
+    "Low Blood Oxygen Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Blood Oxygen Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低血氧警告"
+          }
+        }
+      }
+    },
+    "Low Heart Rate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Heart Rate"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "心率过低"
+          }
+        }
+      }
+    },
+    "Low Heart Rate Warning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Heart Rate Warning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低心率警告"
+          }
+        }
+      }
+    },
     "Metrics" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -233,6 +607,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "指标"
+          }
+        }
+      }
+    },
+    "No baseline arrived. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No baseline arrived. Try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有收到基准，请重试。"
           }
         }
       }
@@ -267,6 +658,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "近期暂无数据"
+          }
+        }
+      }
+    },
+    "Not synced yet." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not synced yet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未同步。"
           }
         }
       }
@@ -356,6 +764,57 @@
         }
       }
     },
+    "Sleep Debt" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Debt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠负债"
+          }
+        }
+      }
+    },
+    "Sleep Debt, %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Debt, %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠负债，%@"
+          }
+        }
+      }
+    },
+    "Sleep Debt, needs more data" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep Debt, needs more data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "睡眠负债，数据不足"
+          }
+        }
+      }
+    },
     "Sleep stages" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -424,6 +883,40 @@
         }
       }
     },
+    "Sync Baseline" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync Baseline"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同步基准"
+          }
+        }
+      }
+    },
+    "Time" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "时间"
+          }
+        }
+      }
+    },
     "Today passed" : {
       "localizations" : {
         "en" : {
@@ -436,6 +929,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "今日已过占比"
+          }
+        }
+      }
+    },
+    "Total" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总计"
           }
         }
       }
@@ -487,6 +997,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "震动"
+          }
+        }
+      }
+    },
+    "Your heart rate fell below %lld BPM starting at %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate fell below %lld BPM starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的心率降至 %1$lld 次/分钟以下。"
+          }
+        }
+      }
+    },
+    "Your heart rate rose above %lld BPM starting at %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your heart rate rose above %lld BPM starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的心率升至 %1$lld 次/分钟以上。"
+          }
+        }
+      }
+    },
+    "Your skin temperature rose above %@ starting at %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your skin temperature rose above %@ starting at %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的皮肤温度升至 %1$@ 以上。"
           }
         }
       }

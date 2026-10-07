@@ -21,9 +21,13 @@ struct BodySettingsView: View {
     // Observed here (its toggle lives in a sub-view sharing this key) so a change
     // re-publishes the phone-owned watch prefs immediately.
     @AppStorage(BodyAppearancePreference.showSleepScoreKey) private var showSleepScore = true
+    // Same: toggled in the Summary Cards sheet, mirrored by the watch Sleep page.
+    @AppStorage(BodyAppearancePreference.showSleepDebtKey) private var showSleepDebt = true
     // Same: toggled in the Home Hero sheet, mirrored by the watch hero.
     @AppStorage(BodyAppearancePreference.readinessHeroShowsLevelKey) private var readinessHeroShowsLevel = true
     @AppStorage(BodyAppearancePreference.dayRingShowsCaptionKey) private var dayRingShowsCaption = true
+    // Same: toggled in the Warnings sheet, mirrored by the watch hero's badges.
+    @AppStorage(BodyAppearancePreference.metricWarningsOnReadinessHeroKey) private var showsWarningsOnHomeHero = true
     @AppStorage(BodyAppearancePreference.showsSubMinuteAwakeSleepStagesKey) private var showsSubMinuteAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsSubMinuteAwakeStages
     @AppStorage(BodyAppearancePreference.showsLeadingTrailingAwakeSleepStagesKey) private var showsLeadingTrailingAwakeSleepStages = BodySleepStageDisplayPreference.defaultShowsLeadingTrailingAwakeStages
     @AppStorage(BodyAppearancePreference.summaryCardSelectionKey) private var summaryCardSelectionRawValue = BodySummaryCardSelection.defaultRawValue
@@ -150,15 +154,21 @@ struct BodySettingsView: View {
                     await workoutStore.refetchAfterStarMetricChange()
                 }
             }
+            // The goal is part of the Sleep Debt record context: the store drops
+            // and refreezes the nights under it, then republishes both companion
+            // snapshots.
+            .onChange(of: sleepDurationGoalMinutes) { workoutStore.sleepGoalDidChange() }
             // Republish both companion snapshots (widget + watch) when a
             // formatting-only pref changes, without waiting for the next
             // refresh.
-            .onChange(of: sleepDurationGoalMinutes) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedTemperatureUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: followsSystemUnits) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: showSleepScore) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: showSleepDebt) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: readinessHeroShowsLevel) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: dayRingShowsCaption) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: metricWarningSelectionRawValue) { workoutStore.republishCompanionSnapshots() }
+            .onChange(of: showsWarningsOnHomeHero) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedEnergyUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedWeightUnitRawValue) { workoutStore.republishCompanionSnapshots() }
         }
@@ -5991,6 +6001,10 @@ private struct BodyNotificationSettingsSheet: View {
         Binding(get: { value.wrappedValue }, set: { enabled in
             value.wrappedValue = enabled
             BodyNotificationPreferences.changed(key: key)
+            // The watch notifies its own warnings only while both are on.
+            if key == BodyNotificationPreferences.masterKey || key == BodyAppearancePreference.metricWarningNotificationsKey {
+                workoutStore.republishCompanionSnapshots()
+            }
             workoutStore.healthChangeCoordinator?.contextDidChange()
             if enabled {
                 Task { await BodyNotificationPermission.shared.request(); await reflectAuthorization() }

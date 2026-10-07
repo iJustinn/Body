@@ -22,6 +22,8 @@ final class HealthDashboardCacheScopeTests: XCTestCase {
         snapshot.summary.steps = HealthMetricSummary(value: 1200)
         snapshot.trends.heartRateDaySamples = series(60)
         snapshot.trends.stepsDaySamples = series(1200)
+        snapshot.trends.stressStepsDaySamples = series(400)
+        snapshot.trends.stressActiveEnergyDaySamples = series(20)
         snapshot.trends.heartRateVariabilityDaySamples = series(50)
         snapshot.trends.heartbeatRMSSDDaySamples = series(40)
         snapshot.trends.steps = series(1200)
@@ -44,6 +46,7 @@ final class HealthDashboardCacheScopeTests: XCTestCase {
         XCTAssertTrue(scoped.trends.heartbeatRMSSDDaySamples.isEmpty)
         XCTAssertEqual(scoped.summary.heartRate.value, 60)
         XCTAssertEqual(scoped.trends.stepsDaySamples, series(1200))
+        XCTAssertEqual(scoped.trends.stressStepsDaySamples, series(400), "an HRV switch leaves Stress's movement mask alone")
         XCTAssertEqual(scoped.summary.sleep.duration, 28_800)
         XCTAssertNil(scoped.summary.sleep.vitals.heartRateVariability)
         XCTAssertNil(scoped.trends.sleepHistory.days.first?.summary.vitals.heartRateVariability)
@@ -62,6 +65,19 @@ final class HealthDashboardCacheScopeTests: XCTestCase {
         XCTAssertEqual(scoped.summary.steps.value, 1200)
     }
 
+    /// Stress's 15 minute movement mask is read under the Steps source, so a
+    /// Steps switch clears it with the Day View's hours, and only Steps' half.
+    func testStepsSourceSwitchClearsItsStressMovementMask() {
+        let old = scope()
+        var next = old
+        next.primary[HealthMetricKind.steps.rawValue]?.members = ["B"]
+        let scoped = next.scoping(snapshot(), from: old)
+        XCTAssertTrue(scoped.trends.stepsDaySamples.isEmpty)
+        XCTAssertTrue(scoped.trends.stressStepsDaySamples.isEmpty)
+        XCTAssertEqual(scoped.trends.stressActiveEnergyDaySamples, series(20))
+        XCTAssertEqual(scoped.trends.heartRateDaySamples, series(60))
+    }
+
     func testTimezoneChangeKeepsInstantaneousSamplesAndFrozenContext() {
         let old = scope()
         var next = old
@@ -69,6 +85,9 @@ final class HealthDashboardCacheScopeTests: XCTestCase {
         let scoped = next.scoping(snapshot(), from: old)
         XCTAssertEqual(scoped.trends.heartRateDaySamples, series(60))
         XCTAssertTrue(scoped.trends.stepsDaySamples.isEmpty)
+        // Its buckets start at the old zone's midnight, so travel drops them too.
+        XCTAssertTrue(scoped.trends.stressStepsDaySamples.isEmpty)
+        XCTAssertTrue(scoped.trends.stressActiveEnergyDaySamples.isEmpty)
         XCTAssertTrue(scoped.trends.steps.isEmpty)
         XCTAssertEqual(scoped.trends.recordedReadinessContext, "frozen")
     }
@@ -99,6 +118,8 @@ final class HealthDashboardCacheScopeTests: XCTestCase {
         )
         XCTAssertTrue(hydrated.heartRateDaySamples.isEmpty)
         XCTAssertEqual(hydrated.stepsDaySamples, series(1200))
+        XCTAssertEqual(hydrated.stressStepsDaySamples, series(400), "the mask round trips with its Steps scope")
+        XCTAssertTrue(hydrated.stressActiveEnergyDaySamples.isEmpty, "Energy is off, so its mask is stripped")
         XCTAssertEqual(hydrated.heartRateDaySamplesSecondary, series(70))
     }
 

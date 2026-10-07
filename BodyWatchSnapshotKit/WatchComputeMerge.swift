@@ -62,6 +62,14 @@ struct WatchComputeResult {
     /// The readiness inputs carried from the phone's seed because this watch
     /// holds no source for them. Diagnostics only.
     let readinessCarriedInputs: [String]
+    /// The Sleep Debt's own watermark, the same anti-laundering contract as
+    /// `dataAsOf`: the compute's coverage (`now`) when every input the debt
+    /// reads was re-read this run (the sleep history, plus the Training Load
+    /// replay when Workouts is permitted), else nil and the snapshot's debt is
+    /// never adopted. Separate from `dataAsOf` because the debt is not a
+    /// metric card and moves on without the Sleep card (at midnight, or after
+    /// a night with no sleep).
+    let sleepDebtAsOf: Date?
 
     init(
         snapshot: WatchMetricsSnapshot,
@@ -71,11 +79,13 @@ struct WatchComputeResult {
         generation: UInt64,
         drainIsFresh: Bool = false,
         readinessCarriedInputs: [String] = [],
-        readinessBlockers: [String] = []
+        readinessBlockers: [String] = [],
+        sleepDebtAsOf: Date? = nil
     ) {
         self.readinessCarriedInputs = readinessCarriedInputs
         self.drainIsFresh = drainIsFresh
         self.readinessBlockers = readinessBlockers
+        self.sleepDebtAsOf = sleepDebtAsOf
         self.snapshot = snapshot
         self.dataAsOf = dataAsOf
         self.chartDataAsOf = chartDataAsOf
@@ -98,6 +108,9 @@ extension WatchMetric {
         var adopted = self
         adopted.displayValue = other.displayValue
         adopted.unit = other.unit
+        // The energy unit flag describes the adopted value and week, so it
+        // travels with `unit`.
+        adopted.usesKilojoules = other.usesKilojoules
         adopted.score = other.score
         adopted.fillFraction = other.fillFraction
         adopted.rawValue = other.rawValue
@@ -107,6 +120,9 @@ extension WatchMetric {
         adopted.levelMax = other.levelMax
         adopted.tint = other.tint
         adopted.weekly = other.weekly
+        // The week's daily capsules are windowed with `weekly`, so they travel
+        // with it.
+        adopted.weeklyRanges = other.weeklyRanges
         adopted.weeklyAsOf = other.weeklyAsOf
         adopted.statusBand = other.statusBand
         // Including nil: the candidate's "no drain" must clear a stale dot,
@@ -160,7 +176,53 @@ enum WatchComputeMerge {
     /// live HR/HRV path. Kinds in `chartDataAsOf` additionally adopt ONLY
     /// their chart fields (weekly + carried range) under the coverage compare,
     /// with no provenance claim — the Skin Temperature deviation's trend
-    /// channel. Never merges into a reset tombstone. The caller sanitizes.
+    /// channel.
+    ///
+    /// The Sleep Debt follows the same three rules on its own, untied to the
+    /// Sleep card (which isn't adopted after midnight or on a night with no
+    /// sleep, while the debt still has to move on): adopted only with a
+    /// `sleepDebtAsOf`, never blank over a displayed headline, and only when
+    /// that watermark is newer than the displayed debt's `computedAt` (a
+    /// query-time stamp on both sides). The adopted debt is stamped with it.
+    /// `showsSleepDebt` is never touched: it is the phone's display
+    /// preference.
+    ///
+    /// The Stress card takes the ordinary per-metric path above. Its "Last 8
+    /// hours" timeline follows the Sleep Debt rules, on the Stress watermark
+    /// (`dataAsOf[stress]`) rather than the card's adoption, since the windows
+    /// keep coming after midnight while the new day's blank average is never
+    /// adopted over yesterday's value: adopted only with that watermark, never
+    /// empty over a displayed timeline with marks, and only when the watermark
+    /// is newer than the displayed timeline's `computedAt`. The adopted
+    /// timeline is stamped with it. `workoutColorOverrides` is never touched,
+    /// like `showsSleepDebt`.
+    ///
+    /// The Heart Rate and HRV charts (`heartCharts`) carry their own read
+    /// time, the window's end, so each kind is adopted on that alone: a
+    /// computed chart replaces the displayed one only when its window ends
+    /// strictly later, an empty one (the read found nothing) removes the kind
+    /// instead of being stored, so a persisted snapshot never carries one,
+    /// and a kind the compute brought no chart for (its read failed or was
+    /// skipped) keeps what's displayed.
+    ///
+    /// The workout spans (`workoutSpans`) are replaced whole by a compute
+    /// whose workout read succeeded: an empty read clears them instead of
+    /// being stored, so a persisted snapshot never carries `[]`, and a
+    /// compute whose read failed or was skipped carries no field and keeps
+    /// what's displayed.
+    ///
+    /// The warning checks (`warningChecks`) move per kind: each kind the
+    /// compute checked replaces the displayed check, and a kind it didn't
+    /// check (no threshold from the iPhone yet, a source that didn't resolve,
+    /// a failed read) keeps its own. The list stays in `MetricWarningKind`
+    /// order and is never stored empty. Unlike the charts, neither the spans
+    /// nor the checks are compared by time: the compute's read replaces
+    /// what's displayed.
+    ///
+    /// `warningSettings` is never touched (`merged` starts from `current`):
+    /// only a phone push brings it.
+    ///
+    /// Never merges into a reset tombstone. The caller sanitizes.
     static func mergingComputed(
         _ result: WatchComputeResult,
         into current: WatchMetricsSnapshot
@@ -192,6 +254,7 @@ enum WatchComputeMerge {
                     if result.coverage > displayedAsOf {
                         var adopted = metric
                         adopted.weekly = candidate.weekly
+                        adopted.weeklyRanges = candidate.weeklyRanges
                         adopted.weeklyAsOf = candidate.weeklyAsOf
                         adopted.rangeMin = candidate.rangeMin
                         adopted.rangeMax = candidate.rangeMax
@@ -269,6 +332,58 @@ enum WatchComputeMerge {
             merged.sleepStages = computed.sleepStages
         }
 
+        // Sleep Debt: its own watermark, not the Sleep card's adoption (see
+        // the rules above). A blank headline is "not enough nights on this
+        // watch", never a clear of the displayed one.
+        if let asOf = result.sleepDebtAsOf,
+           var candidate = computed.sleepDebt,
+           asOf > (current.sleepDebt?.computedAt ?? .distantPast),
+           candidate.debt != nil || current.sleepDebt?.debt == nil {
+            candidate.computedAt = asOf
+            merged.sleepDebt = candidate
+        }
+
+        // Stress timeline: the Stress watermark, not the card's adoption (see
+        // the rules above). A timeline without marks is "nothing scored on
+        // this watch", never a clear of the displayed one.
+        if let asOf = result.dataAsOf[WatchMetricKindKey.stress],
+           var candidate = computed.stressTimeline,
+           asOf > (current.stressTimeline?.computedAt ?? .distantPast),
+           candidate.hasMarks || current.stressTimeline?.hasMarks != true {
+            candidate.computedAt = asOf
+            merged.stressTimeline = candidate
+        }
+
+        // Heart Rate and HRV charts: per kind, on each chart's own window
+        // (see the rules above). An empty read removes the kind; a kind
+        // without a candidate keeps its chart.
+        if let candidates = computed.heartCharts {
+            var charts = current.heartCharts ?? [:]
+            for (kind, candidate) in candidates where candidate.window.end > (charts[kind]?.window.end ?? .distantPast) {
+                charts[kind] = candidate.buckets.isEmpty ? nil : candidate
+            }
+            merged.heartCharts = charts.isEmpty ? nil : charts
+        }
+
+        // Workout spans: a workout read replaces them, an empty one clears
+        // them, and no read keeps them (see the rules above).
+        if let spans = computed.workoutSpans {
+            merged.workoutSpans = spans.isEmpty ? nil : spans
+        }
+
+        // Warning checks: per kind, in kind order (see the rules above).
+        if let candidates = computed.warningChecks {
+            var checks = Dictionary(
+                (current.warningChecks ?? []).map { ($0.kind, $0) },
+                uniquingKeysWith: { _, last in last }
+            )
+            for candidate in candidates {
+                checks[candidate.kind] = candidate
+            }
+            let ordered = MetricWarningKind.allCases.compactMap { checks[$0.rawValue] }
+            merged.warningChecks = ordered.isEmpty ? nil : ordered
+        }
+
         // Readiness drain: record the watch's report from a compute that
         // STAMPED readiness, or whose workout query succeeded
         // (`drainIsFresh`): the report depends on the workout list alone, so a
@@ -331,6 +446,29 @@ enum WatchComputeMerge {
     /// rule would resurrect the OLD configuration's value behind it (and every
     /// later blank watch compute preserves a displayed value, so it would
     /// never clear).
+    ///
+    /// The Sleep Debt and its `showsSleepDebt` flag come from the push, with
+    /// one exception: while the push shows the debt, a local debt stamped
+    /// newer than the push's own (`computedAt`, else `lastRefreshDate`) is
+    /// kept, outside the settings-change mode.
+    ///
+    /// The Stress timeline comes from the push under the same exception (it
+    /// has no display flag), and `workoutColorOverrides` always does.
+    ///
+    /// The Heart Rate and HRV charts (`heartCharts`) never come from the
+    /// push, since only the watch builds them: each local one is kept while
+    /// the push still carries that kind's card (a push without it means
+    /// Heart was turned off), outside the settings-change mode, which drops
+    /// them all because they were read under the old source selection.
+    ///
+    /// The workout spans and warning checks (`workoutSpans`,
+    /// `warningChecks`) never come from the push either, since only the
+    /// watch's compute builds them: the local ones are kept, outside the
+    /// settings-change mode, which drops them. The only settings change path,
+    /// `WatchMetricsModel.finishReceivedContext`, strips them before it
+    /// merges anyway, so that check is belt and braces, as for the charts.
+    /// `warningSettings` comes from the push (`merged = received`), like the
+    /// other display preferences.
     static func merging(
         _ received: WatchMetricsSnapshot,
         over current: WatchMetricsSnapshot,
@@ -415,6 +553,58 @@ enum WatchComputeMerge {
             merged.sleepStages = current.sleepStages
         }
 
+        // Sleep Debt: the push's flag and debt stand (`merged = received`),
+        // except that a debt the watch computed after the push's own cutoff is
+        // kept, so a push whose inputs predate the watch's last compute can't
+        // roll back a debt that has seen a newer night. Never in the
+        // settings-change mode, and never when the push turns the debt off.
+        // A stripped (nil) local stamp loses.
+        if !treatingBlanksAsAuthoritative,
+           received.showsSleepDebt == true,
+           let localAsOf = current.sleepDebt?.computedAt,
+           localAsOf > (received.sleepDebt?.computedAt ?? received.lastRefreshDate ?? .distantPast) {
+            merged.sleepDebt = current.sleepDebt
+        }
+
+        // Stress timeline: the push's stands, except that a timeline the
+        // watch computed after the push's own cutoff is kept, so a push whose
+        // reads predate the watch's last compute can't roll the chart back.
+        // Never in the settings-change mode; a stripped (nil) local stamp
+        // loses. `workoutColorOverrides` is the push's display preference and
+        // always comes with it (`merged = received`).
+        // A push without windows never erases a local chart that has some,
+        // the card's blank-preserve rule: the phone publishes before its Stress
+        // inputs have loaded, and hours without readings are as empty on the
+        // watch anyway. A push without the Stress card (Heart turned off)
+        // lets the empty chart win.
+        let receivedHasNoMarks = received.stressTimeline?.hasMarks != true
+            && received.metric(forKind: WatchMetricKindKey.stress) != nil
+        if !treatingBlanksAsAuthoritative,
+           let local = current.stressTimeline,
+           let localAsOf = local.computedAt,
+           localAsOf > (received.stressTimeline?.computedAt ?? received.lastRefreshDate ?? .distantPast)
+            || (receivedHasNoMarks && local.hasMarks) {
+            merged.stressTimeline = local
+        }
+
+        // Heart Rate and HRV charts: the push never carries them, so the
+        // local ones stand while the push still carries each kind's card.
+        // Without the card, Heart was turned off. The settings-change mode
+        // drops them (`merged = received`): they were read under the old
+        // source selection.
+        if !treatingBlanksAsAuthoritative, let local = current.heartCharts {
+            let kept = local.filter { received.metric(forKind: $0.key) != nil }
+            merged.heartCharts = kept.isEmpty ? nil : kept
+        }
+
+        // Workout spans and warning checks: the push never carries them, so
+        // the local ones stand. The settings-change mode drops them
+        // (`merged = received`), its caller having stripped them already.
+        if !treatingBlanksAsAuthoritative {
+            merged.workoutSpans = current.workoutSpans
+            merged.warningChecks = current.warningChecks
+        }
+
         // Readiness drain: the push's own report replaces the phone's previous
         // one, then whichever metric won above is reconciled against the other
         // side's report. This is what stops a push that has not seen a watch
@@ -453,11 +643,23 @@ enum WatchComputeMerge {
     /// announces the change was built before the watch's last compute, so its
     /// per-kind watermarks are typically OLDER and timestamp comparison alone
     /// would preserve exactly the values that must go. Display fields are left
-    /// in place; the push resolving in the same intake replaces them.
+    /// in place; the push resolving in the same intake replaces them. The
+    /// Sleep Debt's and the Stress timeline's `computedAt` are cleared too,
+    /// for the same reason. The Heart Rate and HRV charts (`heartCharts`) are
+    /// dropped outright: they were read under the old permission or source
+    /// selection, and no push brings them back, so they wait for the next
+    /// compute. So are the workout spans and the warning checks
+    /// (`workoutSpans`, `warningChecks`), for the same reason; the push's
+    /// `warningSettings` stays.
     static func strippingLocalProvenance(
         from snapshot: WatchMetricsSnapshot
     ) -> WatchMetricsSnapshot {
         var stripped = snapshot
+        stripped.sleepDebt?.computedAt = nil
+        stripped.stressTimeline?.computedAt = nil
+        stripped.heartCharts = nil
+        stripped.workoutSpans = nil
+        stripped.warningChecks = nil
         stripped.metrics = snapshot.metrics.map { metric in
             var cleared = metric
             // The kept drain reports were derived under the old selection too,

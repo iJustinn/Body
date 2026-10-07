@@ -77,7 +77,9 @@ struct HealthMetricQueryDescriptor: Sendable {
     let secondaryRangeTrend: Bool
 
     /// The daily aggregation the watch's delta re-query runs with, or `nil` for
-    /// the cumulative kinds the watch does not re-query.
+    /// the cumulative kinds, which the delta never splices (the watch reads a
+    /// fresh week of their daily sums instead, see
+    /// `BodyHealthQuantityFetch.dailyCumulativeSeries`).
     var dailyAggregation: BodyDailyQuantityAggregation? {
         switch trend {
         case .daily(let aggregation), .averageAndRange(let aggregation):

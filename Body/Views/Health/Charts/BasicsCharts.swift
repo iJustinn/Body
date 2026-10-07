@@ -371,9 +371,7 @@ struct BodyBasicsTrendChart: View {
             return nil
         }
 
-        return combinedFinitePoints.min { first, second in
-            abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
-        }
+        return bodyNearestDayPoint(to: selectedDate, in: combinedFinitePoints) { $0.date }
     }
 
     private var selectedTrendDateText: String? {
@@ -717,9 +715,7 @@ struct BodyBasicsBodyMassIndexTrendChart: View {
             return nil
         }
 
-        return finitePoints.min { first, second in
-            abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
-        }
+        return bodyNearestDayPoint(to: selectedDate, in: finitePoints) { $0.date }
     }
 
     private func isLatestEntry(_ entry: BodyHealthTrendMarkEntry) -> Bool {

@@ -101,6 +101,16 @@ struct BodyDatedQuantity {
     let quantity: HKQuantity
 }
 
+/// Value projection of one day's minimum, maximum and average, for the daily
+/// range series (`dailyQuantityRanges`). Each is whatever HealthKit returned,
+/// so a day missing one stays visible; the caller decides what a complete day is.
+struct BodyDatedQuantityRange {
+    let date: Date
+    let minimum: HKQuantity?
+    let maximum: HKQuantity?
+    let average: HKQuantity?
+}
+
 struct BodyWorkoutChangesRequest: Sendable, Equatable {
     let lowerBound: Date
     let anchor: Data?
@@ -141,6 +151,12 @@ protocol BodyHealthQuerying: AnyObject, Sendable {
     ) async -> BodyHealthReadOutcome<HKStatisticsCollection>
     func dailyQuantities(_ request: BodyStatisticsCollectionRequest,
         aggregation: BodyDailyQuantityAggregation, from start: Date, to end: Date
+    ) async -> BodyHealthReadOutcome<[BodyDatedQuantity]>
+    func dailyQuantityRanges(_ request: BodyStatisticsCollectionRequest,
+        from start: Date, to end: Date
+    ) async -> BodyHealthReadOutcome<[BodyDatedQuantityRange]>
+    func cumulativeQuantities(_ request: BodyStatisticsCollectionRequest,
+        from start: Date, to end: Date
     ) async -> BodyHealthReadOutcome<[BodyDatedQuantity]>
 
     // Authorization, writes and characteristics: forwarded 1:1, in the exact
@@ -216,6 +232,53 @@ extension BodyHealthQuerying {
             var values: [BodyDatedQuantity] = []
             collection.enumerateStatistics(from: start, to: end) { statistic, _ in
                 if let quantity = aggregation.quantity(from: statistic) {
+                    values.append(.init(date: statistic.startDate, quantity: quantity))
+                }
+            }
+            return .success(values)
+        case .failure(let error): return .failure(error)
+        case .cancelled: return .cancelled
+        }
+    }
+
+    /// `dailyQuantities` for a min/max/average collection: the same value
+    /// projection, so a scripted fake can answer it without the
+    /// `HKStatisticsCollection` it cannot construct. A day with none of the
+    /// three is skipped, like a day with no quantity there.
+    func dailyQuantityRanges(_ request: BodyStatisticsCollectionRequest,
+        from start: Date, to end: Date
+    ) async -> BodyHealthReadOutcome<[BodyDatedQuantityRange]> {
+        switch await statisticsCollection(request) {
+        case .success(let collection):
+            var values: [BodyDatedQuantityRange] = []
+            collection.enumerateStatistics(from: start, to: end) { statistic, _ in
+                let range = BodyDatedQuantityRange(
+                    date: statistic.startDate,
+                    minimum: statistic.minimumQuantity(),
+                    maximum: statistic.maximumQuantity(),
+                    average: statistic.averageQuantity()
+                )
+                if range.minimum != nil || range.maximum != nil || range.average != nil {
+                    values.append(range)
+                }
+            }
+            return .success(values)
+        case .failure(let error): return .failure(error)
+        case .cancelled: return .cancelled
+        }
+    }
+
+    /// Each interval's sum from a cumulative collection (the intraday hourly and
+    /// 15 minute series), the same value projection as `dailyQuantities` so a scripted
+    /// fake can answer it. An interval with no sum is skipped.
+    func cumulativeQuantities(_ request: BodyStatisticsCollectionRequest,
+        from start: Date, to end: Date
+    ) async -> BodyHealthReadOutcome<[BodyDatedQuantity]> {
+        switch await statisticsCollection(request) {
+        case .success(let collection):
+            var values: [BodyDatedQuantity] = []
+            collection.enumerateStatistics(from: start, to: end) { statistic, _ in
+                if let quantity = statistic.sumQuantity() {
                     values.append(.init(date: statistic.startDate, quantity: quantity))
                 }
             }

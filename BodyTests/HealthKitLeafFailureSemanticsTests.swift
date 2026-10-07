@@ -185,6 +185,138 @@ final class HealthKitLeafFailureSemanticsTests: XCTestCase {
         XCTAssertEqual(recorder.count, 1, "the summary must not re-report its series' failure")
     }
 
+    // MARK: - dailyQuantityRangeSeries
+
+    /// The phone's range point rule (`fetchDailyQuantityAverageAndRangeSeries`):
+    /// a day is a point only when its average, minimum and maximum are all
+    /// present and finite after `valueTransform`, dated to the day's start.
+    func testDailyQuantityRangeSeriesKeepsOnlyCompleteFiniteDaysAtTheirStartOfDay() async throws {
+        let type = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .heartRate))
+        let unit = HKUnit.count().unitDivided(by: .minute())
+        let calendar = Calendar.bodyGregorian
+        func noon(_ day: Int) throws -> Date {
+            try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: day, hour: 12)))
+        }
+        func bpm(_ value: Double?) -> HKQuantity? {
+            value.map { HKQuantity(unit: unit, doubleValue: $0) }
+        }
+        func range(_ day: Int, min: Double?, max: Double?, average: Double?) throws -> BodyDatedQuantityRange {
+            BodyDatedQuantityRange(date: try noon(day), minimum: bpm(min), maximum: bpm(max), average: bpm(average))
+        }
+        let store = FakeHealthStore()
+        store.scriptDailyQuantityRanges(for: type, values: [
+            try range(1, min: 50, max: 90, average: 70),
+            try range(2, min: nil, max: 90, average: 70),
+            try range(3, min: 50, max: nil, average: 70),
+            try range(4, min: 50, max: 90, average: nil),
+            // 13 transforms to infinity below: dropped for a non-finite low,
+            // high, or average alike.
+            try range(5, min: 13, max: 90, average: 70),
+            try range(6, min: 50, max: 13, average: 70),
+            try range(7, min: 50, max: 90, average: 13),
+            try range(8, min: 55, max: 95, average: 75)
+        ])
+        let start = try noon(1)
+        let end = try noon(8)
+
+        let recorder = FailureRecorder()
+        let outcome = await BodyHealthQuantityFetch.dailyQuantityRangeSeries(
+            store: store,
+            quantityType: type,
+            predicate: nil,
+            unit: unit,
+            start: start,
+            end: end,
+            calendar: calendar,
+            valueTransform: { $0 == 13 ? .infinity : $0 * 2 },
+            onFailure: { recorder.record($0) }
+        )
+
+        guard case .success(let series) = outcome else {
+            return XCTFail("a scripted collection must succeed")
+        }
+        let firstDay = calendar.startOfDay(for: start)
+        let lastDay = calendar.startOfDay(for: end)
+        XCTAssertEqual(series, HealthTrendRangeSeries(points: [
+            HealthTrendRangeDataPoint(date: firstDay, lowValue: 100, highValue: 180, averageValue: 140),
+            HealthTrendRangeDataPoint(date: lastDay, lowValue: 110, highValue: 190, averageValue: 150)
+        ]))
+        XCTAssertEqual(recorder.count, 0)
+
+        // The collection the phone runs: average + min + max, one-day
+        // intervals anchored at the window's first midnight. Wrong options
+        // would make HealthKit return no min or max, which no script can show.
+        let request = try XCTUnwrap(store.dailyQuantityRangeRequests.last)
+        XCTAssertEqual(request.options, [.discreteAverage, .discreteMin, .discreteMax])
+        XCTAssertEqual(request.anchorDate, calendar.startOfDay(for: start))
+        XCTAssertEqual(request.intervalComponents, DateComponents(day: 1))
+    }
+
+    func testDailyQuantityRangeSeriesTreatsNoDaysAsSuccess() async throws {
+        let type = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .heartRateVariabilitySDNN))
+        let store = FakeHealthStore()
+        store.scriptDailyQuantityRanges(for: type, values: [])
+
+        let outcome = await BodyHealthQuantityFetch.dailyQuantityRangeSeries(
+            store: store,
+            quantityType: type,
+            predicate: nil,
+            unit: .secondUnit(with: .milli),
+            start: Date(timeIntervalSince1970: 1_788_134_400),
+            end: Date(timeIntervalSince1970: 1_788_220_800),
+            calendar: .bodyGregorian
+        )
+
+        guard case .success(let series) = outcome else {
+            return XCTFail("an empty window is a genuine absence, not a failure")
+        }
+        XCTAssertTrue(series.isEmpty)
+    }
+
+    func testDailyQuantityRangeSeriesReportsNilErrorFailure() async throws {
+        let type = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .heartRate))
+        let store = FakeHealthStore()
+        store.scriptStatisticsCollection(for: type, .failure(nil))
+
+        let recorder = FailureRecorder()
+        let outcome = await BodyHealthQuantityFetch.dailyQuantityRangeSeries(
+            store: store,
+            quantityType: type,
+            predicate: nil,
+            unit: HKUnit.count().unitDivided(by: .minute()),
+            start: Date(timeIntervalSince1970: 1_788_134_400),
+            end: Date(timeIntervalSince1970: 1_788_220_800),
+            calendar: .bodyGregorian,
+            onFailure: { recorder.record($0) }
+        )
+
+        XCTAssertFalse(outcome.isSuccess)
+        XCTAssertEqual(recorder.count, 1, "a locked device must still report a failure")
+        XCTAssertNil(recorder.errors.first ?? nil)
+    }
+
+    func testDailyQuantityRangeSeriesFailsSilentlyOnCancellation() async throws {
+        let type = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .heartRate))
+        let store = FakeHealthStore()
+        let recorder = FailureRecorder()
+
+        let outcome = await cancelling {
+            await BodyHealthQuantityFetch.dailyQuantityRangeSeries(
+                store: store,
+                quantityType: type,
+                predicate: nil,
+                unit: HKUnit.count().unitDivided(by: .minute()),
+                start: Date(timeIntervalSince1970: 1_788_134_400),
+                end: Date(timeIntervalSince1970: 1_788_220_800),
+                calendar: .bodyGregorian,
+                onFailure: { recorder.record($0) }
+            )
+        }
+
+        XCTAssertFalse(try XCTUnwrap(outcome).isSuccess)
+        XCTAssertEqual(recorder.count, 0, "cancellation is not a query failure")
+    }
+
     // MARK: - sleepSamples
 
     func testSleepSamplesReportsScriptedErrorAndEmptyIsSuccess() async throws {

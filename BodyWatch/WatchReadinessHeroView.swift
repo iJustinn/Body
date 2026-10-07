@@ -14,9 +14,11 @@
 //  machine below (launch slide, pill moves, glow delay, stretch release) is a
 //  line-for-line mirror of the iOS hero's: keep the two in step.
 //
-//  What the watch leaves out: the warning badges (they point at Home cards the
-//  watch doesn't have) and the comment under the hero (it needs the readiness
-//  summary the watch snapshot doesn't carry).
+//  The warning badges under the score are drawn (`WatchHeroWarningBadgeRow`),
+//  one per dashboard card with an unfolded warning, but they are display only:
+//  a tap on them opens Readiness like the rest of the hero, where the phone's
+//  scroll to their card. What the watch leaves out: the comment under the hero
+//  (it needs the readiness summary the watch snapshot doesn't carry).
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -89,6 +91,9 @@ struct WatchReadinessHeroView: View {
     let progress: Double
     /// Points the page has been pulled down past rest, in watch points.
     var pull: CGFloat = 0
+    /// The warning signs under the score, in the dashboard's card order; empty
+    /// hides the row.
+    var warningBadges: [WatchHeroWarningBadge] = []
 
     @State private var displayedScore = 0
     @State private var presentedScore: Double = 0
@@ -201,6 +206,13 @@ struct WatchReadinessHeroView: View {
             scoreText
                 .position(x: width / 2, y: (Geometry.numberCenterY(width: referenceWidth) - levelLineOffset) * scale)
                 .offset(y: -pull)
+
+            // Where the phone hangs its row, whether or not the level line shows:
+            // the hero's height already makes room for it, and the score block
+            // doesn't move for it.
+            WatchHeroWarningBadgeRow(badges: warningBadges, opacity: textOpacity, scale: scale)
+                .position(x: width / 2, y: Geometry.badgeRowCenterY(width: referenceWidth) * scale)
+                .offset(y: -pull)
         }
         .frame(width: width, height: WatchReadinessHero.height(width: width), alignment: .topLeading)
         // The same morph-aware tap target as the iPhone hero: the bands widened to a
@@ -234,6 +246,14 @@ struct WatchReadinessHeroView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(warningAccessibilityValue)
+    }
+
+    /// Every badge's warning titles joined into one list, so VoiceOver hears
+    /// what the row shows ("Low Heart Rate, High Heart Rate and High Skin
+    /// Temperature") rather than one list per badge strung together.
+    private var warningAccessibilityValue: String {
+        warningBadges.isEmpty ? "" : ListFormatter.localizedString(byJoining: warningBadges.flatMap(\.titles))
     }
 
     /// The pull is in watch points; the geometry's stretch curve is in phone points.
@@ -263,9 +283,15 @@ struct WatchReadinessHeroView: View {
     }
 
     /// The rectangle the score occupies, in phone points (scaled by the hit shape).
+    /// While badges show it reaches down to the bottom of their row, so a tap on
+    /// a badge opens Readiness like the rest of the hero.
     private var textRect: CGRect {
         let centerY = Geometry.numberCenterY(width: referenceWidth)
-        return CGRect(x: referenceWidth / 2 - 90, y: centerY - 44, width: 180, height: 88)
+        let top = centerY - 44
+        let bottom = warningBadges.isEmpty
+            ? centerY + 44
+            : max(centerY + 44, Geometry.badgeRowCenterY(width: referenceWidth) + Geometry.badgeRowHeight / 2)
+        return CGRect(x: referenceWidth / 2 - 90, y: top, width: 180, height: bottom - top)
     }
 
     private var scoreCenterNudge: CGFloat {
@@ -568,7 +594,12 @@ struct WatchReadinessPageBackground: View {
         .ignoresSafeArea()
 
         VStack(spacing: 8) {
-            WatchReadinessHeroView(score: 78, width: width, progress: 0)
+            WatchReadinessHeroView(
+                score: 78,
+                width: width,
+                progress: 0,
+                warningBadges: [WatchHeroWarningBadge(cardKind: WatchMetricKindKey.heartRate, titles: ["High Heart Rate"])]
+            )
             WatchMetricCardView(metric: WatchMetricsSnapshot.placeholder.orderedMetrics[1])
         }
         .padding(.horizontal, 4)

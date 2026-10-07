@@ -69,7 +69,7 @@ struct BodyCustomHealthSourceGroup: Codable, Equatable, Identifiable {
 }
 
 enum BodyCustomHealthSourceGroupStore {
-    static let maximumGroupCount = 5
+    static let maximumGroupCount = 10
     /// A group needs at least one member to resolve to anything.
     static let minimumMemberCount = 1
 

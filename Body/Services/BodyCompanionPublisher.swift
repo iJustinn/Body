@@ -23,18 +23,20 @@ struct BodyCompanionPublishInput: Sendable {
         let trends: HealthTrendSnapshot
         let summary: HealthSummarySnapshot
         let temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
+        /// Shared since the watch gained Active Energy and Resting Energy,
+        /// which its snapshot formats in this unit as the widget does.
+        let energyUnitPreference: BodyValueFormat.EnergyUnitPreference
         let idealSleepDuration: TimeInterval
         let showSleepScore: Bool
     }
 
     /// The widget snapshot's captures: the shared half plus what only the widget
     /// renders. Split from `Shared` so the watch publish pays for neither the
-    /// energy and weight unit preferences, which nothing in the watch snapshot
-    /// formats with, nor the sixteen `@MainActor` source lookups behind
+    /// weight unit preference, which nothing in the watch snapshot formats
+    /// with, nor the sixteen `@MainActor` source lookups behind
     /// `primarySourceNames`.
     struct Widget: Sendable {
         let shared: Shared
-        let energyUnitPreference: BodyValueFormat.EnergyUnitPreference
         let weightUnitPreference: BodyValueFormat.WeightUnitPreference
         /// Resolved on the main actor because `selectedHealthDataSourceOption(for:)`
         /// is `@MainActor`; the builder only needs the resulting names.
@@ -58,14 +60,48 @@ struct BodyCompanionPublishInput: Sendable {
     let trainingLoadStartDay: Date?
     let trainingLoadDailyLoads: [Double]?
     let trainingLoadDataThrough: Date?
+    /// The iPhone's ratings for the recent workouts, keyed by workout UUID
+    /// (`WatchComputeSeed.trainingLoadEffortHints`).
+    let trainingLoadEffortHints: [String: Double]?
     let expectedSourceIDsByKind: [String: [String]]
     let followsSystemUnits: Bool
     let selectedTemperatureUnitRaw: String
     let showsSubMinuteAwakeStages: Bool
     let showsLeadingTrailingAwakeStages: Bool
     let readinessHeroShowsLevel: Bool
+    /// Body Pro unlocked and the Summary Cards Sleep Debt toggle on: the watch
+    /// Sleep page shows the debt only while this is true.
+    let showsSleepDebt: Bool
     let homeHeroRaw: String
     let dayRingShowsCaption: Bool
+    /// The Warnings selection's raw value (`BodyMetricWarningSelection`):
+    /// only the kinds turned on there reach the watch, as on the phone.
+    let metricWarningSelectionRaw: String
+    /// The Warnings sheet's Show on Home Hero switch, which both watch heroes
+    /// follow for their badge row.
+    let metricWarningsOnHero: Bool
+    /// The folded warnings' raw value (`BodyDismissedMetricWarnings`), so
+    /// each watch warning card starts folded or unfolded as the phone's does.
+    let dismissedMetricWarningsRaw: String
+    /// When each fold entry last changed (`BodyMetricWarningFoldDates`), sent
+    /// with its warning so the watch can tell whether its own fold record is
+    /// newer than the phone's state (`WatchWarningFoldSync`).
+    let metricWarningFoldDates: [String: Date]
+    /// The custom warning limits' raw value (`BodyMetricWarningThresholds`),
+    /// which the watch checks its own warnings against.
+    let metricWarningThresholdsRaw: String
+    /// The max heart rate the High Heart Rate default was last resolved with
+    /// (`BodyAppearancePreference.warningMaxHeartRateKey`): nil when nothing
+    /// has resolved it yet, `.some(nil)` when it resolved without a birth date
+    /// (the 120 bpm fallback).
+    let warningMaxHeartRate: Double??
+    /// The master and Warnings notification switches both on: the watch
+    /// notifies its own warnings only then.
+    let metricWarningNotificationsEnabled: Bool
+    /// The warning notification ledger's raw value
+    /// (`MetricWarningNotificationLedger`), so the watch skips a kind the phone
+    /// already notified that day.
+    let metricWarningNotificationLedgerRaw: String
     let workoutColorPalette: BodyWorkoutColorPalette
     let healthDataSourceSelectionRaw: String
     let customHealthSourceGroupsRaw: String?
@@ -145,7 +181,7 @@ final class BodyCompanionPublisher {
                 trends: input.shared.trends,
                 summary: input.shared.summary,
                 temperatureUnitPreference: input.shared.temperatureUnitPreference,
-                energyUnitPreference: input.energyUnitPreference,
+                energyUnitPreference: input.shared.energyUnitPreference,
                 weightUnitPreference: input.weightUnitPreference,
                 idealSleepDuration: input.shared.idealSleepDuration,
                 showSleepScore: input.shared.showSleepScore,
@@ -200,51 +236,96 @@ final class BodyCompanionPublisher {
                 now: input.now,
                 calendar: input.workoutCalendar
             )
+            // Readiness and Training Load carry their own watermarks: a
+            // workout-only refresh re-drains readiness (only) while
+            // `lastRefreshDate` (the VITALS watermark) deliberately stands
+            // still. Stamping uniformly would present genuinely fresh
+            // readiness as stale — or, joint-stamping both, present a NOT
+            // recomputed Training Load as fresh. Either way the watch's
+            // per-metric compare then picks the wrong side. Every other
+            // kind (and a never-recomputed Training Load) falls through to
+            // the uniform vitals date.
+            func dataAsOf(forKind kind: String) -> Date? {
+                switch kind {
+                case WatchMetricKindKey.readiness:
+                    return input.readinessComputeDate
+                case WatchMetricKindKey.trainingLoad:
+                    return input.trainingLoadComputeDate
+                case WatchMetricKindKey.workoutMinutes,
+                     // The legacy compatibility copy carries the same week,
+                     // so it ships under the same watermark.
+                     WatchMetricKindKey.exerciseMinutes:
+                    return input.workoutMinutesDataAsOf
+                default:
+                    // A single-metric detail pull refreshes one vitals kind
+                    // without advancing the full-refresh date — take the
+                    // newer of the two so the pulled value doesn't ship
+                    // under a stale stamp.
+                    return [input.lastRefreshDate, input.metricPullDates[kind]]
+                        .compactMap { $0 }
+                        .max()
+                }
+            }
+            // The Stress page's "Last 12 hours", built here off the main actor
+            // because it rescans the stress window. Over the store's LIVE
+            // summary and trends: only they still carry the intraday day
+            // samples, which the persisted dashboard and the seed both strip.
+            // The workouts are the store's whole stress window, the same mask
+            // its Day View and recompute score with, since every scanned day's
+            // quiet heart rate feeds today's baseline. Stamped with the Stress
+            // card's own watermark, so the watch merges the two consistently.
+            let stressTimeline: WatchStressTimeline? = input.permissionSelection.includes(.heart)
+                ? WatchStressTimelineBuilder.make(
+                    dashboard: HealthDashboardSnapshot(summary: input.shared.summary, trends: input.shared.trends),
+                    workouts: HealthKitWorkoutStore.stressWindowWorkouts(
+                        in: input.monthSnapshots,
+                        through: input.now,
+                        calendar: .bodyGregorian
+                    ),
+                    now: input.now,
+                    calendar: .bodyGregorian,
+                    computedAt: dataAsOf(forKind: WatchMetricKindKey.stress) ?? input.lastRefreshDate
+                )
+                : nil
             var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
                 summary: input.shared.summary,
                 trends: input.shared.trends,
                 lastRefreshDate: input.lastRefreshDate,
                 permissionSelection: input.permissionSelection,
                 temperatureUnitPreference: input.shared.temperatureUnitPreference,
+                energyUnitPreference: input.shared.energyUnitPreference,
                 idealSleepDuration: input.shared.idealSleepDuration,
                 showSleepScore: input.shared.showSleepScore,
                 now: input.now,
                 workoutWeeklyMinutes: workoutWeeklyMinutes,
-                // Readiness and Training Load carry their own watermarks: a
-                // workout-only refresh re-drains readiness (only) while
-                // `lastRefreshDate` (the VITALS watermark) deliberately stands
-                // still. Stamping uniformly would present genuinely fresh
-                // readiness as stale — or, joint-stamping both, present a NOT
-                // recomputed Training Load as fresh. Either way the watch's
-                // per-metric compare then picks the wrong side. Every other
-                // kind (and a never-recomputed Training Load) falls through to
-                // the uniform vitals date.
-                perKindDataAsOf: { kind in
-                    switch kind {
-                    case WatchMetricKindKey.readiness:
-                        return input.readinessComputeDate
-                    case WatchMetricKindKey.trainingLoad:
-                        return input.trainingLoadComputeDate
-                    case WatchMetricKindKey.workoutMinutes,
-                         // The legacy compatibility copy carries the same week,
-                         // so it ships under the same watermark.
-                         WatchMetricKindKey.exerciseMinutes:
-                        return input.workoutMinutesDataAsOf
-                    default:
-                        // A single-metric detail pull refreshes one vitals kind
-                        // without advancing the full-refresh date — take the
-                        // newer of the two so the pulled value doesn't ship
-                        // under a stale stamp.
-                        return [input.lastRefreshDate, input.metricPullDates[kind]]
-                            .compactMap { $0 }
-                            .max()
-                    }
-                }
+                perKindDataAsOf: dataAsOf(forKind:),
+                includesSleepDebt: input.showsSleepDebt,
+                stressTimeline: stressTimeline,
+                // The palette resolved for Body Pro: empty without it, so the
+                // watch draws the built-in colors the phone does.
+                workoutColorOverrides: BodyWorkoutColorOverrides.rawValue(from: input.workoutColorPalette.overrides)
             )
             snapshot.source = "phone"
             snapshot.readinessHeroShowsLevel = input.readinessHeroShowsLevel
+            snapshot.showsSleepDebt = input.showsSleepDebt
             snapshot.homeHero = input.homeHeroRaw
             snapshot.dayRingShowsCaption = input.dayRingShowsCaption
+            snapshot.heroShowsWarnings = input.metricWarningsOnHero
+            snapshot.metricWarnings = Self.watchMetricWarnings(
+                summary: input.shared.summary,
+                selectionRaw: input.metricWarningSelectionRaw,
+                dismissedRaw: input.dismissedMetricWarningsRaw,
+                foldDates: input.metricWarningFoldDates,
+                cardKinds: Set(snapshot.metrics.map(\.kind)),
+                now: input.now
+            )
+            snapshot.warningSettings = Self.watchWarningSettings(
+                selectionRaw: input.metricWarningSelectionRaw,
+                thresholdsRaw: input.metricWarningThresholdsRaw,
+                maxHeartRate: input.warningMaxHeartRate,
+                notificationsEnabled: input.metricWarningNotificationsEnabled,
+                ledgerRaw: input.metricWarningNotificationLedgerRaw
+            )
             if input.homeHeroRaw == BodyStarMetric.dayRing.rawValue {
                 // Yesterday through tomorrow: the watch keeps what overlaps the day
                 // its own clock is on, so a snapshot that outlives midnight still draws.
@@ -284,6 +365,12 @@ final class BodyCompanionPublisher {
                     healthDataSourceSelectionRaw: input.healthDataSourceSelectionRaw,
                     combinesHealthDataSourcesByName: input.combinesByName,
                     customHealthSourceGroupsRaw: input.customHealthSourceGroupsRaw,
+                    // Nil for kilocalories, the watch's own default, so a
+                    // kilocalorie user's seed signs as it did before the energy
+                    // cards and only a kilojoule user re-seeds once.
+                    selectedEnergyUnitRaw: input.shared.energyUnitPreference == .kilojoules
+                        ? BodyValueFormat.EnergyUnitPreference.kilojoules.rawValue
+                        : nil,
                     recentTimeZoneIdentifiersByDay: HealthKitWorkoutStore.recentTimeZoneIdentifiersByDay(now: input.now)
                 )
                 let seed = HealthKitWorkoutStore.makeComputeSeed(
@@ -294,6 +381,7 @@ final class BodyCompanionPublisher {
                     trainingLoadStartDay: input.trainingLoadStartDay,
                     trainingLoadDailyLoads: input.trainingLoadDailyLoads,
                     trainingLoadDataThrough: input.trainingLoadDataThrough,
+                    trainingLoadEffortHints: input.trainingLoadEffortHints,
                     expectedSourceIDsByKind: input.expectedSourceIDsByKind.isEmpty ? nil : input.expectedSourceIDsByKind,
                     settings: settings,
                     publishedAt: input.now
@@ -339,9 +427,110 @@ final class BodyCompanionPublisher {
         }
     }
 
+    /// Today's threshold warnings as the watch draws them: its hero badges,
+    /// card glyphs and detail page warning cards.
+    ///
+    /// Walks `MetricWarningKind.allCases`, so the warnings ship in the phone's
+    /// kind order, and keeps a kind only when:
+    /// * it is turned on in the Warnings selection;
+    /// * `summary` carries an episode for it that started on `now`'s day (the
+    ///   watch drops a warning after midnight anyway, so an older one would
+    ///   only cost bytes);
+    /// * its metric has a card in the built snapshot (`cardKinds`). Blood
+    ///   Oxygen and Respiratory Rate have no watch card, so they never ship,
+    ///   and a card the builder left out for a permission that's off takes
+    ///   its warnings with it.
+    ///
+    /// `summary` is `input.shared.summary`, the same permission filtered
+    /// summary Home reads, so the watch shows exactly the warnings Home
+    /// flags. Each warning carries its fold key (the phone's
+    /// `dismissedMetricWarnings` entry, built in one place by
+    /// `BodyDismissedMetricWarnings.entryKey(for:)`), whether that entry is
+    /// folded, and the entry's stamp, which the watch compares its own fold
+    /// records against. Nil when nothing qualifies, which the snapshot reads
+    /// as no warnings.
+    nonisolated static func watchMetricWarnings(
+        summary: HealthSummarySnapshot,
+        selectionRaw: String,
+        dismissedRaw: String,
+        foldDates: [String: Date],
+        cardKinds: Set<String>,
+        now: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> [WatchMetricWarning]? {
+        let selection = BodyMetricWarningSelection.storedValue(from: selectionRaw)
+        let dismissed = BodyDismissedMetricWarnings.storedValue(from: dismissedRaw)
+        let warnings = MetricWarningKind.allCases.compactMap { kind -> WatchMetricWarning? in
+            guard selection.includes(kind),
+                  let event = summary.warning(kind),
+                  calendar.isDate(event.startDate, inSameDayAs: now),
+                  cardKinds.contains(kind.metric.rawValue) else {
+                return nil
+            }
+            let foldKey = BodyDismissedMetricWarnings.entryKey(for: event, calendar: calendar)
+            return WatchMetricWarning(
+                kind: kind.rawValue,
+                startDate: event.startDate,
+                threshold: event.threshold,
+                foldKey: foldKey,
+                isFolded: dismissed.contains(event, calendar: calendar),
+                foldChangedAt: foldDates[foldKey]
+            )
+        }
+        return warnings.isEmpty ? nil : warnings
+    }
+
+    /// The phone's warning settings the watch checks and notifies its own
+    /// warnings under, for the kinds with a watch card (Low and High Heart
+    /// Rate, High Skin Temperature), walked in `MetricWarningKind.allCases`
+    /// order:
+    /// * `thresholds`: each kind's effective limit, the user's override or the
+    ///   default. High Heart Rate's default follows the birth date, which only
+    ///   the engine's Heart Rate read resolves, so while `maxHeartRate` is nil
+    ///   (never resolved) and there is no override its limit is left out
+    ///   rather than sent as the 120 bpm fallback. `.some(nil)` (resolved, no
+    ///   birth date) is that fallback.
+    /// * `enabledKinds`: those turned on in the Warnings selection, in kind
+    ///   order, so the watch's equality early out never sees a reordered list
+    ///   as a change.
+    /// * `notifies`: the master and Warnings notification switches.
+    /// * `notifiedDays`: the notification ledger's day for each of them.
+    nonisolated static func watchWarningSettings(
+        selectionRaw: String,
+        thresholdsRaw: String,
+        maxHeartRate: Double??,
+        notificationsEnabled: Bool,
+        ledgerRaw: String
+    ) -> WatchWarningSettings {
+        let kinds = MetricWarningKind.allCases.filter { [.heartRate, .wristTemperature].contains($0.metric) }
+        let selection = BodyMetricWarningSelection.storedValue(from: selectionRaw)
+        let overrides = BodyMetricWarningThresholds.storedValue(from: thresholdsRaw)
+        let ledger = MetricWarningNotificationLedger.storedValue(from: ledgerRaw)
+        var thresholds: [String: Double] = [:]
+        var notifiedDays: [String: String] = [:]
+        for kind in kinds {
+            if let day = ledger.lastNotifiedDayKeys[kind] {
+                notifiedDays[kind.rawValue] = day
+            }
+            if let resolvedMaxHeartRate = maxHeartRate {
+                thresholds[kind.rawValue] = overrides.threshold(for: kind, maxHeartRate: resolvedMaxHeartRate)
+            } else if kind != .highHeartRate || overrides.override(for: kind) != nil {
+                // Never resolved, which only High Heart Rate's default needs.
+                thresholds[kind.rawValue] = overrides.threshold(for: kind)
+            }
+        }
+        return WatchWarningSettings(
+            thresholds: thresholds,
+            enabledKinds: kinds.filter(selection.includes).map(\.rawValue),
+            notifies: notificationsEnabled,
+            notifiedDays: notifiedDays
+        )
+    }
+
     /// Size budget for the compute seed alone (before the display snapshot and
     /// permission key are added on top) — the `WatchComputeSeedTests` size test
-    /// pins a realistic 70-day fixture comfortably under this. Separate from
+    /// pins a realistic fixture (70 days of trends, 86 nights of sleep history)
+    /// comfortably under this. Separate from
     /// `WatchConnectivityPublisher`'s whole-context budget, which accounts for
     /// the other context keys too.
     nonisolated private static let computeSeedSizeBudgetBytes = 50_000

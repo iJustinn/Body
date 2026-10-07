@@ -6,8 +6,11 @@
 //  round-trip encode/decode, lenient decode of a payload missing newer fields
 //  (the schema-evolution discipline `WatchMetricsSnapshot` already follows),
 //  the sleep-history trim's equivalence with the untrimmed history for the
-//  still-relevant last-7-days window, and the compressed payload's size
-//  budget.
+//  still-relevant last-7-days window, the sleep history's wider window for
+//  the watch's Sleep Debt, the HR / HRV range series' one week window, the
+//  compressed payload's size budget, and the
+//  whole WatchConnectivity push's budget, and the frozen Sleep Debt nights'
+//  window.
 //
 
 import XCTest
@@ -107,11 +110,72 @@ final class WatchComputeSeedTests: XCTestCase {
         return HealthTrendSeries(points: points)
     }
 
+    /// A day's min/max capsule around each of `series`' daily averages.
+    private func rangeSeriesFixture(around series: HealthTrendSeries, spread: Double) -> HealthTrendRangeSeries {
+        HealthTrendRangeSeries(points: series.points.map { point in
+            HealthTrendRangeDataPoint(
+                date: point.date,
+                lowValue: point.value - spread / 2,
+                highValue: point.value + spread / 2,
+                averageValue: point.value
+            )
+        })
+    }
+
     private func recordedReadinessFixture(dayCount: Int, anchor: Date) -> [RecordedReadinessEntry] {
         let anchorDay = calendar.startOfDay(for: anchor)
         return (0..<dayCount).compactMap { age -> RecordedReadinessEntry? in
             guard let day = calendar.date(byAdding: .day, value: -age, to: anchorDay) else { return nil }
             return RecordedReadinessEntry(date: day, score: 70 + (age % 20), includedSleep: true, coverage: .hrv)
+        }
+    }
+
+    /// A day's Stress record as the phone persists it: every field set, with
+    /// the medians at full double precision like real ones.
+    private func recordedStressFixture(dayCount: Int, anchor: Date) -> [StressDaySummary] {
+        let anchorDay = calendar.startOfDay(for: anchor)
+        return (0..<dayCount).compactMap { age -> StressDaySummary? in
+            guard let day = calendar.date(byAdding: .day, value: -age, to: anchorDay) else { return nil }
+            let average = 25 + (age * 13) % 50
+            return StressDaySummary(
+                date: day,
+                averageScore: average,
+                minutesByBand: [.rest: 120 + age % 7 * 15, .low: 300 - age % 5 * 15, .medium: 90 + age % 3 * 15, .high: age % 4 * 15],
+                scoredWindowCount: 52 + age % 11,
+                hrvCoveredWindowCount: 14 + age % 9,
+                quietHRMedian: Double(58 + age % 6) + (age % 2 == 0 ? 0.5 : 0),
+                rmssdDailyMedian: 36 + 7 * sin(Double(age) / 3.7),
+                minScore: max(average - 22 - age % 5, 0),
+                maxScore: min(average + 31 + age % 7, 100),
+                activityMinutes: 30 + age % 4 * 15
+            )
+        }
+        .sorted { $0.date < $1.date }
+    }
+
+    /// The phone's frozen Sleep Debt nights as it keeps them: one per day
+    /// before the anchor's, back to `recordRetentionDayCount` days, every
+    /// field set at full double precision like real ones.
+    private func recordedSleepDebtFixture(anchor: Date) -> [SleepDebtRecord] {
+        let anchorDay = calendar.startOfDay(for: anchor)
+        return (1...SleepDebtChartModel.recordRetentionDayCount).reversed().compactMap { age -> SleepDebtRecord? in
+            guard let day = calendar.date(byAdding: .day, value: -age, to: anchorDay) else { return nil }
+            let need = 8 * 3_600 + Double(age % 4) * 5 * 60
+            return SleepDebtRecord(
+                night: SleepDebtNight(
+                    day: day,
+                    actualDuration: 7.4 * 3_600 + 2_100 * sin(Double(age) / 2.3),
+                    needDuration: need,
+                    isNeedLearned: true,
+                    trainingAdjustment: Double(age % 3) * 5 * 60,
+                    hrvAdjustment: age % 5 == 0 ? 10 * 60 : 0,
+                    recordedNightCount: 14,
+                    debtAfterNight: 9_000 + 1_800 * sin(Double(age) / 4.1)
+                ),
+                // Whole seconds: the seed's ISO 8601 dates drop fractions, and
+                // the round trip test compares exactly.
+                capturedAt: day.addingTimeInterval(36 * 3_600 + Double(age) * 61)
+            )
         }
     }
 
@@ -125,6 +189,8 @@ final class WatchComputeSeedTests: XCTestCase {
         trends.heartRate = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 64, amplitude: 6)
         trends.restingHeartRate = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 58, amplitude: 3)
         trends.heartRateVariability = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 55, amplitude: 8)
+        trends.heartRateRanges = rangeSeriesFixture(around: trends.heartRate, spread: 40)
+        trends.heartRateVariabilityRanges = rangeSeriesFixture(around: trends.heartRateVariability, spread: 30)
         trends.respiratoryRate = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 14, amplitude: 1)
         trends.oxygenSaturation = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 97, amplitude: 1)
         trends.trainingLoad = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 1.0, amplitude: 0.3)
@@ -132,6 +198,10 @@ final class WatchComputeSeedTests: XCTestCase {
         trends.sleepHistory = sleepHistoryFixture(nightCount: dayCount, anchor: anchor)
         trends.recordedReadiness = recordedReadinessFixture(dayCount: dayCount, anchor: anchor)
         trends.recordedReadinessContext = "fixture-context"
+        trends.recordedStressDays = recordedStressFixture(dayCount: dayCount, anchor: anchor)
+        trends.recordedStressContext = "fixture-stress-context"
+        trends.recordedSleepDebt = recordedSleepDebtFixture(anchor: anchor)
+        trends.recordedSleepDebtContext = "fixture-sleep-debt-context"
         return trends
     }
 
@@ -188,6 +258,19 @@ final class WatchComputeSeedTests: XCTestCase {
         XCTAssertEqual(decoded, expected)
     }
 
+    /// The iPhone's ratings for the recent workouts travel exactly, keyed by
+    /// workout UUID string, and leave the rest of the seed untouched.
+    func testEffortHintsRoundTrip() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        var seed = makeSeed(anchor: anchor)
+        seed.trainingLoadEffortHints = [UUID().uuidString: 7, UUID().uuidString: 3.5]
+
+        let decoded = try XCTUnwrap(WatchComputeSeed.decoded(from: try XCTUnwrap(seed.encodedCompressed())))
+
+        XCTAssertEqual(decoded.trainingLoadEffortHints, seed.trainingLoadEffortHints)
+        XCTAssertEqual(decoded.trainingLoadDailyLoads, seed.trainingLoadDailyLoads)
+    }
+
     // MARK: - Lenient decode (schema evolution)
 
     func testDecodingAPayloadMissingNewerFieldsFallsBackToSafeDefaults() throws {
@@ -208,11 +291,42 @@ final class WatchComputeSeedTests: XCTestCase {
         XCTAssertTrue(decoded.seriesRanges.isEmpty)
         XCTAssertNil(decoded.trainingLoadStartDay)
         XCTAssertNil(decoded.trainingLoadDailyLoads)
+        XCTAssertNil(decoded.trainingLoadEffortHints)
         XCTAssertEqual(decoded.settingsSignature, "")
         // Settings fall back to sane defaults rather than throwing.
         XCTAssertEqual(decoded.settings.idealSleepDurationMinutes, BodySleepDurationGoal.defaultMinutes)
         XCTAssertTrue(decoded.settings.followsSystemUnits)
         XCTAssertNil(decoded.settings.recentTimeZoneIdentifiersByDay)
+    }
+
+    /// `selectedEnergyUnitRaw` is left out of the encoding when nil (the
+    /// kilocalorie case the phone sends), so a kilocalorie seed's bytes, and
+    /// with them its on-disk identity, are what they were before the energy
+    /// cards; a kilojoule raw round-trips.
+    func testEnergyUnitRawIsOmittedWhenNilAndRoundTripsOtherwise() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        let kilocalories = makeSeed(anchor: anchor)
+        XCTAssertNil(kilocalories.settings.selectedEnergyUnitRaw)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let encoded = try encoder.encode(kilocalories.settings)
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("selectedEnergyUnitRaw"))
+
+        var settings = kilocalories.settings
+        settings.selectedEnergyUnitRaw = BodyValueFormat.EnergyUnitPreference.kilojoules.rawValue
+        // An explicit preference, like the phone's `storedEnergyUnitPreference`,
+        // reads the raw only when the units don't follow the system.
+        settings.followsSystemUnits = false
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(WatchComputeSettings.self, from: try encoder.encode(settings))
+        XCTAssertEqual(decoded.selectedEnergyUnitRaw, "kilojoules")
+        XCTAssertEqual(WatchComputeAssembly.energyUnitPreference(for: decoded), .kilojoules)
+        XCTAssertEqual(WatchComputeAssembly.energyUnitPreference(for: kilocalories.settings), .kilocalories)
+        var explicitKilocalories = settings
+        explicitKilocalories.selectedEnergyUnitRaw = nil
+        XCTAssertEqual(WatchComputeAssembly.energyUnitPreference(for: explicitKilocalories), .kilocalories, "nil raw is kilocalories")
     }
 
     func testDecodingAnEmptyPayloadDoesNotThrow() throws {
@@ -309,7 +423,7 @@ final class WatchComputeSeedTests: XCTestCase {
 
         // Trim ONCE, at the fixed `dataThrough` anchor.
         let trimmedHistory = fullHistory.watchComputeTrimmed(anchor: dataThrough, calendar: calendar)
-        XCTAssertEqual(trimmedHistory.days.count, WatchComputeSeed.trendDayCount + 7)
+        XCTAssertEqual(trimmedHistory.days.count, WatchComputeSeed.sleepHistoryDayCount + 7)
 
         for aheadOffset in 0...7 {
             let scoringInstant = try XCTUnwrap(calendar.date(byAdding: .day, value: aheadOffset, to: dataThrough))
@@ -399,14 +513,309 @@ final class WatchComputeSeedTests: XCTestCase {
         }
     }
 
+    // MARK: - Sleep history window (watch Sleep Debt)
+
+    func testSleepHistoryKeepsWhatTheWatchSleepDebtReadsWhileEveryOtherTrendStaysAtSeventyDays() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        let anchorDay = calendar.startOfDay(for: anchor)
+        let trimmed = trendsFixture(dayCount: 365, anchor: anchor).watchComputeTrimmed(anchor: anchor, calendar: calendar)
+
+        XCTAssertEqual(WatchComputeSeed.sleepHistoryDayCount, 86)
+        XCTAssertEqual(
+            WatchComputeSeed.sleepHistoryDayCount,
+            SleepDebtChartModel.historyDayCount(nightCount: SleepDebtChartModel.watchNightCount)
+        )
+        let ages = trimmed.sleepHistory.days.map { day in
+            calendar.dateComponents([.day], from: calendar.startOfDay(for: day.date), to: anchorDay).day ?? -1
+        }
+        XCTAssertEqual(trimmed.sleepHistory.days.count, WatchComputeSeed.sleepHistoryDayCount)
+        XCTAssertEqual(ages.min(), 0)
+        XCTAssertEqual(ages.max(), 85, "a night 85 days old is kept; 86 and older are dropped")
+
+        // Every other series keeps the 70 day window, `trends.sleep` (a
+        // readiness source series, whose length sets the readiness walk) too.
+        let series: [(name: String, series: HealthTrendSeries)] = [
+            ("sleep", trimmed.sleep),
+            ("readiness", trimmed.readiness),
+            ("heartRate", trimmed.heartRate),
+            ("restingHeartRate", trimmed.restingHeartRate),
+            ("heartRateVariability", trimmed.heartRateVariability),
+            ("respiratoryRate", trimmed.respiratoryRate),
+            ("oxygenSaturation", trimmed.oxygenSaturation),
+            ("trainingLoad", trimmed.trainingLoad),
+            ("wristTemperature", trimmed.wristTemperature)
+        ]
+        for (name, trend) in series {
+            XCTAssertEqual(trend.points.count, WatchComputeSeed.trendDayCount, name)
+        }
+        XCTAssertEqual(trimmed.recordedReadiness.count, WatchComputeSeed.trendDayCount)
+    }
+
+    // MARK: - Recorded Stress days (the watch's Stress baselines)
+
+    /// The watch holds about a week of HealthKit, so its Stress baselines (the
+    /// 56 days before each scored day) and week come from these records: whole,
+    /// for the last 60 days ending at the anchor, with their context.
+    func testRecordedStressDaysKeepSixtyWholeDaysEndingAtTheAnchor() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        let anchorDay = calendar.startOfDay(for: anchor)
+        var full = trendsFixture(dayCount: 365, anchor: anchor)
+        // A record past the anchor isn't the seed's: the seed is as of `dataThrough`.
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: anchorDay))
+        full.recordedStressDays.append(StressDaySummary(date: tomorrow, averageScore: 50))
+
+        let trimmed = full.watchComputeTrimmed(anchor: anchor, calendar: calendar)
+
+        XCTAssertEqual(WatchComputeSeed.stressRecordDayCount, 60)
+        XCTAssertGreaterThan(WatchComputeSeed.stressRecordDayCount, ReadinessScoreCalculator.baselineDayCount)
+        XCTAssertEqual(trimmed.recordedStressDays.count, WatchComputeSeed.stressRecordDayCount)
+        let ages = trimmed.recordedStressDays.map { entry in
+            calendar.dateComponents([.day], from: calendar.startOfDay(for: entry.date), to: anchorDay).day ?? -1
+        }
+        XCTAssertEqual(ages.min(), 0)
+        XCTAssertEqual(ages.max(), 59, "a day 59 days old is kept; 60 and older are dropped")
+        XCTAssertEqual(
+            trimmed.recordedStressDays,
+            Array(full.recordedStressDays.filter { $0.date <= anchorDay }.suffix(WatchComputeSeed.stressRecordDayCount)),
+            "whole records, not slimmed"
+        )
+        XCTAssertEqual(trimmed.recordedStressContext, "fixture-stress-context")
+        // The series are rebuilt from the records on the watch, never shipped.
+        XCTAssertTrue(trimmed.stress.points.isEmpty)
+        XCTAssertTrue(trimmed.stressRanges.points.isEmpty)
+        XCTAssertTrue(trimmed.heartRateDaySamples.points.isEmpty)
+    }
+
+    // MARK: - Recorded Sleep Debt nights (the phone's frozen nights)
+
+    /// The watch charts 14 nights whose windows reach 13 nights further back,
+    /// so its model reads 28 entry days ending at the anchor: the seed keeps
+    /// the frozen nights of those days, whole, with their context, and drops
+    /// the rest of the phone's 58 day ledger.
+    func testRecordedSleepDebtKeepsTheTwentyEightDaysTheWatchModelReads() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        let anchorDay = calendar.startOfDay(for: anchor)
+        let full = trendsFixture(dayCount: 365, anchor: anchor)
+        XCTAssertEqual(full.recordedSleepDebt.count, SleepDebtChartModel.recordRetentionDayCount)
+
+        let trimmed = full.watchComputeTrimmed(anchor: anchor, calendar: calendar)
+
+        func age(_ record: SleepDebtRecord) -> Int {
+            calendar.dateComponents([.day], from: calendar.startOfDay(for: record.day), to: anchorDay).day ?? -1
+        }
+        let ages = trimmed.recordedSleepDebt.map(age)
+        XCTAssertEqual(ages.min(), 1, "today is never frozen, so the newest record is yesterday's")
+        XCTAssertEqual(ages.max(), 27, "a night 27 days old is kept; 28 and older are dropped")
+        XCTAssertEqual(
+            trimmed.recordedSleepDebt.count,
+            SleepDebtChartModel.watchNightCount + SleepDebtChartModel.windowNightCount - 1
+        )
+        XCTAssertEqual(trimmed.recordedSleepDebt, full.recordedSleepDebt.filter { age($0) <= 27 }, "whole records, not slimmed")
+        XCTAssertEqual(trimmed.recordedSleepDebtContext, "fixture-sleep-debt-context")
+    }
+
+    // MARK: - Range series window (HR / HRV week chart capsules)
+
+    /// The capsules ride the seed for one week only: the builder reads them
+    /// through `.recentWeek`, and the delta re-reads the days after the seed.
+    func testHeartRateRangesKeepExactlyTheLastSevenDays() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        let anchorDay = calendar.startOfDay(for: anchor)
+        let full = trendsFixture(dayCount: 365, anchor: anchor)
+        let trimmed = full.watchComputeTrimmed(anchor: anchor, calendar: calendar)
+
+        let ranges: [(name: String, full: HealthTrendRangeSeries, trimmed: HealthTrendRangeSeries)] = [
+            ("heartRateRanges", full.heartRateRanges, trimmed.heartRateRanges),
+            ("heartRateVariabilityRanges", full.heartRateVariabilityRanges, trimmed.heartRateVariabilityRanges)
+        ]
+        for (name, fullSeries, trimmedSeries) in ranges {
+            XCTAssertEqual(fullSeries.points.count, 365, name)
+            XCTAssertEqual(trimmedSeries.points.count, BodyHealthTrendRange.recentWeek.dayCount, name)
+            let ages = trimmedSeries.points.map { point in
+                calendar.dateComponents([.day], from: calendar.startOfDay(for: point.date), to: anchorDay).day ?? -1
+            }
+            XCTAssertEqual(ages.min(), 0, name)
+            XCTAssertEqual(ages.max(), 6, "\(name): a day 6 days old is kept; 7 and older are dropped")
+            XCTAssertEqual(trimmedSeries, fullSeries.limited(to: .recentWeek, calendar: calendar, date: anchor), name)
+        }
+    }
+
+    /// The trim happens once, at `dataThrough`, and the watch computes from
+    /// the seed for up to a week after: across that week its Sleep Debt must
+    /// read the same nights (day, stored duration, sleep HRV) from the trimmed
+    /// history as from the phone's full one, collapsed nights included.
+    func testTrimmedSleepHistoryFeedsTheWatchSleepDebtWhatTheFullHistoryDoes() throws {
+        let dataThrough = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
+        let dataThroughDay = calendar.startOfDay(for: dataThrough)
+        let fullHistory = sleepHistoryFixture(nightCount: 365, anchor: dataThrough)
+        let trimmedHistory = fullHistory.watchComputeTrimmed(anchor: dataThrough, calendar: calendar)
+
+        func inputs(_ history: SleepHistorySnapshot, today: Date) -> SleepDebtChartModel.Inputs {
+            SleepDebtChartModel.inputs(
+                sleepHistory: history,
+                currentDaySummary: nil,
+                trainingLoad: .empty,
+                nightCount: SleepDebtChartModel.watchNightCount,
+                today: today,
+                calendar: calendar
+            )
+        }
+
+        for aheadOffset in 0...7 {
+            let today = try XCTUnwrap(calendar.date(byAdding: .day, value: aheadOffset, to: dataThrough))
+            XCTAssertEqual(
+                inputs(trimmedHistory, today: today),
+                inputs(fullHistory, today: today),
+                "\(aheadOffset) day(s) after dataThrough"
+            )
+        }
+
+        // Negative control: the old 70 day trim drops nights the debt reads.
+        let seventyDayHistory = SleepHistorySnapshot(days: trimmedHistory.days.filter { day in
+            let age = calendar.dateComponents([.day], from: calendar.startOfDay(for: day.date), to: dataThroughDay).day ?? 0
+            return age < WatchComputeSeed.trendDayCount
+        })
+        XCTAssertNotEqual(inputs(seventyDayHistory, today: dataThrough), inputs(fullHistory, today: dataThrough))
+    }
+
     // MARK: - Size
 
     func testCompressedRealisticSeedFixtureStaysUnderFiftyKilobytes() throws {
         let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
         let seed = makeSeed(anchor: anchor, dayCount: 365)
-        XCTAssertEqual(seed.trends.sleepHistory.days.count, WatchComputeSeed.trendDayCount)
+        XCTAssertEqual(seed.trends.sleepHistory.days.count, WatchComputeSeed.sleepHistoryDayCount)
 
         let compressed = try XCTUnwrap(seed.encodedCompressed())
         XCTAssertLessThan(compressed.count, 50_000, "compressed seed was \(compressed.count) bytes, expected under 50 KB")
+    }
+
+    /// The publisher budgets the WHOLE application context (display snapshot,
+    /// permission key and seed together) and silently drops the seed past it,
+    /// which stops every watch compute. So the seed is measured with a
+    /// realistic display snapshot on top: Sleep Debt, Day Ring workouts, three
+    /// metric warnings, a 15 segment night and every metric's week, sized the
+    /// way `send` sizes them (the snapshot as uncompressed JSON). Keeps 5 KB of headroom, below
+    /// which the seed's oldest nights should shed their collapsed segment.
+    func testWholePushWithTheRealisticSeedFitsTheContextBudget() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 8)))
+        let seed = makeSeed(anchor: anchor, dayCount: 365)
+        let seedSize = try XCTUnwrap(seed.encodedCompressed()).count
+
+        var trends = trendsFixture(dayCount: 365, anchor: anchor)
+        var summary = HealthSummarySnapshot.placeholder
+        summary.sleep = try XCTUnwrap(trends.sleepHistory.summary(on: anchor, calendar: calendar)).summary
+        // Stress with its week and daily ranges, and a full "Last 12 hours".
+        summary.stress = trends.recordedStressDays.last
+        summary.stressCurrentScore = 64
+        trends.stress = HealthTrendSeries(points: trends.recordedStressDays.compactMap { entry in
+            entry.averageScore.map { HealthTrendDataPoint(date: entry.date, value: Double($0)) }
+        })
+        trends.stressRanges = HealthTrendRangeSeries(points: trends.recordedStressDays.compactMap { entry in
+            guard let low = entry.minScore, let high = entry.maxScore else { return nil }
+            return HealthTrendRangeDataPoint(
+                date: entry.date, lowValue: Double(low), highValue: Double(high),
+                averageValue: entry.averageScore.map(Double.init)
+            )
+        })
+        let timelineSlotCount = Int(WatchStressTimelineBuilder.span / WatchStressTimeline.slotLength) + 1
+        let timelineStart = anchor.addingTimeInterval(-WatchStressTimelineBuilder.span)
+        let stressTimeline = WatchStressTimeline(
+            start: timelineStart,
+            end: anchor,
+            slots: (0..<timelineSlotCount).map { index -> Int? in
+                switch index % 12 {
+                case 5: return nil
+                case 9, 10: return WatchStressTimeline.activityMarker
+                default: return 12 + (index * 17) % 85
+                }
+            },
+            context: [
+                WatchStressContextBand(kind: WatchStressContextBand.sleepKind, start: timelineStart, end: timelineStart.addingTimeInterval(3 * 3_600)),
+                WatchStressContextBand(kind: WatchStressContextBand.workoutKind, start: anchor.addingTimeInterval(-4 * 3_600), end: anchor.addingTimeInterval(-3 * 3_600), workoutType: "running"),
+                WatchStressContextBand(kind: WatchStressContextBand.napKind, start: anchor.addingTimeInterval(-3_600), end: anchor.addingTimeInterval(-1_800))
+            ],
+            computedAt: anchor
+        )
+        var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary,
+            trends: trends,
+            lastRefreshDate: anchor,
+            permissionSelection: .defaultValue,
+            temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600,
+            now: anchor,
+            workoutWeeklyMinutes: [30, 0, 45, 22, 0, 38, 15],
+            seriesRangeOverride: { seed.seriesRanges[$0] },
+            includesSleepDebt: true,
+            stressTimeline: stressTimeline,
+            workoutColorOverrides: "cycling:EE9D58,hiking:2E8B57,running:335BB0,swimming:1E90FF,yoga:9370DB"
+        )
+        snapshot.source = "phone"
+        snapshot.showsSleepDebt = true
+        snapshot.readinessHeroShowsLevel = true
+        snapshot.homeHero = "dayRing"
+        snapshot.dayRingShowsCaption = true
+        snapshot.dayRingWorkouts = (0..<4).map { index in
+            let start = anchor.addingTimeInterval(Double(index * 5 - 20) * 3_600)
+            return WatchDayRingWorkout(
+                id: UUID().uuidString,
+                type: "running",
+                startDate: start,
+                endDate: start.addingTimeInterval(45 * 60),
+                colorHex: 0xFF5A1F
+            )
+        }
+        // The most warnings a push can carry: the three kinds with a watch card,
+        // each with a fractional threshold and a fold stamp.
+        snapshot.heroShowsWarnings = true
+        snapshot.metricWarnings = [
+            (MetricWarningKind.lowHeartRate, 38.5),
+            (MetricWarningKind.highHeartRate, 128.5),
+            (MetricWarningKind.highWristTemperature, 37.85)
+        ].enumerated().map { index, warning in
+            let start = anchor.addingTimeInterval(Double(index - 3) * 3_600)
+            return WatchMetricWarning(
+                kind: warning.0.rawValue,
+                startDate: start,
+                threshold: warning.1,
+                foldKey: "\(warning.0.rawValue)@2026-05-17",
+                isFolded: index == 1,
+                foldChangedAt: start.addingTimeInterval(600)
+            )
+        }
+        snapshot.sleepStages = WatchMetricsSnapshot.placeholder.sleepStages
+        snapshot.publisherEpoch = UUID().uuidString
+        snapshot.revision = 12_345
+        XCTAssertEqual(snapshot.sleepStages?.count, 15)
+        XCTAssertEqual(snapshot.sleepDebt?.nights.count, SleepDebtChartModel.watchNightCount)
+        let stress = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.stress))
+        XCTAssertTrue(stress.hasValue)
+        XCTAssertNotNil(stress.statusBand)
+        XCTAssertEqual(stress.weeklyRanges?.compactMap { $0 }.count, 7)
+        XCTAssertEqual(snapshot.stressTimeline?.slots.count, timelineSlotCount)
+        XCTAssertEqual(seed.trends.recordedStressDays.count, WatchComputeSeed.stressRecordDayCount)
+        XCTAssertEqual(trends.recordedSleepDebt.count, SleepDebtChartModel.recordRetentionDayCount)
+        XCTAssertEqual(
+            seed.trends.recordedSleepDebt.count,
+            SleepDebtChartModel.watchNightCount + SleepDebtChartModel.windowNightCount - 1
+        )
+
+        let snapshotSize = try XCTUnwrap(snapshot.encoded()).count
+        let permissionSize = BodyHealthPermissionSelection.defaultRawValue.utf8.count
+        let total = snapshotSize + permissionSize + seedSize
+        let budget = WatchConnectivityPublisher.contextSizeBudgetBytes
+        let headroom = budget - total
+        let sizes = "snapshot \(snapshotSize) + permission \(permissionSize) + seed \(seedSize) = \(total) bytes"
+        print("Watch push budget: \(sizes), headroom \(headroom) of \(budget)")
+
+        XCTAssertTrue(
+            WatchConnectivityPublisher.shouldIncludeComputeSeed(
+                snapshotSize: snapshotSize,
+                permissionSize: permissionSize,
+                seedSize: seedSize
+            ),
+            "the whole push is \(sizes), \(-headroom) bytes over the \(budget) byte budget"
+        )
+        XCTAssertGreaterThanOrEqual(headroom, 5_000, "\(sizes) leaves \(headroom) bytes of the \(budget) byte budget")
     }
 }

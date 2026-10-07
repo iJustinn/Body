@@ -15,6 +15,10 @@ import SwiftUI
 /// `.settings` is the permanent copy behind Settings › Data › Cache › Rebuild
 /// Cache, with the same close affordance as the replayable onboarding flow
 /// until the load starts; while it runs the close goes away too.
+/// `.stressUpdate` is the second version-gated page, for an install before
+/// 1.1.5 build 5 that shows Stress: the same one-way page, whose load also
+/// waits for Stress to be rescored under the 15 minute movement mask
+/// (`HealthKitWorkoutStore.completeStressUpdateLoad`) before it lets anyone in.
 ///
 /// The rebuild deliberately does NOT use the Settings Clear Cache path: that wipes the
 /// frozen morning readiness, Body Radar, and stress records, which are
@@ -25,6 +29,7 @@ struct BodyCacheRebuildView: View {
     enum Entry {
         case update
         case settings
+        case stressUpdate
     }
 
     let entry: Entry
@@ -34,6 +39,11 @@ struct BodyCacheRebuildView: View {
     @State private var isLoading = false
     @State private var hasAttemptedRebuild = false
     @State private var hasSucceeded = false
+    /// Stress rescores that failed after their refresh had landed. The page is
+    /// one way, so the second such failure lets the user in rather than looping
+    /// on Try Again: the old records stay consistent (the rescore only drops them
+    /// once its inputs are loaded) and later refreshes finish it.
+    @State private var failedStressRescores = 0
     /// Retains the reload so leaving the page can cancel it instead of leaving
     /// `isLoading` stuck on.
     @State private var rebuildTask: Task<Void, Never>?
@@ -70,7 +80,7 @@ struct BodyCacheRebuildView: View {
             }
         }
         .animation(.snappy(duration: 0.28), value: isLoading)
-        .interactiveDismissDisabled(entry == .update || isLoading)
+        .interactiveDismissDisabled(entry != .settings || isLoading)
         .onDisappear {
             cancelRebuild()
         }
@@ -104,12 +114,28 @@ struct BodyCacheRebuildView: View {
             VStack(spacing: 20) {
                 header
 
-                CacheRebuildFeatureRow(
-                    iconName: "bolt.fill",
-                    tintColor: .blue,
-                    title: "updateOnboarding.feature.refresh.title",
-                    subtitle: "updateOnboarding.feature.refresh.subtitle"
-                )
+                if entry == .stressUpdate {
+                    CacheRebuildFeatureRow(
+                        iconName: "chart.bar.fill",
+                        tintColor: BodyHomeCardKind.stress.tintColor,
+                        title: "stressUpdate.feature.windows.title",
+                        subtitle: "stressUpdate.feature.windows.subtitle"
+                    )
+
+                    CacheRebuildFeatureRow(
+                        iconName: "figure.cooldown",
+                        tintColor: BodyHomeCardKind.stress.tintColor,
+                        title: "stressUpdate.feature.recovery.title",
+                        subtitle: "stressUpdate.feature.recovery.subtitle"
+                    )
+                } else {
+                    CacheRebuildFeatureRow(
+                        iconName: "bolt.fill",
+                        tintColor: .blue,
+                        title: "updateOnboarding.feature.refresh.title",
+                        subtitle: "updateOnboarding.feature.refresh.subtitle"
+                    )
+                }
 
                 Text("updateOnboarding.keepOpen")
                     .font(.system(size: 13, weight: .medium, design: .rounded))
@@ -135,9 +161,11 @@ struct BodyCacheRebuildView: View {
 
     private var header: some View {
         VStack(spacing: 12) {
-            Image(systemName: "arrow.triangle.2.circlepath")
+            // The Stress page leads with the Stress card's own symbol and tint,
+            // so it reads as that metric's news rather than another rebuild.
+            Image(systemName: entry == .stressUpdate ? BodyHomeCardKind.stress.iconName : "arrow.triangle.2.circlepath")
                 .font(.system(size: 44, weight: .bold))
-                .foregroundColor(.primary)
+                .foregroundStyle(entry == .stressUpdate ? BodyHomeCardKind.stress.tintColor : .primary)
                 .accessibilityHidden(true)
 
             Text(title)
@@ -179,11 +207,19 @@ struct BodyCacheRebuildView: View {
     // MARK: - Copy
 
     private var title: LocalizedStringKey {
-        entry == .update ? "updateOnboarding.title" : "updateOnboarding.settings.title"
+        switch entry {
+        case .update: "updateOnboarding.title"
+        case .settings: "updateOnboarding.settings.title"
+        case .stressUpdate: "stressUpdate.title"
+        }
     }
 
     private var subtitle: LocalizedStringKey {
-        entry == .update ? "updateOnboarding.subtitle" : "updateOnboarding.settings.subtitle"
+        switch entry {
+        case .update: "updateOnboarding.subtitle"
+        case .settings: "updateOnboarding.settings.subtitle"
+        case .stressUpdate: "stressUpdate.subtitle"
+        }
     }
 
     private var stageText: LocalizedStringKey {
@@ -198,10 +234,14 @@ struct BodyCacheRebuildView: View {
         }
 
         if hasSucceeded {
-            return entry == .update ? "updateOnboarding.getStarted" : "updateOnboarding.done"
+            return entry == .settings ? "updateOnboarding.done" : "updateOnboarding.getStarted"
         }
 
-        return hasAttemptedRebuild ? "Try Again" : "updateOnboarding.rebuild"
+        if hasAttemptedRebuild {
+            return "Try Again"
+        }
+
+        return entry == .stressUpdate ? "stressUpdate.load" : "updateOnboarding.rebuild"
     }
 
     private var showsFailureNotice: Bool {
@@ -241,7 +281,21 @@ struct BodyCacheRebuildView: View {
                 return
             }
 
-            hasSucceeded = workoutStore.fullRefreshCompletionCount > completionCount
+            var succeeded = workoutStore.fullRefreshCompletionCount > completionCount
+            // The Stress page is done only once Stress has been rescored under
+            // the new rules too, not just when the refresh ran.
+            if succeeded, entry == .stressUpdate {
+                succeeded = await workoutStore.completeStressUpdateLoad()
+                guard !Task.isCancelled else {
+                    return
+                }
+                if !succeeded {
+                    failedStressRescores += 1
+                    succeeded = failedStressRescores >= 2
+                }
+            }
+
+            hasSucceeded = succeeded
             isLoading = false
         }
     }

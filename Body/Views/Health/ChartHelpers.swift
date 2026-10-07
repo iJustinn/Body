@@ -124,13 +124,15 @@ struct BodyBasicsTrendLegend: View {
     let bodyFatColor: Color
     let weightAverageText: String?
     let bodyFatAverageText: String?
+    /// The averages' window, named in letters inside each row ("W Avg"), as
+    /// the two source legend names it.
+    let average: BodyHealthStatFormat.Stat
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 7) {
             legendItem(title: "Body Fat", valueText: bodyFatAverageText, color: bodyFatColor)
             legendItem(title: "Weight", valueText: weightAverageText, color: weightColor)
         }
-        .frame(maxWidth: 180, alignment: .trailing)
         .alignmentGuide(.firstTextBaseline) { dimensions in
             dimensions[.lastTextBaseline]
         }
@@ -140,7 +142,7 @@ struct BodyBasicsTrendLegend: View {
         HStack(spacing: 7) {
             Circle()
                 .fill(color)
-                .frame(width: 9, height: 9)
+                .frame(width: 7, height: 7)
 
             Text(title)
                 .font(.system(.subheadline, design: .rounded))
@@ -149,8 +151,10 @@ struct BodyBasicsTrendLegend: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
 
+            // The window named in the row, as the two source legend names it,
+            // so the legend stays two lines.
             if let valueText {
-                Text("Avg \(valueText)")
+                Text(verbatim: "\(average.label) \(valueText)")
                     .font(.system(.subheadline, design: .rounded))
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -624,6 +628,18 @@ extension View {
     }
 }
 
+/// The point a scrub at `date` lands on, for charts whose marks plot with
+/// `unit: .day`. Those draw centered within their day, so each point is compared
+/// at its day's middle, like `BodyRadarChart.slotCenter`; compared at midnight,
+/// the right half of every bar selected the next day.
+func bodyNearestDayPoint<Point>(to date: Date, in points: [Point], day: (Point) -> Date) -> Point? {
+    let halfDay: TimeInterval = 12 * 60 * 60
+    return points.min { first, second in
+        abs(day(first).addingTimeInterval(halfDay).timeIntervalSince(date))
+            < abs(day(second).addingTimeInterval(halfDay).timeIntervalSince(date))
+    }
+}
+
 extension DateInterval {
     func clamped(to boundary: DateInterval) -> DateInterval? {
         let clampedStart = max(start, boundary.start)
@@ -702,6 +718,107 @@ struct BodyMetricDisplayValue: Identifiable {
 
     var id: String {
         title
+    }
+}
+
+/// A metric detail hero's value row: the big number at the leading edge and
+/// its labels at the trailing edge, first text baselines aligned (a child's
+/// own `.firstTextBaseline` guide counts, so a two line column anchors on its
+/// bottom line). Both keep their natural width while they fit with
+/// `minimumGap` between them; when they don't, they shrink together in
+/// proportion to their natural widths, so neither shrinks beside an empty
+/// gap, as an `HStack`'s even split did, and neither below its own
+/// `minimumScales` entry (how far its text can shrink before it cuts off);
+/// the other gives way instead.
+struct BodyHeroValueRowLayout: Layout {
+    var minimumGap: CGFloat = 6
+    /// Per child, the smallest fraction of its natural width it is offered:
+    /// the big number (which shrinks to half, beside a unit that doesn't),
+    /// then the labels (which shrink to three quarters).
+    var minimumScales: [CGFloat] = [0.6, 0.75]
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let widths = widths(for: proposal.width, subviews: subviews)
+        let (ascent, descent) = baselineExtent(of: subviews, widths: widths)
+        let naturalWidth = widths.reduce(0, +) + minimumGap * CGFloat(max(subviews.count - 1, 0))
+        let width = proposal.width.map { $0.isFinite ? $0 : naturalWidth } ?? naturalWidth
+        return CGSize(width: width, height: ascent + descent)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let widths = widths(for: bounds.width, subviews: subviews)
+        let (ascent, _) = baselineExtent(of: subviews, widths: widths)
+        for (index, subview) in subviews.enumerated() {
+            let childProposal = ProposedViewSize(width: widths[index], height: nil)
+            let baseline = subview.dimensions(in: childProposal)[VerticalAlignment.firstTextBaseline]
+            let x = index == 0 ? bounds.minX : bounds.maxX - widths[index]
+            subview.place(
+                at: CGPoint(x: x, y: bounds.minY + ascent - baseline),
+                anchor: .topLeading,
+                proposal: childProposal
+            )
+        }
+    }
+
+    /// Each child's natural width, or, when they don't all fit, its share of
+    /// the room in proportion to it.
+    func widths(for width: CGFloat?, subviews: Subviews) -> [CGFloat] {
+        let natural = subviews.map { $0.sizeThatFits(.unspecified).width }
+        guard let width, width.isFinite else {
+            return natural
+        }
+
+        return Self.shares(of: natural, minimumScales: minimumScales, in: width, minimumGap: minimumGap)
+    }
+
+    /// `natural` as is when it fits `width` with `minimumGap` between the
+    /// items, else scaled down together to fill it, an item that would go
+    /// below its minimum scale held there while the others share the rest.
+    /// Items past the end of `minimumScales` have no minimum.
+    static func shares(
+        of natural: [CGFloat],
+        minimumScales: [CGFloat],
+        in width: CGFloat,
+        minimumGap: CGFloat
+    ) -> [CGFloat] {
+        let room = max(width - minimumGap * CGFloat(max(natural.count - 1, 0)), 0)
+        guard natural.reduce(0, +) > room else {
+            return natural
+        }
+
+        let floors = natural.indices.map { index in
+            natural[index] * (minimumScales.indices.contains(index) ? minimumScales[index] : 0)
+        }
+        var held = Set<Int>()
+        while true {
+            let free = natural.indices.filter { !held.contains($0) }
+            let freeNatural = free.reduce(0) { $0 + natural[$1] }
+            let heldWidth = held.reduce(0) { $0 + floors[$1] }
+            guard freeNatural > 0 else {
+                return floors
+            }
+
+            let scale = max(room - heldWidth, 0) / freeNatural
+            let belowFloor = free.filter { natural[$0] * scale < floors[$0] }
+            guard belowFloor.isEmpty else {
+                held.formUnion(belowFloor)
+                continue
+            }
+
+            return natural.indices.map { held.contains($0) ? floors[$0] : natural[$0] * scale }
+        }
+    }
+
+    private func baselineExtent(of subviews: Subviews, widths: [CGFloat]) -> (ascent: CGFloat, descent: CGFloat) {
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        for (subview, width) in zip(subviews, widths) {
+            let dimensions = subview.dimensions(in: ProposedViewSize(width: width, height: nil))
+            let baseline = dimensions[VerticalAlignment.firstTextBaseline]
+            ascent = max(ascent, baseline)
+            descent = max(descent, dimensions.height - baseline)
+        }
+        return (ascent, descent)
     }
 }
 

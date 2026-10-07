@@ -18,6 +18,10 @@ struct BodyHealthSourceLegendItem: Identifiable {
 struct BodyHealthSourceLegend: View {
     let items: [BodyHealthSourceLegendItem]
     let valueFormatter: (Double) -> String
+    /// The averages' window, named in letters inside each source's row ("W
+    /// Avg"), so two sources stay two lines, or before a single source's
+    /// average.
+    let average: BodyHealthStatFormat.Stat
 
     private var isMultiSource: Bool {
         items.count > 1
@@ -30,9 +34,9 @@ struct BodyHealthSourceLegend: View {
                     HStack(spacing: 7) {
                         Circle()
                             .fill(item.color)
-                            .frame(width: 9, height: 9)
+                            .frame(width: 7, height: 7)
 
-                        Text("\(item.sourceName) Avg \(averageText(for: item.averageValue))")
+                        Text(verbatim: "\(item.sourceName) \(average.label) \(averageText(for: item.averageValue))")
                             .font(.system(.subheadline, design: .rounded))
                             .fontWeight(.semibold)
                             .foregroundColor(.secondary)
@@ -42,12 +46,11 @@ struct BodyHealthSourceLegend: View {
                     }
                 }
             }
-            .frame(maxWidth: 180, alignment: .trailing)
             .alignmentGuide(.firstTextBaseline) { dimensions in
                 dimensions[.lastTextBaseline]
             }
         } else if let item = items.first {
-            Text("Avg \(averageText(for: item.averageValue))")
+            Text(verbatim: "\(average.label) \(averageText(for: item.averageValue))")
                 .font(.system(.subheadline, design: .rounded))
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary)
@@ -338,9 +341,7 @@ struct BodyHealthSourceComparisonLineChart: View {
             return nil
         }
 
-        return finiteEntries.min { first, second in
-            abs(first.date.timeIntervalSince(selectedDate)) < abs(second.date.timeIntervalSince(selectedDate))
-        }
+        return bodyNearestDayPoint(to: selectedDate, in: finiteEntries) { $0.date }
     }
 
     private func selectedValuesEntries(for date: Date) -> [BodyHealthSourceComparisonLineEntry] {
@@ -1140,7 +1141,11 @@ struct BodyHealthSourceComparisonRangeChart: View {
 
                 return BodyChartSelectionValue(
                     title: entry.sourceName,
-                    value: "\(valueFormatter(lowValue))-\(valueFormatter(highValue))",
+                    // "48-142 bpm": the unit once, after the high end.
+                    value: BodyHealthStatFormat.rangeText(
+                        min(lowValue, highValue)...max(lowValue, highValue),
+                        formatter: valueFormatter
+                    ),
                     color: color(for: entry)
                 )
             }

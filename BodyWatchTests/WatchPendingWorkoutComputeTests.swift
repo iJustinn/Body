@@ -10,10 +10,10 @@
 //    stays pending until a compute has provably published readiness from it. A
 //    run that merely started, that coalesced onto an older run, that failed an
 //    input, or whose save failed consumes nothing.
-//  * A background trigger (the workout observer, a pushed context, the hourly
+//  * A background trigger (the workout observer, a pushed context, the 30 minute
 //    wake) also runs an ORDINARY compute when the display is stale, under the
 //    same 30 minute attempt throttle, and never raises an authorization sheet.
-//  * The model keeps one background wake requested: an hour out, or pending
+//  * The model keeps one background wake requested: 30 minutes out, or pending
 //    work's earlier retry, and a throttled trigger never postpones it.
 //
 //  Every model gets its own UserDefaults suite (`environment.defaults`), which
@@ -33,7 +33,7 @@ import XCTest
 final class WatchPendingWorkoutComputeTests: XCTestCase {
     private let t0 = Date(timeIntervalSince1970: 1_700_000_000)
     private func at(_ seconds: TimeInterval) -> Date { t0.addingTimeInterval(seconds) }
-    private var hour: TimeInterval { WatchMetricsModel.backgroundRefreshInterval }
+    private var wake: TimeInterval { WatchMetricsModel.backgroundRefreshInterval }
     private var spacing: TimeInterval { WatchPendingRecomputePolicy.minimumSpacing }
     private let attemptStampKey = "watchLastComputeAttemptDate"
 
@@ -185,7 +185,7 @@ final class WatchPendingWorkoutComputeTests: XCTestCase {
         XCTAssertEqual(script.computeCalls, [t0], "a stale display is worth a compute on a background wake too")
         XCTAssertEqual(script.persisted, 1)
         XCTAssertEqual(model.pendingWorkForTesting, WatchPendingReadinessWork())
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)])
         XCTAssertFalse(model.hasPendingRetryTimerForTesting)
     }
 
@@ -195,15 +195,30 @@ final class WatchPendingWorkoutComputeTests: XCTestCase {
 
         await model.recomputeIfStale(trigger: .background)
         XCTAssertEqual(script.computeCalls, [t0])
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)])
 
         // A push ten minutes later: inside the attempt throttle, so no compute,
-        // and the wake already requested for t0 + 1h must not move to t0 + 70m.
+        // and the wake already requested for t0 + 30m must not move to t0 + 40m.
         script.now = at(600)
         await model.recomputeIfStale(trigger: .background)
         await model.recomputeIfStale()
         XCTAssertEqual(script.computeCalls, [t0])
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)])
+    }
+
+    func testWakeDeliveredAfterItsDateComputesAndArmsTheNext() async {
+        let (model, script, _) = makeModel()
+        script.computes = [(stamped: true, coverage: nil), (stamped: true, coverage: nil)]
+
+        await model.recomputeIfStale(trigger: .background)
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)])
+
+        // watchOS wakes the app at or after the requested date; a second late
+        // clears the 30 minute attempt throttle the previous compute stamped.
+        script.now = at(wake + 1)
+        await model.recomputeIfStale(trigger: .background)
+        XCTAssertEqual(script.computeCalls, [t0, at(wake + 1)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake), at(wake + 1 + wake)])
     }
 
     func testOrdinaryNilResultStillSchedulesAndStaysThrottled() async {
@@ -213,12 +228,12 @@ final class WatchPendingWorkoutComputeTests: XCTestCase {
         // Foreground, so the only scheduling is the nil result exit.
         await model.recomputeIfStale()
         XCTAssertEqual(script.computeCalls, [t0])
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)])
 
         script.now = at(600)
         await model.recomputeIfStale(trigger: .background)
         XCTAssertEqual(script.computeCalls, [t0], "a run that produced nothing still counts as the attempt")
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)])
 
         script.now = at(WatchMetricsSnapshot.staleInterval + 1)
         await model.recomputeIfStale(trigger: .background)
@@ -234,7 +249,7 @@ final class WatchPendingWorkoutComputeTests: XCTestCase {
         _ = await (foreground, background)
 
         XCTAssertEqual(script.computeCalls, [t0], "the attempt stamp is set before either trigger suspends on the compute")
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)])
     }
 
     // MARK: - Detection and consumption
@@ -249,7 +264,7 @@ final class WatchPendingWorkoutComputeTests: XCTestCase {
         XCTAssertEqual(script.computeCalls, [t0])
         XCTAssertEqual(tracker.commits, 1, "the cursor advances only after the change was recorded as pending")
         XCTAssertEqual(model.pendingWorkForTesting, WatchPendingReadinessWork())
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour)], "consumed work leaves only the hourly wake")
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)], "consumed work leaves only the standing wake")
         XCTAssertFalse(model.hasPendingRetryTimerForTesting)
     }
 
@@ -292,25 +307,25 @@ final class WatchPendingWorkoutComputeTests: XCTestCase {
         await model.recomputeIfStale(trigger: .background)
         XCTAssertEqual(model.pendingWorkForTesting.pendingSince, t0)
         XCTAssertEqual(model.pendingWorkForTesting.attempts, 1)
-        // The hourly wake armed at the start of the trigger, then pulled in to
+        // The standing wake armed at the start of the trigger, then pulled in to
         // the pending work's five minute retry.
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour), at(spacing)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake), at(spacing)])
         XCTAssertTrue(model.hasPendingRetryTimerForTesting)
 
         // Too early: no compute, and the retry already requested stands.
         script.now = at(60)
         await model.recomputeIfStale(trigger: .background)
         XCTAssertEqual(script.computeCalls.count, 1)
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour), at(spacing)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake), at(spacing)])
         XCTAssertTrue(model.hasPendingRetryTimerForTesting)
 
         // The input recovered by the time the spacing has passed. Consuming the
-        // work swaps the retry for the next hourly wake and disarms the timer.
+        // work swaps the retry for the next standing wake and disarms the timer.
         script.now = at(spacing)
         await model.recomputeIfStale(trigger: .background)
         XCTAssertEqual(script.computeCalls.count, 2)
         XCTAssertNil(model.pendingWorkForTesting.pendingSince)
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour), at(spacing), at(spacing + hour)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake), at(spacing), at(spacing + wake)])
         XCTAssertFalse(model.hasPendingRetryTimerForTesting)
     }
 
@@ -321,7 +336,7 @@ final class WatchPendingWorkoutComputeTests: XCTestCase {
 
         await model.recomputeIfStale(trigger: .background)
         XCTAssertEqual(model.pendingWorkForTesting.pendingSince, t0)
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour), at(spacing)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake), at(spacing)])
     }
 
     func testFailedSaveDoesNotConsumeTheChange() async {
@@ -381,10 +396,10 @@ final class WatchPendingWorkoutComputeTests: XCTestCase {
         XCTAssertEqual(script.authorizationRequests, 0)
         XCTAssertEqual(tracker.detectCalls, 0)
         XCTAssertTrue(script.computeCalls.isEmpty)
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour)], "the hourly wake is armed before the authorization check")
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)], "the standing wake is armed before the authorization check")
     }
 
-    func testUnsettledAuthorizationSkipsComputeButKeepsTheHourlyWake() async {
+    func testUnsettledAuthorizationSkipsComputeButKeepsTheStandingWake() async {
         let (model, script, tracker) = makeModel()
         script.authorizationSettled = false
         script.computes = [(stamped: true, coverage: nil)]
@@ -393,7 +408,7 @@ final class WatchPendingWorkoutComputeTests: XCTestCase {
         XCTAssertTrue(script.computeCalls.isEmpty)
         XCTAssertEqual(script.authorizationRequests, 0)
         XCTAssertEqual(tracker.detectCalls, 0)
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)])
 
         // Settled by a later foreground open: the next wake computes, since the
         // skipped one never stamped an attempt.
@@ -401,7 +416,7 @@ final class WatchPendingWorkoutComputeTests: XCTestCase {
         script.now = at(60)
         await model.recomputeIfStale(trigger: .background)
         XCTAssertEqual(script.computeCalls, [at(60)])
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour)])
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)])
     }
 
     func testIneligibleWatchNeitherReadsNorSchedules() async {
@@ -554,6 +569,6 @@ final class WatchPendingWorkoutComputeTests: XCTestCase {
         XCTAssertEqual(model.pushComputesInFlightForTesting, 0)
         XCTAssertEqual(script.computeCalls, [t0])
         XCTAssertEqual(script.persisted, 1)
-        XCTAssertEqual(script.scheduledRefreshes, [at(hour)], "the push armed the hourly wake")
+        XCTAssertEqual(script.scheduledRefreshes, [at(wake)], "the push armed the standing wake")
     }
 }

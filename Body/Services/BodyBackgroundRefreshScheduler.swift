@@ -64,7 +64,14 @@ enum BodyBackgroundRefreshScheduler {
                 return
             }
             defer { lease.invalidate() }
-            let outcome = await lease.run { await MetricWarningBackgroundEvaluator.shared.evaluate() }
+            // A posted warning reaches the watch's copy of the notification
+            // ledger now, rather than with the next refresh, so the watch
+            // doesn't notify the same kind too.
+            let outcome = await lease.run {
+                await MetricWarningBackgroundEvaluator.shared.evaluate(afterPosting: { @MainActor in
+                    await BodyAppRuntime.shared.workoutStore.publishWatchNotificationLedger()
+                })
+            }
             switch outcome {
             case .success, .skipped:
                 completion.complete(success: true)

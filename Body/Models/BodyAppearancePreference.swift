@@ -881,11 +881,12 @@ struct BodyMetricWarningSelection: Equatable {
     }
 }
 
-/// The warnings the user closed with a warning card's close button. Detection
+/// The warnings the user folded with a warning card's chevron. Detection
 /// reports the earliest episode of a day, so a threshold warning is one kind on
-/// one day, and Body Radar's is its one frozen night: closing either hides that
-/// day's card and its Home badges, and the next day's warning shows again.
-/// Entries past the detail page's date picker are pruned.
+/// one day, and Body Radar's is its one frozen night: folding either collapses
+/// that day's card to its title and hides its Home badges, unfolding brings
+/// both back, and the next day's warning shows unfolded again. Entries past the
+/// detail page's date picker are pruned.
 struct BodyDismissedMetricWarnings: Equatable {
     static let retentionDayCount = 60
 
@@ -898,7 +899,7 @@ struct BodyDismissedMetricWarnings: Equatable {
     }
 
     func contains(_ event: MetricWarningEvent, calendar: Calendar = .bodyGregorian) -> Bool {
-        entries.contains(Self.entry(name: event.kind.rawValue, date: event.startDate, calendar: calendar))
+        entries.contains(Self.entryKey(for: event, calendar: calendar))
     }
 
     func contains(_ night: BodyRadarNight, calendar: Calendar = .bodyGregorian) -> Bool {
@@ -910,7 +911,7 @@ struct BodyDismissedMetricWarnings: Equatable {
         now: Date = Date(),
         calendar: Calendar = .bodyGregorian
     ) -> BodyDismissedMetricWarnings {
-        inserting(Self.entry(name: event.kind.rawValue, date: event.startDate, calendar: calendar), now: now, calendar: calendar)
+        dismissing(entry: Self.entryKey(for: event, calendar: calendar), now: now, calendar: calendar)
     }
 
     func dismissing(
@@ -921,23 +922,102 @@ struct BodyDismissedMetricWarnings: Equatable {
         inserting(Self.entry(name: Self.bodyRadarEntryName, date: night.date, calendar: calendar), now: now, calendar: calendar)
     }
 
+    func unfolding(_ event: MetricWarningEvent, calendar: Calendar = .bodyGregorian) -> BodyDismissedMetricWarnings {
+        unfolding(entry: Self.entryKey(for: event, calendar: calendar))
+    }
+
+    func unfolding(_ night: BodyRadarNight, calendar: Calendar = .bodyGregorian) -> BodyDismissedMetricWarnings {
+        removing(Self.entry(name: Self.bodyRadarEntryName, date: night.date, calendar: calendar))
+    }
+
+    /// Folds the warning stored under `entry`, a key from `entryKey(for:)` or a
+    /// watch fold record's (`WatchWarningFoldSync.Record.key`). Prunes like the
+    /// event based `dismissing`.
+    func dismissing(
+        entry: String,
+        now: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> BodyDismissedMetricWarnings {
+        inserting(entry, now: now, calendar: calendar)
+    }
+
+    /// Unfolds the warning stored under `entry`; see `dismissing(entry:)`.
+    func unfolding(entry: String) -> BodyDismissedMetricWarnings {
+        removing(entry)
+    }
+
+    /// The entry a threshold warning is stored under: its kind and the day it
+    /// started, "highHeartRate@2026-10-04". The watch receives it with the
+    /// warning (`WatchMetricWarning.foldKey`) and sends it back verbatim, and
+    /// builds the same key for a warning it detects itself, both through
+    /// `MetricWarningDayKey.foldKey`, the one place a fold key is built.
+    static func entryKey(for event: MetricWarningEvent, calendar: Calendar = .bodyGregorian) -> String {
+        MetricWarningDayKey.foldKey(kind: event.kind, startDate: event.startDate, calendar: calendar)
+    }
+
+    /// Whether `entry` has the shape `entryKey(for:)` builds: a
+    /// `MetricWarningKind` raw value, "@", and a real yyyy-MM-dd day. Body
+    /// Radar's "bodyRadar@…" entries and anything malformed fail, so a record
+    /// from the watch can only fold or unfold a threshold warning.
+    static func isThresholdWarningEntry(_ entry: String) -> Bool {
+        let parts = entry.split(separator: "@", omittingEmptySubsequences: false)
+        guard parts.count == 2, MetricWarningKind(rawValue: String(parts[0])) != nil else {
+            return false
+        }
+
+        let fields = parts[1].split(separator: "-", omittingEmptySubsequences: false)
+        guard fields.count == 3,
+              fields[0].count == 4, fields[1].count == 2, fields[2].count == 2,
+              fields.allSatisfy({ $0.allSatisfy { $0.isASCII && $0.isNumber } }),
+              let year = Int(fields[0]), let month = Int(fields[1]), let day = Int(fields[2]) else {
+            return false
+        }
+
+        // Round trip through a calendar so an impossible day ("2026-02-31")
+        // fails as well as a malformed one.
+        let calendar = Calendar(identifier: .gregorian)
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) else {
+            return false
+        }
+        return dayText(for: date, calendar: calendar) == parts[1]
+    }
+
+    /// Whether `entry` is inside the retention window at `now`: the cutoff
+    /// `dismissing` prunes with, so a stored fold and its stamp
+    /// (`BodyMetricWarningFoldDates`) age out together.
+    static func isRetained(_ entry: String, now: Date, calendar: Calendar) -> Bool {
+        isRetained(entry, cutoffDay: retentionCutoffDay(now: now, calendar: calendar))
+    }
+
     static func storedValue(from rawValue: String) -> BodyDismissedMetricWarnings {
         BodyDismissedMetricWarnings(entries: Set(rawValue.split(separator: ",").map(String.init)))
     }
 
     private func inserting(_ entry: String, now: Date, calendar: Calendar) -> BodyDismissedMetricWarnings {
-        let today = calendar.startOfDay(for: now)
-        let cutoff = calendar.date(byAdding: .day, value: -Self.retentionDayCount, to: today) ?? today
-        let cutoffDay = Self.dayText(for: cutoff, calendar: calendar)
-        var next = entries.filter { entry in
-            guard let day = entry.split(separator: "@").last else {
-                return false
-            }
-            // yyyy-MM-dd sorts chronologically as text.
-            return String(day) >= cutoffDay
-        }
+        let cutoffDay = Self.retentionCutoffDay(now: now, calendar: calendar)
+        var next = entries.filter { Self.isRetained($0, cutoffDay: cutoffDay) }
         next.insert(entry)
         return BodyDismissedMetricWarnings(entries: next)
+    }
+
+    private func removing(_ entry: String) -> BodyDismissedMetricWarnings {
+        var next = entries
+        next.remove(entry)
+        return BodyDismissedMetricWarnings(entries: next)
+    }
+
+    private static func retentionCutoffDay(now: Date, calendar: Calendar) -> String {
+        let today = calendar.startOfDay(for: now)
+        let cutoff = calendar.date(byAdding: .day, value: -retentionDayCount, to: today) ?? today
+        return dayText(for: cutoff, calendar: calendar)
+    }
+
+    private static func isRetained(_ entry: String, cutoffDay: String) -> Bool {
+        guard let day = entry.split(separator: "@").last else {
+            return false
+        }
+        // yyyy-MM-dd sorts chronologically as text.
+        return String(day) >= cutoffDay
     }
 
     private static func entry(name: String, date: Date, calendar: Calendar) -> String {
@@ -945,30 +1025,102 @@ struct BodyDismissedMetricWarnings: Equatable {
     }
 
     private static func dayText(for date: Date, calendar: Calendar) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
+        MetricWarningDayKey.dayText(for: date, calendar: calendar)
+    }
+}
+
+/// When each threshold warning's fold state last changed, keyed by its
+/// `BodyDismissedMetricWarnings` entry, for the two way fold sync with the
+/// watch (`WatchWarningFoldSync`): last writer wins per entry, so each fold
+/// and unfold needs a stamp, on whichever device made it. Kept beside the
+/// dismissed set rather than in it, because every phone view already reads
+/// that set as plain entries. Unfolds are stamped too (an unfolded warning is
+/// absent from the set, but its stamp still decides the next record), and an
+/// entry folded before this map existed has no stamp, so any watch record
+/// beats it. Stored as `[String: Double]` of `timeIntervalSinceReferenceDate`
+/// under `BodyAppearancePreference.metricWarningFoldDatesKey`, pruned with the
+/// set's retention window.
+enum BodyMetricWarningFoldDates {
+    static func load(defaults: UserDefaults = .standard) -> [String: Date] {
+        guard let stored = defaults.dictionary(forKey: BodyAppearancePreference.metricWarningFoldDatesKey) else {
+            return [:]
+        }
+        return stored.compactMapValues { value in
+            (value as? Double).map { Date(timeIntervalSinceReferenceDate: $0) }
+        }
+    }
+
+    /// Stamps a fold or unfold the user just made on this iPhone: strictly
+    /// after the entry's current stamp, even one a watch with a faster clock
+    /// set (`WatchWarningFoldSync.stamp(now:after:)`), so the change wins over
+    /// what it replaced. The caller writes the dismissed set itself.
+    static func recordChange(
+        of event: MetricWarningEvent,
+        now: Date = Date(),
+        defaults: UserDefaults = .standard,
+        calendar: Calendar = .bodyGregorian
+    ) {
+        let key = BodyDismissedMetricWarnings.entryKey(for: event, calendar: calendar)
+        var dates = load(defaults: defaults)
+        dates[key] = WatchWarningFoldSync.stamp(now: now, after: dates[key])
+        save(dates, now: now, defaults: defaults, calendar: calendar)
+    }
+
+    /// Applies fold records from the watch, each only when its key is a
+    /// threshold warning entry inside the retention window and its stamp is
+    /// strictly later than the one stored here (a tie keeps the iPhone's
+    /// state). An accepted record's own stamp is stored, never `now`, so both
+    /// devices end up holding the same record. Writes the dismissed set and
+    /// the stamps once, after the loop, and only when a record was accepted;
+    /// returns whether one was, so the caller republishes only on a change.
+    @discardableResult
+    static func applying(
+        _ records: [WatchWarningFoldSync.Record],
+        now: Date = Date(),
+        defaults: UserDefaults = .standard,
+        calendar: Calendar = .bodyGregorian
+    ) -> Bool {
+        var dates = load(defaults: defaults)
+        var dismissed = BodyDismissedMetricWarnings.storedValue(
+            from: defaults.string(forKey: BodyAppearancePreference.dismissedMetricWarningsKey) ?? ""
+        )
+        var accepted = false
+
+        for record in records {
+            guard BodyDismissedMetricWarnings.isThresholdWarningEntry(record.key),
+                  BodyDismissedMetricWarnings.isRetained(record.key, now: now, calendar: calendar),
+                  WatchWarningFoldSync.supersedes(record.changedAt, current: dates[record.key]) else {
+                continue
+            }
+            dates[record.key] = record.changedAt
+            dismissed = record.isFolded
+                ? dismissed.dismissing(entry: record.key, now: now, calendar: calendar)
+                : dismissed.unfolding(entry: record.key)
+            accepted = true
+        }
+
+        guard accepted else {
+            return false
+        }
+        defaults.set(dismissed.rawValue, forKey: BodyAppearancePreference.dismissedMetricWarningsKey)
+        save(dates, now: now, defaults: defaults, calendar: calendar)
+        return true
+    }
+
+    /// Writes the stamps, dropping those whose entry has left the retention
+    /// window.
+    private static func save(_ dates: [String: Date], now: Date, defaults: UserDefaults, calendar: Calendar) {
+        let retained = dates.filter { BodyDismissedMetricWarnings.isRetained($0.key, now: now, calendar: calendar) }
+        defaults.set(
+            retained.mapValues(\.timeIntervalSinceReferenceDate),
+            forKey: BodyAppearancePreference.metricWarningFoldDatesKey
+        )
     }
 }
 
 /// The user's custom limits for the metric threshold warnings. Only overrides
 /// are stored, so a kind the user never touched keeps following its default —
 /// which for high heart rate tracks their max HR rather than a fixed number.
-/// Wrist temperature thresholds and readings are stored in °C; every place
-/// that prints one (the Settings row, the warning card, the notification)
-/// shows it in the user's temperature unit through this one formatter.
-enum BodyMetricWarningTemperatureText {
-    static func text(
-        celsius: Double,
-        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference
-    ) -> String {
-        let display = BodyValueFormat.temperatureDisplay(
-            celsius: celsius,
-            temperatureUnitPreference: temperatureUnitPreference
-        )
-        return "\(display.value)°\(display.unit)"
-    }
-}
-
 struct BodyMetricWarningThresholds: Equatable {
     static let defaultValue = BodyMetricWarningThresholds(overrides: [:])
     static var defaultRawValue: String {
@@ -1082,7 +1234,7 @@ struct BodyDashboardFetchSelection: Equatable {
         .oxygenSaturation,
         .wristTemperature
     ]
-    /// Stress reads its own inputs — quiet heart rate, HRV, the coarse
+    /// Stress reads its own inputs — quiet heart rate, HRV, the 15 minute
     /// movement mask, and the sleep window for rest context. Deliberately
     /// separate from `readinessDependencyKinds`: the two metrics overlap but
     /// are not the same set, and neither should pull the other's data.
@@ -1555,7 +1707,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Per-kind beta chip label — Readiness carries the "v2" chip, Stress "v1",
+    /// Per-kind beta chip label — Readiness carries the "v2" chip, Stress "v2",
     /// Body Radar shows "Beta v3" instead, and every other card carries no chip
     /// at all.
     var betaVersionLabel: LocalizedStringKey? {
@@ -1563,7 +1715,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
         case .readiness:
             return "v2"
         case .stress:
-            return "v1"
+            return "v2"
         case .bodyRadar:
             return "Beta v3"
         case .vitals,
@@ -1605,7 +1757,7 @@ enum BodyHomeCardKind: String, CaseIterable, Identifiable {
 
     /// The Sleep Debt's own chip. It rides beside the Sleep Debt toggle in Settings
     /// and on the About Sleep Debt card.
-    static let sleepDebtVersionLabel: LocalizedStringKey = "v1"
+    static let sleepDebtVersionLabel: LocalizedStringKey = "v2"
 
     /// True for cards whose headline number Body derives itself (a score, ratio, or
     /// baseline comparison) rather than reading it straight out of HealthKit.

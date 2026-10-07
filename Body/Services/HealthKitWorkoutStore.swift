@@ -544,17 +544,27 @@ final class HealthKitWorkoutStore {
     /// load rebuild (cost gate). The watch refuses to replay loads whose
     /// coverage no longer reaches its delta window — otherwise the uncovered
     /// days would be silently zero-filled as fabricated rest days.
+    ///
+    /// `effortHints` carries the same fetch's ratings for the recent workouts
+    /// (`WatchComputeSeed.trainingLoadEffortHints`).
     @ObservationIgnored
-    private var cachedComputeTrainingLoadSeed: (startDay: Date, loads: [Double], through: Date)?
+    private var cachedComputeTrainingLoadSeed: (startDay: Date, loads: [Double], through: Date, effortHints: [String: Double])?
 
     /// Sole writer of a POPULATED `cachedComputeTrainingLoadSeed`: persists the
     /// same value (`HealthDashboardSnapshotStore`) so a relaunch — whose
     /// restored `dataThrough` lets a workout-only publish ship a seed before
     /// any full Training Load refresh has run — carries the loads forward
     /// instead of replacing the watch's complete seed with one missing them.
-    private func setCachedComputeTrainingLoadSeed(startDay: Date, loads: [Double], through: Date) {
-        cachedComputeTrainingLoadSeed = (startDay: startDay, loads: loads, through: through)
-        HealthDashboardSnapshotStore.saveWatchTrainingLoadSeed(startDay: startDay, loads: loads, through: through)
+    private func setCachedComputeTrainingLoadSeed(
+        startDay: Date,
+        loads: [Double],
+        through: Date,
+        effortHints: [String: Double]
+    ) {
+        cachedComputeTrainingLoadSeed = (startDay: startDay, loads: loads, through: through, effortHints: effortHints)
+        HealthDashboardSnapshotStore.saveWatchTrainingLoadSeed(
+            startDay: startDay, loads: loads, through: through, effortHints: effortHints
+        )
     }
     private(set) var loadingMonthKeys: Set<BodyWorkoutMonthKey> = []
     @ObservationIgnored private var monthFetchRevisions: [BodyWorkoutMonthKey: Int] = [:]
@@ -1720,8 +1730,13 @@ final class HealthKitWorkoutStore {
     ) async -> Bool {
         guard mayApplyRefreshResults, !Task.isCancelled else { return false }
         if kind == .trainingLoad {
+            // The compute seed's Training Load piece is NOT cleared here: every
+            // later publish would ship a seed without its daily loads, and the
+            // watch, which replaces its seed wholesale, could no longer replay
+            // Training Load (or stamp Readiness) until the next full refresh.
+            // A successful read rebuilds it (`applyHealthMetricRefresh`), and a
+            // failed one keeps the last seed, as the iPhone keeps its last value.
             if observed {
-                cachedComputeTrainingLoadSeed = nil
                 await engine.setHealthTrendAnchorDate(nil)
                 guard mayApplyRefreshResults, !Task.isCancelled else { return false }
             }
@@ -1867,6 +1882,19 @@ final class HealthKitWorkoutStore {
         ) else { return false }
         guard mayApplyRefreshResults else { return false }
         if observed {
+            // Rebuilt from the fetch this read just memoized, ahead of the stamp
+            // and the save below (as the explicit pull rebuilds ahead of its own
+            // save), so a fence lost across this await persists nothing. No
+            // `lastTrainingLoadComputeDate`: a repair pass never mints a newer
+            // watch watermark, so one that ran before a watch workout reached
+            // the iPhone can't override the watch's newer value. The seed's
+            // effort hints make the watch's own compute agree instead.
+            if kind == .trainingLoad, let seed = await engine.trainingLoadDailyLoadSeed(calendar: calendar) {
+                guard mayApplyRefreshResults, !Task.isCancelled else { return false }
+                setCachedComputeTrainingLoadSeed(
+                    startDay: seed.startDay, loads: seed.loads, through: date, effortHints: seed.effortHints
+                )
+            }
             #if DEBUG
             observedStage = "payloadOrFence"
             #endif
@@ -1917,7 +1945,9 @@ final class HealthKitWorkoutStore {
                 // post-edit efforts instead of the pre-edit array.
                 if let seed = await engine.trainingLoadDailyLoadSeed(calendar: calendar) {
                     guard mayApplyRefreshResults else { return false }
-                    setCachedComputeTrainingLoadSeed(startDay: seed.startDay, loads: seed.loads, through: date)
+                    setCachedComputeTrainingLoadSeed(
+                        startDay: seed.startDay, loads: seed.loads, through: date, effortHints: seed.effortHints
+                    )
                 }
             }
         }
@@ -2869,14 +2899,15 @@ final class HealthKitWorkoutStore {
     /// kilocalories for the "Equivalent" card, or nil when there is nothing
     /// meaningful to show (see `EnergyEquivalent.decompose`).
     ///
-    /// Invalidation rule: the cached/persisted breakdown is reused iff its
-    /// `kilocalories` matches the workout's current active energy AND its
-    /// `hiddenFoods` matches `hiddenFoods` exactly AND it was computed under
-    /// the same `prefersMoreItems` choice (older payloads without the flag
-    /// read as false). `tuningVersion` is forensic metadata only and never
-    /// invalidates — bumping it recomputes nothing on its own. A mismatch
-    /// (kcal restated by HealthKit, or the user changed which foods are hidden
-    /// or the representation style) recomputes and re-persists.
+    /// Invalidation rule (`PersistedEnergyEquivalent.isReusable`): the
+    /// cached/persisted breakdown is reused iff it was drawn under the current
+    /// `EnergyEquivalent.tuningVersion` AND its `kilocalories` matches the
+    /// workout's current source energy AND its `hiddenFoods` matches
+    /// `hiddenFoods` exactly AND it was computed under the same
+    /// `prefersMoreItems` choice (older payloads without the flag read as
+    /// false). A mismatch (an update changed the food table, kcal restated by
+    /// HealthKit, or the user changed which foods are hidden or the
+    /// representation style) recomputes and re-persists.
     func energyEquivalentEmojis(for workout: WorkoutSummary, hiddenFoods: Set<String>, prefersMoreItems: Bool, usesTotalEnergy: Bool) async -> [String]? {
         let revalidating = bypassesPersistedDetailSeeding
         await hydrateWorkoutDetailIfNeeded(for: workout)
@@ -2888,9 +2919,7 @@ final class HealthKitWorkoutStore {
             : workout.activeEnergyKilocalories
 
         if let cached = detailCaches.energyEquivalentCache[workout.id],
-           cached.kilocalories == sourceKilocalories,
-           Set(cached.hiddenFoods) == hiddenFoods,
-           (cached.prefersMoreItems ?? false) == prefersMoreItems {
+           cached.isReusable(kilocalories: sourceKilocalories, hiddenFoods: hiddenFoods, prefersMoreItems: prefersMoreItems) {
             return cached.emojis
         }
 
@@ -3506,8 +3535,11 @@ final class HealthKitWorkoutStore {
         // Make the lazily fetched series durable so the next launch renders the
         // day chart straight from the sidecar.
         var successfulSeries: Set<HealthDaySampleSeries> = []
+        // Stress's 15 minute movement series share `.steps` / `.activeEnergy` but
+        // this load never fetches them, so it must not mark them authoritative.
         for series in HealthDaySampleSeries.allCases
-        where series.kind == kind && series != .heartbeatRMSSDDaySamples && series != .recoveryHRVDaySamplesSecondary {
+        where series.kind == kind && series != .heartbeatRMSSDDaySamples && series != .recoveryHRVDaySamplesSecondary
+            && !series.isStressMovementMask {
             if series.isSecondary ? secondarySamples != nil : primarySamples != nil {
                 successfulSeries.insert(series)
             }
@@ -3559,8 +3591,79 @@ final class HealthKitWorkoutStore {
         }
     }
 
+    /// The "Stress Updated" page's load, run after its full refresh: Stress
+    /// rescored under the current record context before the page lets anyone in.
+    /// Deterministic rather than leaning on the input loader, whose early returns
+    /// (a refresh or source change mid fetch, nothing new to publish) can skip its
+    /// recompute: it joins a load already running, then, while the context is
+    /// still the old one, fetches the two 15 minute movement series and their
+    /// hourly Day View counterparts over the whole window itself and rescores.
+    /// True once the recorded days carry the current context, and the watch then
+    /// gets them at once (application context, newest wins). A failed fetch or a
+    /// stand down returns false: the page offers Try Again once, then lets the
+    /// user in on the old records, which later refreshes rescore.
+    func completeStressUpdateLoad() async -> Bool {
+        if let stressInputLoadTask {
+            await stressInputLoadTask.value
+        }
+
+        if healthTrends.recordedStressContext != currentStressRecordContextSignature {
+            let epoch = cacheEpoch
+            let calendar = Calendar.bodyGregorian
+            let interval = HealthKitFetchEngine.intradayDaySampleInterval(calendar: calendar, anchor: nil)
+            let capturedDaySampleSignatures = currentDaySampleSignatures()
+            let capturedDaySampleRevisions = daySampleRevisions
+            var trends = healthTrends
+            var successfulSeries: Set<HealthDaySampleSeries> = []
+            for series in Self.stressIntradaySampleSeries
+            where series.isStressMovementMask
+                && permissionSelection.includes(HealthKitFetchEngine.healthPermission(forMetric: series.kind)) {
+                // The whole window from its midnight start: an authoritative copy,
+                // not an incremental merge.
+                guard let samples = await engine.fetchStressMovementSamples(
+                    for: series.kind,
+                    calendar: calendar,
+                    startDate: interval.start,
+                    endDate: interval.end
+                ) else {
+                    return false
+                }
+                trends[keyPath: series.trendKeyPath] = samples
+                successfulSeries.insert(series)
+                // The hourly Day View series beside it, re-read whole too: the
+                // upgrade guard compares the two, and a stale hourly cache beside
+                // an empty 15 minute read (Steps revoked in iOS Settings after the
+                // cache filled) would otherwise keep it waiting for good.
+                let hourly: HealthDaySampleSeries = series.kind == .steps ? .stepsDaySamples : .activeEnergyDaySamples
+                guard let hourlySamples = await engine.fetchIntradayDaySamples(for: series.kind, calendar: calendar) else {
+                    return false
+                }
+                trends[keyPath: hourly.trendKeyPath] = hourlySamples
+                successfulSeries.insert(hourly)
+            }
+
+            guard !Task.isCancelled, !isRefreshing,
+                  Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+                  currentDaySampleSignatures() == capturedDaySampleSignatures else {
+                return false
+            }
+            if !publishDaySamples(from: trends, successfulSeries: successfulSeries,
+                                  capturedRevisions: capturedDaySampleRevisions).isEmpty {
+                persistDaySampleSidecar()
+            }
+            await recomputeStress(on: Date(), calendar: calendar)
+        }
+
+        guard healthTrends.recordedStressContext == currentStressRecordContextSignature else {
+            return false
+        }
+        publishWatchSnapshot()
+        scheduleStressBackfillIfNeeded()
+        return true
+    }
+
     /// Fetches the intraday inputs Stress scores from — HR/HRV day samples, the
-    /// coarse steps/active-energy movement mask, and the beat-to-beat RMSSD
+    /// 15 minute steps/active-energy movement mask, and the beat-to-beat RMSSD
     /// series — then recomputes. Every fetch is incremental against the cached
     /// series and bounded to the intraday day-sample window, so today's curve
     /// stays current without re-pulling a month of samples.
@@ -3588,27 +3691,25 @@ final class HealthKitWorkoutStore {
         let capturedDaySampleSignatures = currentDaySampleSignatures()
         let capturedDaySampleRevisions = daySampleRevisions
 
-        var fetched: [HealthMetricKind: (samples: HealthTrendSeries, refetchStart: Date)] = [:]
-        for kind in Self.stressIntradaySampleKinds
-        where permissionSelection.includes(HealthKitFetchEngine.healthPermission(forMetric: kind)) {
-            var fetchStart = HealthKitFetchEngine.incrementalFetchStart(
-                after: healthTrends.daySeries(for: kind),
-                windowStart: interval.start
-            )
-            // Hourly cumulative buckets overlap on their own day and the merge
-            // has no bucket dedupe, so restart at that day's midnight.
-            if kind == .steps || kind == .activeEnergy {
-                fetchStart = max(interval.start, calendar.startOfDay(for: fetchStart))
-            }
+        var fetched: [HealthDaySampleSeries: (samples: HealthTrendSeries, refetchStart: Date)] = [:]
+        for series in Self.stressIntradaySampleSeries
+        where permissionSelection.includes(HealthKitFetchEngine.healthPermission(forMetric: series.kind)) {
+            let cached = healthTrends[keyPath: series.trendKeyPath]
+            // Cumulative buckets overlap on their own day and the merge has no
+            // bucket dedupe, so the movement series restart at that day's
+            // midnight, which is also their 15 minute anchor.
+            let fetchStart = series.isStressMovementMask
+                ? HealthKitFetchEngine.stressMovementFetchStart(after: cached, windowStart: interval.start, calendar: calendar)
+                : HealthKitFetchEngine.incrementalFetchStart(after: cached, windowStart: interval.start)
             guard fetchStart < interval.end else {
                 continue
             }
-            // A `nil` result is a failed query, not an empty day: skip the kind
-            // and keep its cached series. Post-refresh continuation, so it
-            // spends the background budget.
+            // A `nil` result is a failed query, not an empty day: skip the series
+            // and keep its cached copy. Post-refresh continuation, so it spends
+            // the background budget.
             guard let samples = await withBackgroundQueryPool({
-                await engine.fetchIntradayDaySamples(
-                    for: kind,
+                await engine.fetchStressIntradaySamples(
+                    series,
                     calendar: calendar,
                     startDate: fetchStart,
                     endDate: interval.end
@@ -3616,7 +3717,7 @@ final class HealthKitWorkoutStore {
             }) else {
                 continue
             }
-            fetched[kind] = (samples, fetchStart)
+            fetched[series] = (samples, fetchStart)
         }
 
         let rmssdFetchStart = HealthKitFetchEngine.incrementalFetchStart(
@@ -3642,25 +3743,13 @@ final class HealthKitWorkoutStore {
         }
 
         var trends = healthTrends
-        for (kind, result) in fetched {
-            let merged = HealthKitFetchEngine.mergeIntradaySamples(
-                existing: trends.daySeries(for: kind),
+        for (series, result) in fetched {
+            trends[keyPath: series.trendKeyPath] = HealthKitFetchEngine.mergeIntradaySamples(
+                existing: trends[keyPath: series.trendKeyPath],
                 incoming: result.samples,
                 windowStart: interval.start,
                 refetchStart: result.refetchStart
             )
-            switch kind {
-            case .heartRate:
-                trends.heartRateDaySamples = merged
-            case .heartRateVariability:
-                trends.heartRateVariabilityDaySamples = merged
-            case .steps:
-                trends.stepsDaySamples = merged
-            case .activeEnergy:
-                trends.activeEnergyDaySamples = merged
-            default:
-                break
-            }
         }
         if let rmssdSamples {
             trends.heartbeatRMSSDDaySamples = HealthKitFetchEngine.mergeIntradaySamples(
@@ -3670,15 +3759,17 @@ final class HealthKitWorkoutStore {
                 refetchStart: rmssdFetchStart
             )
         }
-        var successfulSeries = Set(HealthDaySampleSeries.allCases.filter {
-            !$0.isSecondary && $0 != .heartbeatRMSSDDaySamples && fetched[$0.kind] != nil
-        })
+        var successfulSeries = Set(fetched.keys)
         if rmssdSamples != nil { successfulSeries.insert(.heartbeatRMSSDDaySamples) }
         guard !publishDaySamples(from: trends, successfulSeries: successfulSeries,
                                  capturedRevisions: capturedDaySampleRevisions).isEmpty else { return }
         persistDaySampleSidecar()
         await recomputeStress(on: Date(), calendar: calendar)
         await recomputeBodyRadar(on: Date(), calendar: calendar)
+        // The live sleep history here is whatever the last refresh left, which
+        // right after a short refresh is the phase 1 window: apply the frozen
+        // nights, never mint one (`loadFullTrendWindow` does that).
+        await recomputeSleepDebt(on: Date(), calendar: calendar, freezes: false)
     }
 
     /// Phase 2 of the two-phase trend window (RefreshOptimizationPlan-02 P0-A).
@@ -3759,6 +3850,11 @@ final class HealthKitWorkoutStore {
         // captured — day samples, Stress state, recorded readiness — stays as
         // the LIVE snapshot has it, because the Stress input load and the
         // history backfill mutate exactly those fields while this runs.
+        // Whether the live sleep history is now the whole year: the sleep leaf
+        // itself refetched AND admitted. A failed or superseded leaf leaves the
+        // phase 1 history in place, which must not be frozen.
+        let appliedWholeSleepHistory = result.successfulLeaves.contains(.sleep)
+            && capturedRevisions[.sleep, default: 0] == trendInputRevisions[.sleep, default: 0]
         healthTrends = Self.applyingFullWindowTrendSeries(from: result, to: healthTrends,
             capturedRevisions: capturedRevisions, currentRevisions: trendInputRevisions)
         if result.hadQueryFailure { completedDashboardFreshness = nil }
@@ -3775,6 +3871,18 @@ final class HealthKitWorkoutStore {
             // if concurrent compute/input work superseded our derived copy.
             persistDashboardSnapshot()
         }
+
+        // The Sleep Debt freeze point. Phase 1 never mints a record: its short
+        // window may still hold a boundary night an older build cut short (the
+        // cache keeps it until this refetch repairs it), and a record is never
+        // rewritten, so freezing from it would make a wrong need permanent. A
+        // night therefore freezes the first time a whole year history exists
+        // after its day has passed, minutes after the refresh in the normal case.
+        guard appliedWholeSleepHistory, mayPublishQuietMaintenance, !isRefreshing,
+              Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch) else {
+            return
+        }
+        await recomputeSleepDebt(on: Date(), calendar: calendar, freezes: true)
     }
 
     /// Copies the daily trend series phase 2 refetched onto the live snapshot.
@@ -4721,7 +4829,7 @@ final class HealthKitWorkoutStore {
     ]
 
     /// The categories the Stress input loader reads (HR/HRV day samples, the
-    /// beat-to-beat series, and the coarse steps/energy movement mask).
+    /// beat-to-beat series, and the 15 minute steps/energy movement mask).
     private static let stressInputLoadPermissions: Set<BodyHealthPermission> = [
         .heart,
         .steps,
@@ -6016,6 +6124,11 @@ final class HealthKitWorkoutStore {
             // Same ordering fix, for Stress's activity mask.
             await recomputeStress(on: date, calendar: calendar, persists: false)
             await recomputeBodyRadar(on: date, calendar: calendar, persists: false)
+            // Freeze only from a whole year history: a short window may still
+            // hold a boundary night an older build cut short, and a record is
+            // never rewritten. A failed leaf may be the sleep one, which leaves
+            // the cached history in place. Phase 2 freezes once it lands.
+            await recomputeSleepDebt(on: date, calendar: calendar, freezes: !fetchedPartialTrendWindow && !hadQueryFailure, persists: false)
             publishWatchSnapshot()
             startStressInputLoadIfNeeded()
             // Phase 2 of the two-phase trend window, and only when phase 1
@@ -6171,6 +6284,14 @@ final class HealthKitWorkoutStore {
             await reapplyActivityReadinessAfterWorkouts(date: refreshDate, calendar: calendar)
             await recomputeStress(on: refreshDate, calendar: calendar)
             await recomputeBodyRadar(on: refreshDate, calendar: calendar)
+            // Same rule as `refreshRecentMonths`, and `refreshWorkoutMonth`
+            // (`updatesHealthSummary == false`) fetched no sleep history at all,
+            // so it only applies the frozen nights to the cached one.
+            await recomputeSleepDebt(
+                on: refreshDate,
+                calendar: calendar,
+                freezes: updatesHealthSummary && !fetchedPartialTrendWindow && !hadQueryFailure
+            )
             publishWatchSnapshot()
             startStressInputLoadIfNeeded()
             // Phase 2 of the two-phase trend window, same rule as
@@ -7140,13 +7261,19 @@ final class HealthKitWorkoutStore {
     /// need their own `perKindDataAsOf` stamp (`lastMetricPullDates`).
     /// Readiness and Training Load carry their dedicated watermarks instead;
     /// the raw values match `WatchMetricKindKey` (pinned by
-    /// `ProjectConfigurationTests`).
+    /// `ProjectConfigurationTests`). Steps and the two energy kinds are not
+    /// vitals, but their cards' headline is today's total, published only
+    /// under a watermark on today (`WatchMetricsSnapshotBuilder`'s day guard),
+    /// so a pull of one of them needs the stamp just the same.
     nonisolated static let watchVitalsPullKinds: Set<HealthMetricKind> = [
         .heartRate,
         .heartRateVariability,
         .restingHeartRate,
         .sleep,
-        .wristTemperature
+        .wristTemperature,
+        .steps,
+        .activeEnergy,
+        .restingEnergy
     ]
 
     nonisolated static let readinessInputMetricKinds: Set<HealthMetricKind> = [
@@ -7233,14 +7360,37 @@ final class HealthKitWorkoutStore {
         .wristTemperature
     ]
 
-    /// The intraday day-sample series Stress scores from. The dashboard refresh
-    /// carries these forward from cache without refetching, so the Stress loader
-    /// is what keeps them (and therefore today's curve) current.
-    nonisolated static let stressIntradaySampleKinds: [HealthMetricKind] = [
-        .heartRate,
-        .heartRateVariability,
-        .steps,
-        .activeEnergy
+    /// Metric kinds whose data feeds Sleep Debt: the sleep history every night's
+    /// slept time and learned need come from, the Training Load series its
+    /// training adjustment reads, and the HRV source its sleep HRV adjustment
+    /// reads through (`fetchSleepVitals`). The record context signs the source
+    /// chosen for each, so switching one re-judges every frozen night.
+    nonisolated static let sleepDebtInputMetricKinds: Set<HealthMetricKind> = [
+        .sleep,
+        .trainingLoad,
+        .heartRateVariability
+    ]
+
+    /// Permissions whose data feeds Sleep Debt: Sleep for the nights, Workouts
+    /// for the training adjustment, Heart for the sleep HRV adjustment. Toggling
+    /// one changes what a night's need is built from, so the frozen nights
+    /// recorded under the previous inputs are dropped and refrozen.
+    nonisolated static let sleepDebtInputPermissions: Set<BodyHealthPermission> = [
+        .sleep,
+        .workouts,
+        .heart
+    ]
+
+    /// The intraday day-sample series Stress scores from: heart rate and SDNN
+    /// samples, plus Stress's own 15 minute steps and energy movement mask (the
+    /// hourly `.steps` / `.activeEnergy` series draw only the Day View). The
+    /// dashboard refresh carries these forward from cache without refetching, so
+    /// the Stress loader is what keeps them (and therefore today's curve) current.
+    nonisolated static let stressIntradaySampleSeries: [HealthDaySampleSeries] = [
+        .heartRateDaySamples,
+        .heartRateVariabilityDaySamples,
+        .stressStepsDaySamples,
+        .stressActiveEnergyDaySamples
     ]
 
     @discardableResult
@@ -7577,6 +7727,17 @@ final class HealthKitWorkoutStore {
     /// A day wider than the scan so a session that started before its first
     /// midnight still masks that day's opening windows.
     private func stressWindowWorkouts(through date: Date, calendar: Calendar) -> [WorkoutSummary] {
+        Self.stressWindowWorkouts(in: monthSnapshots, through: date, calendar: calendar)
+    }
+
+    /// `stressWindowWorkouts(through:calendar:)` over captured month snapshots,
+    /// so the watch publish can build the Stress timeline off the main actor
+    /// with the same activity mask the store scores with.
+    nonisolated static func stressWindowWorkouts(
+        in monthSnapshots: [BodyWorkoutMonthKey: WorkoutMonthSnapshot],
+        through date: Date,
+        calendar: Calendar
+    ) -> [WorkoutSummary] {
         let scoreDay = calendar.startOfDay(for: date)
         let start = calendar.date(byAdding: .day, value: -35, to: scoreDay) ?? scoreDay
         return monthSnapshots.values
@@ -7590,8 +7751,15 @@ final class HealthKitWorkoutStore {
     /// anything, using the same wide workout window (fine activity mask) the
     /// background recompute scans.
     func stressWindows(for day: Date, calendar: Calendar = .bodyGregorian) -> [StressWindow] {
+        stressWindows(forDays: [day], calendar: calendar)[calendar.startOfDay(for: day)] ?? []
+    }
+
+    /// `stressWindows(for:)` for several days from one scan, keyed by each day's
+    /// start: every call rescans the whole cached window to build the baselines,
+    /// so the Stress page reads the selected day and the day before together.
+    func stressWindows(forDays days: [Date], calendar: Calendar = .bodyGregorian) -> [Date: [StressWindow]] {
         guard permissionSelection.includes(.heart) else {
-            return []
+            return [:]
         }
 
         return HealthDashboardSnapshot(
@@ -7599,7 +7767,7 @@ final class HealthKitWorkoutStore {
             trends: healthTrends,
             activityRingHistory: activityRingHistory
         ).stressWindows(
-            for: day,
+            forDays: days,
             workouts: stressWindowWorkouts(through: Date(), calendar: calendar),
             calendar: calendar,
             now: Date()
@@ -7795,6 +7963,99 @@ final class HealthKitWorkoutStore {
                 metadata: persistenceMetadata,
                 authoritativeDaySampleSeries: daySampleWriteIntent
             )
+        }
+    }
+
+    /// Applies, and with `freezes` mints, the frozen Sleep Debt nights after the
+    /// sleep history settles. A record is never rewritten, so `freezes` must be
+    /// true only where the live sleep history is known to be whole: a phase 1
+    /// window can still hold a boundary night an older build cut short, and a
+    /// need learned from it would be frozen for good. With `freezes` false this
+    /// only drops records whose context went stale. No sync stage of its own:
+    /// it is a few arithmetic passes over cached history.
+    private func recomputeSleepDebt(on date: Date, calendar: Calendar, freezes: Bool, persists: Bool = true) async {
+        guard computesSleepDebt else {
+            return
+        }
+
+        let epoch = cacheEpoch
+        let inputs = captureRefreshInputs()
+        let scope = currentDashboardCacheScope()
+        let now = Date()
+        let captured = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: healthTrends,
+            activityRingHistory: activityRingHistory
+        )
+        let sleepGoal = Self.storedIdealSleepDuration()
+        let recordedSleepDebtContext = sleepDebtRecordContextSignature()
+        let recomputed = await Task.detached(priority: .userInitiated) {
+            captured.recalculatingSleepDebt(
+                on: date,
+                calendar: calendar,
+                now: now,
+                sleepGoal: sleepGoal,
+                freezes: freezes,
+                recordedSleepDebtContext: recordedSleepDebtContext
+            )
+        }.value
+
+        // Same rule as `recomputeBodyRadar`: a Clear Cache or an abandoned
+        // refresh that landed while the off-actor pass ran must win.
+        guard Self.mayApplyLoad(capturedEpoch: epoch, currentEpoch: cacheEpoch),
+              mayApplyRefreshInputs(inputs), scope == currentDashboardCacheScope(), mayApplyRefreshResults else {
+            return
+        }
+
+        // Merge only the Sleep Debt owned fields into the CURRENT live snapshot,
+        // for the reason spelled out in `recomputeStress`.
+        var trends = healthTrends
+        trends.recordedSleepDebt = recomputed.trends.recordedSleepDebt
+        trends.recordedSleepDebtContext = recomputed.trends.recordedSleepDebtContext
+
+        // The context counts as a change too: the companion publish strips the
+        // records while the persisted context is stale, so a fresh stamp has to
+        // reach disk even when no night was added or dropped.
+        let changed = trends.recordedSleepDebt != healthTrends.recordedSleepDebt
+            || trends.recordedSleepDebtContext != healthTrends.recordedSleepDebtContext
+        healthTrends = trends
+        guard changed, persists else {
+            return
+        }
+
+        let snapshotToSave = HealthDashboardSnapshot(
+            summary: healthSummary,
+            trends: trends,
+            activityRingHistory: activityRingHistory
+        )
+        let daySampleSignatures = currentDaySampleSignatures()
+        let summaryContextSignature = healthSummaryPrimarySignature
+        let persistenceMetadata = currentDashboardPersistenceMetadata()
+        let daySampleWriteIntent = authoritativeDaySampleSeries
+        let token = dashboardPublicationToken
+        Self.snapshotPersistQueue.async {
+            guard token.isValid else { return }
+            HealthDashboardSnapshotStore.saveWithOutcome(
+                snapshotToSave,
+                daySampleSignatures: daySampleSignatures,
+                summaryContextSignature: summaryContextSignature,
+                metadata: persistenceMetadata,
+                authoritativeDaySampleSeries: daySampleWriteIntent
+            )
+        }
+    }
+
+    /// The sleep goal is part of the Sleep Debt record context, so a goal change
+    /// drops every frozen night. They are not refrozen here: the cached history
+    /// may still be a phase 1 window, so the next recompute on a whole year
+    /// history freezes them under the new goal. The companion republish waits
+    /// for the drop, so the watch never receives nights judged against the old
+    /// goal next to a new goal.
+    func sleepGoalDidChange() {
+        Task { [weak self] in
+            guard let self else { return }
+            await self.recomputeSleepDebt(on: Date(), calendar: .bodyGregorian, freezes: false)
+            self.republishCompanionSnapshots()
         }
     }
 
@@ -8076,7 +8337,9 @@ final class HealthKitWorkoutStore {
             return
         }
         guard mayApplyRefreshInputs(inputs), mayApplyRefreshResults else { return }
-        setCachedComputeTrainingLoadSeed(startDay: seed.startDay, loads: seed.loads, through: date)
+        setCachedComputeTrainingLoadSeed(
+            startDay: seed.startDay, loads: seed.loads, through: date, effortHints: seed.effortHints
+        )
     }
 
     /// Rebuilds and republishes both companion snapshots (iOS widget + watch)
@@ -8201,8 +8464,14 @@ final class HealthKitWorkoutStore {
     /// The publish, from a `Shared` capture the caller already took. Exists for
     /// `republishCompanionSnapshots`, which saves the widget snapshot from the
     /// same capture: taking it twice would read the store twice for one rebuild.
-    private func publishWatchSnapshot(shared: BodyCompanionPublishInput.Shared) {
-        guard mayApplyRefreshResults else { return }
+    private func publishWatchSnapshot(
+        shared: BodyCompanionPublishInput.Shared,
+        completion: @escaping @MainActor @Sendable () -> Void = {}
+    ) {
+        guard mayApplyRefreshResults else {
+            completion()
+            return
+        }
         let inputs = captureRefreshInputs()
         let token = dashboardPublicationToken
         companionPublisher.publishWatchSnapshot(
@@ -8213,8 +8482,85 @@ final class HealthKitWorkoutStore {
                 }
                 return Self.mayApplyLoad(capturedEpoch: capturedEpoch, currentEpoch: self.cacheEpoch)
                     && self.mayApplyRefreshInputs(inputs) && token.isValid
-            }
+            },
+            completion: completion
         )
+    }
+
+    /// Answers the watch's Sync Baseline request: republishes now from the
+    /// restored or refreshed state (no HealthKit reads, so it fits a background
+    /// wake) and replies whether the context it left on the session carries a
+    /// compute seed. The seed's `dataThrough` doesn't move, so a resend never
+    /// looks like fresher data.
+    func publishWatchBaselineSync(reply: @escaping @MainActor @Sendable (WatchBaselineSync.Reply) -> Void) {
+        guard lastVitalsRefreshDate != nil, !isClearingCache else {
+            reply(WatchConnectivityPublisher.baselineSyncReply(canPublish: false, sentContextHasSeed: false))
+            return
+        }
+        publishWatchSnapshot(shared: makeSharedPublishInput()) {
+            reply(WatchConnectivityPublisher.baselineSyncReply(
+                canPublish: true,
+                sentContextHasSeed: WatchConnectivityPublisher.shared.sentContextHasSeed()
+            ))
+        }
+    }
+
+    /// Applies fold records the watch sent (`WatchWarningFoldSync`) to the
+    /// phone's folded warnings and their stamps (in `defaults`), then
+    /// republishes so the watch gets the merged state back. `completion` comes
+    /// with a `sendMessage` and is what sends its reply: it runs once the
+    /// publish is handed off, or at once when nothing changed or there's
+    /// nothing to publish yet. The queued `transferUserInfo` copy passes nil.
+    ///
+    /// With a completion it publishes directly, shaped like
+    /// `publishWatchBaselineSync`, rather than through the debounced
+    /// `republishCompanionSnapshots()`: a watch message usually wakes this app
+    /// in the background with no scene, and a debounced task can be suspended
+    /// before it fires. Holding the reply until the publish completes keeps
+    /// the process up until the context is on the session, as Sync Baseline
+    /// does. Without one it takes the debounced path: nothing waits on the
+    /// queued copy, the message (when the watch could send one) already
+    /// published directly for an immediate change, and a burst of queued
+    /// records then makes one publish rather than one each. Either way the
+    /// publish runs under Sync Baseline's guard (a restored or refreshed
+    /// state, no cache clear in flight), and
+    /// `publishWatchSnapshot(shared:completion:)` still calls `completion`
+    /// when its own gate drops the send. Home picks up the change on its own,
+    /// since it reads the dismissed set through `@AppStorage`.
+    func applyWatchWarningFolds(
+        _ records: [WatchWarningFoldSync.Record],
+        defaults: UserDefaults = .standard,
+        completion: (@MainActor @Sendable () -> Void)?
+    ) {
+        guard BodyMetricWarningFoldDates.applying(records, defaults: defaults),
+              lastVitalsRefreshDate != nil, !isClearingCache else {
+            completion?()
+            return
+        }
+        guard let completion else {
+            republishCompanionSnapshots()
+            return
+        }
+        publishWatchSnapshot(shared: makeSharedPublishInput()) {
+            completion()
+        }
+    }
+
+    /// Republishes once the background warning check posted a notification,
+    /// so the watch's copy of the notification ledger
+    /// (`WatchWarningSettings.notifiedDays`) holds that kind for today and the
+    /// watch doesn't notify it too. Direct and awaited, shaped like
+    /// `publishWatchBaselineSync`: the check runs in its own background task
+    /// with no scene, where a debounced republish could be suspended before it
+    /// fires. Same guard (a restored or refreshed state, no cache clear in
+    /// flight); returns at once when it drops the publish.
+    func publishWatchNotificationLedger() async {
+        guard lastVitalsRefreshDate != nil, !isClearingCache else { return }
+        await withCheckedContinuation { continuation in
+            publishWatchSnapshot(shared: makeSharedPublishInput()) {
+                continuation.resume()
+            }
+        }
     }
 
     /// Captures, synchronously on the main actor, exactly what the watch
@@ -8300,6 +8646,7 @@ final class HealthKitWorkoutStore {
             trainingLoadStartDay: trainingLoadSeed?.startDay,
             trainingLoadDailyLoads: trainingLoadSeed?.loads,
             trainingLoadDataThrough: trainingLoadSeed?.through,
+            trainingLoadEffortHints: trainingLoadSeed?.effortHints,
             expectedSourceIDsByKind: cachedExpectedSourceIDsByKind,
             followsSystemUnits: UserDefaults.standard.object(
                 forKey: BodyAppearancePreference.followsSystemUnitsKey
@@ -8312,6 +8659,11 @@ final class HealthKitWorkoutStore {
             readinessHeroShowsLevel: UserDefaults.standard.object(
                 forKey: BodyAppearancePreference.readinessHeroShowsLevelKey
             ) as? Bool ?? true,
+            // The watch Sleep page shows Sleep Debt only where the phone's Sleep
+            // page does: Body Pro unlocked and the Summary Cards toggle on.
+            showsSleepDebt: isProUnlocked && (UserDefaults.standard.object(
+                forKey: BodyAppearancePreference.showSleepDebtKey
+            ) as? Bool ?? true),
             // The watch mirrors the hero the phone actually shows, so a free user's
             // stored Day Ring is clamped here too.
             homeHeroRaw: (BodyStarMetric.proGated(
@@ -8324,6 +8676,34 @@ final class HealthKitWorkoutStore {
             dayRingShowsCaption: UserDefaults.standard.object(
                 forKey: BodyAppearancePreference.dayRingShowsCaptionKey
             ) as? Bool ?? true,
+            // The watch shows the warnings Home flags: the selected kinds, under
+            // the Show on Home Hero switch, folded as the phone has them.
+            metricWarningSelectionRaw: UserDefaults.standard.string(
+                forKey: BodyAppearancePreference.metricWarningsKey
+            ) ?? BodyMetricWarningSelection.defaultRawValue,
+            metricWarningsOnHero: UserDefaults.standard.object(
+                forKey: BodyAppearancePreference.metricWarningsOnReadinessHeroKey
+            ) as? Bool ?? true,
+            dismissedMetricWarningsRaw: UserDefaults.standard.string(
+                forKey: BodyAppearancePreference.dismissedMetricWarningsKey
+            ) ?? "",
+            metricWarningFoldDates: BodyMetricWarningFoldDates.load(),
+            // The watch checks and notifies its own warnings under the phone's
+            // limits, notification switches and notification ledger. The max
+            // heart rate is the engine's last resolved one: absent until a
+            // Heart Rate read resolves it, 0 when there is no birth date.
+            metricWarningThresholdsRaw: UserDefaults.standard.string(
+                forKey: BodyAppearancePreference.metricWarningThresholdsKey
+            ) ?? "",
+            warningMaxHeartRate: (UserDefaults.standard.object(
+                forKey: BodyAppearancePreference.warningMaxHeartRateKey
+            ) as? Double).map { value -> Double? in value > 0 ? value : nil },
+            metricWarningNotificationsEnabled: BodyNotificationPreferences.enabled(
+                BodyAppearancePreference.metricWarningNotificationsKey
+            ),
+            metricWarningNotificationLedgerRaw: UserDefaults.standard.string(
+                forKey: MetricWarningNotificationLedger.metricWarningNotificationLedgerKey
+            ) ?? "",
             workoutColorPalette: BodyWorkoutColorPalette(
                 rawOverrides: BodyWorkoutColorStore.sharedDefaults?.string(
                     forKey: BodyAppearancePreference.workoutColorOverridesKey
@@ -8361,6 +8741,7 @@ final class HealthKitWorkoutStore {
         trainingLoadStartDay: Date?,
         trainingLoadDailyLoads: [Double]?,
         trainingLoadDataThrough: Date?,
+        trainingLoadEffortHints: [String: Double]? = nil,
         expectedSourceIDsByKind: [String: [String]]?,
         settings: WatchComputeSettings,
         publishedAt: Date
@@ -8376,6 +8757,7 @@ final class HealthKitWorkoutStore {
             trainingLoadStartDay: trainingLoadStartDay,
             trainingLoadDailyLoads: trainingLoadDailyLoads,
             trainingLoadDataThrough: trainingLoadDataThrough,
+            trainingLoadEffortHints: trainingLoadEffortHints,
             expectedSourceIDsByKind: expectedSourceIDsByKind,
             settings: settings,
             settingsSignature: Self.computeSettingsSignature(settings)
@@ -8398,6 +8780,11 @@ final class HealthKitWorkoutStore {
         let customGroupsFragment = customGroups.isEmpty
             ? ""
             : ";groups[\(BodyCustomHealthSourceGroupStore.canonicalSignature(for: customGroups))]"
+        // The energy unit extends it on the same terms: the phone carries one
+        // only for kilojoules, so a kilocalorie seed signs as it did before the
+        // energy cards, while a switch either way still re-seeds, like the
+        // temperature unit's `t[…]`.
+        let energyUnitFragment = settings.selectedEnergyUnitRaw.map { ";e[\($0)]" } ?? ""
         return "d[\(settings.idealSleepDurationMinutes)]" +
             ";u[\(settings.followsSystemUnits ? "1" : "0")]" +
             ";t[\(settings.selectedTemperatureUnitRaw)]" +
@@ -8411,7 +8798,8 @@ final class HealthKitWorkoutStore {
             // fresher local provenance and fall back to older phone values.
             ";src[\(BodyHealthDataSourceSelection.storedValue(from: settings.healthDataSourceSelectionRaw).canonicalSignature)]" +
             ";comb[\(settings.combinesHealthDataSourcesByName ? "1" : "0")]" +
-            customGroupsFragment
+            customGroupsFragment +
+            energyUnitFragment
     }
 
     /// The primary selection as a Pro-locked watch must see it: every `custom:`
@@ -8482,21 +8870,31 @@ final class HealthKitWorkoutStore {
     func makeSharedPublishInput() -> BodyCompanionPublishInput.Shared {
         _ = captureRefreshInputs()
         reconcileDashboardCacheScope()
+        // Frozen Sleep Debt nights ride the watch seed. Between a goal, source
+        // or permission change and the recompute that refreezes them, they hold
+        // needs judged under the old context, so the copy ships none and the
+        // watch computes those nights live. Only the copy: the live snapshot
+        // keeps them for the recompute to drop.
+        var trends = healthTrends
+        if trends.recordedSleepDebtContext != sleepDebtRecordContextSignature() {
+            trends.recordedSleepDebt = []
+        }
         return BodyCompanionPublishInput.Shared(
-            trends: healthTrends,
+            trends: trends,
             summary: healthSummary,
             temperatureUnitPreference: HealthWidgetSnapshotBuilder.storedTemperatureUnitPreference(),
+            energyUnitPreference: HealthWidgetSnapshotBuilder.storedEnergyUnitPreference(),
             idealSleepDuration: Self.storedIdealSleepDuration(),
             showSleepScore: HealthWidgetSnapshotBuilder.storedShowSleepScore()
         )
     }
 
-    /// Adds the widget-only captures to a `Shared` one: the energy and weight
-    /// unit preferences, and the per-metric primary source names.
+    /// Adds the widget-only captures to a `Shared` one: the weight unit
+    /// preference and the per-metric primary source names.
     /// `selectedHealthDataSourceOption(for:)` is `@MainActor`, so the names are
     /// resolved here and the builder off-actor only reads the resulting map.
-    /// Kept off `Shared` so the watch publish, which renders none of the three,
-    /// does not run those sixteen lookups on the main actor.
+    /// Kept off `Shared` so the watch publish, which renders neither, does not
+    /// run those sixteen lookups on the main actor.
     private func makeWidgetPublishInput(
         shared: BodyCompanionPublishInput.Shared
     ) -> BodyCompanionPublishInput.Widget {
@@ -8508,7 +8906,6 @@ final class HealthKitWorkoutStore {
 
         return BodyCompanionPublishInput.Widget(
             shared: shared,
-            energyUnitPreference: HealthWidgetSnapshotBuilder.storedEnergyUnitPreference(),
             weightUnitPreference: HealthWidgetSnapshotBuilder.storedWeightUnitPreference(),
             primarySourceNames: primarySourceNames
         )
@@ -8571,7 +8968,9 @@ final class HealthKitWorkoutStore {
     /// it and dropped when it changes, because they carry baseline aggregates
     /// derived under the old inputs. The sleep-duration goal is deliberately
     /// absent (Stress uses only the sleep WINDOW), the awake-stage prefs are not
-    /// (they move the parsed main session).
+    /// (they move the parsed main session). The algorithm version rides along
+    /// too, as for Readiness, so a scoring-rule change (v2's 15 minute movement
+    /// mask and typed recovery tails) drops the records and reruns the backfill.
     nonisolated static func stressRecordContextSignature(
         permissionSelection: BodyHealthPermissionSelection,
         healthDataSourceSelection: BodyHealthDataSourceSelection,
@@ -8590,7 +8989,7 @@ final class HealthKitWorkoutStore {
             .joined(separator: ",")
         let awakeFlags = "a[\(showsSubMinuteAwakeStages ? "1" : "0")];l[\(showsLeadingTrailingAwakeStages ? "1" : "0")]"
         return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];\(awakeFlags)"
-            + customSourceGroupsSignatureSuffix
+            + customSourceGroupsSignatureSuffix + ";stress[\(StressScoreCalculator.algorithmVersion)]"
     }
 
     /// The Body Radar counterpart of `stressRecordContextSignature`: which Radar
@@ -8618,6 +9017,38 @@ final class HealthKitWorkoutStore {
             + customSourceGroupsSignatureSuffix + ";radar[\(BodyRadarCalculator.algorithmVersion)]"
     }
 
+    /// The Sleep Debt counterpart of `readinessRecordContextSignature`: which
+    /// Sleep Debt permissions are enabled, the primary source per input kind,
+    /// whether same-name sources are combined, the sleep goal, and the awake
+    /// stage prefs. The frozen nights are tagged with it and dropped when it
+    /// changes, because each one carries a need judged against the old goal and
+    /// a slept time parsed under the old inputs. Only these changes, or a new
+    /// algorithm version, may move a past night.
+    nonisolated static func sleepDebtRecordContextSignature(
+        permissionSelection: BodyHealthPermissionSelection,
+        healthDataSourceSelection: BodyHealthDataSourceSelection,
+        combinesHealthDataSourcesByName: Bool,
+        idealSleepDuration: TimeInterval,
+        showsSubMinuteAwakeStages: Bool,
+        showsLeadingTrailingAwakeStages: Bool,
+        customSourceGroupsSignatureSuffix: String = ""
+    ) -> String {
+        let permissions = sleepDebtInputPermissions
+            .sorted { $0.rawValue < $1.rawValue }
+            .map { "\($0.rawValue):\(permissionSelection.includes($0) ? "1" : "0")" }
+            .joined(separator: ",")
+        let sources = sleepDebtInputMetricKinds
+            .sorted { $0.rawValue < $1.rawValue }
+            .map { "\($0.rawValue):\(healthDataSourceSelection.option(for: $0).id)" }
+            .joined(separator: ",")
+        // The goal is every night's base need, so a goal change re-judges every
+        // frozen night under the new one.
+        let sleepGoalMinutes = Int((idealSleepDuration / 60).rounded())
+        let awakeFlags = "a[\(showsSubMinuteAwakeStages ? "1" : "0")];l[\(showsLeadingTrailingAwakeStages ? "1" : "0")]"
+        return "p[\(permissions)];s[\(sources)];c[\(combinesHealthDataSourcesByName ? "1" : "0")];g[\(sleepGoalMinutes)];\(awakeFlags)"
+            + customSourceGroupsSignatureSuffix + ";sleepDebt[\(SleepDebtChartModel.algorithmVersion)]"
+    }
+
     /// Internal so the Body Radar replay export can report the configured context.
     func bodyRadarRecordContextSignature() -> String {
         Self.bodyRadarRecordContextSignature(
@@ -8636,6 +9067,28 @@ final class HealthKitWorkoutStore {
     private var computesBodyRadar: Bool {
         permissionSelection.includes(.sleep)
             && BodyDashboardFetchSelection.load().includes(.bodyRadar)
+    }
+
+    /// Internal so the Sleep page and the companion publish can tell whether the
+    /// frozen nights still match the configured goal, sources and permissions.
+    func sleepDebtRecordContextSignature() -> String {
+        Self.sleepDebtRecordContextSignature(
+            permissionSelection: permissionSelection,
+            healthDataSourceSelection: healthDataSourceSelection,
+            combinesHealthDataSourcesByName: combinesHealthDataSourcesByName,
+            idealSleepDuration: Self.storedIdealSleepDuration(),
+            showsSubMinuteAwakeStages: BodySleepStageDisplayPreference.showsSubMinuteAwakeStages(),
+            showsLeadingTrailingAwakeStages: BodySleepStageDisplayPreference.showsLeadingTrailingAwakeStages(),
+            customSourceGroupsSignatureSuffix: customSourceGroupsSignatureSuffix
+        )
+    }
+
+    /// Sleep Debt nights are frozen whenever sleep is read at all, not only for
+    /// Pro: freezing is cheap, and the records have to exist already on the day
+    /// the user subscribes or the chart would open on nights judged live.
+    private var computesSleepDebt: Bool {
+        permissionSelection.includes(.sleep)
+            && BodyDashboardFetchSelection.load().includes(.sleep)
     }
 
     private func stressRecordContextSignature() -> String {
@@ -8710,6 +9163,10 @@ final class HealthKitWorkoutStore {
         // days it invalidates must drop now rather than at the next refresh.
         await recomputeStress(on: Date(), calendar: .bodyGregorian)
         await recomputeBodyRadar(on: Date(), calendar: .bodyGregorian)
+        // A Sleep or Workouts toggle changes the Sleep Debt record context; drop
+        // the nights it invalidates now. The next recompute on a whole year
+        // history refreezes them, since the cached one may be a phase 1 window.
+        await recomputeSleepDebt(on: Date(), calendar: .bodyGregorian, freezes: false)
         guard mayApplyRefreshInputs(inputs), scope == currentDashboardCacheScope() else { return }
 
         if !permissionSelection.includes(.workouts) {

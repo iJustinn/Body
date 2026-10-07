@@ -47,6 +47,37 @@ enum BodyDailyQuantityAggregation: Equatable {
     }
 }
 
+/// The bucket an intraday cumulative series (steps, active energy) sums into.
+///
+/// It carries both the interval and the anchor, because the two only make sense
+/// together: the Day View's hourly bars start on the hour, while Stress's movement
+/// mask needs every bucket to be exactly one of its 15 minute windows, which the
+/// grid builds from the day's midnight.
+enum BodyIntradayBucket: Equatable, Sendable {
+    /// The Day View's hourly bars, anchored at the hour holding `start`.
+    case hour
+    /// Stress's movement mask, anchored at `start`'s midnight so each bucket is one window.
+    case quarterHour
+
+    func anchor(for start: Date, calendar: Calendar) -> Date {
+        switch self {
+        case .hour:
+            return calendar.dateInterval(of: .hour, for: start)?.start ?? start
+        case .quarterHour:
+            return calendar.startOfDay(for: start)
+        }
+    }
+
+    var intervalComponents: DateComponents {
+        switch self {
+        case .hour:
+            return DateComponents(hour: 1)
+        case .quarterHour:
+            return DateComponents(minute: 15)
+        }
+    }
+}
+
 enum BodyHealthQuantityFetch {
     /// The `valueTransform` the percentage reads (SpO₂, body fat) run with:
     /// HealthKit's `.percent()` unit yields a 0…1 fraction for most sources but
@@ -186,6 +217,245 @@ enum BodyHealthQuantityFetch {
         }
     }
 
+    /// Every sample of a quantity type matching `predicate`, one point per
+    /// sample dated at its `endDate`, ascending: the intraday day-sample shape
+    /// behind the Day View charts and Stress (heart rate, SDNN, Recovery HRV).
+    /// No limit, so the predicate's window is the only bound. A non-finite
+    /// value after `valueTransform` is dropped.
+    static func quantitySampleSeries(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: true)
+
+        switch await store.samples(
+            BodySampleRequest(
+                sampleType: quantityType,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            )
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let samples):
+            let points = samples.compactMap { sample -> HealthTrendDataPoint? in
+                guard let quantitySample = sample as? HKQuantitySample else { return nil }
+                let value = valueTransform(quantitySample.quantity.doubleValue(for: unit))
+                guard value.isFinite else { return nil }
+                return HealthTrendDataPoint(date: quantitySample.endDate, value: value)
+            }
+            return .success(HealthTrendSeries(points: points))
+        }
+    }
+
+    /// One point per `bucket` over `[start, end]`, from a cumulative-sum
+    /// collection anchored by the bucket: hourly for the intraday shape of
+    /// steps and active energy, 15 minutes from midnight for Stress's movement
+    /// mask. Each point is dated at its bucket's start. A bucket with no sum, a
+    /// non-finite value or a value at or below zero is omitted, so an idle
+    /// bucket reads as absent rather than as a zero bar.
+    static func intradayCumulativeSeries(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        bucket: BodyIntradayBucket,
+        start: Date,
+        end: Date,
+        calendar: Calendar,
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        switch await store.cumulativeQuantities(
+            BodyStatisticsCollectionRequest(
+                quantityType: quantityType,
+                predicate: predicate,
+                options: .cumulativeSum,
+                anchorDate: bucket.anchor(for: start, calendar: calendar),
+                intervalComponents: bucket.intervalComponents
+            ), from: start, to: end
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let sums):
+            var points: [HealthTrendDataPoint] = []
+            for dated in sums {
+                let value = valueTransform(dated.quantity.doubleValue(for: unit))
+                guard value.isFinite, value > 0 else {
+                    continue
+                }
+
+                points.append(HealthTrendDataPoint(date: dated.date, value: value))
+            }
+
+            return .success(HealthTrendSeries(points: points))
+        }
+    }
+
+    /// One point per calendar day over `[start, end]`, from a one-day
+    /// cumulative-sum collection anchored at the window's `startOfDay`: the
+    /// daily-total shape of steps, active energy and resting energy, read on
+    /// the watch for the week behind their cards and 7 day bars. Each point is
+    /// dated at its day's start. A day with no sum or a non-finite value is
+    /// omitted and a finite zero is kept, exactly as the phone's
+    /// `fetchDailyCumulativeQuantitySeries` does, so the watch's week and
+    /// today's total read the same as the iPhone's for the same samples
+    /// (unlike `intradayCumulativeSeries`, whose idle buckets are absent by
+    /// design).
+    ///
+    /// Resting energy (`.basalEnergyBurned`) applies that engine's
+    /// scale-estimate rule: the samples of
+    /// `BodyRestingEnergyEstimates.minimumKilocalories` or more under the
+    /// caller's predicate are read on their own and folded per source and day
+    /// (`BodyRestingEnergyEstimates.fold`), the collection sums only the
+    /// smaller ones, and each day's estimate total is added back before
+    /// `valueTransform`, so a day holding only an estimate still gets a point
+    /// (carrying the repeated estimates as `records`, like the phone's). When
+    /// that sample read fails the plain sum is used, as on the phone.
+    static func dailyCumulativeSeries(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        start: Date,
+        end: Date,
+        calendar: Calendar,
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<HealthTrendSeries> {
+        let anchor = calendar.startOfDay(for: start)
+        var intervalComponents = DateComponents()
+        intervalComponents.day = 1
+
+        var estimates: RestingEnergyEstimates?
+        if quantityType.identifier == HKQuantityTypeIdentifier.basalEnergyBurned.rawValue {
+            switch await restingEnergyEstimates(
+                store: store,
+                quantityType: quantityType,
+                predicate: predicate,
+                unit: unit,
+                calendar: calendar
+            ) {
+            case .cancelled:
+                // The run is being torn down: the collection below would only
+                // be cancelled too.
+                return .failure
+            case .failed:
+                estimates = nil
+            case .read(let read):
+                estimates = read
+            }
+        }
+
+        switch await store.cumulativeQuantities(
+            BodyStatisticsCollectionRequest(
+                quantityType: quantityType,
+                predicate: estimates?.sumPredicate ?? predicate,
+                options: .cumulativeSum,
+                anchorDate: anchor,
+                intervalComponents: intervalComponents
+            ), from: start, to: end
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let sums):
+            var sumsByDay: [Date: Double] = [:]
+            for dated in sums {
+                sumsByDay[calendar.startOfDay(for: dated.date)] = dated.quantity.doubleValue(for: unit)
+            }
+
+            // A day holding only an estimate has no sum to enumerate.
+            let days = Set(sumsByDay.keys).union(estimates?.days.keys.map { $0 } ?? [])
+            let points = days.sorted().compactMap { day -> HealthTrendDataPoint? in
+                let estimate = estimates?.days[day]
+                let value = valueTransform((sumsByDay[day] ?? 0) + (estimate?.total ?? 0))
+                guard value.isFinite else {
+                    return nil
+                }
+                let records = estimate?.records ?? []
+                return HealthTrendDataPoint(date: day, value: value, records: records.isEmpty ? nil : records)
+            }
+
+            return .success(HealthTrendSeries(points: points))
+        }
+    }
+
+    /// The large resting energy samples `dailyCumulativeSeries` adds back per
+    /// day, and the predicate its collection sums the rest under.
+    private struct RestingEnergyEstimates {
+        /// The caller's predicate AND below the estimate threshold: everything
+        /// but the large samples `days` accounts for.
+        let sumPredicate: NSPredicate
+        let days: [Date: BodyRestingEnergyEstimates.Day]
+    }
+
+    private enum RestingEnergyEstimatesRead {
+        case read(RestingEnergyEstimates)
+        case failed
+        case cancelled
+    }
+
+    /// The phone engine's `dailyEstimates(for:...)` query through the store
+    /// seam: the samples at or above the threshold under the caller's
+    /// predicate (window and source), folded by the shared
+    /// `BodyRestingEnergyEstimates.fold`.
+    private static func restingEnergyEstimates(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        calendar: Calendar
+    ) async -> RestingEnergyEstimatesRead {
+        let threshold = HKQuantity(unit: .kilocalorie(), doubleValue: BodyRestingEnergyEstimates.minimumKilocalories)
+        func bounded(_ comparison: NSComparisonPredicate.Operator) -> NSPredicate {
+            NSCompoundPredicate(andPredicateWithSubpredicates: [
+                predicate, HKQuery.predicateForQuantitySamples(with: comparison, quantity: threshold)
+            ].compactMap { $0 })
+        }
+
+        switch await store.samples(
+            BodySampleRequest(
+                sampleType: quantityType,
+                predicate: bounded(.greaterThanOrEqualTo),
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: []
+            )
+        ) {
+        case .failure:
+            return .failed
+        case .cancelled:
+            return .cancelled
+        case .success(let samples):
+            let estimateSamples = samples.compactMap { sample -> BodyRestingEnergyEstimates.Sample? in
+                guard let quantitySample = sample as? HKQuantitySample else { return nil }
+                return BodyRestingEnergyEstimates.Sample(
+                    start: quantitySample.startDate,
+                    end: quantitySample.endDate,
+                    source: quantitySample.sourceRevision.source.bundleIdentifier,
+                    value: quantitySample.quantity.doubleValue(for: unit)
+                )
+            }
+            return .read(RestingEnergyEstimates(
+                sumPredicate: bounded(.lessThan),
+                days: BodyRestingEnergyEstimates.fold(samples: estimateSamples, calendar: calendar)
+            ))
+        }
+    }
+
     /// The latest day's value of `dailyQuantitySeries` — the summary tile for a
     /// metric whose headline is "the most recent day we have", not "the most
     /// recent sample". A window with no points at all is a genuine absence
@@ -223,6 +493,136 @@ enum BodyHealthQuantityFetch {
                 return .success(nil)
             }
             return .success(HealthMetricSummary(value: latestPoint.value))
+        }
+    }
+
+    /// One min/max point per calendar day over `[start, end]`, the daily range
+    /// series behind the Heart Rate and HRV week charts' capsules: the same
+    /// one-day collection (anchored at the window's `startOfDay`, average + min
+    /// + max) the iOS engine's `fetchDailyQuantityAverageAndRangeSeries` runs,
+    /// with its exact point rule. A day gets a point only when its average,
+    /// minimum AND maximum are all present and finite after `valueTransform`,
+    /// dated to the day's start, with the average as `averageValue`. Anything
+    /// looser would let the watch draw a capsule the phone's chart never shows.
+    static func dailyQuantityRangeSeries(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        start: Date,
+        end: Date,
+        calendar: Calendar,
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<HealthTrendRangeSeries> {
+        let anchor = calendar.startOfDay(for: start)
+        var intervalComponents = DateComponents()
+        intervalComponents.day = 1
+
+        switch await store.dailyQuantityRanges(
+            BodyStatisticsCollectionRequest(
+                quantityType: quantityType,
+                predicate: predicate,
+                options: [.discreteAverage, .discreteMin, .discreteMax],
+                anchorDate: anchor,
+                intervalComponents: intervalComponents
+            ), from: start, to: end
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let ranges):
+            var points: [HealthTrendRangeDataPoint] = []
+            for dated in ranges {
+                guard let minimum = dated.minimum,
+                      let maximum = dated.maximum,
+                      let average = dated.average else {
+                    continue
+                }
+
+                let low = valueTransform(minimum.doubleValue(for: unit))
+                let high = valueTransform(maximum.doubleValue(for: unit))
+                let averageValue = valueTransform(average.doubleValue(for: unit))
+                guard low.isFinite, high.isFinite, averageValue.isFinite else {
+                    continue
+                }
+
+                points.append(
+                    HealthTrendRangeDataPoint(
+                        date: calendar.startOfDay(for: dated.date),
+                        lowValue: low,
+                        highValue: high,
+                        averageValue: averageValue
+                    )
+                )
+            }
+
+            return .success(HealthTrendRangeSeries(points: points))
+        }
+    }
+
+    /// One bucket per 30 minute slot over `[start, end]`, the "Last 8 hours"
+    /// slots behind the watch's Heart Rate and HRV detail pages
+    /// (`WatchHealthStore.intradayBuckets`) and their chart complications
+    /// (`WatchMetricsSnapshot.heartCharts`, read by the watch compute), so a
+    /// complication never charts a slot its page doesn't. The same average +
+    /// min + max collection as `dailyQuantityRangeSeries`, anchored at `start`
+    /// (the window's oldest slot start, already on the local half hour) with
+    /// `WatchIntradayWindow.slotLength` intervals. A statistics query resolves
+    /// the `HKQuantitySeries` a workout stores its heart rate in beat by beat,
+    /// where a sample query would return one entry per series. A slot gets a
+    /// bucket only when its minimum, maximum AND average are all present and
+    /// finite, dated at the slot's start; a slot without readings is never
+    /// built.
+    static func intradayRangeBuckets(
+        store: any BodyHealthQuerying,
+        quantityType: HKQuantityType,
+        predicate: NSPredicate?,
+        unit: HKUnit,
+        start: Date,
+        end: Date,
+        onFailure: ((Error?) -> Void)? = nil
+    ) async -> WatchFetchOutcome<[WatchIntradayBucket]> {
+        var intervalComponents = DateComponents()
+        intervalComponents.minute = Int(WatchIntradayWindow.slotLength / 60)
+
+        switch await store.dailyQuantityRanges(
+            BodyStatisticsCollectionRequest(
+                quantityType: quantityType,
+                predicate: predicate,
+                options: [.discreteAverage, .discreteMin, .discreteMax],
+                anchorDate: start,
+                intervalComponents: intervalComponents
+            ), from: start, to: end
+        ) {
+        case .failure(let error):
+            onFailure?(error)
+            return .failure
+        case .cancelled:
+            return .failure
+        case .success(let ranges):
+            var buckets: [WatchIntradayBucket] = []
+            for dated in ranges {
+                guard let minimum = dated.minimum?.doubleValue(for: unit),
+                      let maximum = dated.maximum?.doubleValue(for: unit),
+                      let average = dated.average?.doubleValue(for: unit),
+                      minimum.isFinite, maximum.isFinite, average.isFinite else {
+                    continue
+                }
+
+                buckets.append(
+                    WatchIntradayBucket(
+                        start: dated.date,
+                        minimum: minimum,
+                        maximum: maximum,
+                        average: average
+                    )
+                )
+            }
+
+            return .success(buckets)
         }
     }
 }

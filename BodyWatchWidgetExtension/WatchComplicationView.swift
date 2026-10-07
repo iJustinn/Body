@@ -5,8 +5,12 @@
 //  Renders a single metric as the magenta ring (accessoryCircular), a ring +
 //  label row (accessoryRectangular), or a curved bezel gauge (accessoryCorner).
 //  Score-style metrics (Readiness, Sleep) show their 0–100 score in the center;
-//  the rest show their value. Readiness uses this view only for its corner
-//  gauge; its circular and rectangular families are `ReadinessComplicationView`.
+//  the rest show their value. Readiness uses this view for its corner gauge
+//  and for the circular Readiness ring complication; its bands complication's
+//  circular and rectangular families are `ReadinessComplicationView`. Steps,
+//  Active Energy and Resting Energy use it for their corner gauge too, and the
+//  Stress complication draws its own reading through the shared
+//  `complicationCornerGauge`.
 //
 
 import Foundation
@@ -25,6 +29,30 @@ func complicationRingFontScale(for text: String, base: Double, compact: Double) 
 enum ComplicationRingFontScale {
     static let circular = (base: 0.35, compact: 0.255)
     static let rectangular = (base: 0.40, compact: 0.34)
+}
+
+/// The corner family every metric complication draws: `value` curved along
+/// the bezel (watchOS 10+, like Weather) over a system gauge filled to `fill`
+/// between its `min` and `max` end labels, in `tint`. The labels are plain
+/// strings, drawn verbatim. A corner's bezel content must be a system Gauge.
+func complicationCornerGauge(value: String, fill: Double, min: String, max: String, tint: Color) -> some View {
+    Text(value)
+        .font(.system(size: 30, weight: .bold, design: .rounded))
+        .minimumScaleFactor(0.5)
+        .lineLimit(1)
+        .widgetCurvesContent()
+        .widgetLabel {
+            Gauge(value: fill) {
+                EmptyView()
+            } currentValueLabel: {
+                EmptyView()
+            } minimumValueLabel: {
+                Text(min)
+            } maximumValueLabel: {
+                Text(max)
+            }
+            .tint(tint)
+        }
 }
 
 struct WatchComplicationView: View {
@@ -98,23 +126,13 @@ struct WatchComplicationView: View {
 
     private func cornerGauge(_ metric: WatchMetric) -> some View {
         let gauge = cornerGaugeModel(metric)
-        return Text(ringValue(metric))
-            .font(.system(size: 30, weight: .bold, design: .rounded))
-            .minimumScaleFactor(0.5)
-            .lineLimit(1)
-            .widgetCurvesContent()   // curve the value along the bezel (watchOS 10+), like Weather
-            .widgetLabel {
-                Gauge(value: gauge.fill) {
-                    EmptyView()
-                } currentValueLabel: {
-                    EmptyView()
-                } minimumValueLabel: {
-                    Text(gauge.min)
-                } maximumValueLabel: {
-                    Text(gauge.max)
-                }
-                .tint(Color(metric.resolvedTint))
-            }
+        return complicationCornerGauge(
+            value: ringValue(metric),
+            fill: gauge.fill,
+            min: gauge.min,
+            max: gauge.max,
+            tint: Color(metric.resolvedTint)
+        )
     }
 
     /// Corner-gauge fill + end labels. Readiness and Training Load span their
@@ -144,14 +162,18 @@ struct WatchComplicationView: View {
     /// range the snapshot carries (nil when there's no series → no labels).
     /// Resting HR's fill is inverted on the iPhone (low = good = full), so its
     /// ends are swapped here to match. The carried temperature range is Celsius,
-    /// so convert to the displayed unit.
+    /// so convert to the displayed unit. A daily total (Steps, Active Energy,
+    /// Resting Energy) runs from 0 to the week's best day, which compacts
+    /// ("11K") so a five digit day fits the arc's tip.
     private func gaugeEndLabels(_ metric: WatchMetric) -> (min: String, max: String)? {
         guard let low = metric.rangeMin, let high = metric.rangeMax, high > low else { return nil }
         let isTemp = metric.kind == WatchMetricKindKey.wristTemperature
         // `usesFahrenheit` is stamped by the builder; the unit-string sniff is
         // only the fallback for a snapshot from a phone build without it.
         let toFahrenheit = isTemp && (metric.usesFahrenheit ?? metric.unit.contains("F"))
+        let isDailyTotal = WatchMetricKindKey.dailyTotalKinds.contains(metric.kind)
         func label(_ value: Double) -> String {
+            if isDailyTotal { return value.formatted(.number.notation(.compactName)) }
             let shown = toFahrenheit ? value * 9 / 5 + 32 : value
             return "\(Int(shown.rounded()))"
         }

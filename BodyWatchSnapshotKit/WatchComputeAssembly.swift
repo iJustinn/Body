@@ -63,7 +63,8 @@ enum WatchComputeAssembly {
 
     // MARK: - The assembly
 
-    /// `nil` when the compute produced nothing usable.
+    /// `nil` when the compute produced nothing usable. `warningSettings` is
+    /// the iPhone's, from its last push; nil checks no warning.
     static func assemble(
         seed: WatchComputeSeed,
         delta: WatchComputeDelta,
@@ -71,17 +72,37 @@ enum WatchComputeAssembly {
         generation: UInt64,
         windowStart: Date,
         now: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        warningSettings: WatchWarningSettings? = nil
     ) -> WatchComputeResult? {
+        // The iPhone's ratings for workouts this watch read as unrated, filled in
+        // before anything reads the workouts, so Training Load, the Readiness
+        // drain and Stress all count the same efforts (see `applyingEffortHints`).
+        var delta = delta
+        if case .success(let workouts) = delta.workouts {
+            delta.workouts = .success(Self.applyingEffortHints(workouts, hints: seed.trainingLoadEffortHints))
+        }
         var trends = seed.trends
         trends.heartRate = WatchDeltaSplicer.splice(
             seedSeries: trends.heartRate, delta: delta.heartRateSeries, from: windowStart, calendar: calendar
+        )
+        // The week charts' daily min/max capsules, spliced like the averages
+        // they sit under. Accepted edge: the range read is its own query and
+        // not a readiness input, so when it fails while the average succeeds
+        // the week keeps the seed's capsules (today's may be missing, or an
+        // older partial day's) under a fresh average point, until the next
+        // compute or push.
+        trends.heartRateRanges = WatchDeltaSplicer.spliceRanges(
+            seedSeries: trends.heartRateRanges, delta: delta.heartRateRanges, from: windowStart
         )
         trends.restingHeartRate = WatchDeltaSplicer.splice(
             seedSeries: trends.restingHeartRate, delta: delta.restingHeartRateSeries, from: windowStart, calendar: calendar
         )
         trends.heartRateVariability = WatchDeltaSplicer.splice(
             seedSeries: trends.heartRateVariability, delta: delta.heartRateVariabilitySeries, from: windowStart, calendar: calendar
+        )
+        trends.heartRateVariabilityRanges = WatchDeltaSplicer.spliceRanges(
+            seedSeries: trends.heartRateVariabilityRanges, delta: delta.heartRateVariabilityRanges, from: windowStart
         )
         trends.respiratoryRate = WatchDeltaSplicer.splice(
             seedSeries: trends.respiratoryRate, delta: delta.respiratoryRateSeries, from: windowStart, calendar: calendar
@@ -100,7 +121,8 @@ enum WatchComputeAssembly {
         // delta from the SPLICED history rather than fetching a second series —
         // then splice it over the seed's own window. Re-deriving it wholesale
         // would widen the series to every seeded night (the seed trims sleep
-        // STAGES, not nights), and `trends.sleep` is a readiness source series:
+        // STAGES, not nights, and keeps `sleepHistoryDayCount` nights for
+        // Sleep Debt), and `trends.sleep` is a readiness source series:
         // its oldest point sets how many days the readiness daily-series
         // recompute walks. That must stay the seed's 70-day window on a watch.
         let sleepDurationDelta: WatchFetchOutcome<HealthTrendSeries>
@@ -149,6 +171,31 @@ enum WatchComputeAssembly {
         )
         if let freshSleepNight {
             summary.sleep = freshSleepNight
+        }
+
+        // Steps, Active Energy and Resting Energy: the week this run read
+        // replaces the series WHOLESALE rather than splicing, because the seed
+        // carries no history for these kinds (`watchComputeTrimmed` collapses
+        // them to `.empty`), and today's point is the card's headline, the
+        // same "today's bucket only" the phone's summary means (nil when today
+        // has no total yet). Set here, beside the other overlays, so they ride
+        // the permission filter below like every other card's inputs. A failed
+        // read leaves the seed's values: its empty series, and the phone's own
+        // summary from the last push, which the builder may still show. That
+        // is safe because the kind then stays out of `dataAsOf` (and
+        // `chartDataAsOf`), and `WatchComputeMerge.mergingComputed` adopts no
+        // unstamped kind, so whatever the card already shows stands.
+        if case .success(let stepsWeek) = delta.stepsWeek {
+            trends.steps = stepsWeek
+            summary.steps = HealthMetricSummary(value: stepsWeek.point(on: calendar.startOfDay(for: now))?.value)
+        }
+        if case .success(let activeEnergyWeek) = delta.activeEnergyWeek {
+            trends.activeEnergy = activeEnergyWeek
+            summary.activeEnergy = HealthMetricSummary(value: activeEnergyWeek.point(on: calendar.startOfDay(for: now))?.value)
+        }
+        if case .success(let restingEnergyWeek) = delta.restingEnergyWeek {
+            trends.restingEnergy = restingEnergyWeek
+            summary.restingEnergy = HealthMetricSummary(value: restingEnergyWeek.point(on: calendar.startOfDay(for: now))?.value)
         }
 
         // Training Load: replay the phone's dense day-indexed loads with the
@@ -230,10 +277,58 @@ enum WatchComputeAssembly {
                 // * `recordedReadinessContext: nil` — passing a context the
                 //   watch can't reproduce byte-for-byte would drop every seeded
                 //   record on the first compute; nil means "don't re-key them".
+                // Stress below makes the same `recordedStressContext: nil`
+                // call, and one more documented deviation of its own:
+                // * "Yesterday": when the last 12 hours cross midnight the
+                //   watch reads all of yesterday, so its recompute replaces
+                //   the seeded record for yesterday (fresh wins) and the
+                //   adopted week shows the watch's score for it. Local only;
+                //   the next seed brings the phone's record back.
                 now: now,
                 freezesRecordedReadiness: false,
                 recordedReadinessContext: nil
             )
+
+        // Stress: the phone's `recalculatingStress` over the seed's recorded
+        // days (the baselines and the week) plus this run's intraday reads,
+        // then the "Last 12 hours" timeline over the same inputs. Only the
+        // Stress fields are taken from it, so everything the builder reads
+        // for the other cards is exactly `recomputed`. With no reads at all
+        // it rebuilds the week from the seeded records alone.
+        var display = recomputed
+        var stressTimeline: WatchStressTimeline?
+        if permission.includes(.heart) {
+            var stressInputs = recomputed
+            stressInputs.trends.heartRateDaySamples = Self.daySamples(delta.stressHeartRateSamples)
+            stressInputs.trends.heartRateVariabilityDaySamples = Self.daySamples(delta.stressSDNNSamples)
+            stressInputs.trends.heartbeatRMSSDDaySamples = Self.daySamples(delta.stressRMSSDSamples)
+            // The movement mask reads only what the phone's permission filter
+            // leaves it.
+            stressInputs.trends.stressStepsDaySamples = permission.includes(.steps)
+                ? Self.daySamples(delta.stressQuarterHourSteps)
+                : .empty
+            stressInputs.trends.stressActiveEnergyDaySamples = permission.includes(.energy)
+                ? Self.daySamples(delta.stressQuarterHourActiveEnergy)
+                : .empty
+            let stressed = stressInputs.recalculatingStress(
+                on: now,
+                workouts: fetchedWorkouts,
+                calendar: calendar,
+                now: now,
+                recordedStressContext: nil
+            )
+            display.summary.stress = stressed.summary.stress
+            display.summary.stressCurrentScore = stressed.summary.stressCurrentScore
+            display.trends.stress = stressed.trends.stress
+            display.trends.stressRanges = stressed.trends.stressRanges
+            stressTimeline = WatchStressTimelineBuilder.make(
+                dashboard: stressed,
+                workouts: fetchedWorkouts,
+                now: now,
+                calendar: calendar,
+                computedAt: now
+            )
+        }
 
         let dataAsOf = Self.dataAsOf(
             delta: delta,
@@ -246,11 +341,12 @@ enum WatchComputeAssembly {
         )
 
         var snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
-            summary: recomputed.summary,
-            trends: recomputed.trends,
+            summary: display.summary,
+            trends: display.trends,
             lastRefreshDate: seed.lastVitalsRefreshDate,
             permissionSelection: permission,
             temperatureUnitPreference: Self.temperatureUnitPreference(for: seed.settings),
+            energyUnitPreference: Self.energyUnitPreference(for: seed.settings),
             idealSleepDuration: idealSleepDuration,
             showSleepScore: seed.settings.showSleepScore,
             now: now,
@@ -258,9 +354,24 @@ enum WatchComputeAssembly {
             // Union the phone's broader history into each carried range so the
             // watch's short delta window can't shrink the ring/chart bounds.
             seriesRangeOverride: { seed.seriesRanges[$0] },
-            perKindDataAsOf: { dataAsOf[$0] }
+            perKindDataAsOf: { dataAsOf[$0] },
+            // Always built: whether it shows is the phone's pushed flag
+            // (`WatchMetricsSnapshot.showsSleepDebt`), not the compute's call.
+            includesSleepDebt: true,
+            // No `workoutColorOverrides`: a display preference only the
+            // phone's push carries.
+            stressTimeline: stressTimeline
         )
         snapshot.source = "watch"
+        snapshot.heartCharts = Self.heartCharts(delta: delta, permission: permission)
+        snapshot.workoutSpans = Self.workoutSpans(delta: delta, now: now, calendar: calendar)
+        snapshot.warningChecks = Self.warningChecks(
+            delta: delta,
+            settings: warningSettings,
+            permission: permission,
+            now: now,
+            calendar: calendar
+        )
 
         guard snapshot.metrics.contains(where: \.hasValue) else { return nil }
         return WatchComputeResult(
@@ -278,6 +389,12 @@ enum WatchComputeAssembly {
                 delta: delta,
                 replayedTrainingLoad: trainingLoad != nil,
                 permission: permission
+            ),
+            sleepDebtAsOf: Self.sleepDebtAsOf(
+                delta: delta,
+                replayedTrainingLoad: trainingLoad != nil,
+                permission: permission,
+                now: now
             )
         )
     }
@@ -305,9 +422,16 @@ enum WatchComputeAssembly {
         guard let startDay = seed.trainingLoadStartDay,
               let loads = seed.trainingLoadDailyLoads,
               !loads.isEmpty,
-              let loadsThrough = seed.trainingLoadDataThrough,
-              calendar.startOfDay(for: loadsThrough) >= calendar.startOfDay(for: windowStart),
-              case .success(let deltaWorkouts) = workouts else {
+              let loadsThrough = seed.trainingLoadDataThrough else {
+            logger.info("Training Load not replayed: the seed carries no daily loads.")
+            return nil
+        }
+        guard calendar.startOfDay(for: loadsThrough) >= calendar.startOfDay(for: windowStart) else {
+            logger.info("Training Load not replayed: the seed's loads stop before the delta window.")
+            return nil
+        }
+        guard case .success(let deltaWorkouts) = workouts else {
+            logger.info("Training Load not replayed: no workout read this run.")
             return nil
         }
 
@@ -338,6 +462,20 @@ enum WatchComputeAssembly {
         }
 
         return TrainingLoadCalculator.series(fromDailyLoads: dailyLoads)
+    }
+
+    /// `workouts` with the iPhone's rating (`WatchComputeSeed.trainingLoadEffortHints`)
+    /// filled in for each one this watch read as unrated: a rating made on the
+    /// iPhone can take hours to reach the watch's own store, or never arrive,
+    /// and until then the watch would count the workout at the default effort
+    /// while the iPhone counts the rating. A rating the watch read itself always
+    /// wins, being the live read of the store that holds the sample.
+    static func applyingEffortHints(_ workouts: [WorkoutSummary], hints: [String: Double]?) -> [WorkoutSummary] {
+        guard let hints, !hints.isEmpty else { return workouts }
+        return workouts.map { workout in
+            guard workout.effortLevel == nil, let hint = hints[workout.id.uuidString] else { return workout }
+            return workout.replacingEffortLevel(hint)
+        }
     }
 
     /// The trailing week's daily workout minutes, oldest → today, matching the
@@ -449,6 +587,23 @@ enum WatchComputeAssembly {
         if permission.includes(.workouts), delta.workouts.isSuccess {
             map[WatchMetricKindKey.workoutMinutes] = now
         }
+        // Steps, Active Energy and Resting Energy are COVERAGE claims for the
+        // same reason: each card's headline and bars come from this run's week
+        // of daily totals alone, and a successful read with no total today is
+        // fresh information too (nothing counted yet, a "--" the merge never
+        // adopts over a value), so the watermark is the query window's end.
+        // Absent when the permission is off or the read failed: nothing was
+        // re-derived, and the phone's own card stays authoritative. Neither
+        // readiness nor Stress inputs.
+        if permission.includes(.steps), delta.stepsWeek.isSuccess {
+            map[WatchMetricKindKey.steps] = now
+        }
+        if permission.includes(.energy), delta.activeEnergyWeek.isSuccess {
+            map[WatchMetricKindKey.activeEnergy] = now
+        }
+        if permission.includes(.energy), delta.restingEnergyWeek.isSuccess {
+            map[WatchMetricKindKey.restingEnergy] = now
+        }
         // Readiness consumes the trend SERIES the splice refreshed (whole-day
         // HR, HRV, resting HR, respiratory, O₂, wrist temperature), the sleep
         // history, and — when Workouts is permitted — the workout list plus the
@@ -471,6 +626,11 @@ enum WatchComputeAssembly {
         if readinessInputsFresh {
             map[WatchMetricKindKey.readiness] = now
         }
+        // Stress: coverage semantics again, under its own all-inputs rule
+        // (`stressAsOf`).
+        if let stressAsOf = Self.stressAsOf(delta: delta, permission: permission, now: now) {
+            map[WatchMetricKindKey.stress] = stressAsOf
+        }
         // Skin temperature is deliberately absent from THIS map: its headline
         // is the seeded daily summary (phone-sourced by design), so there is
         // no measurement watermark to claim. Its freshly-spliced TREND still
@@ -479,6 +639,70 @@ enum WatchComputeAssembly {
         // stays phone-sourced, trend recomputes on-watch" deviation would
         // silently become "nothing updates on-watch".
         return map
+    }
+
+    /// The Sleep Debt's watermark (see `WatchComputeResult.sleepDebtAsOf`),
+    /// or nil when the debt must not be adopted. Coverage semantics, like
+    /// Training Load's and Readiness's above: the debt reads the sleep history
+    /// (its durations and sleep HRV) and, when Workouts is permitted, the
+    /// Training Load series, so it is stamped with the query window's end only
+    /// when EVERY one of those was re-read this run. A failed or carried sleep
+    /// read leaves the seed's own nights in the history, and a Training Load
+    /// replay that didn't run leaves the phone's own ratios; stamping either
+    /// would launder the phone's debt as computed on the watch just now and
+    /// let it outrank the next push.
+    static func sleepDebtAsOf(
+        delta: WatchComputeDelta,
+        replayedTrainingLoad: Bool,
+        permission: BodyHealthPermissionSelection,
+        now: Date
+    ) -> Date? {
+        guard permission.includes(.sleep),
+              delta.sleepNights.isSuccess,
+              !delta.carriedKinds.contains(.sleep),
+              !permission.includes(.workouts) || replayedTrainingLoad else {
+            return nil
+        }
+        return now
+    }
+
+    /// Stress's watermark in `dataAsOf`, which also covers the "Last 12 hours"
+    /// timeline (`WatchComputeMerge.mergingComputed`), or nil when neither
+    /// may be adopted. Coverage semantics, like Sleep Debt's: Stress scores
+    /// today's intraday heart rate, SDNN and RMSSD, masks movement with the
+    /// 15 minute steps and active energy and the workouts, and reads the main
+    /// sleep session as rest context, so it is stamped with the query window's
+    /// end only when every one of those that is permitted was re-read this
+    /// run. A carried heart kind (no source on this watch) was not re-read,
+    /// whatever its outcome says. Anything less leaves the phone's Stress
+    /// standing; an uncalibrated baseline still stamps, and its blank card is
+    /// never adopted over a value.
+    static func stressAsOf(
+        delta: WatchComputeDelta,
+        permission: BodyHealthPermissionSelection,
+        now: Date
+    ) -> Date? {
+        guard permission.includes(.heart),
+              delta.stressHeartRateSamples.isSuccess,
+              delta.stressSDNNSamples.isSuccess,
+              delta.stressRMSSDSamples.isSuccess,
+              !delta.carriedKinds.contains(.heartRate),
+              !delta.carriedKinds.contains(.heartRateVariability),
+              !permission.includes(.steps) || delta.stressQuarterHourSteps.isSuccess,
+              !permission.includes(.energy) || delta.stressQuarterHourActiveEnergy.isSuccess,
+              !permission.includes(.sleep) || (delta.sleepNights.isSuccess && !delta.carriedKinds.contains(.sleep)),
+              !permission.includes(.workouts) || delta.workouts.isSuccess else {
+            return nil
+        }
+        return now
+    }
+
+    /// A Stress intraday read's series, empty when it didn't succeed.
+    private static func daySamples(_ outcome: WatchFetchOutcome<HealthTrendSeries>) -> HealthTrendSeries {
+        if case .success(let series) = outcome {
+            return series
+        }
+        return .empty
     }
 
     /// The permission-eligible readiness inputs that did not succeed this run,
@@ -497,6 +721,8 @@ enum WatchComputeAssembly {
     ) -> [String] {
         var inputs: [(kind: HealthMetricKind, succeeded: Bool)] = []
         if permission.includes(.heart) {
+            // The HR / HRV range reads are deliberately absent: they only draw
+            // the week charts' capsules, which the score never reads.
             inputs.append((.heartRate, delta.heartRateSeries.isSuccess))
             inputs.append((.restingHeartRate, delta.restingHeartRateSeries.isSuccess))
             inputs.append((.heartRateVariability, delta.heartRateVariabilitySeries.isSuccess))
@@ -546,11 +772,152 @@ enum WatchComputeAssembly {
         return map
     }
 
+    /// The Heart Rate and HRV chart complications' slots
+    /// (`WatchMetricsSnapshot.heartCharts`), keyed by kind: every chart this
+    /// run read, an empty one included (the merge's "remove"), and no key for
+    /// a read that failed or was skipped (the merge's "keep"). Nil without
+    /// Heart, and nil when no read succeeded, so a compute that read no chart
+    /// carries no field at all. Display only, like the week charts' ranges:
+    /// no watermark, since each chart carries its own read time
+    /// (`WatchIntradayWindow.end`), which is what `WatchComputeMerge` compares.
+    static func heartCharts(
+        delta: WatchComputeDelta,
+        permission: BodyHealthPermissionSelection
+    ) -> [String: WatchIntradayChart]? {
+        guard permission.includes(.heart) else { return nil }
+        var charts: [String: WatchIntradayChart] = [:]
+        if case .success(let chart) = delta.heartRateIntraday {
+            charts[WatchMetricKindKey.heartRate] = chart
+        }
+        if case .success(let chart) = delta.heartRateVariabilityIntraday {
+            charts[WatchMetricKindKey.heartRateVariability] = chart
+        }
+        return charts.isEmpty ? nil : charts
+    }
+
+    /// The warning kinds the watch checks itself: the ones with a watch card
+    /// (Low and High Heart Rate on Heart Rate, High Skin Temperature on Skin
+    /// Temp), in `MetricWarningKind.allCases` order. `WatchDeltaFetcher`
+    /// reads today's readings for these kinds only.
+    static let checkedWarningKinds: [MetricWarningKind] = [.lowHeartRate, .highHeartRate, .highWristTemperature]
+
+    /// The workouts this run read whose High Heart Rate exclusion (the
+    /// workout plus its 30 minute recovery grace,
+    /// `MetricThresholdWarning.workoutExclusionInterval`) reaches into today,
+    /// in start order (`WatchMetricsSnapshot.workoutSpans`): a workout that
+    /// ran past midnight, or ended no more than 30 minutes before it, still
+    /// counts, and one starting after `now` doesn't. Nil when the workout
+    /// read failed or was skipped (the merge's "keep"), empty when it found
+    /// none (its "clear").
+    static func workoutSpans(
+        delta: WatchComputeDelta,
+        now: Date,
+        calendar: Calendar
+    ) -> [WatchWorkoutSpan]? {
+        guard case .success(let workouts) = delta.workouts else { return nil }
+        let startOfToday = calendar.startOfDay(for: now)
+        return workouts
+            .filter { workout in
+                workout.startDate <= now
+                    && MetricThresholdWarning.workoutExclusionInterval(
+                        start: workout.startDate,
+                        end: workout.effectiveEndDate
+                    ).end >= startOfToday
+            }
+            .map { WatchWorkoutSpan(start: $0.startDate, end: $0.effectiveEndDate) }
+            .sorted { $0.start < $1.start }
+    }
+
+    /// The warnings this run checked itself (`WatchMetricsSnapshot.warningChecks`),
+    /// in `checkedWarningKinds` order: one for each kind with the iPhone's
+    /// threshold and a reading that succeeded, carrying the day's earliest
+    /// episode past that threshold through the iPhone's own detection
+    /// (`MetricThresholdWarning.detect`), or none. High Heart Rate follows the
+    /// iPhone's `fetchTodayHighHeartRateWarning`: it is checked only with
+    /// Workouts on and a workout read that succeeded, and leaves out the
+    /// readings inside today's workouts and their recovery grace. Nil when no
+    /// kind was checked, so such a compute carries no field.
+    static func warningChecks(
+        delta: WatchComputeDelta,
+        settings: WatchWarningSettings?,
+        permission: BodyHealthPermissionSelection,
+        now: Date,
+        calendar: Calendar
+    ) -> [WatchWarningCheck]? {
+        guard let settings else { return nil }
+        let checks = checkedWarningKinds.compactMap { kind -> WatchWarningCheck? in
+            guard let threshold = settings.thresholds[kind.rawValue],
+                  case .success(let readings) = delta.warningReadings[kind] else {
+                return nil
+            }
+            var exclusions: [DateInterval] = []
+            if kind.excludesWorkouts {
+                guard permission.includes(.workouts), case .success(let workouts) = delta.workouts else {
+                    return nil
+                }
+                exclusions = todaysWorkoutExclusions(workouts, now: now, calendar: calendar)
+            }
+            let episode = MetricThresholdWarning.detect(
+                kind,
+                inSamples: readings,
+                threshold: threshold,
+                excluding: exclusions
+            )
+            return WatchWarningCheck(
+                kind: kind.rawValue,
+                checkedAt: now,
+                threshold: threshold,
+                episode: episode.map {
+                    WatchWarningCheck.Episode(startDate: $0.startDate, endDate: $0.endDate, extremeValue: $0.extremeValue)
+                }
+            )
+        }
+        return checks.isEmpty ? nil : checks
+    }
+
+    /// The iPhone's High Heart Rate exclusions over this run's workouts, its
+    /// `fetchTodayWorkoutIntervals` filter: every workout that started before
+    /// `now` and ended after today's start (an overnight one from yesterday
+    /// included), plus its recovery grace.
+    private static func todaysWorkoutExclusions(
+        _ workouts: [WorkoutSummary],
+        now: Date,
+        calendar: Calendar
+    ) -> [DateInterval] {
+        let startOfToday = calendar.startOfDay(for: now)
+        return workouts.compactMap { workout in
+            guard workout.startDate < now,
+                  workout.effectiveEndDate > startOfToday,
+                  workout.startDate <= workout.effectiveEndDate else {
+                return nil
+            }
+            return MetricThresholdWarning.workoutExclusionInterval(
+                start: workout.startDate,
+                end: workout.effectiveEndDate
+            )
+        }
+    }
+
     static func temperatureUnitPreference(
         for settings: WatchComputeSettings
     ) -> BodyValueFormat.TemperatureUnitPreference {
         settings.followsSystemUnits
             ? BodyValueFormat.TemperatureUnitPreference.systemValue(locale: .current)
             : BodyValueFormat.TemperatureUnitPreference.storedValue(from: settings.selectedTemperatureUnitRaw)
+    }
+
+    /// The phone's `HealthWidgetSnapshotBuilder.storedEnergyUnitPreference()`
+    /// resolution, exactly, so a watch-built Active or Resting Energy card
+    /// reads in the iPhone card's unit. The seed carries no raw value for
+    /// kilocalories (`selectedEnergyUnitRaw` nil), which falls back to the
+    /// default like an unset preference on the phone.
+    static func energyUnitPreference(
+        for settings: WatchComputeSettings
+    ) -> BodyValueFormat.EnergyUnitPreference {
+        settings.followsSystemUnits
+            ? BodyValueFormat.EnergyUnitPreference.systemValue(locale: .current)
+            : BodyValueFormat.EnergyUnitPreference.storedValue(
+                from: settings.selectedEnergyUnitRaw ?? BodyValueFormat.EnergyUnitPreference.defaultValue.rawValue
+            )
     }
 }
