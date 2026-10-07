@@ -1,3 +1,7 @@
+## 1.1.6 (build 1)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.6 build 1. This version starts from 1.1.5 build 8.
+
 ## 1.1.5 (build 8)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.5 build 8.
