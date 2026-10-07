@@ -1,3 +1,8 @@
+## 1.1.5 (build 8)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.5 build 8.
+- **The Body Pro paywall shows once more after updating.** The one-time paywall on launch was gated by a flag set the first time it showed (`proIntroPaywallShown`), so an install that had already seen it, at the end of onboarding or after updating to 1.1.3, never saw it again. It is now stamped with the marketing version and build it showed on (`proIntroPaywallShownVersion`, such as "1.1.5.8") and is due while that stamp is below `BodyOnboardingGate.proIntroVersion`, now 1.1.5.8. The stamp is a new key, so every install that finished onboarding on a build before 1.1.5 build 8 starts without one and sees the paywall once on its first launch of this build: full screen with **Continue for Free**, after any update page, and once the entitlement has resolved. It is stamped the moment it is due, so it never returns on this build even when the app is closed on it. Pro members are stamped without seeing it, and first-run onboarding still ends on the paywall and stamps it, so a fresh install never sees it twice. Raising `proIntroVersion` in a later build shows it once more again. The old flag is no longer read.
+
 ## 1.1.5 (build 7)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.5 build 7.
