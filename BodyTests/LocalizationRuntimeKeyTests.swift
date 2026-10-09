@@ -557,7 +557,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
 
         try assertKeysTranslated(keys, in: catalog)
         for key in keys {
-            for language in ["en", "zh-Hans"] {
+            for language in BodyTestSupport.catalogLanguages {
                 XCTAssertEqual(
                     try value(of: key, language: language, in: catalog),
                     try value(of: key, language: language, in: phoneCatalog),
@@ -590,7 +590,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
 
         try assertKeysTranslated(keys, in: catalog)
         for key in keys {
-            for language in ["en", "zh-Hans"] {
+            for language in BodyTestSupport.catalogLanguages {
                 XCTAssertEqual(
                     try value(of: key, language: language, in: catalog),
                     try value(of: key, language: language, in: phoneCatalog),
@@ -885,7 +885,7 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
     /// The project's copy rule: no dashes as punctuation, in either language.
     private func assertNoDashes(_ keys: [String], in catalog: [String: Any]) throws {
         for key in keys {
-            for language in ["en", "zh-Hans"] {
+            for language in BodyTestSupport.catalogLanguages {
                 let text = try value(of: key, language: language, in: catalog)
                 XCTAssertFalse(text.contains("—") || text.contains("–") || text.contains(" - "), "\(key) \(language)")
             }
@@ -1010,11 +1010,15 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         for key in keys {
             let entry = try XCTUnwrap(catalog[key] as? [String: Any], "missing catalog entry for \(key)")
             let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any], "\(key) missing localizations")
-            let zhHans = try XCTUnwrap(localizations["zh-Hans"] as? [String: Any], "\(key) missing zh-Hans")
-            let unit = try XCTUnwrap(zhHans["stringUnit"] as? [String: Any], "\(key) missing zh-Hans stringUnit")
-            XCTAssertEqual(unit["state"] as? String, "translated", "\(key) zh-Hans not translated")
-            let value = try XCTUnwrap(unit["value"] as? String, "\(key) zh-Hans missing value")
-            XCTAssertFalse(value.isEmpty, "\(key) zh-Hans value is empty")
+            for language in BodyTestSupport.catalogLanguages where language != "en" {
+                let context = "\(key) \(language)"
+                let localization = try XCTUnwrap(localizations[language] as? [String: Any], "\(key) missing \(language)")
+                for unit in try BodyTestSupport.stringUnits(in: localization, context: context) {
+                    XCTAssertEqual(unit["state"] as? String, "translated", "\(context) not translated")
+                    let value = try XCTUnwrap(unit["value"] as? String, "\(context) missing value")
+                    XCTAssertFalse(value.isEmpty, "\(context) value is empty")
+                }
+            }
         }
     }
 
@@ -1228,8 +1232,27 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         let entry = try XCTUnwrap(catalog[key] as? [String: Any], "missing catalog entry for \(key)")
         let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any], "\(key) missing localizations")
         let localization = try XCTUnwrap(localizations[language] as? [String: Any], "\(key) missing \(language)")
-        let unit = try XCTUnwrap(localization["stringUnit"] as? [String: Any], "\(key) missing \(language) stringUnit")
-        return try XCTUnwrap(unit["value"] as? String, "\(key) \(language) missing value")
+        return try BodyTestSupport.stringValue(in: localization, context: "\(key) \(language)")
+    }
+
+    /// Plain `uppercased()` maps Turkish "i" to "I", so the chart eyebrows, the
+    /// share card title and the month picker uppercase through the locale and
+    /// Turkish reads EGZERSİZ rather than EGZERSIZ. Unit symbols stay Latin and
+    /// keep the plain call.
+    func testUppercasedTitlesFollowTheLocale() throws {
+        XCTAssertEqual("egzersiz".uppercased(with: Locale(identifier: "tr")), "EGZERSİZ")
+
+        let sites: [(file: String, count: Int)] = [
+            ("Body/Views/Health/BodyWorkoutShareCardView.swift", 1),
+            ("Body/Views/BodyWorkoutsView.swift", 4),
+            ("Body/Views/Health/Charts/StressChart.swift", 2),
+            ("Body/Views/BodyMonthYearPicker.swift", 2)
+        ]
+        for site in sites {
+            let source = try BodyTestSupport.sourceText(at: site.file)
+            XCTAssertEqual(source.occurrenceCount(of: "uppercased(with: .current)"), site.count, site.file)
+            XCTAssertEqual(source.occurrenceCount(of: "title.uppercased()"), 0, site.file)
+        }
     }
 
     private func loadCatalog(at relativePath: String) throws -> [String: Any] {

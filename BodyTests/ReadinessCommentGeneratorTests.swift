@@ -185,6 +185,11 @@ final class ReadinessCommentGeneratorTests: XCTestCase {
         XCTAssertTrue(chinese.contains("One or two sentences"))
         XCTAssertTrue(chinese.lowercased().contains("chinese"))
         XCTAssertFalse(chinese.contains("Write the comment in English"))
+
+        for (identifier, name) in [("de", "German"), ("es", "Spanish"), ("tr", "Turkish"), ("hi", "Hindi"), ("fr", "French"), ("ru", "Russian")] {
+            let instructions = ReadinessCommentPromptBuilder.instructions(locale: Locale(identifier: identifier))
+            XCTAssertTrue(instructions.contains("Write the comment in \(name)"), identifier)
+        }
     }
 
     func testInstructionsNeverNameLatinScriptOrAllowAppMentions() {

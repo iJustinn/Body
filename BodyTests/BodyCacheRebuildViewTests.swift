@@ -46,13 +46,13 @@ final class BodyCacheRebuildViewTests: XCTestCase {
         return image
     }
 
-    func testEveryEntryRendersInEnglishAndSimplifiedChinese() throws {
+    func testEveryEntryRendersInEveryLanguage() throws {
         let entries: [(BodyCacheRebuildView.Entry, String)] = [
             (.update, "update"),
             (.settings, "settings"),
             (.stressUpdate, "stressUpdate")
         ]
-        let locales = ["en", "zh-Hans"]
+        let locales = BodyTestSupport.catalogLanguages
 
         for (entry, entryName) in entries {
             for identifier in locales {

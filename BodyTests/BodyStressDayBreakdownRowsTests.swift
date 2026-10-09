@@ -60,9 +60,9 @@ final class BodyStressDayBreakdownRowsTests: XCTestCase {
         return renderer.uiImage
     }
 
-    func testRowsAndBarRenderInEnglishAndSimplifiedChinese() throws {
+    func testRowsAndBarRenderInEveryLanguage() throws {
         for (summary, name) in [(quietDay, "quiet"), (fullDay, "full")] {
-            for identifier in ["en", "zh-Hans"] {
+            for identifier in BodyTestSupport.catalogLanguages {
                 let locale = Locale(identifier: identifier)
                 let rows = try XCTUnwrap(render(summary, showsBar: false, locale: locale), "\(name)/rows/\(identifier)")
                 let bar = try XCTUnwrap(render(summary, showsBar: true, locale: locale), "\(name)/bar/\(identifier)")
@@ -79,7 +79,7 @@ final class BodyStressDayBreakdownRowsTests: XCTestCase {
     }
 
     func testTheBarFitsANarrowPhone() throws {
-        for identifier in ["en", "zh-Hans"] {
+        for identifier in BodyTestSupport.catalogLanguages {
             let image = try XCTUnwrap(
                 render(fullDay, showsBar: true, locale: Locale(identifier: identifier), width: Self.narrowContentWidth),
                 identifier

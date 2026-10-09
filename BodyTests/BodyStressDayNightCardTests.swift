@@ -154,7 +154,7 @@ final class BodyStressDayNightCardTests: XCTestCase {
         return renderer.uiImage
     }
 
-    func testEveryStateRendersInEnglishAndSimplifiedChinese() throws {
+    func testEveryStateRendersInEveryLanguage() throws {
         let states: [(StressDayNightSplit, String)] = [
             (fullDay, "today"),
             (noSleep, "noSleep"),
@@ -163,7 +163,7 @@ final class BodyStressDayNightCardTests: XCTestCase {
         ]
 
         for (split, name) in states {
-            for identifier in ["en", "zh-Hans"] {
+            for identifier in BodyTestSupport.catalogLanguages {
                 let image = try XCTUnwrap(render(split, locale: Locale(identifier: identifier)), "\(name)/\(identifier)")
                 XCTAssertEqual(image.size.width, Self.cardWidth + 32, accuracy: 0.5, "\(name)/\(identifier)")
                 XCTAssertGreaterThan(image.size.height, 150, "\(name)/\(identifier)")
@@ -174,7 +174,7 @@ final class BodyStressDayNightCardTests: XCTestCase {
     }
 
     func testTheWidestHeadlinesFitANarrowPhone() throws {
-        for identifier in ["en", "zh-Hans"] {
+        for identifier in BodyTestSupport.catalogLanguages {
             let image = try XCTUnwrap(
                 render(widestHeadlines, locale: Locale(identifier: identifier), width: Self.narrowCardWidth),
                 identifier

@@ -855,13 +855,23 @@ final class ProjectConfigurationTests: XCTestCase {
         }
     }
 
-    func testProjectDeclaresSimplifiedChineseLocalization() throws {
+    func testProjectDeclaresEveryLocalization() throws {
         let project = try BodyTestSupport.sourceText(at: "body.xcodeproj/project.pbxproj")
-        XCTAssertTrue(project.contains(#""zh-Hans","#))
         XCTAssertTrue(project.contains("developmentRegion = en;"))
+
+        let regionsStart = try XCTUnwrap(project.range(of: "knownRegions = ("))
+        let regionsEnd = try XCTUnwrap(project.range(of: ");", range: regionsStart.upperBound..<project.endIndex))
+        let regions = Set(
+            project[regionsStart.upperBound..<regionsEnd.lowerBound]
+                .split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\",")) }
+        )
+        for language in BodyTestSupport.catalogLanguages {
+            XCTAssertTrue(regions.contains(language), "knownRegions lacks \(language)")
+        }
     }
 
-    func testChineseLocalizationCatalogsAreComplete() throws {
+    func testLocalizationCatalogsAreComplete() throws {
         let catalogPaths = [
             "Body/Localizable.xcstrings",
             "Body/InfoPlist.xcstrings",
@@ -886,21 +896,72 @@ final class ProjectConfigurationTests: XCTestCase {
                 // Xcode's string-catalog build phase intermittently re-injects an
                 // empty-key placeholder ("" with no localizations) into the app
                 // catalog on recompile. It is never user-facing, so skip it rather
-                // than fail the Chinese-coverage check on every unrelated UI change.
+                // than fail the coverage check on every unrelated UI change.
                 if key.isEmpty { continue }
 
                 let entry = try XCTUnwrap(rawEntry as? [String: Any], "\(path) \(key)")
                 let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any], "\(path) \(key)")
-                for language in ["en", "zh-Hans"] {
+                for language in BodyTestSupport.catalogLanguages {
+                    let context = "\(path) \(key) \(language)"
                     let localization = try XCTUnwrap(
                         localizations[language] as? [String: Any],
                         "\(path) \(key) missing \(language)"
                     )
-                    let unit = try XCTUnwrap(localization["stringUnit"] as? [String: Any], "\(path) \(key) \(language)")
-                    XCTAssertEqual(unit["state"] as? String, "translated", "\(path) \(key) \(language)")
-                    let value = try XCTUnwrap(unit["value"] as? String, "\(path) \(key) \(language)")
-                    XCTAssertFalse(value.isEmpty, "\(path) \(key) \(language)")
+                    for unit in try BodyTestSupport.stringUnits(in: localization, context: context) {
+                        XCTAssertEqual(unit["state"] as? String, "translated", context)
+                        let value = try XCTUnwrap(unit["value"] as? String, context)
+                        XCTAssertFalse(value.isEmpty, context)
+                    }
                 }
+            }
+        }
+    }
+
+    /// Siri only runs a Body action on a phrase from `AppShortcuts.xcstrings`, so
+    /// every language the app ships needs its own phrase set, each phrase still
+    /// naming the app (and the metric, where the English does).
+    func testAppShortcutPhrasesAreLocalized() throws {
+        let strings = try BodyTestSupport.catalogStrings(at: "Body/AppShortcuts.xcstrings")
+        XCTAssertFalse(strings.isEmpty)
+
+        for (key, rawEntry) in strings where !key.isEmpty {
+            let entry = try XCTUnwrap(rawEntry as? [String: Any], key)
+            let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any], key)
+            for language in BodyTestSupport.catalogLanguages {
+                let localization = try XCTUnwrap(localizations[language] as? [String: Any], "\(key) missing \(language)")
+                let set = try XCTUnwrap(localization["stringSet"] as? [String: Any], "\(key) \(language) missing stringSet")
+                let phrases = try XCTUnwrap(set["values"] as? [String], "\(key) \(language)")
+                XCTAssertFalse(phrases.isEmpty, "\(key) \(language)")
+                for phrase in phrases {
+                    XCTAssertTrue(phrase.contains("${applicationName}"), "\(key) \(language): \(phrase)")
+                    if key.contains("${metric}") {
+                        XCTAssertTrue(phrase.contains("${metric}"), "\(key) \(language): \(phrase)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// The StoreKit test configuration names the products in every language the
+    /// paywall ships, so a localized paywall can be checked without App Store Connect.
+    func testStoreKitConfigurationNamesProductsInEveryLocale() throws {
+        let data = try Data(contentsOf: BodyTestSupport.projectRoot.appendingPathComponent("Body.storekit"))
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let expectedLocales: Set<String> = ["en_US", "zh_Hans", "de_DE", "es_ES", "tr", "hi", "fr_FR", "ru"]
+
+        var holders = try XCTUnwrap(root["products"] as? [[String: Any]])
+        for group in try XCTUnwrap(root["subscriptionGroups"] as? [[String: Any]]) {
+            holders.append(group)
+            holders += try XCTUnwrap(group["subscriptions"] as? [[String: Any]])
+        }
+        XCTAssertEqual(holders.count, 5)
+
+        for holder in holders {
+            let name = (holder["referenceName"] ?? holder["name"]) as? String ?? "?"
+            let localizations = try XCTUnwrap(holder["localizations"] as? [[String: Any]], name)
+            XCTAssertEqual(Set(localizations.compactMap { $0["locale"] as? String }), expectedLocales, name)
+            for localization in localizations {
+                XCTAssertFalse(try XCTUnwrap(localization["displayName"] as? String).isEmpty, name)
             }
         }
     }

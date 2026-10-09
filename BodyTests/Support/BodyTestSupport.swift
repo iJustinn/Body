@@ -62,6 +62,38 @@ enum BodyTestSupport {
         let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any], relativePath)
         return try XCTUnwrap(root["strings"] as? [String: Any], relativePath)
     }
+
+    /// Every language the string catalogs ship, the development language first.
+    /// Adding a language to the app means adding it here and to `knownRegions`.
+    static let catalogLanguages = ["en", "zh-Hans", "de", "es", "tr", "hi", "fr", "ru"]
+
+    /// The `stringUnit` dictionaries one language's catalog entry resolves to:
+    /// the single unit of a plain entry, or one per plural form of a
+    /// `variations.plural` entry (which must carry `other`).
+    static func stringUnits(in localization: [String: Any], context: String) throws -> [[String: Any]] {
+        if let unit = localization["stringUnit"] as? [String: Any] {
+            return [unit]
+        }
+        let variations = try XCTUnwrap(localization["variations"] as? [String: Any], "\(context) has neither stringUnit nor variations")
+        let plural = try XCTUnwrap(variations["plural"] as? [String: Any], "\(context) variation is not a plural")
+        XCTAssertNotNil(plural["other"], "\(context) plural lacks other")
+        return try plural.keys.sorted().map { form in
+            let variant = try XCTUnwrap(plural[form] as? [String: Any], "\(context) \(form)")
+            return try XCTUnwrap(variant["stringUnit"] as? [String: Any], "\(context) \(form) missing stringUnit")
+        }
+    }
+
+    /// The value a plain entry shows, or the `other` form of a plural entry.
+    static func stringValue(in localization: [String: Any], context: String) throws -> String {
+        if let unit = localization["stringUnit"] as? [String: Any] {
+            return try XCTUnwrap(unit["value"] as? String, "\(context) missing value")
+        }
+        let variations = try XCTUnwrap(localization["variations"] as? [String: Any], "\(context) has neither stringUnit nor variations")
+        let plural = try XCTUnwrap(variations["plural"] as? [String: Any], "\(context) variation is not a plural")
+        let other = try XCTUnwrap(plural["other"] as? [String: Any], "\(context) plural lacks other")
+        let unit = try XCTUnwrap(other["stringUnit"] as? [String: Any], "\(context) other missing stringUnit")
+        return try XCTUnwrap(unit["value"] as? String, "\(context) other missing value")
+    }
 }
 
 extension String {
