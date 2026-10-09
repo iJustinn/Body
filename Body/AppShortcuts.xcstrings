@@ -4,6 +4,20 @@
     "Any health warnings in ${applicationName}" : {
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Gibt es Gesundheitswarnungen in ${applicationName}",
+              "Gibt es heute Warnungen in ${applicationName}",
+              "Habe ich Warnungen in ${applicationName}",
+              "Habe ich Gesundheitswarnungen in ${applicationName}",
+              "Welche Warnungen habe ich in ${applicationName}",
+              "Zeig meine Gesundheitswarnungen in ${applicationName}",
+              "Gesundheitswarnungen in ${applicationName}"
+            ]
+          }
+        },
         "en" : {
           "stringSet" : {
             "state" : "new",
@@ -18,12 +32,110 @@
               "Show my health warnings in ${applicationName}"
             ]
           }
+        },
+        "es" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Hay avisos de salud en ${applicationName}",
+              "Tengo algún aviso de salud en ${applicationName}",
+              "Hay algún aviso hoy en ${applicationName}",
+              "Tengo avisos hoy en ${applicationName}",
+              "Cuáles son mis avisos en ${applicationName}",
+              "Muéstrame mis avisos de salud en ${applicationName}",
+              "Consulta mis avisos de salud en ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Y a-t-il des avertissements de santé dans ${applicationName}",
+              "Y a-t-il des avertissements aujourd’hui dans ${applicationName}",
+              "Ai-je des avertissements de santé dans ${applicationName}",
+              "Est-ce que j’ai des avertissements dans ${applicationName}",
+              "Quels sont mes avertissements dans ${applicationName}",
+              "Mes avertissements de santé dans ${applicationName}",
+              "Des avertissements de santé dans ${applicationName}"
+            ]
+          }
+        },
+        "hi" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "क्या ${applicationName} में कोई सेहत चेतावनी है",
+              "क्या ${applicationName} में आज कोई चेतावनी है",
+              "${applicationName} में कोई चेतावनी है",
+              "${applicationName} में मेरी सेहत चेतावनियाँ दिखाएँ",
+              "${applicationName} में मेरी चेतावनियाँ क्या हैं",
+              "${applicationName} में मेरी चेतावनियाँ बताएँ",
+              "${applicationName} में सेहत चेतावनियाँ चेक करें"
+            ]
+          }
+        },
+        "ru" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Есть ли предупреждения о здоровье в ${applicationName}",
+              "Есть ли сегодня предупреждения в ${applicationName}",
+              "Есть ли у меня предупреждения в ${applicationName}",
+              "Какие у меня предупреждения в ${applicationName}",
+              "Покажи мои предупреждения о здоровье в ${applicationName}",
+              "Предупреждения о здоровье в ${applicationName}",
+              "Все ли в порядке со здоровьем в ${applicationName}"
+            ]
+          }
+        },
+        "tr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} sağlık uyarısı var mı",
+              "${applicationName} bugün uyarı var mı",
+              "${applicationName} herhangi bir uyarım var mı",
+              "${applicationName} sağlık uyarılarım neler",
+              "${applicationName} uyarılarım neler",
+              "${applicationName} uygulamasında sağlık uyarılarımı göster",
+              "${applicationName} ile sağlık uyarılarımı kontrol et"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}有健康警告吗",
+              "在${applicationName}中查看我的健康警告",
+              "${applicationName}今天有什么警告吗",
+              "用${applicationName}查询我的健康警告",
+              "${applicationName}我有没有健康警告",
+              "在${applicationName}里看看有没有警告",
+              "${applicationName}我的健康警告有哪些"
+            ]
+          }
         }
       }
     },
     "How did I sleep in ${applicationName}" : {
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Wie habe ich geschlafen in ${applicationName}",
+              "Wie habe ich letzte Nacht geschlafen in ${applicationName}",
+              "Wie war mein Schlaf in ${applicationName}",
+              "Wie ist mein Schlafindex in ${applicationName}",
+              "Zeig meinen Schlaf in ${applicationName}",
+              "Mein Schlaf in ${applicationName}",
+              "Wie gut habe ich geschlafen laut ${applicationName}"
+            ]
+          }
+        },
         "en" : {
           "stringSet" : {
             "state" : "new",
@@ -34,12 +146,114 @@
               "What's my sleep score in ${applicationName}"
             ]
           }
+        },
+        "es" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Cómo dormí según ${applicationName}",
+              "Cómo dormí anoche según ${applicationName}",
+              "Qué tal dormí en ${applicationName}",
+              "Cómo fue mi sueño en ${applicationName}",
+              "Cuál es mi puntuación del sueño en ${applicationName}",
+              "Muéstrame mi sueño en ${applicationName}",
+              "Consulta mi sueño de anoche en ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Comment ai-je dormi selon ${applicationName}",
+              "Comment ai-je dormi cette nuit selon ${applicationName}",
+              "Comment j’ai dormi selon ${applicationName}",
+              "Comment était mon sommeil dans ${applicationName}",
+              "Quel est mon score de sommeil dans ${applicationName}",
+              "Mon sommeil dans ${applicationName}",
+              "Mon sommeil de la nuit dernière dans ${applicationName}"
+            ]
+          }
+        },
+        "hi" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} में मेरी नींद कैसी रही",
+              "${applicationName} में कल रात मेरी नींद कैसी रही",
+              "${applicationName} में कल रात कितनी नींद मिली",
+              "${applicationName} में मेरी नींद दिखाएँ",
+              "${applicationName} में बीती रात की नींद बताएँ",
+              "${applicationName} में मेरा नींद का स्कोर क्या है",
+              "${applicationName} में मेरी नींद चेक करें"
+            ]
+          }
+        },
+        "ru" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Как я спал в ${applicationName}",
+              "Как я спала в ${applicationName}",
+              "Как я спал прошлой ночью в ${applicationName}",
+              "Как я спала прошлой ночью в ${applicationName}",
+              "Как прошел мой сон в ${applicationName}",
+              "Какая у меня оценка сна в ${applicationName}",
+              "Покажи мой сон в ${applicationName}",
+              "Мой сон в ${applicationName}"
+            ]
+          }
+        },
+        "tr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} nasıl uyudum",
+              "${applicationName} dün gece nasıl uyudum",
+              "${applicationName} uykum nasıldı",
+              "${applicationName} uyku puanım ne",
+              "${applicationName} uygulamasında uykumu göster",
+              "${applicationName} ile uykumu kontrol et",
+              "${applicationName} dün geceki uykumu göster"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}我睡得怎么样",
+              "${applicationName}我昨晚睡得怎么样",
+              "在${applicationName}中查看我的睡眠",
+              "用${applicationName}查询我的睡眠",
+              "${applicationName}我的睡眠怎么样",
+              "${applicationName}我的睡眠评分是多少",
+              "在${applicationName}里看看我昨晚的睡眠"
+            ]
+          }
         }
       }
     },
     "How's my status in ${applicationName}" : {
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Wie ist mein Status in ${applicationName}",
+              "Zeig meinen Status in ${applicationName}",
+              "Wie geht es mir heute in ${applicationName}",
+              "Wie geht es meinem Körper in ${applicationName}",
+              "Wie sieht mein Status in ${applicationName} aus",
+              "Prüf meinen Status in ${applicationName}",
+              "Meine Tagesübersicht in ${applicationName}",
+              "Gib mir meine Übersicht in ${applicationName}",
+              "Was sagt ${applicationName} heute über mich",
+              "Frag ${applicationName}"
+            ]
+          }
+        },
         "en" : {
           "stringSet" : {
             "state" : "new",
@@ -57,12 +271,125 @@
               "Check ${applicationName}"
             ]
           }
+        },
+        "es" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Cómo estoy en ${applicationName}",
+              "Cómo estoy hoy según ${applicationName}",
+              "Cuál es mi estado en ${applicationName}",
+              "Consulta mi estado en ${applicationName}",
+              "Muéstrame mi estado en ${applicationName}",
+              "Qué tal estoy hoy en ${applicationName}",
+              "Cómo está mi cuerpo hoy en ${applicationName}",
+              "Dame mi resumen de ${applicationName}",
+              "Mi resumen del día en ${applicationName}",
+              "Consulta ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Quel est mon état dans ${applicationName}",
+              "Quel est mon état aujourd’hui dans ${applicationName}",
+              "Mon état dans ${applicationName}",
+              "Mon état du jour dans ${applicationName}",
+              "Comment je vais dans ${applicationName}",
+              "Comment je vais aujourd’hui selon ${applicationName}",
+              "Où en est mon corps aujourd’hui dans ${applicationName}",
+              "Mon résumé du jour dans ${applicationName}",
+              "Que dit ${applicationName} de mon état"
+            ]
+          }
+        },
+        "hi" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} में मेरी स्थिति क्या है",
+              "${applicationName} में मेरी स्थिति कैसी है",
+              "${applicationName} में मेरी स्थिति दिखाएँ",
+              "${applicationName} में मेरी स्थिति चेक करें",
+              "${applicationName} में आज मेरा शरीर कैसा है",
+              "${applicationName} में मेरा हाल बताएँ",
+              "${applicationName} में मेरा सारांश दिखाएँ",
+              "${applicationName} में आज का सारांश बताएँ",
+              "${applicationName} में मेरा दैनिक सारांश",
+              "${applicationName} चेक करें"
+            ]
+          }
+        },
+        "ru" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Какой у меня статус в ${applicationName}",
+              "Как мое состояние в ${applicationName}",
+              "Покажи мой статус в ${applicationName}",
+              "Проверь мой статус в ${applicationName}",
+              "Как я сегодня в ${applicationName}",
+              "Как мои дела в ${applicationName}",
+              "Как мое тело сегодня в ${applicationName}",
+              "Моя сводка за день в ${applicationName}",
+              "Дай мне сводку в ${applicationName}",
+              "Проверь ${applicationName}"
+            ]
+          }
+        },
+        "tr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} durumum nasıl",
+              "${applicationName} uygulamasında durumum nasıl",
+              "${applicationName} ile durumumu kontrol et",
+              "${applicationName} bugün nasılım",
+              "${applicationName} vücudum bugün nasıl",
+              "${applicationName} günlük özetimi göster",
+              "${applicationName} bana özetimi ver",
+              "${applicationName} ile durumumu göster",
+              "${applicationName} uygulamasını kontrol et"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "在${applicationName}中查看我的状态",
+              "${applicationName}我的状态怎么样",
+              "${applicationName}的今天状态如何",
+              "用${applicationName}看看我今天状态如何",
+              "在${applicationName}里查一下我的状态",
+              "${applicationName}我今天身体怎么样",
+              "在${applicationName}中查看今日总结",
+              "${applicationName}给我今天的总结",
+              "打开${applicationName}看看我的状态",
+              "查看${applicationName}"
+            ]
+          }
         }
       }
     },
     "My workouts this week in ${applicationName}" : {
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Meine Trainings diese Woche in ${applicationName}",
+              "Zeig meine Trainings dieser Woche in ${applicationName}",
+              "Wie viele Trainings habe ich diese Woche in ${applicationName}",
+              "Wie oft habe ich diese Woche trainiert laut ${applicationName}",
+              "Wie viele Trainings diese Woche in ${applicationName}",
+              "Meine Trainingswoche in ${applicationName}"
+            ]
+          }
+        },
         "en" : {
           "stringSet" : {
             "state" : "new",
@@ -73,12 +400,104 @@
               "Show my workouts this week in ${applicationName}"
             ]
           }
+        },
+        "es" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Mis entrenamientos de esta semana en ${applicationName}",
+              "Cuántos entrenamientos hice esta semana en ${applicationName}",
+              "Cuántas veces entrené esta semana según ${applicationName}",
+              "Qué entrenamientos hice esta semana en ${applicationName}",
+              "Muéstrame mis entrenamientos de esta semana en ${applicationName}",
+              "Consulta mis entrenamientos de la semana en ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Mes exercices de la semaine dans ${applicationName}",
+              "Mes exercices cette semaine dans ${applicationName}",
+              "Combien d’exercices cette semaine dans ${applicationName}",
+              "Combien d’exercices ai-je faits cette semaine dans ${applicationName}",
+              "Quels exercices ai-je faits cette semaine dans ${applicationName}",
+              "Mon bilan d’exercices de la semaine dans ${applicationName}"
+            ]
+          }
+        },
+        "hi" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} में इस सप्ताह के मेरे वर्कआउट",
+              "${applicationName} में इस सप्ताह के मेरे वर्कआउट दिखाएँ",
+              "${applicationName} में इस सप्ताह कितने वर्कआउट हुए",
+              "${applicationName} में मैंने इस सप्ताह कितने वर्कआउट किए",
+              "${applicationName} में इस हफ़्ते के मेरे वर्कआउट",
+              "${applicationName} में इस हफ़्ते कितने वर्कआउट हुए",
+              "${applicationName} में इस सप्ताह का मेरा वर्कआउट सारांश बताएँ"
+            ]
+          }
+        },
+        "ru" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Мои тренировки на этой неделе в ${applicationName}",
+              "Сколько тренировок на этой неделе в ${applicationName}",
+              "Сколько у меня тренировок за неделю в ${applicationName}",
+              "Покажи мои тренировки за неделю в ${applicationName}",
+              "Тренировки за эту неделю в ${applicationName}",
+              "Моя тренировочная неделя в ${applicationName}"
+            ]
+          }
+        },
+        "tr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} bu haftaki antrenmanlarım",
+              "${applicationName} bu hafta kaç antrenman yaptım",
+              "${applicationName} bu hafta ne kadar antrenman yaptım",
+              "${applicationName} uygulamasında bu haftaki antrenmanlarımı göster",
+              "${applicationName} ile bu haftaki antrenmanlarıma bak",
+              "${applicationName} haftalık antrenmanlarımı göster"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "在${applicationName}中查看我本周的运动",
+              "${applicationName}我这周的运动",
+              "${applicationName}我这周运动了几次",
+              "用${applicationName}查询我本周的运动",
+              "${applicationName}这周我做了多少次运动",
+              "在${applicationName}里看看我这周的运动"
+            ]
+          }
         }
       }
     },
     "What's my ${metric} in ${applicationName}" : {
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Wie ist mein Wert für ${metric} in ${applicationName}",
+              "Was ist mein Wert für ${metric} in ${applicationName}",
+              "Zeig meinen Wert für ${metric} in ${applicationName}",
+              "Wie ist mein Wert für ${metric} heute in ${applicationName}",
+              "Zeig mir ${metric} in ${applicationName}",
+              "${metric} in ${applicationName}"
+            ]
+          }
+        },
         "en" : {
           "stringSet" : {
             "state" : "new",
@@ -89,12 +508,107 @@
               "Show my ${metric} in ${applicationName}"
             ]
           }
+        },
+        "es" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Cuál es mi ${metric} en ${applicationName}",
+              "Cómo está mi ${metric} en ${applicationName}",
+              "Cuál es mi ${metric} hoy en ${applicationName}",
+              "Datos de ${metric} en ${applicationName}",
+              "Muéstrame mi ${metric} en ${applicationName}",
+              "Consulta mi ${metric} en ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Quelle est ma valeur pour ${metric} dans ${applicationName}",
+              "Quelle est ma valeur pour ${metric} aujourd’hui dans ${applicationName}",
+              "Quelle valeur pour ${metric} dans ${applicationName}",
+              "Ma valeur pour ${metric} dans ${applicationName}",
+              "Mes données pour ${metric} dans ${applicationName}",
+              "${metric} dans ${applicationName}"
+            ]
+          }
+        },
+        "hi" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} में ${metric} क्या है",
+              "${applicationName} में आज ${metric} क्या है",
+              "${applicationName} में ${metric} दिखाएँ",
+              "${applicationName} में ${metric} बताएँ",
+              "${applicationName} में आज ${metric} दिखाएँ",
+              "${applicationName} में ${metric} चेक करें",
+              "${applicationName} से ${metric} बताएँ"
+            ]
+          }
+        },
+        "ru" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Какой у меня показатель ${metric} в ${applicationName}",
+              "Мой показатель ${metric} в ${applicationName}",
+              "Покажи показатель ${metric} в ${applicationName}",
+              "Проверь показатель ${metric} в ${applicationName}",
+              "Показатель ${metric} сегодня в ${applicationName}",
+              "${metric} в ${applicationName}"
+            ]
+          }
+        },
+        "tr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} ${metric} değerim ne",
+              "${applicationName} ${metric} değerim nasıl",
+              "${applicationName} bugünkü ${metric} değerim ne",
+              "${applicationName} uygulamasında ${metric} değerimi göster",
+              "${applicationName} ile ${metric} değerimi kontrol et",
+              "${applicationName} bana ${metric} değerimi söyle"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName}我的${metric}是多少",
+              "在${applicationName}中查看我的${metric}",
+              "用${applicationName}查询我的${metric}",
+              "${applicationName}我的${metric}怎么样",
+              "${applicationName}我今天的${metric}是多少",
+              "在${applicationName}里看看我的${metric}"
+            ]
+          }
         }
       }
     },
     "What's my readiness in ${applicationName}" : {
       "extractionState" : "extracted_with_value",
       "localizations" : {
+        "de" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Wie ist meine Tagesform in ${applicationName}",
+              "Was ist meine Tagesform in ${applicationName}",
+              "Wie ist meine Tagesform heute in ${applicationName}",
+              "Wie hoch ist mein Tagesformwert in ${applicationName}",
+              "Zeig meine Tagesform in ${applicationName}",
+              "Prüf meine Tagesform in ${applicationName}",
+              "Wie war meine Tagesform heute Morgen in ${applicationName}",
+              "Bin ich bereit fürs Training laut ${applicationName}",
+              "Kann ich heute trainieren laut ${applicationName}"
+            ]
+          }
+        },
         "en" : {
           "stringSet" : {
             "state" : "new",
@@ -113,6 +627,102 @@
               "How is the start of day readiness score in ${applicationName}",
               "What was my morning readiness in ${applicationName}",
               "Am I ready to train in ${applicationName}"
+            ]
+          }
+        },
+        "es" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Cuál es mi preparación en ${applicationName}",
+              "Cómo está mi preparación en ${applicationName}",
+              "Cuál es mi puntuación de preparación en ${applicationName}",
+              "Qué preparación tengo hoy en ${applicationName}",
+              "Consulta mi preparación en ${applicationName}",
+              "Muéstrame mi preparación en ${applicationName}",
+              "Dame mi puntuación de preparación de ${applicationName}",
+              "Cuál fue mi preparación esta mañana en ${applicationName}",
+              "Puedo entrenar hoy según ${applicationName}"
+            ]
+          }
+        },
+        "fr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Quel est mon niveau de préparation dans ${applicationName}",
+              "Quel est mon niveau de préparation aujourd’hui dans ${applicationName}",
+              "Quel est mon score de préparation dans ${applicationName}",
+              "Mon niveau de préparation dans ${applicationName}",
+              "Mon score de préparation dans ${applicationName}",
+              "Ma préparation du jour dans ${applicationName}",
+              "Quel était mon niveau de préparation ce matin dans ${applicationName}",
+              "Est-ce que je peux m’entraîner aujourd’hui selon ${applicationName}"
+            ]
+          }
+        },
+        "hi" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} में मेरी रेडिनेस क्या है",
+              "${applicationName} में मेरी रेडिनेस कैसी है",
+              "${applicationName} में आज मेरी रेडिनेस कैसी है",
+              "${applicationName} में मेरा रेडिनेस स्कोर क्या है",
+              "${applicationName} में मेरा रेडिनेस स्कोर बताएँ",
+              "${applicationName} में मेरी रेडिनेस दिखाएँ",
+              "${applicationName} में मेरी रेडिनेस चेक करें",
+              "${applicationName} में दिन की शुरुआत की रेडिनेस क्या है",
+              "क्या ${applicationName} के हिसाब से आज ट्रेनिंग करना ठीक है"
+            ]
+          }
+        },
+        "ru" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "Какая у меня готовность в ${applicationName}",
+              "Какая у меня готовность сегодня в ${applicationName}",
+              "Покажи мою готовность в ${applicationName}",
+              "Проверь мою готовность в ${applicationName}",
+              "Какая у меня оценка готовности в ${applicationName}",
+              "Моя оценка готовности в ${applicationName}",
+              "Какая была готовность утром в ${applicationName}",
+              "Готов ли я к тренировке по данным ${applicationName}",
+              "Готова ли я к тренировке по данным ${applicationName}",
+              "Можно ли мне сегодня тренироваться по данным ${applicationName}"
+            ]
+          }
+        },
+        "tr" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "${applicationName} hazırlığım nasıl",
+              "${applicationName} hazırlık puanım ne",
+              "${applicationName} bugünkü hazırlığım ne",
+              "${applicationName} uygulamasında hazırlığımı göster",
+              "${applicationName} ile hazırlığımı kontrol et",
+              "${applicationName} bana hazırlık puanımı söyle",
+              "${applicationName} sabahki hazırlığım neydi",
+              "${applicationName} antrenmana hazır mıyım",
+              "${applicationName} bugün antrenman yapabilir miyim"
+            ]
+          }
+        },
+        "zh-Hans" : {
+          "stringSet" : {
+            "state" : "translated",
+            "values" : [
+              "在${applicationName}中查看我的恢复状态",
+              "${applicationName}我的恢复状态怎么样",
+              "${applicationName}今天的恢复状态如何",
+              "用${applicationName}查询我的恢复状态",
+              "${applicationName}我的恢复状态分数是多少",
+              "在${applicationName}里看看我今天恢复得怎么样",
+              "${applicationName}我今天早上的恢复状态",
+              "${applicationName}我今天适合训练吗",
+              "用${applicationName}看看我今天能不能训练"
             ]
           }
         }

@@ -10,9 +10,7 @@
     ]
   },
   "identifier" : "BodyPro",
-  "nonRenewingSubscriptions" : [
-
-  ],
+  "nonRenewingSubscriptions" : [],
   "products" : [
     {
       "displayPrice" : "19.99",
@@ -28,6 +26,36 @@
           "description" : "一次购买，终身解锁 Body Pro 全部功能。",
           "displayName" : "Body Pro 终身版",
           "locale" : "zh_Hans"
+        },
+        {
+          "description" : "Tek seferlik satın alımla tüm Body Pro özelliklerinin kilidini ömür boyu açın.",
+          "displayName" : "Body Pro Ömür Boyu",
+          "locale" : "tr"
+        },
+        {
+          "description" : "Schalte alle Funktionen von Body Pro mit einem einzigen Kauf für immer frei.",
+          "displayName" : "Body Pro Lebenslang",
+          "locale" : "de_DE"
+        },
+        {
+          "description" : "एक ही ख़रीदारी में Body Pro के सभी फ़ीचर हमेशा के लिए अनलॉक करें।",
+          "displayName" : "Body Pro आजीवन",
+          "locale" : "hi"
+        },
+        {
+          "description" : "Desbloquea todas las funciones de Body Pro para siempre con una sola compra.",
+          "displayName" : "Body Pro de por vida",
+          "locale" : "es_ES"
+        },
+        {
+          "description" : "Откройте все функции Body Pro навсегда одной покупкой.",
+          "displayName" : "Body Pro бессрочно",
+          "locale" : "ru"
+        },
+        {
+          "description" : "Débloquez toutes les fonctionnalités de Body Pro à vie en un seul achat.",
+          "displayName" : "Body Pro à vie",
+          "locale" : "fr_FR"
         }
       ],
       "productID" : "com.zihengthedeveloper.body.pro.lifetime",
@@ -48,6 +76,36 @@
           "description" : "一次购买终身使用，可与家人共享",
           "displayName" : "Body终身Pro家庭版",
           "locale" : "zh_Hans"
+        },
+        {
+          "description" : "Bir kez Pro, her zaman Pro. Ailenizle paylaşılır.",
+          "displayName" : "Body Pro Ömür Boyu Aile",
+          "locale" : "tr"
+        },
+        {
+          "description" : "Einmal Pro, für immer Pro. Mit deiner Familie geteilt.",
+          "displayName" : "Body Pro Lebenslang Familie",
+          "locale" : "de_DE"
+        },
+        {
+          "description" : "एक बार Pro, हमेशा Pro। आपके परिवार के साथ शेयर किया जा सकता है।",
+          "displayName" : "Body Pro आजीवन परिवार",
+          "locale" : "hi"
+        },
+        {
+          "description" : "Una vez Pro, siempre Pro. Compartido con tu familia.",
+          "displayName" : "Body Pro Familia de por vida",
+          "locale" : "es_ES"
+        },
+        {
+          "description" : "Pro навсегда. Доступно всей Вашей семье.",
+          "displayName" : "Body Pro бессрочно для семьи",
+          "locale" : "ru"
+        },
+        {
+          "description" : "Pro un jour, Pro toujours. Partagé avec votre famille.",
+          "displayName" : "Body Pro Famille à vie",
+          "locale" : "fr_FR"
         }
       ],
       "productID" : "com.zihengthedeveloper.body.pro.lifetime.family",
@@ -64,9 +122,7 @@
     "_locale" : "en_US",
     "_renewalBillingIssuesEnabled" : false,
     "_storefront" : "USA",
-    "_storeKitErrors" : [
-
-    ],
+    "_storeKitErrors" : [],
     "_timeRate" : 0
   },
   "subscriptionGroups" : [
@@ -82,17 +138,43 @@
           "description" : "",
           "displayName" : "Body Pro",
           "locale" : "zh_Hans"
+        },
+        {
+          "description" : "",
+          "displayName" : "Body Pro",
+          "locale" : "tr"
+        },
+        {
+          "description" : "",
+          "displayName" : "Body Pro",
+          "locale" : "de_DE"
+        },
+        {
+          "description" : "",
+          "displayName" : "Body Pro",
+          "locale" : "hi"
+        },
+        {
+          "description" : "",
+          "displayName" : "Body Pro",
+          "locale" : "es_ES"
+        },
+        {
+          "description" : "",
+          "displayName" : "Body Pro",
+          "locale" : "ru"
+        },
+        {
+          "description" : "",
+          "displayName" : "Body Pro",
+          "locale" : "fr_FR"
         }
       ],
       "name" : "Body Pro",
       "subscriptions" : [
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
+          "adHocOffers" : [],
+          "codeOffers" : [],
           "displayPrice" : "9.99",
           "familyShareable" : false,
           "groupNumber" : 1,
@@ -112,6 +194,36 @@
               "description" : "解锁全部 Body Pro 功能，按年付费。",
               "displayName" : "Body Pro 年度订阅",
               "locale" : "zh_Hans"
+            },
+            {
+              "description" : "Tüm Body Pro özellikleri, yıllık faturalandırılır.",
+              "displayName" : "Body Pro Yıllık",
+              "locale" : "tr"
+            },
+            {
+              "description" : "Alle Funktionen von Body Pro, jährliche Abrechnung.",
+              "displayName" : "Body Pro Jahresabo",
+              "locale" : "de_DE"
+            },
+            {
+              "description" : "Body Pro के सभी फ़ीचर, वार्षिक बिलिंग।",
+              "displayName" : "Body Pro वार्षिक",
+              "locale" : "hi"
+            },
+            {
+              "description" : "Todas las funciones de Body Pro, con facturación anual.",
+              "displayName" : "Body Pro Anual",
+              "locale" : "es_ES"
+            },
+            {
+              "description" : "Все функции Body Pro, оплата раз в год.",
+              "displayName" : "Body Pro на год",
+              "locale" : "ru"
+            },
+            {
+              "description" : "Toutes les fonctionnalités de Body Pro, avec facturation annuelle.",
+              "displayName" : "Body Pro annuel",
+              "locale" : "fr_FR"
             }
           ],
           "productID" : "com.zihengthedeveloper.body.pro.yearly",
@@ -119,17 +231,11 @@
           "referenceName" : "Body Pro Yearly",
           "subscriptionGroupID" : "22413720",
           "type" : "RecurringSubscription",
-          "winbackOffers" : [
-
-          ]
+          "winbackOffers" : []
         },
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
+          "adHocOffers" : [],
+          "codeOffers" : [],
           "displayPrice" : "0.99",
           "familyShareable" : false,
           "groupNumber" : 2,
@@ -145,6 +251,36 @@
               "description" : "解锁全部 Body Pro 功能，按月付费。",
               "displayName" : "Body Pro 月度订阅",
               "locale" : "zh_Hans"
+            },
+            {
+              "description" : "Tüm Body Pro özellikleri, aylık faturalandırılır.",
+              "displayName" : "Body Pro Aylık",
+              "locale" : "tr"
+            },
+            {
+              "description" : "Alle Funktionen von Body Pro, monatliche Abrechnung.",
+              "displayName" : "Body Pro Monatsabo",
+              "locale" : "de_DE"
+            },
+            {
+              "description" : "Body Pro के सभी फ़ीचर, मासिक बिलिंग।",
+              "displayName" : "Body Pro मासिक",
+              "locale" : "hi"
+            },
+            {
+              "description" : "Todas las funciones de Body Pro, con facturación mensual.",
+              "displayName" : "Body Pro Mensual",
+              "locale" : "es_ES"
+            },
+            {
+              "description" : "Все функции Body Pro, оплата раз в месяц.",
+              "displayName" : "Body Pro на месяц",
+              "locale" : "ru"
+            },
+            {
+              "description" : "Toutes les fonctionnalités de Body Pro, avec facturation mensuelle.",
+              "displayName" : "Body Pro mensuel",
+              "locale" : "fr_FR"
             }
           ],
           "productID" : "com.zihengthedeveloper.body.pro.monthly",
@@ -152,9 +288,7 @@
           "referenceName" : "Body Pro Monthly",
           "subscriptionGroupID" : "22413720",
           "type" : "RecurringSubscription",
-          "winbackOffers" : [
-
-          ]
+          "winbackOffers" : []
         }
       ]
     }

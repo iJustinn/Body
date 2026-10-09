@@ -4,7 +4,43 @@
     "Body" : {
       "comment" : "Alternative app name for Siri",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body"
@@ -21,7 +57,43 @@
     "CFBundleDisplayName" : {
       "comment" : "Bundle display name",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
+        "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "ohmybody"
@@ -38,7 +110,43 @@
     "CFBundleName" : {
       "comment" : "Bundle name",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body"
+          }
+        },
+        "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body"
@@ -55,10 +163,46 @@
     "NSHealthShareUsageDescription" : {
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body liest Trainings, Trainingsrouten, Aktivitätsringe, Schlaf, Herzfrequenz, HRV, Blutsauerstoff, Atemfrequenz, Körpermesswerte, Energie, Trainingsminuten, Hauttemperatur, Tageslicht, Schritte, Cardiofitness, Leistung, Schritt- und Trittfrequenz, Schwimmzüge, Strecke und Geburtsdatum aus Health, um deine Übersicht, deine Diagramme und Widgets zu versorgen."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body reads workouts, workout routes, Activity Rings, sleep, heart rate, HRV, blood oxygen, respiratory rate, body measurements, energy, exercise minutes, skin temperature, daylight, steps, cardio fitness, power, cadence, swim strokes, distance, and date of birth from Apple Health to power your dashboard, charts, and widgets."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body lee entrenamientos, rutas de entrenamiento, Anillos de actividad, sueño, frecuencia cardiaca, VFC, oxígeno en sangre, frecuencia respiratoria, medidas corporales, energía, minutos de ejercicio, temperatura de la piel, luz diurna, pasos, capacidad aeróbica, potencia, cadencia, brazadas, distancia y fecha de nacimiento de la app Salud para que funcionen tu panel, tus gráficas y tus widgets."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body lit les exercices, les parcours d’exercice, les anneaux Activité, le sommeil, la fréquence cardiaque, la VFC, l’oxygène sanguin, la fréquence respiratoire, les mensurations, l’énergie, les minutes d’exercice, la température cutanée, la lumière du jour, les pas, la santé cardiovasculaire, la puissance, la cadence, les mouvements de nage, la distance et la date de naissance dans l’app Santé pour alimenter votre tableau de bord, vos graphiques et vos widgets."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "आपके डैशबोर्ड, चार्ट और विजेट के लिए Body सेहत से वर्कआउट, वर्कआउट मार्ग, ऐक्टिविटी रिंग, नींद, हृदय गति, HRV, रक्त ऑक्सीजन, श्वसन दर, शरीर के माप, ऊर्जा, एक्सरसाइज़ मिनट, त्वचा का तापमान, दिन की रोशनी, क़दम, हृदय संबंधी फ़िटनेस, पावर, केडेंस, तैराकी स्ट्रोक, दूरी और जन्म तिथि पढ़ता है।"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body читает из приложения «Здоровье» тренировки, маршруты тренировок, кольца Активности, сон, пульс, ВСР, кислород в крови, частоту дыхания, измерения тела, энергию, минуты упражнений, температуру кожи, дневной свет, шаги, кардиовыносливость, мощность, каденс, гребки, дистанцию и дату рождения, чтобы показывать панель, графики и виджеты."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body; panonuzu, grafiklerinizi ve araç takımlarınızı beslemek için Sağlık uygulamasından antrenmanları, antrenman rotalarını, Aktivite Halkalarını, uykuyu, kalp atış hızını, HRV'yi, kanda oksijen düzeyini, solunum hızını, vücut ölçümlerini, enerjiyi, egzersiz dakikalarını, cilt sıcaklığını, gün ışığını, adımları, kardiyo fitness düzeyini, gücü, kadansı, kulaç sayısını, mesafeyi ve doğum tarihini okur."
           }
         },
         "zh-Hans" : {
@@ -72,10 +216,46 @@
     "NSHealthUpdateUsageDescription" : {
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body sichert das Gewicht, den Körperfettanteil und die Bewertungen der Trainingsanstrengung, die du eingibst, in Health."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body saves the weight, body fat, and workout effort ratings you enter to Apple Health."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body guarda en la app Salud el peso, la grasa corporal y las valoraciones de esfuerzo de los entrenamientos que introduces."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body enregistre dans l’app Santé le poids, la masse grasse et les évaluations d’effort des exercices que vous saisissez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "आपके दर्ज किए गए वज़न, शरीर में वसा और वर्कआउट प्रयास रेटिंग को Body सेहत में सहेजता है।"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body сохраняет в приложение «Здоровье» введенные Вами вес, процент жира и оценки усилия при тренировках."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body, girdiğiniz ağırlık, vücut yağ oranı ve antrenman eforu puanlarını Sağlık uygulamasına kaydeder."
           }
         },
         "zh-Hans" : {
@@ -89,10 +269,46 @@
     "NSPhotoLibraryAddUsageDescription" : {
       "comment" : "Privacy - Photo Library Additions Usage Description",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body sichert die Trainingsbilder, die du erstellst, in deiner Fotomediathek."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body saves the workout images you create to your photo library."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body guarda en tu fototeca las imágenes de entrenamientos que creas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body enregistre dans votre photothèque les images d’exercice que vous créez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "आपकी बनाई वर्कआउट इमेज को Body आपकी तस्वीर लाइब्रेरी में सहेजता है।"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body сохраняет созданные Вами изображения тренировок в медиатеку."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body, oluşturduğunuz antrenman görsellerini fotoğraf arşivinize kaydeder."
           }
         },
         "zh-Hans" : {

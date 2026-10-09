@@ -4,7 +4,43 @@
     "CFBundleDisplayName" : {
       "comment" : "Bundle display name",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ohmybody"
+          }
+        },
+        "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "ohmybody"
@@ -21,7 +57,43 @@
     "CFBundleName" : {
       "comment" : "Bundle name",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BodyWatch"
+          }
+        },
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BodyWatch"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BodyWatch"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BodyWatch"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BodyWatch"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BodyWatch"
+          }
+        },
+        "tr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "BodyWatch"
@@ -38,10 +110,46 @@
     "NSHealthShareUsageDescription" : {
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body liest Trainings, Trainingsanstrengung, Schlaf, Herzfrequenz, Ruheherzfrequenz, HRV, Herzrhythmusdaten von Schlag zu Schlag, Schritte, Aktivitätsenergie, Ruheenergie, Atemfrequenz, Blutsauerstoff und Hauttemperatur aus Health auf deiner Apple Watch, damit deine Messwerte am Handgelenk aktualisiert werden können, wenn dein iPhone nicht in der Nähe ist."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body reads workouts, workout effort, sleep, heart rate, resting heart rate, HRV, beat-to-beat heart rhythm data, steps, active energy, resting energy, respiratory rate, blood oxygen, and skin temperature from Apple Health on your Apple Watch so it can update your metrics on your wrist when your iPhone isn't nearby."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body lee entrenamientos, esfuerzo de los entrenamientos, sueño, frecuencia cardiaca, frecuencia cardiaca en reposo, VFC, datos del ritmo cardiaco latido a latido, pasos, energía activa, energía en reposo, frecuencia respiratoria, oxígeno en sangre y temperatura de la piel de la app Salud en tu Apple Watch para actualizar tus métricas en la muñeca cuando el iPhone no está cerca."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body lit les exercices, l’effort des exercices, le sommeil, la fréquence cardiaque, la fréquence cardiaque au repos, la VFC, les données de rythme cardiaque battement par battement, les pas, l’énergie en activité, l’énergie au repos, la fréquence respiratoire, l’oxygène sanguin et la température cutanée dans l’app Santé sur votre Apple Watch, afin de mettre à jour vos mesures à votre poignet lorsque votre iPhone n’est pas à proximité."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body आपकी Apple Watch पर सेहत से वर्कआउट, वर्कआउट प्रयास, नींद, हृदय गति, विश्राम हृदय गति, HRV, धड़कन दर धड़कन हृदय लय डेटा, क़दम, सक्रिय ऊर्जा, आराम के समय की ऊर्जा, श्वसन दर, रक्त ऑक्सीजन और त्वचा का तापमान पढ़ता है, ताकि iPhone पास न होने पर भी आपकी कलाई पर आपके मेट्रिक्स अपडेट हो सकें।"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body читает из приложения «Здоровье» на Apple Watch тренировки, усилие при тренировках, сон, пульс, пульс в покое, ВСР, данные о ритме сердца от удара к удару, шаги, энергию активности, энергию покоя, частоту дыхания, кислород в крови и температуру кожи, чтобы обновлять показатели на запястье, когда iPhone нет рядом."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body, iPhone'unuz yakında olmadığında bileğinizdeki ölçümleri güncelleyebilmek için Apple Watch'unuzdaki Sağlık uygulamasından antrenmanları, antrenman eforunu, uykuyu, kalp atış hızını, dinlenirken kalp atış hızını, HRV'yi, atımdan atıma kalp ritmi verilerini, adımları, aktif enerjiyi, dinlenme enerjisini, solunum hızını, kanda oksijen düzeyini ve cilt sıcaklığını okur."
           }
         },
         "zh-Hans" : {
@@ -55,10 +163,46 @@
     "NSHealthUpdateUsageDescription" : {
       "extractionState" : "manual",
       "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body schreibt keine Daten in Health."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body does not write data to Apple Health."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body no escribe datos en la app Salud."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body n’écrit aucune donnée dans l’app Santé."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body सेहत में कोई डेटा नहीं लिखता।"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body не записывает данные в приложение «Здоровье»."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body, Sağlık uygulamasına veri yazmaz."
           }
         },
         "zh-Hans" : {
