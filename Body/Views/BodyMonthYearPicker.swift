@@ -26,7 +26,7 @@ struct BodyMonthYear: Identifiable, Equatable {
             return "\(month) \(year)"
         }
 
-        return BodyDateFormatterCache.formatter(template: "yMMM").string(from: date).uppercased()
+        return BodyDateFormatterCache.formatter(template: "yMMM").string(from: date).uppercased(with: .current)
     }
 
     func isFuture(relativeTo date: Date = Date(), calendar: Calendar = .bodyGregorian) -> Bool {
@@ -377,7 +377,7 @@ private struct BodyMonthYearCarouselItem: View {
         }
 
         if workoutsMonthPickerUsesShortMonth && BodyAppearancePreference.isEnglishUILanguage {
-            return BodyDateFormatterCache.formatter(template: "MMM").string(from: date).uppercased()
+            return BodyDateFormatterCache.formatter(template: "MMM").string(from: date).uppercased(with: .current)
         }
         return BodyDateFormatterCache.formatter(template: "MMMM").string(from: date)
     }

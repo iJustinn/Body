@@ -3654,7 +3654,7 @@ struct BodyWorkoutPaceCard: View {
 
                 BodyWorkoutBucketedSeriesPlot(
                     presentation: presentation,
-                    calloutEyebrow: presentation.title.uppercased(),
+                    calloutEyebrow: presentation.title.uppercased(with: .current),
                     floatingCallout: floatingCallout
                 )
                 .frame(height: 210)
@@ -4225,7 +4225,7 @@ struct BodyWorkoutBucketedSeriesCard: View {
 
             BodyWorkoutBucketedSeriesPlot(
                 presentation: presentation,
-                calloutEyebrow: presentation.title.uppercased(),
+                calloutEyebrow: presentation.title.uppercased(with: .current),
                 floatingCallout: floatingCallout
             )
             .frame(height: 210)
@@ -4806,7 +4806,7 @@ private struct BodyWorkoutHeartRateChart: View, Animatable {
 
     private func calloutContent(for smoothed: BodyWorkoutHeartRateChartMetrics.SmoothedPoint) -> some View {
         BodyChartSelectionAnnotation(
-            eyebrow: String(localized: "Heart Rate").uppercased(),
+            eyebrow: String(localized: "Heart Rate").uppercased(with: .current),
             values: [
                 BodyChartSelectionValue(
                     title: nil,
@@ -5306,7 +5306,7 @@ private struct BodyWorkoutElevationLinePlot: View {
 
     private func calloutContent(for point: WorkoutElevationLinePresentation.Point) -> some View {
         BodyChartSelectionAnnotation(
-            eyebrow: presentation.title.uppercased(),
+            eyebrow: presentation.title.uppercased(with: .current),
             values: [
                 BodyChartSelectionValue(
                     title: nil,

@@ -710,7 +710,7 @@ struct BodyStressIntradayPlot: View {
         let eyebrow: String
         switch mark.kind {
         case let .scored(score, band):
-            eyebrow = band.title.uppercased()
+            eyebrow = band.title.uppercased(with: .current)
             values = [
                 BodyChartSelectionValue(
                     title: nil,
@@ -720,7 +720,7 @@ struct BodyStressIntradayPlot: View {
             ]
         case .activity:
             // Masked time has no score, so the callout is the label and the range.
-            eyebrow = BodyStressBandPresentation.activityTitle.uppercased()
+            eyebrow = BodyStressBandPresentation.activityTitle.uppercased(with: .current)
             values = []
         }
 

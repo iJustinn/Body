@@ -289,7 +289,7 @@ struct BodyWorkoutShareCardView: View {
     private var mapCenteredContent: some View {
         VStack(spacing: 0) {
             VStack(spacing: 4) {
-                Text(presentation.title.uppercased())
+                Text(presentation.title.uppercased(with: .current))
                     .font(.system(size: 26, weight: .heavy, design: fontDesign))
                     .foregroundColor(ink.primary)
                     .lineLimit(2)
