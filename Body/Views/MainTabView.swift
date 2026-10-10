@@ -56,6 +56,7 @@ struct MainTabView: View {
     @AppStorage(BodyAppearancePreference.onboardingCompletedVersionKey) private var onboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.updateOnboardingCompletedVersionKey) private var updateOnboardingCompletedVersion = ""
     @AppStorage(BodyAppearancePreference.proIntroPaywallShownVersionKey) private var proIntroPaywallShownVersion = ""
+    @AppStorage(BodyAppearancePreference.proPaywallLastShownDateKey) private var proPaywallLastShownDate: Double = 0
     @State private var isProIntroPresented = false
     /// The page the update cover shows, kept once it has been due: stamping the
     /// completion on dismissal turns `dueUpdatePage` nil while the cover is
@@ -122,17 +123,22 @@ struct MainTabView: View {
     }
 
     /// Installs stamped below `BodyOnboardingGate.proIntroVersion` see the Body Pro paywall
-    /// once, after onboarding and the update page, and only once the entitlement has resolved
-    /// so members who already own Pro are never shown it (`BodyOnboardingGate`). The
-    /// first run ends on the paywall inside onboarding instead.
+    /// once, and every install sees it again at its first open (cold or warm launch) of the
+    /// day two weeks after the app last showed it. Always after onboarding and the update
+    /// page, and only once the entitlement has resolved so members who already own Pro are
+    /// never shown it (`BodyOnboardingGate.shouldPresentProPaywall`). The first run ends on
+    /// the paywall inside onboarding instead. Reread on every return to `.active`, which is
+    /// what makes a warm launch on a due day show it.
     private var proIntroReady: Bool {
         scenePhase == .active
             && (proStore?.hasResolved ?? false)
-            && BodyOnboardingGate.shouldPresentProIntro(
+            && BodyOnboardingGate.shouldPresentProPaywall(
                 shownVersion: proIntroPaywallShownVersion,
+                lastShownDate: proPaywallLastShownDate == 0 ? nil : Date(timeIntervalSinceReferenceDate: proPaywallLastShownDate),
                 completedVersion: onboardingCompletedVersion,
                 updateCompletedVersion: updateOnboardingCompletedVersion,
-                includesStress: updateIncludesStress
+                includesStress: updateIncludesStress,
+                now: Date()
             )
     }
 
@@ -231,8 +237,9 @@ struct MainTabView: View {
                 try? await Task.sleep(for: .milliseconds(700))
                 guard !Task.isCancelled, proIntroReady else { return }
                 // Recorded as soon as it is due, so it shows once even if the app is
-                // closed on it; members who already own Pro just settle the stamp.
+                // closed on it; members who already own Pro just settle the stamps.
                 proIntroPaywallShownVersion = BodyOnboardingGate.currentAppVersionAndBuild()
+                proPaywallLastShownDate = Date().timeIntervalSinceReferenceDate
                 if !(proStore?.isPro ?? false) {
                     isProIntroPresented = true
                 }

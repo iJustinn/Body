@@ -5435,14 +5435,14 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertEqual(onboardingView.occurrenceCount(of: "finishPages()"), 2 + 1)
         XCTAssertTrue(onboardingView.contains("guard mode == .firstRun, !(proStore?.isPro ?? false) else {"))
         XCTAssertTrue(onboardingView.contains("BodyProView(onContinue: finish)"))
-        XCTAssertTrue(onboardingView.contains("if mode == .firstRun {\n            proIntroPaywallShownVersion = BodyOnboardingGate.currentAppVersionAndBuild()\n        }"))
+        XCTAssertTrue(onboardingView.contains("if mode == .firstRun {\n            proIntroPaywallShownVersion = BodyOnboardingGate.currentAppVersionAndBuild()\n            proPaywallLastShownDate = Date().timeIntervalSinceReferenceDate\n        }"))
 
         // Launch: shown once, recorded the moment it is due, never to Pro members, and
         // the notification prompt waits for it.
         let mainTabView = try BodyTestSupport.sourceText(at: "Body/Views/MainTabView.swift")
         XCTAssertTrue(mainTabView.contains("&& (proStore?.hasResolved ?? false)"))
-        XCTAssertTrue(mainTabView.contains("BodyOnboardingGate.shouldPresentProIntro("))
-        XCTAssertTrue(mainTabView.contains("proIntroPaywallShownVersion = BodyOnboardingGate.currentAppVersionAndBuild()\n                if !(proStore?.isPro ?? false) {\n                    isProIntroPresented = true"))
+        XCTAssertTrue(mainTabView.contains("BodyOnboardingGate.shouldPresentProPaywall("))
+        XCTAssertTrue(mainTabView.contains("proIntroPaywallShownVersion = BodyOnboardingGate.currentAppVersionAndBuild()\n                proPaywallLastShownDate = Date().timeIntervalSinceReferenceDate\n                if !(proStore?.isPro ?? false) {\n                    isProIntroPresented = true"))
         XCTAssertTrue(mainTabView.contains(".fullScreenCover(isPresented: $isProIntroPresented)"))
         XCTAssertTrue(mainTabView.contains("BodyProView(onContinue: { isProIntroPresented = false })"))
         XCTAssertTrue(mainTabView.contains("&& !isProIntroPresented && !workoutStore.needsInitialHealthDataLoad"))
@@ -5455,6 +5455,61 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(bodyProSource.contains(#"Text("Continue for Free")"#))
         XCTAssertTrue(bodyProSource.contains("if showsCloseButton || onContinue != nil {"))
         XCTAssertTrue(bodyProSource.contains("try? await Task.sleep(for: .seconds(1.2))\n                    onContinue()"))
+    }
+
+    /// The paywall the app shows by itself comes back two weeks after it last did, at the
+    /// first open (cold or warm launch) of that local day. A missing stamp, as on every
+    /// install from before it existed, counts as due; onboarding's paywall starts the clock.
+    func testProPaywallReturnsEveryTwoWeeks() throws {
+        let selections = try BodyTestSupport.sourceText(at: "BodyMetricsKit/BodyHealthSelections.swift")
+        XCTAssertTrue(selections.contains(#"static let proPaywallLastShownDateKey = "proPaywallLastShownDate""#))
+        XCTAssertEqual(BodyOnboardingGate.proReminderIntervalDays, 14)
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        func date(_ day: Int, _ hour: Int) throws -> Date {
+            try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour)))
+        }
+        let shown = try date(1, 20)
+
+        // Calendar days, not 14 x 24 hours: shown at 8 pm, due from the first open on day 14.
+        XCTAssertTrue(BodyOnboardingGate.isProReminderDue(lastShownDate: nil, now: shown, calendar: calendar))
+        XCTAssertFalse(BodyOnboardingGate.isProReminderDue(lastShownDate: shown, now: try date(1, 23), calendar: calendar))
+        XCTAssertFalse(BodyOnboardingGate.isProReminderDue(lastShownDate: shown, now: try date(14, 23), calendar: calendar))
+        XCTAssertTrue(BodyOnboardingGate.isProReminderDue(lastShownDate: shown, now: try date(15, 0), calendar: calendar))
+        XCTAssertTrue(BodyOnboardingGate.isProReminderDue(lastShownDate: shown, now: try date(15, 9), calendar: calendar))
+        XCTAssertTrue(BodyOnboardingGate.isProReminderDue(lastShownDate: shown, now: try date(29, 9), calendar: calendar))
+        // A stamp in the future (the clock set back) is not due.
+        XCTAssertFalse(BodyOnboardingGate.isProReminderDue(lastShownDate: try date(20, 9), now: try date(15, 9), calendar: calendar))
+
+        func due(shownVersion: String = "1.1.6.1", lastShown: Date?, completedVersion: String? = "1.1.2", updateCompletedVersion: String? = "1.1.5.5", includesStress: Bool = false) throws -> Bool {
+            BodyOnboardingGate.shouldPresentProPaywall(
+                shownVersion: shownVersion,
+                lastShownDate: lastShown,
+                completedVersion: completedVersion,
+                updateCompletedVersion: updateCompletedVersion,
+                includesStress: includesStress,
+                now: try date(15, 9),
+                calendar: calendar
+            )
+        }
+        // The one-time introduction is settled, so the date alone decides.
+        XCTAssertTrue(try due(lastShown: nil))
+        XCTAssertTrue(try due(lastShown: shown))
+        XCTAssertFalse(try due(lastShown: try date(12, 9)))
+        // The introduction still shows on its own, whatever the date.
+        XCTAssertTrue(try due(shownVersion: "1.1.5.7", lastShown: try date(12, 9)))
+        // Never before onboarding (a fresh install gets it at the end of onboarding) or
+        // while an update page is due.
+        XCTAssertFalse(try due(lastShown: nil, completedVersion: nil, updateCompletedVersion: nil))
+        XCTAssertFalse(try due(lastShown: nil, updateCompletedVersion: "1.1.0.8"))
+        XCTAssertFalse(try due(lastShown: nil, updateCompletedVersion: "1.1.2.8", includesStress: true))
+
+        // Launch reads the stamp (0 until set) every time the scene becomes active.
+        let mainTabView = try BodyTestSupport.sourceText(at: "Body/Views/MainTabView.swift")
+        XCTAssertTrue(mainTabView.contains("@AppStorage(BodyAppearancePreference.proPaywallLastShownDateKey) private var proPaywallLastShownDate: Double = 0"))
+        XCTAssertTrue(mainTabView.contains("lastShownDate: proPaywallLastShownDate == 0 ? nil : Date(timeIntervalSinceReferenceDate: proPaywallLastShownDate),"))
+        XCTAssertTrue(mainTabView.contains("private var proIntroReady: Bool {\n        scenePhase == .active"))
     }
 
     func testShareTrayScrollerPinsItsAnchorAndAlwaysFadesBothEdges() throws {

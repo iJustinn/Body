@@ -45,6 +45,7 @@ struct BodyOnboardingView: View {
     @AppStorage(BodyAppearancePreference.showWorkoutEffortSuggestionsKey) private var showWorkoutEffortSuggestions = true
     @AppStorage(BodyAppearancePreference.autoApplyWorkoutEffortKey) private var autoApplyWorkoutEffort = false
     @AppStorage(BodyAppearancePreference.proIntroPaywallShownVersionKey) private var proIntroPaywallShownVersion = ""
+    @AppStorage(BodyAppearancePreference.proPaywallLastShownDateKey) private var proPaywallLastShownDate: Double = 0
     @State private var showsWorkoutEffortWriteDenied = false
     /// The first run's last step: the Body Pro paywall over the finished pages.
     @State private var showsProPaywall = false
@@ -1142,9 +1143,10 @@ struct BodyOnboardingView: View {
 
     private func finish() {
         // The first run shows the paywall itself, so the one-time introduction for
-        // older installs never follows it.
+        // older installs never follows it, and its return two weeks on counts from here.
         if mode == .firstRun {
             proIntroPaywallShownVersion = BodyOnboardingGate.currentAppVersionAndBuild()
+            proPaywallLastShownDate = Date().timeIntervalSinceReferenceDate
         }
         onboardingCompletedVersion = BodyOnboardingGate.currentAppVersion()
         // A fresh install has nothing to rebuild, so first-run completion also

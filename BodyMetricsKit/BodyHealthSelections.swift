@@ -94,6 +94,11 @@ enum BodyAppearancePreference {
     /// `BodyOnboardingGate.shouldPresentProIntro`.
     static let proIntroPaywallShownVersionKey = "proIntroPaywallShownVersion"
 
+    /// When the app last showed the Body Pro paywall by itself (onboarding or
+    /// on launch), as `timeIntervalSinceReferenceDate`; 0 until then. See
+    /// `BodyOnboardingGate.isProReminderDue`.
+    static let proPaywallLastShownDateKey = "proPaywallLastShownDate"
+
     /// Whether the app's UI is currently running in English. Short uppercase
     /// month names only read correctly in English, so the setting that turns
     /// them on is hidden everywhere else.
@@ -955,6 +960,9 @@ enum BodyOnboardingGate {
     /// once more on launch. Raise it to show the paywall again.
     static let proIntroVersion = "1.1.5.8"
 
+    /// Days between the Body Pro paywalls on launch.
+    static let proReminderIntervalDays = 14
+
     /// The one-time update pages, both stamped on the same key. The cache
     /// rebuild comes first: its full load brings the current Stress too, so an
     /// install due both sees only it.
@@ -1036,6 +1044,52 @@ enum BodyOnboardingGate {
         includesStress: Bool
     ) -> Bool {
         (shownVersion ?? "").compare(proIntroVersion, options: .numeric) == .orderedAscending
+            && !shouldPresent(completedVersion: completedVersion)
+            && !shouldPresentUpdate(
+                completedVersion: completedVersion,
+                updateCompletedVersion: updateCompletedVersion,
+                includesStress: includesStress
+            )
+    }
+
+    /// Whether the paywall is due to return: never shown by the app itself (no
+    /// stamp, which includes every install from before the stamp existed), or
+    /// last shown on a local day at least `proReminderIntervalDays` before
+    /// today. Counted in calendar days, so it comes back at the first open of
+    /// that day whatever time it showed. A stamp in the future (the clock set
+    /// back) is not due.
+    static func isProReminderDue(lastShownDate: Date?, now: Date, calendar: Calendar = .bodyGregorian) -> Bool {
+        guard let lastShownDate else { return true }
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: lastShownDate),
+            to: calendar.startOfDay(for: now)
+        ).day ?? 0
+        return days >= proReminderIntervalDays
+    }
+
+    /// Whether the Body Pro paywall is due on launch: the one-time introduction
+    /// (`shouldPresentProIntro`), or the paywall's return every two weeks
+    /// (`isProReminderDue`), which likewise waits for onboarding and any update
+    /// page. Whether the customer already owns Pro is the caller's check.
+    static func shouldPresentProPaywall(
+        shownVersion: String?,
+        lastShownDate: Date?,
+        completedVersion: String?,
+        updateCompletedVersion: String?,
+        includesStress: Bool,
+        now: Date,
+        calendar: Calendar = .bodyGregorian
+    ) -> Bool {
+        if shouldPresentProIntro(
+            shownVersion: shownVersion,
+            completedVersion: completedVersion,
+            updateCompletedVersion: updateCompletedVersion,
+            includesStress: includesStress
+        ) {
+            return true
+        }
+        return isProReminderDue(lastShownDate: lastShownDate, now: now, calendar: calendar)
             && !shouldPresent(completedVersion: completedVersion)
             && !shouldPresentUpdate(
                 completedVersion: completedVersion,
