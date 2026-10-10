@@ -3146,7 +3146,6 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     static let minimumTrendSegmentDayCount = 3
     static let minimumRelativeChange = 0.01
     static let minimumAbsoluteChange = 0.01
-    static let averageLineStrokeWidth: CGFloat = 4
     static let maximumDisplayPointCount = 60
 
     /// How many readings a sparse metric needs on each side of a comparison.
@@ -3214,10 +3213,6 @@ struct BodyHomeTrendCardPresentation: Identifiable {
 
     var recentStartIndex: Int {
         baselineDayCount
-    }
-
-    var displayRecentStartIndex: Int {
-        min(displayBaselineEndIndex + 1, max(displayCalendarPoints.count - 1, 0))
     }
 
     static func make(
@@ -3342,21 +3337,10 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     }
 
     func averageLineSegments(in width: CGFloat) -> (baseline: ClosedRange<CGFloat>, recent: ClosedRange<CGFloat>) {
-        let pointCount = displayCalendarPoints.count
-        let lastPointIndex = max(pointCount - 1, 0)
-        let baselineEndIndex = min(max(displayBaselineEndIndex, 0), lastPointIndex)
-        let recentStartIndex = min(max(displayBaselineEndIndex + 1, 0), lastPointIndex)
-        let denominator = max(CGFloat(lastPointIndex), 1)
-        let halfBucketWidth = width / denominator / 2
-        let segmentExtension = max(halfBucketWidth - Self.averageLineStrokeWidth / 2, 0)
-
-        func xPosition(for index: Int) -> CGFloat {
-            width * CGFloat(index) / denominator
-        }
-
-        return (
-            baseline: xPosition(for: 0)...min(width, xPosition(for: baselineEndIndex) + segmentExtension),
-            recent: max(0, xPosition(for: recentStartIndex) - segmentExtension)...xPosition(for: lastPointIndex)
+        BodyTrendComparisonPlot.averageLineSegments(
+            pointCount: displayCalendarPoints.count,
+            baselineEndIndex: displayBaselineEndIndex,
+            width: width
         )
     }
 

@@ -569,217 +569,44 @@ enum BodyHomeTrendCardFactory {
     }
 }
 
-struct BodyHomeTrendBarLayout: Equatable {
-    static let minimumBarWidth: CGFloat = 3
-    static let preferredSpacing: CGFloat = 5
-
-    let barWidth: CGFloat
-    let spacing: CGFloat
-
-    static func fitting(barCount: Int, availableWidth: CGFloat) -> BodyHomeTrendBarLayout {
-        guard barCount > 0, availableWidth.isFinite, availableWidth > 0 else {
-            return BodyHomeTrendBarLayout(barWidth: 0, spacing: 0)
-        }
-
-        guard barCount > 1 else {
-            return BodyHomeTrendBarLayout(barWidth: availableWidth, spacing: 0)
-        }
-
-        let count = CGFloat(barCount)
-        let gapCount = CGFloat(barCount - 1)
-        let minimumBarsWidth = minimumBarWidth * count
-        guard minimumBarsWidth < availableWidth else {
-            return BodyHomeTrendBarLayout(barWidth: availableWidth / count, spacing: 0)
-        }
-
-        let spacing = min(preferredSpacing, (availableWidth - minimumBarsWidth) / gapCount)
-        let barWidth = (availableWidth - spacing * gapCount) / count
-        return BodyHomeTrendBarLayout(barWidth: barWidth, spacing: spacing)
-    }
-}
-
+/// The Home card's chart: the shared `BodyTrendComparisonPlot`, fed from the
+/// card's presentation, with the dots filled in the card's own background color.
 struct BodyHomeTrendComparisonChart: View {
+    typealias Domain = BodyTrendComparisonPlot.Domain
+
     let presentation: BodyHomeTrendCardPresentation
     let color: Color
 
-    private struct PlotEntry: Identifiable {
-        let point: HealthTrendCalendarPoint
-        let position: CGPoint
-        let index: Int
-
-        var id: Date {
-            point.date
-        }
-
-        var hasValue: Bool {
-            point.value?.isFinite == true
-        }
-    }
-
     var body: some View {
-        // The domain and the average-line segments are derived once per pass and
-        // handed down: they used to be recomputed inside `barHeight`, `yPosition`
-        // and `averageLine`, so a card with 30 bars walked the point list dozens
-        // of times per render.
-        let domain = Self.domain(for: presentation)
-
-        return GeometryReader { proxy in
-            let entries = plotEntries(in: proxy.size, domain: domain)
-            let segments = presentation.averageLineSegments(in: proxy.size.width)
-            ZStack {
-                switch presentation.chartStyle {
-                case .line:
-                    linePlot(entries: entries)
-                case .bar:
-                    barPlot(entries: entries, size: proxy.size, domain: domain)
-                }
-
-                averageLine(
-                    value: presentation.baselineAverage,
-                    in: proxy.size,
-                    domain: domain,
-                    color: Color.secondary.opacity(0.64),
-                    xRange: segments.baseline
-                )
-
-                averageLine(
-                    value: presentation.recentAverage,
-                    in: proxy.size,
-                    domain: domain,
-                    color: color,
-                    xRange: segments.recent
-                )
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func linePlot(entries: [PlotEntry]) -> some View {
-        let valueEntries = entries.filter(\.hasValue)
-
-        return ZStack {
-            if valueEntries.count > 1 {
-                Path { path in
-                    path.move(to: valueEntries[0].position)
-                    for entry in valueEntries.dropFirst() {
-                        path.addLine(to: entry.position)
-                    }
-                }
-                .stroke(
-                    Color.secondary.opacity(0.28),
-                    style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
-                )
-            }
-
-            ForEach(valueEntries) { entry in
-                Circle()
-                    .stroke(Color.secondary.opacity(0.34), lineWidth: 3)
-                    .background(Circle().fill(Color(.secondarySystemBackground)))
-                    .frame(width: 8, height: 8)
-                    .position(entry.position)
-            }
-        }
-    }
-
-    private func barPlot(entries: [PlotEntry], size: CGSize, domain: Domain) -> some View {
-        let layout = BodyHomeTrendBarLayout.fitting(barCount: entries.count, availableWidth: size.width)
-
-        return HStack(alignment: .bottom, spacing: layout.spacing) {
-            ForEach(entries) { entry in
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(barColor(for: entry))
-                    .frame(
-                        width: layout.barWidth,
-                        height: Self.barHeight(for: entry.point.value, in: size.height, domain: domain)
-                    )
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-    }
-
-    private func averageLine(
-        value: Double,
-        in size: CGSize,
-        domain: Domain,
-        color: Color,
-        xRange: ClosedRange<CGFloat>
-    ) -> some View {
-        let y = Self.yPosition(for: value, in: size, domain: domain)
-
-        return Path { path in
-            path.move(to: CGPoint(x: xRange.lowerBound, y: y))
-            path.addLine(to: CGPoint(x: xRange.upperBound, y: y))
-        }
-        .stroke(
-            color,
-            style: StrokeStyle(
-                lineWidth: BodyHomeTrendCardPresentation.averageLineStrokeWidth,
-                lineCap: .round
-            )
-        )
-    }
-
-    private func plotEntries(in size: CGSize, domain: Domain) -> [PlotEntry] {
-        let points = presentation.displayCalendarPoints
-        let denominator = max(CGFloat(points.count - 1), 1)
-        return points.enumerated().map { index, point in
-            let x = size.width * CGFloat(index) / denominator
-            let y = Self.yPosition(for: point.value ?? domain.minimum, in: size, domain: domain)
-            return PlotEntry(point: point, position: CGPoint(x: x, y: y), index: index)
-        }
-    }
-
-    private func barColor(for entry: PlotEntry) -> Color {
-        guard entry.hasValue else {
-            return Color.secondary.opacity(0.10)
-        }
-
-        return entry.index >= presentation.displayRecentStartIndex
-            ? color.opacity(0.42)
-            : Color.secondary.opacity(0.28)
-    }
-
-    /// The chart's value domain, derived once per render from the visible points
-    /// plus the two average lines. Static and input-only so it can be tested
-    /// directly against degenerate series (all equal, a single point, none).
-    struct Domain: Equatable {
-        let minimum: Double
-        let maximum: Double
-    }
-
-    static func domain(for presentation: BodyHomeTrendCardPresentation) -> Domain {
-        domain(
-            values: presentation.displayCalendarPoints.compactMap(\.value).filter(\.isFinite)
-                + [presentation.baselineAverage, presentation.recentAverage],
-            chartStyle: presentation.chartStyle
+        BodyTrendComparisonPlot(
+            values: presentation.displayCalendarPoints.map(\.value),
+            baselineEndIndex: presentation.displayBaselineEndIndex,
+            baselineAverage: presentation.baselineAverage,
+            recentAverage: presentation.recentAverage,
+            chartStyle: presentation.chartStyle.sharedStyle,
+            color: color,
+            dotFill: Color(.secondarySystemBackground)
         )
     }
 
     static func domain(values: [Double], chartStyle: BodyHealthMetricChartStyle) -> Domain {
-        let finite = values.filter(\.isFinite)
-        let lowest = finite.min() ?? 0
-        let highest = finite.max() ?? (finite.isEmpty ? 1 : lowest)
-        let padding = max((highest - lowest) * 0.16, 1)
-        // Bars are read against zero; a line chart pads both ends so a flat series
-        // still draws inside the plot rather than along its edge.
-        let minimum = chartStyle == .line ? max(0, lowest - padding) : 0
-        return Domain(minimum: minimum, maximum: highest + padding)
+        BodyTrendComparisonPlot.domain(values: values, chartStyle: chartStyle.sharedStyle)
     }
 
     static func barHeight(for value: Double?, in height: CGFloat, domain: Domain) -> CGFloat {
-        guard let value, value.isFinite else {
-            return max(height * 0.05, 4)
-        }
-
-        return max(height * CGFloat(normalized(value, in: domain)), 4)
+        BodyTrendComparisonPlot.barHeight(for: value, in: height, domain: domain)
     }
 
     static func yPosition(for value: Double, in size: CGSize, domain: Domain) -> CGFloat {
-        size.height - (size.height * CGFloat(normalized(value, in: domain)))
+        BodyTrendComparisonPlot.yPosition(for: value, in: size, domain: domain)
     }
+}
 
-    private static func normalized(_ value: Double, in domain: Domain) -> Double {
-        let range = max(domain.maximum - domain.minimum, 1)
-        return min(max((value - domain.minimum) / range, 0), 1)
+extension BodyHealthMetricChartStyle {
+    var sharedStyle: HealthMetricChartStyle {
+        switch self {
+        case .line: return .line
+        case .bar: return .bar
+        }
     }
 }
