@@ -5334,6 +5334,12 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(proViewSource.contains("BodyProVerifyingPurchaseCard()"))
         XCTAssertTrue(proViewSource.contains("case .purchasing, .restoring, .pending, .completedNotUnlocked:"))
 
+        // Manage opens Apple's own subscription management sheet, not RevenueCat's
+        // Customer Center, so the paywall needs no RevenueCatUI.
+        XCTAssertTrue(proViewSource.contains(".manageSubscriptionsSheet(isPresented: $showManageSubscriptions)"))
+        XCTAssertFalse(proViewSource.contains("CustomerCenterView"))
+        XCTAssertFalse(proViewSource.contains("import RevenueCatUI"))
+
         // Migration guards: the native StoreKit plumbing is gone. RevenueCat verifies,
         // encodes revocation into `isActive`, and auto-finishes transactions; re-introducing
         // any of these would double-handle purchases or fight the SDK (observer mode).

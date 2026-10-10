@@ -4,7 +4,6 @@
 //
 
 import Charts
-import RevenueCatUI
 import StoreKit
 import SwiftUI
 import UIKit
@@ -46,7 +45,7 @@ struct BodyProView: View {
     /// Yearly first: it is the best value and the only plan with a free trial.
     @State private var selectedPlan: BodyProPlan = .yearly
     @State private var showRedeemSheet = false
-    @State private var showCustomerCenter = false
+    @State private var showManageSubscriptions = false
 
     private var isPro: Bool { proStore?.isPro ?? false }
     private var products: [BodyProPlan: BodyProProduct] { proStore?.products ?? [:] }
@@ -460,9 +459,10 @@ struct BodyProView: View {
                 Text(verbatim: "·")
                     .foregroundColor(.secondary)
 
-                // RevenueCat Customer Center: restore, manage, and get help with purchases.
+                // Apple's own subscription management sheet, the same page as Settings ›
+                // Apple Account › Subscriptions: change plan or cancel.
                 Button {
-                    showCustomerCenter = true
+                    showManageSubscriptions = true
                 } label: {
                     Text("Manage")
                         .foregroundColor(BodyProPalette.accent)
@@ -485,9 +485,7 @@ struct BodyProView: View {
             // purchase's one-time codes alike.
             Task { await proStore?.refreshAfterRedemption() }
         }
-        .sheet(isPresented: $showCustomerCenter) {
-            CustomerCenterView()
-        }
+        .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
     }
 }
 

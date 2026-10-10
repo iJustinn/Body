@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		12EFFBB42FF897E4001B1449 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 12EFFBB32FF897E4001B1449 /* RevenueCat */; };
-		12EFFBB62FF897E4001B1449 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = 12EFFBB52FF897E4001B1449 /* RevenueCatUI */; };
 		710000012E00000100000001 /* BodyWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 710000022E00000100000002 /* BodyWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		710000032E00000100000003 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 710000042E00000100000004 /* WidgetKit.framework */; };
 		710000052E00000100000005 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 710000062E00000100000006 /* SwiftUI.framework */; };
@@ -233,7 +232,6 @@
 			files = (
 				12EFFBB42FF897E4001B1449 /* RevenueCat in Frameworks */,
 				710000072E00000100000007 /* HealthKit.framework in Frameworks */,
-				12EFFBB62FF897E4001B1449 /* RevenueCatUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -373,7 +371,6 @@
 			name = Body;
 			packageProductDependencies = (
 				12EFFBB32FF897E4001B1449 /* RevenueCat */,
-				12EFFBB52FF897E4001B1449 /* RevenueCatUI */,
 			);
 			productName = Body;
 			productReference = 7100000F2E0000010000000F /* Body.app */;
@@ -1229,11 +1226,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 12EFFBB22FF897E4001B1449 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
 			productName = RevenueCat;
-		};
-		12EFFBB52FF897E4001B1449 /* RevenueCatUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 12EFFBB22FF897E4001B1449 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
-			productName = RevenueCatUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

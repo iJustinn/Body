@@ -8,10 +8,9 @@ there is any conflict.
 
 ### RevenueCat (`purchases-ios-spm`)
 
-Body links the RevenueCat iOS SDK (the `RevenueCat` and `RevenueCatUI` products)
-via Swift Package Manager for in-app purchase, entitlement, paywall, and Customer
-Center support. RevenueCat is distributed under the MIT License; its own license
-and notices control for that SDK.
+Body links the RevenueCat iOS SDK (the `RevenueCat` product) via Swift Package
+Manager for in-app purchase and entitlement support. RevenueCat is distributed
+under the MIT License; its own license and notices control for that SDK.
 
 The Body Source-Available License applies to iJustin-owned Body modifications,
 additions, branding, assets, documentation, project configuration, and the
