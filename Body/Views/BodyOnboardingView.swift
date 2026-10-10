@@ -120,19 +120,24 @@ struct BodyOnboardingView: View {
                         .transition(pageTransition)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The buttons and dots sit on the system backdrop over the
+                // scrolling page, which insets its content to clear them.
+                .bodyBottomBar {
+                    VStack(spacing: 14) {
+                        bottomBar
+                        pageDots
+                    }
+                    .padding(.horizontal, 24)
+                    // The backdrop's edge sits above the buttons, like the
+                    // paywall's purchase bar.
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
+                }
+                // Clipped after the bar so the page still scrolls under it while
+                // the slide between pages stays inside the column.
                 .clipped()
                 .accessibilityElement(children: .contain)
                 .accessibilityValue(Text(pageProgressText))
-            }
-            // The buttons and dots float over the scrolling page (no backdrop of
-            // their own); `page` pads its content so nothing hides under them.
-            .overlay(alignment: .bottom) {
-                VStack(spacing: 14) {
-                    bottomBar
-                    pageDots
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 12)
             }
             // The same capsule the app floats over the tabs during a refresh,
             // in the same top-center spot: the first load stays visible on
@@ -914,8 +919,8 @@ struct BodyOnboardingView: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
-                // Room for the floating buttons + dots at the bottom.
-                .padding(.bottom, 110)
+                // The bottom bar insets the safe area; this is just breathing room.
+                .padding(.bottom, 24)
                 .frame(maxWidth: .infinity, minHeight: centersVertically ? proxy.size.height : 0)
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in

@@ -80,4 +80,21 @@ extension View {
         frame(maxWidth: maxWidth)
             .frame(maxWidth: .infinity)
     }
+
+    /// Pins `bar` to the bottom edge over the system backdrop: on iOS 26 a safe area bar,
+    /// so the scroll view underneath draws the hard scroll edge effect behind it; earlier
+    /// systems put the bar material behind it. Both inset the safe area, so content
+    /// scrolls clear of the bar. With `isShown` off (an empty bar) the backdrop goes and
+    /// the page keeps the system's default edge, without changing the view's identity.
+    @ViewBuilder
+    func bodyBottomBar<Bar: View>(isShown: Bool = true, @ViewBuilder _ bar: () -> Bar) -> some View {
+        if #available(iOS 26.0, *) {
+            safeAreaBar(edge: .bottom, spacing: 0, content: bar)
+                .scrollEdgeEffectStyle(isShown ? .hard : .automatic, for: .bottom)
+        } else {
+            safeAreaInset(edge: .bottom, spacing: 0) {
+                bar().background(Material.bar.opacity(isShown ? 1 : 0))
+            }
+        }
+    }
 }

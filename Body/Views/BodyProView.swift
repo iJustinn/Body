@@ -113,6 +113,8 @@ struct BodyProView: View {
         !isPro && hasResolved && purchaseState != .completedNotUnlocked && activePlan != nil
     }
 
+    private var showsPurchaseBar: Bool { offersPlans || onContinue != nil }
+
     /// Which lifetime product the Lifetime card shows. It follows the Just Me / Family switch,
     /// and falls back to whichever of the two loaded.
     private var lifetimeCardPlan: BodyProPlan? {
@@ -161,10 +163,11 @@ struct BodyProView: View {
             .padding(.bottom, 24)
             .readableContentColumn()
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            // In a flow the bar stays up without plans too, so Continue for Free is never
-            // missing (still checking, or the products failed to load).
-            if offersPlans || onContinue != nil {
+        // In a flow the bar stays up without plans too, so Continue for Free is never
+        // missing (still checking, or the products failed to load). A member outside a
+        // flow has no bar, so the page keeps no backdrop either.
+        .bodyBottomBar(isShown: showsPurchaseBar) {
+            if showsPurchaseBar {
                 purchaseBar
             }
         }
@@ -321,23 +324,6 @@ struct BodyProView: View {
         .padding(.top, 16)
         .padding(.bottom, 8)
         .readableContentColumn()
-        .background {
-            // Content scrolls under the bar: it fades out just above the button, and the
-            // bar itself is solid so nothing shows through behind the price terms. The
-            // app background has faded to the plain page color by here.
-            VStack(spacing: 0) {
-                LinearGradient(
-                    colors: [Color(.systemGroupedBackground).opacity(0), Color(.systemGroupedBackground)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 28)
-
-                Color(.systemGroupedBackground)
-            }
-            .padding(.top, -28)
-            .ignoresSafeArea(edges: .bottom)
-        }
     }
 
     @ViewBuilder

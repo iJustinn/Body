@@ -170,6 +170,31 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(introView.contains("onTapGesture"))
     }
 
+    /// The onboarding buttons and the paywall purchase bar sit on the system backdrop:
+    /// a safe area bar with the hard scroll edge effect on iOS 26, the bar material before.
+    func testOnboardingAndPaywallBottomBarsUseTheSystemBackdrop() throws {
+        let layout = try BodyTestSupport.sourceText(at: "Body/Utils/AppLayout.swift")
+        let onboardingView = try BodyTestSupport.sourceText(at: "Body/Views/BodyOnboardingView.swift")
+        let proView = try BodyTestSupport.sourceText(at: "Body/Views/BodyProView.swift")
+
+        XCTAssertTrue(layout.contains("safeAreaBar(edge: .bottom, spacing: 0, content: bar)"))
+        XCTAssertTrue(layout.contains(".scrollEdgeEffectStyle(isShown ? .hard : .automatic, for: .bottom)"))
+        XCTAssertTrue(layout.contains("bar().background(Material.bar.opacity(isShown ? 1 : 0))"))
+
+        XCTAssertEqual(onboardingView.occurrenceCount(of: ".bodyBottomBar {"), 1)
+        XCTAssertFalse(onboardingView.contains(".overlay(alignment: .bottom)"))
+        XCTAssertFalse(onboardingView.contains(".padding(.bottom, 110)"))
+        // Clipped after the bar, so the page still scrolls under it.
+        let barRange = try XCTUnwrap(onboardingView.range(of: ".bodyBottomBar {"))
+        let clipRange = try XCTUnwrap(onboardingView.range(of: ".clipped()"))
+        XCTAssertLessThan(barRange.lowerBound, clipRange.lowerBound)
+
+        // A member outside a flow has no purchase bar, so no backdrop either.
+        XCTAssertEqual(proView.occurrenceCount(of: ".bodyBottomBar(isShown: showsPurchaseBar) {"), 1)
+        XCTAssertTrue(proView.contains("private var showsPurchaseBar: Bool { offersPlans || onContinue != nil }"))
+        XCTAssertFalse(proView.contains("Color(.systemGroupedBackground).opacity(0)"))
+    }
+
     func testSettingsAboutDocumentationTabsOpenExternalLinks() throws {
         let source = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
@@ -5426,7 +5451,7 @@ final class SourceGuardTests: XCTestCase {
         // its close button continues the flow, and a purchase carries on by itself.
         let bodyProSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyProView.swift")
         XCTAssertTrue(bodyProSource.contains("var onContinue: (() -> Void)?"))
-        XCTAssertTrue(bodyProSource.contains("if offersPlans || onContinue != nil {"))
+        XCTAssertTrue(bodyProSource.contains("private var showsPurchaseBar: Bool { offersPlans || onContinue != nil }"))
         XCTAssertTrue(bodyProSource.contains(#"Text("Continue for Free")"#))
         XCTAssertTrue(bodyProSource.contains("if showsCloseButton || onContinue != nil {"))
         XCTAssertTrue(bodyProSource.contains("try? await Task.sleep(for: .seconds(1.2))\n                    onContinue()"))
