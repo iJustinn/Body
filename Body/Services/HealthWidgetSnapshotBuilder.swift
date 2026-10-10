@@ -45,6 +45,7 @@ enum HealthWidgetSnapshotBuilder {
         idealSleepDuration: TimeInterval,
         showSleepScore: Bool,
         primarySourceName: (HealthMetricKind) -> String?,
+        trendCardOrder: [BodyHomeTrendCardKind] = BodyHomeTrendCardKind.defaultOrder,
         date: Date = Date(),
         calendar: Calendar = .bodyGregorian
     ) -> HealthWidgetSnapshot {
@@ -77,7 +78,62 @@ enum HealthWidgetSnapshotBuilder {
                 from: sleepStageSnapshot.mainSession,
                 sourceName: primarySourceName(.sleep),
                 calendar: calendar
-            )
+            ),
+            trendCards: trendCards(
+                trends: trends,
+                temperatureUnitPreference: temperatureUnitPreference,
+                energyUnitPreference: energyUnitPreference,
+                weightUnitPreference: weightUnitPreference,
+                date: date,
+                calendar: calendar
+            ),
+            trendCardOrder: trendCardOrder.map(\.rawValue)
+        )
+    }
+
+    // MARK: - Trend cards
+
+    /// Home's Trends cards for the large Trends widget: one per trend kind with
+    /// enough data, shown on Home or not, so the widget can pin any metric. Built
+    /// by the same factory, from the same trends and unit preferences, as Home's
+    /// cards. `trendCardOrder` (Home's selection, in Home's order) is written
+    /// alongside, and the widget picks its Top Trend from the two.
+    static func trendCards(
+        trends: HealthTrendSnapshot,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference,
+        date: Date = Date(),
+        calendar: Calendar = .bodyGregorian
+    ) -> [HealthWidgetTrendCard] {
+        BodyHomeTrendCardKind.defaultOrder.compactMap { kind in
+            BodyHomeTrendCardFactory.presentation(
+                for: kind,
+                trends: trends,
+                temperatureUnitPreference: temperatureUnitPreference,
+                energyUnitPreference: energyUnitPreference,
+                weightUnitPreference: weightUnitPreference,
+                calendar: calendar,
+                date: date
+            ).map(trendCard(from:))
+        }
+    }
+
+    static func trendCard(from presentation: BodyHomeTrendCardPresentation) -> HealthWidgetTrendCard {
+        HealthWidgetTrendCard(
+            metric: presentation.kind.rawValue,
+            title: String(localized: String.LocalizationValue(presentation.title)),
+            messageText: presentation.messageText,
+            isMeaningful: presentation.isMeaningful,
+            chartStyle: presentation.chartStyle == .bar ? .bar : .line,
+            values: presentation.displayCalendarPoints.map(\.value),
+            baselineEndIndex: presentation.displayBaselineEndIndex,
+            baselineAverage: presentation.baselineAverage,
+            recentAverage: presentation.recentAverage,
+            baselineAverageText: presentation.baselineAverageText,
+            recentAverageText: presentation.recentAverageText,
+            baselinePeriodText: presentation.baselinePeriodText,
+            recentPeriodText: presentation.recentPeriodText
         )
     }
 

@@ -8890,7 +8890,7 @@ final class HealthKitWorkoutStore {
     }
 
     /// Adds the widget-only captures to a `Shared` one: the weight unit
-    /// preference and the per-metric primary source names.
+    /// preference, the per-metric primary source names and Home's Trends order.
     /// `selectedHealthDataSourceOption(for:)` is `@MainActor`, so the names are
     /// resolved here and the builder off-actor only reads the resulting map.
     /// Kept off `Shared` so the watch publish, which renders neither, does not
@@ -8904,10 +8904,18 @@ final class HealthKitWorkoutStore {
             primarySourceNames[kind] = selectedHealthDataSourceOption(for: metric.sourceSelectionKind).name
         }
 
+        // Read the way Home's `@AppStorage` reads it, so the widget's Top Trend
+        // follows the same list Home shows.
+        let trendCardSelection = BodyHomeTrendCardSelection.storedValue(
+            from: UserDefaults.standard.string(forKey: BodyAppearancePreference.homeTrendCardSelectionKey)
+                ?? BodyHomeTrendCardSelection.defaultRawValue
+        )
+
         return BodyCompanionPublishInput.Widget(
             shared: shared,
             weightUnitPreference: HealthWidgetSnapshotBuilder.storedWeightUnitPreference(),
-            primarySourceNames: primarySourceNames
+            primarySourceNames: primarySourceNames,
+            trendCardOrder: BodyHomeTrendCardKind.defaultOrder.filter { trendCardSelection.includes($0) }
         )
     }
 

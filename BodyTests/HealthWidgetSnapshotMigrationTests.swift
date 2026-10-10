@@ -101,4 +101,57 @@ final class HealthWidgetSnapshotMigrationTests: XCTestCase {
 
         XCTAssertEqual(decoded, trend)
     }
+
+    private var trendCardSnapshot: HealthWidgetSnapshot {
+        HealthWidgetSnapshot(
+            generatedDate: Date(timeIntervalSinceReferenceDate: 700_000_000),
+            trendCards: [
+                HealthWidgetTrendCard(
+                    metric: "readiness",
+                    title: "Readiness",
+                    messageText: "On average, your readiness score increased over the last 5 months.",
+                    isMeaningful: true,
+                    chartStyle: .line,
+                    values: [48, nil, 52, 66, 68],
+                    baselineEndIndex: 2,
+                    baselineAverage: 50,
+                    recentAverage: 67,
+                    baselineAverageText: "50%",
+                    recentAverageText: "67%",
+                    baselinePeriodText: "25-day avg",
+                    recentPeriodText: "5-month avg"
+                )
+            ],
+            trendCardOrder: ["readiness", "stress"]
+        )
+    }
+
+    /// A snapshot written before the large Trends widget has neither key; it must
+    /// still decode (the store rejects nothing but a different `schemaVersion`).
+    func testDecodesSnapshotWrittenBeforeTrendCards() throws {
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(trendCardSnapshot)) as? [String: Any]
+        )
+        XCTAssertNotNil(object.removeValue(forKey: "trendCards"))
+        XCTAssertNotNil(object.removeValue(forKey: "trendCardOrder"))
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(HealthWidgetSnapshot.self, from: legacy)
+
+        XCTAssertNil(decoded.trendCards)
+        XCTAssertNil(decoded.trendCardOrder)
+        XCTAssertEqual(decoded.schemaVersion, HealthWidgetSnapshot.currentSchemaVersion)
+    }
+
+    func testRoundTripsTrendCards() throws {
+        let snapshot = trendCardSnapshot
+        let decoded = try JSONDecoder().decode(
+            HealthWidgetSnapshot.self,
+            from: JSONEncoder().encode(snapshot)
+        )
+
+        XCTAssertEqual(decoded, snapshot)
+        XCTAssertEqual(decoded.trendCard(for: "readiness")?.values, [48, nil, 52, 66, 68])
+        XCTAssertNil(decoded.trendCard(for: "stress"))
+    }
 }

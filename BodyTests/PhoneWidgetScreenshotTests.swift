@@ -38,6 +38,13 @@ final class PhoneWidgetScreenshotTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let health = HealthWidgetSnapshot.placeholder
+        let topTrend = TrendCardEntryBuilder.resolve(
+            snapshot: health,
+            pinnedMetric: nil,
+            usePlaceholderWhenEmpty: true,
+            isPro: true,
+            now: health.generatedDate
+        ).resolution
         let workouts = WorkoutMonthSnapshot.placeholder
         let palette = BodyWorkoutColorPalette.builtIn
 
@@ -115,6 +122,12 @@ final class PhoneWidgetScreenshotTests: XCTestCase {
             try write("workout_types_large", size: Self.large) {
                 WorkoutTypeBreakdownView(snapshot: workouts, palette: palette, style: .widgetLarge).padding(14)
             }
+            try write("trend_card_large", size: Self.large) {
+                HealthWidgetTrendCardView(resolution: topTrend).padding(16)
+            }
+            try write("trend_card_large_gradient", size: Self.large, tint: HealthWidgetTrendCardView.tint(for: topTrend)) {
+                HealthWidgetTrendCardView(resolution: topTrend).padding(16)
+            }
             try write("workout_calendar_large", size: Self.large) {
                 WorkoutCalendarView(
                     snapshot: workouts,
@@ -157,6 +170,9 @@ final class PhoneWidgetScreenshotTests: XCTestCase {
         }
         try writeClear("workout_types_large", size: Self.large) {
             WorkoutTypeBreakdownView(snapshot: workouts, palette: palette, style: .widgetLarge).padding(14)
+        }
+        try writeClear("trend_card_large", size: Self.large) {
+            HealthWidgetTrendCardView(resolution: topTrend).padding(16)
         }
         try writeClear("workout_calendar_large", size: Self.large) {
             WorkoutCalendarView(snapshot: workouts, palette: palette, style: .widgetLarge, referenceDate: workouts.generatedAt)

@@ -41,6 +41,9 @@ struct BodyCompanionPublishInput: Sendable {
         /// Resolved on the main actor because `selectedHealthDataSourceOption(for:)`
         /// is `@MainActor`; the builder only needs the resulting names.
         let primarySourceNames: [HealthMetricKind: String]
+        /// The trend kinds Home's Trends list shows, in Home's order, which the
+        /// large Trends widget's Top Trend follows.
+        let trendCardOrder: [BodyHomeTrendCardKind]
     }
 
     let shared: Shared
@@ -185,7 +188,8 @@ final class BodyCompanionPublisher {
                 weightUnitPreference: input.weightUnitPreference,
                 idealSleepDuration: input.shared.idealSleepDuration,
                 showSleepScore: input.shared.showSleepScore,
-                primarySourceName: { input.primarySourceNames[$0] }
+                primarySourceName: { input.primarySourceNames[$0] },
+                trendCardOrder: input.trendCardOrder
             )
             let changed = isCurrent() && HealthWidgetSnapshotStore.save(snapshot)
             Task { @MainActor in

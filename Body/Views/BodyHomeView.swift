@@ -3199,6 +3199,9 @@ struct BodyHomeTrendCardPresentation: Identifiable {
     let recentAverageText: String
     let baselinePeriodText: String
     let recentPeriodText: String
+    /// Whether the change cleared the significance bar; a steady card reads
+    /// "stayed about the same".
+    let isMeaningful: Bool
     let chartStyle: BodyHealthMetricChartStyle
     let calendarPoints: [HealthTrendCalendarPoint]
     let displayCalendarPoints: [HealthTrendCalendarPoint]
@@ -3269,6 +3272,7 @@ struct BodyHomeTrendCardPresentation: Identifiable {
             recentAverageText: valueFormatter(result.recentAverage),
             baselinePeriodText: averagePeriodText(days: result.baselineDayCount),
             recentPeriodText: averagePeriodText(days: result.recentDayCount),
+            isMeaningful: result.isMeaningful,
             chartStyle: chartStyle,
             calendarPoints: result.calendarPoints,
             displayCalendarPoints: result.displayCalendarPoints,

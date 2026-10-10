@@ -171,6 +171,8 @@ struct BodySettingsView: View {
             .onChange(of: showsWarningsOnHomeHero) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedEnergyUnitRawValue) { workoutStore.republishCompanionSnapshots() }
             .onChange(of: selectedWeightUnitRawValue) { workoutStore.republishCompanionSnapshots() }
+            // The large Trends widget's Top Trend follows Home's Trends list.
+            .onChange(of: homeTrendCardSelectionRawValue) { workoutStore.republishCompanionSnapshots() }
         }
     }
 

@@ -375,6 +375,37 @@ struct HealthWidgetSleepStages: Codable, Equatable {
     }
 }
 
+// MARK: - Trend card
+
+/// One Home Trends card, pre-formatted by the app for the large Trends widget
+/// (`HealthWidgetSnapshotBuilder.trendCards`). The window search, the sentence and
+/// the number formats all live in the app, so the widget only draws.
+struct HealthWidgetTrendCard: Codable, Equatable {
+    /// The `HealthMetricKind` raw value. A string, so a card for a metric this
+    /// build does not know cannot fail the whole snapshot's decode.
+    var metric: String
+    var title: String
+    var messageText: String
+    /// Whether the change cleared the app's significance bar; a steady card reads
+    /// "stayed about the same".
+    var isMeaningful: Bool
+    var chartStyle: HealthWidgetChartStyle
+    /// The chart's downsampled daily values, oldest first; `nil` is a day without data.
+    var values: [Double?]
+    /// The last index of the baseline segment in `values`.
+    var baselineEndIndex: Int
+    var baselineAverage: Double
+    var recentAverage: Double
+    var baselineAverageText: String
+    var recentAverageText: String
+    var baselinePeriodText: String
+    var recentPeriodText: String
+
+    var metricKind: HealthMetricKind? {
+        HealthMetricKind(rawValue: metric)
+    }
+}
+
 // MARK: - Snapshot
 
 struct HealthWidgetSnapshot: Codable, Equatable {
@@ -386,22 +417,37 @@ struct HealthWidgetSnapshot: Codable, Equatable {
     var generatedDate: Date
     var metricTrends: [HealthWidgetMetricTrend]
     var sleep: HealthWidgetSleepStages
+    /// One card per trend kind with enough data, whether or not Home shows it, so
+    /// the Trends widget can pin any metric. Optional, like `trendCardOrder`, so a
+    /// file written before the Trends widget existed still decodes as version 1.
+    var trendCards: [HealthWidgetTrendCard]?
+    /// The trend kinds Home's Trends list shows, in Home's order (`HealthMetricKind`
+    /// raw values). The widget's Top Trend is the first meaningful card in it.
+    var trendCardOrder: [String]?
     var schemaVersion: Int?
 
     init(
         generatedDate: Date = Date(),
         metricTrends: [HealthWidgetMetricTrend] = [],
         sleep: HealthWidgetSleepStages = .empty,
+        trendCards: [HealthWidgetTrendCard]? = nil,
+        trendCardOrder: [String]? = nil,
         schemaVersion: Int? = HealthWidgetSnapshot.currentSchemaVersion
     ) {
         self.generatedDate = generatedDate
         self.metricTrends = metricTrends
         self.sleep = sleep
+        self.trendCards = trendCards
+        self.trendCardOrder = trendCardOrder
         self.schemaVersion = schemaVersion
     }
 
     func trend(for metric: HealthWidgetMetric) -> HealthWidgetMetricTrend? {
         metricTrends.first { $0.metric == metric }
+    }
+
+    func trendCard(for metric: String) -> HealthWidgetTrendCard? {
+        trendCards?.first { $0.metric == metric }
     }
 
     var isEmpty: Bool {
@@ -438,7 +484,9 @@ struct HealthWidgetSnapshot: Codable, Equatable {
 
     static let placeholder = HealthWidgetSnapshot(
         metricTrends: HealthWidgetMetric.allCases.map { HealthWidgetPlaceholder.metricTrend(for: $0) },
-        sleep: HealthWidgetPlaceholder.sleepStages()
+        sleep: HealthWidgetPlaceholder.sleepStages(),
+        trendCards: [HealthWidgetPlaceholder.readinessTrendCard()],
+        trendCardOrder: [HealthMetricKind.readiness.rawValue]
     )
 }
 
@@ -498,6 +546,41 @@ private enum HealthWidgetPlaceholder {
         series.averageText = series.average.map { BodyValueFormat.numberText($0, decimals: 0) }
         series.latestText = series.latest.map { BodyValueFormat.numberText($0, decimals: 0) }
         return series
+    }
+
+    /// A rising Readiness card for the widget gallery: a lower 25 day baseline,
+    /// then five months a little higher.
+    static func readinessTrendCard() -> HealthWidgetTrendCard {
+        let baselineCount = 5
+        let values: [Double?] = (0..<60).map { index in
+            let base: Double = index < baselineCount ? 52 : 67
+            return base + sin(Double(index) * 1.7) * 9 + cos(Double(index) * 0.6) * 4
+        }
+        let baselineDays = 25
+        let recentMonths = 5
+        // The app's sentence, assembled from the same pieces the app uses
+        // (`BodyHomeTrendMessageStyle`), so every language reads as Home does.
+        let subject = String(localized: "your readiness score", table: "BodyShared")
+        let direction = String(localized: "increased", table: "BodyShared")
+        let phrase = String(localized: "\(recentMonths) months", table: "BodyShared")
+        return HealthWidgetTrendCard(
+            metric: HealthMetricKind.readiness.rawValue,
+            title: String(localized: "Readiness", table: "BodyShared"),
+            messageText: String(
+                localized: "On average, \(subject) \(direction) over the last \(phrase).",
+                table: "BodyShared"
+            ),
+            isMeaningful: true,
+            chartStyle: .line,
+            values: values,
+            baselineEndIndex: baselineCount - 1,
+            baselineAverage: 51,
+            recentAverage: 67,
+            baselineAverageText: "51%",
+            recentAverageText: "67%",
+            baselinePeriodText: String(localized: "\(baselineDays)-day avg", table: "BodyShared"),
+            recentPeriodText: String(localized: "\(recentMonths)-month avg", table: "BodyShared")
+        )
     }
 
     static func sleepStages() -> HealthWidgetSleepStages {

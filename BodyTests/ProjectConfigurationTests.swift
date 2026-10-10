@@ -338,7 +338,8 @@ final class ProjectConfigurationTests: XCTestCase {
             (WatchMetricKindKey.wristTemperature, .wristTemperature)
         ]
 
-        // Stress has no iPhone widget, so it is pinned separately below.
+        // Stress has no `HealthWidgetMetric` (only the Trends widget shows it), so it
+        // is pinned separately below.
         XCTAssertEqual(pairs.map(\.kind), WatchMetricKindKey.displayOrder.filter { $0 != WatchMetricKindKey.stress })
 
         func assertTint(_ color: Color, matches kind: String) {

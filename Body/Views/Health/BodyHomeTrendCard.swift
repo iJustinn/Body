@@ -301,7 +301,41 @@ enum BodyHomeTrendCardFactory {
         ).valueFormatter(value)
     }
 
-    private static func configuration(
+    /// One card's presentation, built without the Home cache and off the main
+    /// actor, for the large Trends widget's snapshot (`HealthWidgetSnapshotBuilder`).
+    /// Steady windows are allowed so a pinned metric still has a card; a
+    /// meaningful window wins whenever one exists, so a card that changed reads
+    /// exactly as Home's collapsed list shows it.
+    nonisolated static func presentation(
+        for trendKind: BodyHomeTrendCardKind,
+        trends: HealthTrendSnapshot,
+        temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,
+        energyUnitPreference: BodyValueFormat.EnergyUnitPreference,
+        weightUnitPreference: BodyValueFormat.WeightUnitPreference,
+        calendar: Calendar = .bodyGregorian,
+        date: Date = Date()
+    ) -> BodyHomeTrendCardPresentation? {
+        let configuration = configuration(
+            for: trendKind,
+            trends: trends,
+            temperatureUnitPreference: temperatureUnitPreference,
+            energyUnitPreference: energyUnitPreference,
+            weightUnitPreference: weightUnitPreference
+        )
+        return BodyHomeTrendCardPresentation.make(
+            kind: configuration.kind,
+            title: configuration.title,
+            series: configuration.series,
+            chartStyle: configuration.chartStyle,
+            valueFormatter: configuration.valueFormatter,
+            messageStyle: configuration.messageStyle,
+            includesStable: true,
+            calendar: calendar,
+            date: date
+        )
+    }
+
+    nonisolated private static func configuration(
         for trendKind: BodyHomeTrendCardKind,
         trends: HealthTrendSnapshot,
         temperatureUnitPreference: BodyValueFormat.TemperatureUnitPreference,

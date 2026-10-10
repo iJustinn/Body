@@ -5562,6 +5562,36 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(breakdownSource.contains("return 5"))
     }
 
+    func testTrendCardWidgetIsLargeProGatedAndFollowsHomeTrends() throws {
+        let widget = try BodyTestSupport.sourceText(at: "BodyWidgetExtension/TrendCardWidget.swift")
+        let bundle = try BodyTestSupport.sourceText(at: "BodyWidgetExtension/BodyWidgetExtensionBundle.swift")
+        let settings = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
+        let store = try BodyTestSupport.sourceText(at: "Body/Services/HealthKitWorkoutStore.swift")
+
+        XCTAssertEqual(widget.occurrenceCount(of: ".supportedFamilies([.systemLarge])"), 1)
+        XCTAssertTrue(widget.contains("let kind = \"BodyTrendCardWidget\""))
+        XCTAssertTrue(widget.contains("BodyWidgetLockedView()"))
+        XCTAssertTrue(widget.contains("isPro: usePlaceholderWhenEmpty || BodyProEntitlement.isUnlocked"))
+        XCTAssertTrue(widget.contains("@Parameter(title: \"Metric\", default: .top)"))
+        XCTAssertTrue(bundle.contains("BodyTrendCardWidget()"))
+
+        // The picker offers Top Trend, then exactly Home's trend cards in Home's
+        // order; the raw values key the snapshot's cards.
+        let enumStart = try XCTUnwrap(widget.range(of: "enum BodyTrendCardMetricSelection")?.upperBound)
+        let enumEnd = try XCTUnwrap(widget.range(of: "static var typeDisplayRepresentation", range: enumStart..<widget.endIndex)?.lowerBound)
+        let cases = widget[enumStart..<enumEnd]
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("case ") }
+            .map { String($0.dropFirst("case ".count)) }
+        XCTAssertEqual(cases, ["top"] + BodyHomeTrendCardKind.defaultOrder.map(\.rawValue))
+
+        // Top Trend follows Home's Trends list: a Settings change republishes the
+        // snapshot, and the capture reads the list as Home's @AppStorage does.
+        XCTAssertTrue(settings.contains(".onChange(of: homeTrendCardSelectionRawValue) { workoutStore.republishCompanionSnapshots() }"))
+        XCTAssertTrue(store.contains("trendCardOrder: BodyHomeTrendCardKind.defaultOrder.filter { trendCardSelection.includes($0) }"))
+    }
+
     func testExerciseWeekWidgetsArePinnedToAccessoryRectangular() throws {
         let phoneSource = try BodyTestSupport.sourceText(at: "BodyWidgetExtension/ExerciseWeekWidget.swift")
         let watchSource = try BodyTestSupport.sourceText(at: "BodyWatchWidgetExtension/ExerciseWeekComplication.swift")

@@ -232,7 +232,8 @@ final class BodyCompanionPublisherTests: XCTestCase {
             BodyCompanionPublishInput.Widget(
                 shared: Self.makeSharedInput(),
                 weightUnitPreference: .kilograms,
-                primarySourceNames: [:]
+                primarySourceNames: [:],
+                trendCardOrder: BodyHomeTrendCardKind.defaultOrder
             )
         )
 

@@ -254,4 +254,136 @@ final class WidgetEntryBuilderTests: XCTestCase {
 
         XCTAssertEqual(ExerciseWeekEntryBuilder.weekdayLetter(for: wednesday, calendar: calendar), expected)
     }
+
+    // MARK: - Trend card
+
+    private func trendCard(_ metric: String, meaningful: Bool) -> HealthWidgetTrendCard {
+        HealthWidgetTrendCard(
+            metric: metric,
+            title: metric,
+            messageText: meaningful ? "increased" : "stayed about the same",
+            isMeaningful: meaningful,
+            chartStyle: .line,
+            values: [1, nil, 2, 3],
+            baselineEndIndex: 1,
+            baselineAverage: 1,
+            recentAverage: 2.5,
+            baselineAverageText: "1",
+            recentAverageText: "2.5",
+            baselinePeriodText: "2-day avg",
+            recentPeriodText: "2-day avg"
+        )
+    }
+
+    private func resolveTrendCard(
+        cards: [HealthWidgetTrendCard]?,
+        order: [String]?,
+        pinned: String? = nil,
+        isPro: Bool = true
+    ) -> (resolution: TrendCardEntryBuilder.Resolution, isPro: Bool) {
+        TrendCardEntryBuilder.resolve(
+            snapshot: HealthWidgetSnapshot(trendCards: cards, trendCardOrder: order),
+            pinnedMetric: pinned,
+            usePlaceholderWhenEmpty: false,
+            isPro: isPro,
+            now: Date(),
+            calendar: calendar
+        )
+    }
+
+    func testTopTrendIsTheFirstMeaningfulCardInHomeOrder() {
+        let stress = trendCard("stress", meaningful: false)
+        let readiness = trendCard("readiness", meaningful: true)
+        let heartRate = trendCard("heartRate", meaningful: true)
+
+        // Stress leads Home's order but is steady, so collapsed Home starts at Readiness.
+        XCTAssertEqual(
+            resolveTrendCard(cards: [readiness, stress, heartRate], order: ["stress", "readiness", "heartRate"]).resolution,
+            .card(readiness)
+        )
+        // A meaningful card Home does not show is skipped.
+        XCTAssertEqual(
+            resolveTrendCard(cards: [heartRate, stress], order: ["stress"]).resolution,
+            .card(stress)
+        )
+    }
+
+    func testTopTrendFallsBackToTheFirstSteadyCardInHomeOrder() {
+        let stress = trendCard("stress", meaningful: false)
+        let readiness = trendCard("readiness", meaningful: false)
+
+        XCTAssertEqual(
+            resolveTrendCard(cards: [readiness, stress], order: ["stress", "readiness"]).resolution,
+            .card(stress)
+        )
+    }
+
+    func testTopTrendWithoutCardsIsEmpty() {
+        XCTAssertEqual(
+            resolveTrendCard(cards: [], order: ["readiness"]).resolution,
+            .empty(metric: nil, isInTrends: true)
+        )
+        // A snapshot written before the Trends widget existed.
+        XCTAssertEqual(
+            resolveTrendCard(cards: nil, order: nil).resolution,
+            .empty(metric: nil, isInTrends: true)
+        )
+    }
+
+    func testPinnedMetricShowsItsCardEvenWhenSteady() {
+        let stress = trendCard("stress", meaningful: false)
+        let readiness = trendCard("readiness", meaningful: true)
+
+        XCTAssertEqual(
+            resolveTrendCard(cards: [readiness, stress], order: ["readiness"], pinned: "stress").resolution,
+            .card(stress)
+        )
+    }
+
+    func testPinnedMetricWithoutACardSaysWhetherTrendsShowsIt() {
+        let readiness = trendCard("readiness", meaningful: true)
+
+        XCTAssertEqual(
+            resolveTrendCard(cards: [readiness], order: ["readiness", "steps"], pinned: "steps").resolution,
+            .empty(metric: "steps", isInTrends: true)
+        )
+        XCTAssertEqual(
+            resolveTrendCard(cards: [readiness], order: ["readiness"], pinned: "steps").resolution,
+            .empty(metric: "steps", isInTrends: false)
+        )
+        // A snapshot from before the Trends widget has no order: unknown, so no Settings hint.
+        XCTAssertEqual(
+            resolveTrendCard(cards: nil, order: nil, pinned: "steps").resolution,
+            .empty(metric: "steps", isInTrends: true)
+        )
+    }
+
+    func testTrendCardBuilderCarriesTheProGateAndThePlaceholder() {
+        XCTAssertFalse(resolveTrendCard(cards: [], order: [], isPro: false).isPro)
+        XCTAssertTrue(resolveTrendCard(cards: [], order: [], isPro: true).isPro)
+
+        let gallery = TrendCardEntryBuilder.resolve(
+            snapshot: nil,
+            pinnedMetric: nil,
+            usePlaceholderWhenEmpty: true,
+            isPro: true,
+            now: Date(),
+            calendar: calendar
+        )
+        guard case .card(let card) = gallery.resolution else {
+            return XCTFail("The gallery shows the placeholder card")
+        }
+        XCTAssertEqual(card.metric, "readiness")
+        XCTAssertTrue(card.isMeaningful)
+
+        let missing = TrendCardEntryBuilder.resolve(
+            snapshot: nil,
+            pinnedMetric: nil,
+            usePlaceholderWhenEmpty: false,
+            isPro: true,
+            now: Date(),
+            calendar: calendar
+        )
+        XCTAssertEqual(missing.resolution, .empty(metric: nil, isInTrends: true))
+    }
 }
