@@ -3736,7 +3736,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.6 (build 1)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.6 (build 2)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.6 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.5 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.5 (build 7)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.5 (build 6)**"))
@@ -3905,6 +3906,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.6 (build 2)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.6 build 2."))
         XCTAssertTrue(versionHistory.contains("## 1.1.6 (build 1)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.6 build 1."))
         XCTAssertTrue(versionHistory.contains("## 1.1.5 (build 8)"))
