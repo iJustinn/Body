@@ -18,42 +18,42 @@
       "internalID" : "BodyProLifetime",
       "localizations" : [
         {
-          "description" : "Unlock all Body Pro features for life with a single purchase.",
+          "description" : "Once Pro, Always Pro.",
           "displayName" : "Body Pro Lifetime",
           "locale" : "en_US"
         },
         {
-          "description" : "一次购买，终身解锁 Body Pro 全部功能。",
-          "displayName" : "Body Pro 终身版",
+          "description" : "一次购买即可获得终身功能更新及维护",
+          "displayName" : "Body终身Pro会员",
           "locale" : "zh_Hans"
         },
         {
-          "description" : "Tek seferlik satın alımla tüm Body Pro özelliklerinin kilidini ömür boyu açın.",
+          "description" : "Bir kez Pro, her zaman Pro.",
           "displayName" : "Body Pro Ömür Boyu",
           "locale" : "tr"
         },
         {
-          "description" : "Schalte alle Funktionen von Body Pro mit einem einzigen Kauf für immer frei.",
+          "description" : "Einmal Pro, für immer Pro.",
           "displayName" : "Body Pro Lebenslang",
           "locale" : "de_DE"
         },
         {
-          "description" : "एक ही ख़रीदारी में Body Pro के सभी फ़ीचर हमेशा के लिए अनलॉक करें।",
+          "description" : "एक बार Pro, हमेशा Pro।",
           "displayName" : "Body Pro आजीवन",
           "locale" : "hi"
         },
         {
-          "description" : "Desbloquea todas las funciones de Body Pro para siempre con una sola compra.",
+          "description" : "Una vez Pro, siempre Pro.",
           "displayName" : "Body Pro de por vida",
           "locale" : "es_ES"
         },
         {
-          "description" : "Откройте все функции Body Pro навсегда одной покупкой.",
+          "description" : "Pro навсегда.",
           "displayName" : "Body Pro бессрочно",
           "locale" : "ru"
         },
         {
-          "description" : "Débloquez toutes les fonctionnalités de Body Pro à vie en un seul achat.",
+          "description" : "Pro un jour, Pro toujours.",
           "displayName" : "Body Pro à vie",
           "locale" : "fr_FR"
         }
@@ -88,7 +88,7 @@
           "locale" : "de_DE"
         },
         {
-          "description" : "एक बार Pro, हमेशा Pro। आपके परिवार के साथ शेयर किया जा सकता है।",
+          "description" : "एक बार Pro, हमेशा Pro। आपके परिवार के साथ शेयर होता है।",
           "displayName" : "Body Pro आजीवन परिवार",
           "locale" : "hi"
         },
@@ -221,7 +221,7 @@
               "locale" : "ru"
             },
             {
-              "description" : "Toutes les fonctionnalités de Body Pro, avec facturation annuelle.",
+              "description" : "Toutes les fonctionnalités Pro, facturation annuelle.",
               "displayName" : "Body Pro annuel",
               "locale" : "fr_FR"
             }
@@ -268,7 +268,7 @@
               "locale" : "hi"
             },
             {
-              "description" : "Todas las funciones de Body Pro, con facturación mensual.",
+              "description" : "Todas las funciones de Body Pro, facturación mensual.",
               "displayName" : "Body Pro Mensual",
               "locale" : "es_ES"
             },
@@ -278,7 +278,7 @@
               "locale" : "ru"
             },
             {
-              "description" : "Toutes les fonctionnalités de Body Pro, avec facturation mensuelle.",
+              "description" : "Toutes les fonctionnalités Pro, facturation mensuelle.",
               "displayName" : "Body Pro mensuel",
               "locale" : "fr_FR"
             }

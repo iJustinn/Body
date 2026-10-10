@@ -945,6 +945,7 @@ final class ProjectConfigurationTests: XCTestCase {
 
     /// The StoreKit test configuration names the products in every language the
     /// paywall ships, so a localized paywall can be checked without App Store Connect.
+    /// Its text mirrors App Store Connect, so it also stays within that site's limits.
     func testStoreKitConfigurationNamesProductsInEveryLocale() throws {
         let data = try Data(contentsOf: BodyTestSupport.projectRoot.appendingPathComponent("Body.storekit"))
         let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -962,7 +963,12 @@ final class ProjectConfigurationTests: XCTestCase {
             let localizations = try XCTUnwrap(holder["localizations"] as? [[String: Any]], name)
             XCTAssertEqual(Set(localizations.compactMap { $0["locale"] as? String }), expectedLocales, name)
             for localization in localizations {
-                XCTAssertFalse(try XCTUnwrap(localization["displayName"] as? String).isEmpty, name)
+                let displayName = try XCTUnwrap(localization["displayName"] as? String, name)
+                XCTAssertFalse(displayName.isEmpty, name)
+                // App Store Connect caps a display name at 35 characters and a description at
+                // 55, counted in UTF-16 like its web form.
+                XCTAssertLessThanOrEqual(displayName.utf16.count, 35, name)
+                XCTAssertLessThanOrEqual((localization["description"] as? String ?? "").utf16.count, 55, name)
             }
         }
     }
