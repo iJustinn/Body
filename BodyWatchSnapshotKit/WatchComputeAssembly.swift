@@ -825,10 +825,11 @@ enum WatchComputeAssembly {
     }
 
     /// The warning kinds the watch checks itself: the ones with a watch card
-    /// (Low and High Heart Rate on Heart Rate, High Skin Temperature on Skin
-    /// Temp), in `MetricWarningKind.allCases` order. `WatchDeltaFetcher`
-    /// reads today's readings for these kinds only.
-    static let checkedWarningKinds: [MetricWarningKind] = [.lowHeartRate, .highHeartRate, .highWristTemperature]
+    /// (Low and High Heart Rate on Heart Rate, Low Blood Oxygen on Blood
+    /// Oxygen, High Skin Temperature on Skin Temp), in
+    /// `MetricWarningKind.allCases` order. `WatchDeltaFetcher` reads today's
+    /// readings for these kinds only.
+    static let checkedWarningKinds: [MetricWarningKind] = [.lowHeartRate, .highHeartRate, .lowBloodOxygen, .highWristTemperature]
 
     /// The workouts this run read whose High Heart Rate exclusion (the
     /// workout plus its 30 minute recovery grace,

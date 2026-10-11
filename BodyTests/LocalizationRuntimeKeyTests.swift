@@ -544,10 +544,12 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
             // Card titles, glyph and badge accessibility labels.
             "Low Heart Rate",
             "High Heart Rate",
+            "Low Blood Oxygen",
             "High Skin Temperature",
             // The unfolded card's sentence and the High Heart Rate footnote.
             "Your heart rate fell below %lld BPM starting at %@.",
             "Your heart rate rose above %lld BPM starting at %@.",
+            "Your blood oxygen fell below %lld%% starting at %@.",
             "Your skin temperature rose above %@ starting at %@.",
             "If you were working out, this warning will disappear once the workout is logged.",
             // The fold button's accessibility hint.

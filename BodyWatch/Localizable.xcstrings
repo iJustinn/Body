@@ -1719,6 +1719,59 @@
         }
       }
     },
+    "Low Blood Oxygen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Niedriger Blutsauerstoff"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Blood Oxygen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oxígeno en sangre bajo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oxygène sanguin faible"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "निम्न रक्त ऑक्सीजन"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Низкий уровень кислорода в крови"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Düşük Kanda Oksijen"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "血氧过低"
+          }
+        }
+      }
+    },
     "Low Blood Oxygen Warning" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3169,6 +3222,59 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "震动"
+          }
+        }
+      }
+    },
+    "Your blood oxygen fell below %lld%% starting at %@." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ab %2$@ lag dein Blutsauerstoff unter %1$lld%%."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your blood oxygen fell below %lld%% starting at %@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu oxígeno en sangre bajó del %lld%% desde %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre taux d’oxygène sanguin est descendu sous %lld %% à partir de %@."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%2$@ से आपका रक्त ऑक्सीजन स्तर %1$lld%% से नीचे चला गया।"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "С %2$@ Ваш уровень кислорода в крови опустился ниже %1$lld%%."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kanda oksijen düzeyiniz saat %2$@ itibarıyla %%%1$lld değerinin altına düştü."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 %2$@ 开始，您的血氧降至 %1$lld%% 以下。"
           }
         }
       }

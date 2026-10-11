@@ -15,13 +15,13 @@
 //  workout this watch read (`workoutSpans`), or within 30 minutes after it,
 //  is left out, whichever device found it.
 //
-//  Only Heart Rate (Low and High Heart Rate) and Skin Temp (High Skin
-//  Temperature) appear: they are the warned metrics with a watch card and
-//  page. Blood Oxygen and Respiratory Rate have no watch home, so their
-//  warnings have nothing to point at; the phone follows the same rule, where
-//  a badge only points at a card the user can see. The phone publishes only
-//  the carded kinds, and `title(for:)` drops any other kind a newer phone
-//  might send.
+//  Only Heart Rate (Low and High Heart Rate), Blood Oxygen (Low Blood
+//  Oxygen) and Skin Temp (High Skin Temperature) appear: they are the warned
+//  metrics with a watch card and page. Respiratory Rate has no watch home
+//  (and Body Radar stays on the iPhone), so its warning has nothing to point
+//  at; the phone follows the same rule, where a badge only points at a card
+//  the user can see. The phone publishes only the carded kinds, and
+//  `title(for:)` drops any other kind a newer phone might send.
 //
 //  The copy is the phone's own (`BodyMetricWarningCard`), with the same keys,
 //  time format and temperature formatter, so the two read the same.
@@ -216,25 +216,27 @@ enum WatchMetricWarnings {
             .compactMap { title(for: $0.kind) }
     }
 
-    /// The warning card's title, the phone's. Nil for Low Blood Oxygen and High
-    /// Respiratory Rate, whose metrics have no watch card.
+    /// The warning card's title, the phone's. Nil for High Respiratory Rate,
+    /// whose metric has no watch card.
     static func title(for kind: MetricWarningKind) -> String? {
         switch kind {
         case .lowHeartRate:
             return String(localized: "Low Heart Rate")
         case .highHeartRate:
             return String(localized: "High Heart Rate")
+        case .lowBloodOxygen:
+            return String(localized: "Low Blood Oxygen")
         case .highWristTemperature:
             return String(localized: "High Skin Temperature")
-        case .lowBloodOxygen, .highRespiratoryRate:
+        case .highRespiratoryRate:
             return nil
         }
     }
 
     /// The unfolded card's sentence, the phone's copy: the threshold and the
-    /// episode's start time. Skin temperature's threshold arrives in °C and is
-    /// shown in the Skin Temp card's unit (`usesFahrenheit`). Nil for the kinds
-    /// without a watch title.
+    /// episode's start time. Blood oxygen's threshold is a whole percent, and
+    /// skin temperature's arrives in °C and is shown in the Skin Temp card's
+    /// unit (`usesFahrenheit`). Nil for the kind without a watch title.
     static func sentence(for warning: WatchMetricWarning, kind: MetricWarningKind, usesFahrenheit: Bool) -> String? {
         let time = timeText(for: warning.startDate)
         let threshold = warning.threshold
@@ -243,13 +245,15 @@ enum WatchMetricWarnings {
             return String(localized: "Your heart rate fell below \(Int(threshold)) BPM starting at \(time).")
         case .highHeartRate:
             return String(localized: "Your heart rate rose above \(Int(threshold)) BPM starting at \(time).")
+        case .lowBloodOxygen:
+            return String(localized: "Your blood oxygen fell below \(Int(threshold))% starting at \(time).")
         case .highWristTemperature:
             let temperature = BodyMetricWarningTemperatureText.text(
                 celsius: threshold,
                 temperatureUnitPreference: usesFahrenheit ? .fahrenheit : .celsius
             )
             return String(localized: "Your skin temperature rose above \(temperature) starting at \(time).")
-        case .lowBloodOxygen, .highRespiratoryRate:
+        case .highRespiratoryRate:
             return nil
         }
     }

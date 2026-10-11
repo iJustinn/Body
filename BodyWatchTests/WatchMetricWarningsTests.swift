@@ -7,7 +7,8 @@
 //  folded warnings leave the glyph and the hero badges, a badge points only at
 //  a card the dashboard shows and only while the phone's Show on Home Hero
 //  switch is on, and the card sentence is the phone's copy, time format and
-//  temperature text.
+//  temperature text. Heart Rate, Blood Oxygen and Skin Temp carry warnings;
+//  High Respiratory Rate, with no watch card, never shows.
 //
 //  The warnings shown are the phone's together with the watch's own checks
 //  under the phone's settings, one per kind with the earlier start winning,
@@ -37,8 +38,8 @@ final class WatchMetricWarningsTests: XCTestCase {
 
     private let unfolded: (WatchMetricWarning) -> Bool = { _ in false }
 
-    /// Mixed input order, plus kinds the watch has no card for and a kind a
-    /// newer phone might send.
+    /// Mixed input order, plus a kind the watch has no card for (High
+    /// Respiratory Rate) and a kind a newer phone might send.
     private var warnings: [WatchMetricWarning] {
         [
             warning(.highHeartRate),
@@ -60,8 +61,11 @@ final class WatchMetricWarningsTests: XCTestCase {
         let skin = WatchMetricWarnings.rows(forCardKind: WatchMetricKindKey.wristTemperature, in: warnings, isFolded: unfolded)
         XCTAssertEqual(skin.map(\.kind), [.highWristTemperature])
 
-        // Warned metrics without a watch card, and cards without warnings.
-        XCTAssertTrue(WatchMetricWarnings.rows(forCardKind: MetricWarningKind.lowBloodOxygen.metric.rawValue, in: warnings, isFolded: unfolded).isEmpty)
+        let oxygen = WatchMetricWarnings.rows(forCardKind: WatchMetricKindKey.oxygenSaturation, in: warnings, isFolded: unfolded)
+        XCTAssertEqual(oxygen.map(\.kind), [.lowBloodOxygen])
+        XCTAssertEqual(MetricWarningKind.lowBloodOxygen.metric.rawValue, WatchMetricKindKey.oxygenSaturation)
+
+        // A warned metric without a watch card, and cards without warnings.
         XCTAssertTrue(WatchMetricWarnings.rows(forCardKind: MetricWarningKind.highRespiratoryRate.metric.rawValue, in: warnings, isFolded: unfolded).isEmpty)
         XCTAssertTrue(WatchMetricWarnings.rows(forCardKind: WatchMetricKindKey.sleep, in: warnings, isFolded: unfolded).isEmpty)
     }
@@ -83,6 +87,26 @@ final class WatchMetricWarningsTests: XCTestCase {
 
         let highOnly = WatchMetricWarnings.glyphLabel(forCardKind: WatchMetricKindKey.heartRate, in: warnings) { $0.kind == "lowHeartRate" }
         XCTAssertEqual(highOnly, WatchMetricWarnings.title(for: .highHeartRate))
+    }
+
+    func testBloodOxygenCardGetsItsGlyphAndBadge() {
+        XCTAssertEqual(
+            WatchMetricWarnings.glyphLabel(forCardKind: WatchMetricKindKey.oxygenSaturation, in: warnings, isFolded: unfolded),
+            "Low Blood Oxygen"
+        )
+        XCTAssertNil(WatchMetricWarnings.glyphLabel(forCardKind: WatchMetricKindKey.oxygenSaturation, in: warnings) { _ in true })
+
+        let badges = WatchMetricWarnings.heroBadges(
+            cardKinds: [WatchMetricKindKey.heartRate, WatchMetricKindKey.oxygenSaturation, WatchMetricKindKey.wristTemperature],
+            warnings: warnings,
+            showsOnHero: true,
+            isFolded: unfolded
+        )
+        XCTAssertEqual(
+            badges.map(\.cardKind),
+            [WatchMetricKindKey.heartRate, WatchMetricKindKey.oxygenSaturation, WatchMetricKindKey.wristTemperature]
+        )
+        XCTAssertEqual(badges[1].titles, ["Low Blood Oxygen"])
     }
 
     func testGlyphLabelIsNilWhenEveryWarningIsFolded() {
@@ -168,8 +192,8 @@ final class WatchMetricWarningsTests: XCTestCase {
     func testTitlesExistOnlyForTheCardedKinds() {
         XCTAssertEqual(WatchMetricWarnings.title(for: .lowHeartRate), "Low Heart Rate")
         XCTAssertEqual(WatchMetricWarnings.title(for: .highHeartRate), "High Heart Rate")
+        XCTAssertEqual(WatchMetricWarnings.title(for: .lowBloodOxygen), "Low Blood Oxygen")
         XCTAssertEqual(WatchMetricWarnings.title(for: .highWristTemperature), "High Skin Temperature")
-        XCTAssertNil(WatchMetricWarnings.title(for: .lowBloodOxygen))
         XCTAssertNil(WatchMetricWarnings.title(for: .highRespiratoryRate))
     }
 
@@ -206,7 +230,20 @@ final class WatchMetricWarningsTests: XCTestCase {
             WatchMetricWarnings.sentence(for: skin, kind: .highWristTemperature, usesFahrenheit: true),
             "Your skin temperature rose above \(fahrenheit) starting at \(time)."
         )
-        XCTAssertNil(WatchMetricWarnings.sentence(for: warning(.lowBloodOxygen), kind: .lowBloodOxygen, usesFahrenheit: false))
+    }
+
+    /// The phone's Blood Oxygen copy, the threshold a whole percent; the
+    /// temperature unit plays no part. High Respiratory Rate has none.
+    func testBloodOxygenSentenceIsThePhonesCopy() {
+        let time = start.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+
+        for usesFahrenheit in [false, true] {
+            XCTAssertEqual(
+                WatchMetricWarnings.sentence(for: warning(.lowBloodOxygen, threshold: 90), kind: .lowBloodOxygen, usesFahrenheit: usesFahrenheit),
+                "Your blood oxygen fell below 90% starting at \(time)."
+            )
+        }
+        XCTAssertNil(WatchMetricWarnings.sentence(for: warning(.highRespiratoryRate), kind: .highRespiratoryRate, usesFahrenheit: false))
     }
 
     // MARK: - Shown: the phone's warnings and the watch's own
@@ -255,10 +292,10 @@ final class WatchMetricWarningsTests: XCTestCase {
     /// The phone's settings: every watch card kind on, at its default limit
     /// unless `thresholds` names another.
     private func phoneSettings(
-        enabled: [MetricWarningKind] = [.lowHeartRate, .highHeartRate, .highWristTemperature],
+        enabled: [MetricWarningKind] = [.lowHeartRate, .highHeartRate, .lowBloodOxygen, .highWristTemperature],
         thresholds: [MetricWarningKind: Double] = [:]
     ) -> WatchWarningSettings {
-        let kinds: [MetricWarningKind] = [.lowHeartRate, .highHeartRate, .highWristTemperature]
+        let kinds: [MetricWarningKind] = [.lowHeartRate, .highHeartRate, .lowBloodOxygen, .highWristTemperature]
         return WatchWarningSettings(
             thresholds: Dictionary(uniqueKeysWithValues: kinds.map { ($0.rawValue, thresholds[$0] ?? $0.defaultThreshold) }),
             enabledKinds: enabled.map(\.rawValue),
@@ -383,14 +420,33 @@ final class WatchMetricWarningsTests: XCTestCase {
         XCTAssertTrue(shown(checks: [nothing], settings: phoneSettings()).isEmpty)
     }
 
-    /// Blood Oxygen has no watch card, so its check never shows, even turned
-    /// on at a matching limit.
+    /// Respiratory Rate has no watch card, so its check never shows, even
+    /// turned on at a matching limit.
     func testAKindWithoutAWatchCardIsSetAside() {
         var settings = phoneSettings()
-        settings.enabledKinds.append(MetricWarningKind.lowBloodOxygen.rawValue)
-        settings.thresholds[MetricWarningKind.lowBloodOxygen.rawValue] = MetricWarningKind.lowBloodOxygen.defaultThreshold
+        settings.enabledKinds.append(MetricWarningKind.highRespiratoryRate.rawValue)
+        settings.thresholds[MetricWarningKind.highRespiratoryRate.rawValue] = MetricWarningKind.highRespiratoryRate.defaultThreshold
 
-        XCTAssertTrue(shown(checks: [check(.lowBloodOxygen, at: today(4))], settings: settings).isEmpty)
+        XCTAssertTrue(shown(checks: [check(.highRespiratoryRate, at: today(4))], settings: settings).isEmpty)
+    }
+
+    /// Blood Oxygen has a watch card, so the watch's own Low Blood Oxygen
+    /// check shows under the phone's limit, and not once the phone turns the
+    /// kind off or moves the limit.
+    func testTheWatchsBloodOxygenCheckShows() {
+        let start = today(4, 20)
+        let oxygen = check(.lowBloodOxygen, at: start)
+
+        XCTAssertEqual(shown(checks: [oxygen], settings: phoneSettings()), [WatchMetricWarning(
+            kind: "lowBloodOxygen",
+            startDate: start,
+            threshold: 90,
+            foldKey: MetricWarningDayKey.foldKey(kind: .lowBloodOxygen, startDate: start, calendar: calendar),
+            isFolded: false,
+            foldChangedAt: nil
+        )])
+        XCTAssertTrue(shown(checks: [oxygen], settings: phoneSettings(enabled: [.lowHeartRate, .highHeartRate])).isEmpty)
+        XCTAssertTrue(shown(checks: [oxygen], settings: phoneSettings(thresholds: [.lowBloodOxygen: 88])).isEmpty)
     }
 
     /// A High Heart Rate warning starting inside a workout or the 30 minutes

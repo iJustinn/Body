@@ -577,8 +577,8 @@ struct WatchMetricWarning: Codable, Equatable, Identifiable {
     /// When the day's earliest episode started, which the card's sentence names.
     var startDate: Date
     /// The limit the episode was detected against, in the kind's stored unit:
-    /// bpm for heart rate, °C for skin temperature (the watch converts it to
-    /// the Skin Temp card's unit for display).
+    /// bpm for heart rate, percent for blood oxygen, °C for skin temperature
+    /// (the watch converts it to the Skin Temp card's unit for display).
     var threshold: Double
     var foldKey: String
     var isFolded: Bool
@@ -590,11 +590,12 @@ struct WatchMetricWarning: Codable, Equatable, Identifiable {
 }
 
 /// The phone's warning settings the watch checks and notifies under, for the
-/// kinds with a watch card (Low and High Heart Rate, High Skin Temperature).
+/// kinds with a watch card (Low and High Heart Rate, Low Blood Oxygen, High
+/// Skin Temperature).
 /// Plain values so this file stays free of BodyMetricsKit: kinds are
 /// `MetricWarningKind` raw values.
 struct WatchWarningSettings: Codable, Equatable {
-    /// Each kind's effective limit in its stored unit (bpm, °C): the user's
+    /// Each kind's effective limit in its stored unit (bpm, %, °C): the user's
     /// own, or the default. High Heart Rate is absent until the phone has
     /// resolved its birth date based default.
     var thresholds: [String: Double]
@@ -731,12 +732,12 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     var dayRingWorkouts: [WatchDayRingWorkout]? = nil
 
     /// Today's metric threshold warnings for the kinds with a watch card
-    /// (Heart Rate and Skin Temp), each with the phone's fold state: the
-    /// warnings the phone's Home shows, under its Warnings selection. A
-    /// display payload like `homeHero`, so only a phone push sets it; the
-    /// watch's own checks ride `warningChecks`, and `WatchMetricWarnings.shown`
-    /// puts the two together. It follows phone pushes and
-    /// survives watch computes with no merge rule of its own:
+    /// (Heart Rate, Blood Oxygen and Skin Temp), each with the phone's fold
+    /// state: the warnings the phone's Home shows, under its Warnings
+    /// selection. A display payload like `homeHero`, so only a phone push sets
+    /// it; the watch's own checks ride `warningChecks`, and
+    /// `WatchMetricWarnings.shown` puts the two together. It follows phone
+    /// pushes and survives watch computes with no merge rule of its own:
     /// `WatchComputeMerge.merging` starts from the received push and
     /// `mergingComputed` from the current snapshot. Dropped after midnight by
     /// `sanitized(asOf:)`. Optional so an older phone's payload decodes; nil

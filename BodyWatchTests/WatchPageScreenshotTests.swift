@@ -11,7 +11,11 @@
 //  chart, like the iPhone). Two more show the warning cards: the Heart Rate
 //  page with its "Last 8 hours" chart followed by a folded Low Heart Rate
 //  card and an unfolded High Heart Rate one, and a Skin Temp page (no chart)
-//  with one unfolded High Skin Temperature card. It touches the worktree, so
+//  with one unfolded High Skin Temperature card. One more shows the Blood
+//  Oxygen page: the week's dots with each day's range and "97 %", then the
+//  "Last 8 hours" chart (the snapshot's chart on the device, the preview
+//  here, its value axis capped just above 100%), then an unfolded Low Blood
+//  Oxygen card. It touches the worktree, so
 //  it skips unless `BODY_WATCH_PAGE_SCREENSHOTS=1` is in the environment. Not
 //  a snapshot test.
 //
@@ -70,7 +74,8 @@ final class WatchPageScreenshotTests: XCTestCase {
         // where the page has one, the last 8 hours as a bar per 30 minute slot.
         for item in dailyTotals(now: now) {
             try writePage(item.name, metric: item.metric, now: now, to: directory) {
-                if WatchIntradayChartStore.chartKinds.contains(item.metric.kind) {
+                if WatchIntradayChartStore.chartKinds.contains(item.metric.kind)
+                    || WatchMetricDetailView.snapshotChartKinds.contains(item.metric.kind) {
                     WatchIntradayChartView(
                         chart: .preview(kind: item.metric.kind, now: now),
                         tint: Color(WatchMetricKindKey.tint(forKind: item.metric.kind)),
@@ -117,6 +122,28 @@ final class WatchPageScreenshotTests: XCTestCase {
             ),
             to: directory
         )
+
+        // Blood Oxygen: the week's dots and daily ranges, the "Last 8 hours"
+        // chart the page draws from the snapshot, and an unfolded Low Blood
+        // Oxygen card after it.
+        try writePage(
+            "12-blood-oxygen",
+            metric: bloodOxygen(now: now),
+            now: now,
+            warnings: WatchMetricWarnings.rows(
+                forCardKind: WatchMetricKindKey.oxygenSaturation,
+                in: [warning(.lowBloodOxygen, threshold: 90, hour: 3, minute: 48, now: now)],
+                isFolded: { _ in false }
+            ),
+            to: directory
+        ) {
+            WatchIntradayChartView(
+                chart: .preview(kind: WatchMetricKindKey.oxygenSaturation, now: now),
+                tint: Color(WatchMetricKindKey.tint(forKind: WatchMetricKindKey.oxygenSaturation)),
+                style: .range,
+                valueCeiling: WatchMetricKindKey.valueCeiling(forKind: WatchMetricKindKey.oxygenSaturation)
+            )
+        }
     }
 
     /// A page with warnings and no chart section.
@@ -229,6 +256,29 @@ final class WatchPageScreenshotTests: XCTestCase {
             threshold: threshold,
             foldKey: "\(kind.rawValue)@\(dayKey)",
             isFolded: false
+        )
+    }
+
+    /// Blood Oxygen: the latest reading (the preview chart's latest slot) and
+    /// a week of daily averages with each day's low to high range, built on
+    /// `now` so the headline survives the midnight check.
+    private func bloodOxygen(now: Date) -> WatchMetric {
+        WatchMetric(
+            kind: WatchMetricKindKey.oxygenSaturation,
+            title: "Blood Oxygen",
+            displayValue: "97",
+            unit: "%",
+            score: nil,
+            fillFraction: 0.67,
+            rawValue: 97,
+            rangeMin: 95,
+            rangeMax: 98,
+            weekly: [96, 97, nil, 95, 98, 96, 97],
+            weeklyAsOf: now,
+            weeklyRanges: [
+                .init(low: 91, high: 100), .init(low: 93, high: 99), nil, .init(low: 89, high: 99),
+                .init(low: 94, high: 100), .init(low: 92, high: 99), .init(low: 93, high: 100)
+            ]
         )
     }
 

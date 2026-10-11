@@ -35,6 +35,7 @@ final class WatchWarningChecksTests: XCTestCase {
 
     private let lowHeartRate = MetricWarningKind.lowHeartRate.rawValue
     private let highHeartRate = MetricWarningKind.highHeartRate.rawValue
+    private let lowBloodOxygen = MetricWarningKind.lowBloodOxygen.rawValue
     private let highSkinTemperature = MetricWarningKind.highWristTemperature.rawValue
 
     // MARK: - Fixtures
@@ -48,7 +49,7 @@ final class WatchWarningChecksTests: XCTestCase {
 
     /// The limits the iPhone ships by default.
     private var defaultThresholds: [String: Double] {
-        [lowHeartRate: 40, highHeartRate: 120, highSkinTemperature: 38]
+        [lowHeartRate: 40, highHeartRate: 120, lowBloodOxygen: 90, highSkinTemperature: 38]
     }
 
     /// The iPhone's settings with these limits. The selection, the switch and
@@ -56,7 +57,7 @@ final class WatchWarningChecksTests: XCTestCase {
     private func settings(_ thresholds: [String: Double]) -> WatchWarningSettings {
         WatchWarningSettings(
             thresholds: thresholds,
-            enabledKinds: [lowHeartRate, highHeartRate, highSkinTemperature],
+            enabledKinds: [lowHeartRate, highHeartRate, lowBloodOxygen, highSkinTemperature],
             notifies: true,
             notifiedDays: [:]
         )
@@ -216,13 +217,39 @@ final class WatchWarningChecksTests: XCTestCase {
         )
     }
 
-    /// Blood Oxygen and Respiratory Rate have no watch card, so the watch
-    /// never checks them, whatever it is handed.
+    /// Respiratory Rate has no watch card, so the watch never checks it,
+    /// whatever it is handed.
     func testOnlyTheKindsWithAWatchCardAreChecked() {
+        XCTAssertEqual(
+            WatchComputeAssembly.checkedWarningKinds,
+            [.lowHeartRate, .highHeartRate, .lowBloodOxygen, .highWristTemperature]
+        )
+        XCTAssertEqual(
+            WatchComputeAssembly.checkedWarningKinds,
+            MetricWarningKind.allCases.filter(WatchComputeAssembly.checkedWarningKinds.contains),
+            "in kind order"
+        )
         XCTAssertNil(checks(
-            [.lowBloodOxygen: .success([reading(at(3), 85)]), .highRespiratoryRate: .success([reading(at(3), 26)])],
-            thresholds: [MetricWarningKind.lowBloodOxygen.rawValue: 90, MetricWarningKind.highRespiratoryRate.rawValue: 20]
+            [.highRespiratoryRate: .success([reading(at(3), 26)])],
+            thresholds: [MetricWarningKind.highRespiratoryRate.rawValue: 20]
         ))
+    }
+
+    /// Low Blood Oxygen, in percent like its limit: readings under it no more
+    /// than 30 minutes apart make one episode, the lowest its extreme. A
+    /// workout sets aside only High Heart Rate's readings.
+    func testLowBloodOxygenIsChecked() {
+        let readings = [reading(at(2, 10), 95), reading(at(3), 88), reading(at(3, 20), 87), reading(at(5), 96)]
+
+        XCTAssertEqual(
+            checks([.lowBloodOxygen: .success(readings)], workouts: .success([workout(from: at(2, 50), to: at(3, 30))])),
+            [check(lowBloodOxygen, threshold: 90, episode: episode(at(3), at(3, 20), extreme: 87))]
+        )
+        XCTAssertEqual(
+            checks([.lowBloodOxygen: .success([reading(at(3), 90), reading(at(4), 97)])]),
+            [check(lowBloodOxygen, threshold: 90, episode: nil)],
+            "a reading at the limit itself isn't under it"
+        )
     }
 
     /// High Skin Temperature, in °C like its limit. A workout sets aside only
@@ -316,12 +343,14 @@ final class WatchWarningChecksTests: XCTestCase {
         delta.workouts = .success([])
         delta.warningReadings = [
             .highWristTemperature: .success([reading(at(4), 38.4)]),
+            .lowBloodOxygen: .success([reading(at(2), 89)]),
             .highHeartRate: .success([]),
             .lowHeartRate: .success([reading(at(3), 38)])
         ]
         XCTAssertEqual(try assembled(delta, settings: settings(defaultThresholds)).warningChecks, [
             check(lowHeartRate, threshold: 40, episode: episode(at(3), at(3), extreme: 38)),
             check(highHeartRate, threshold: 120, episode: nil),
+            check(lowBloodOxygen, threshold: 90, episode: episode(at(2), at(2), extreme: 89)),
             check(highSkinTemperature, threshold: 38, episode: episode(at(4), at(4), extreme: 38.4))
         ])
         XCTAssertNil(try assembled(delta, settings: nil).warningChecks, "an older iPhone sent no settings")

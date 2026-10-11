@@ -303,9 +303,11 @@ final class BodyCompanionPublisherTests: XCTestCase {
         from: DateComponents(year: 2026, month: 6, day: 20, hour: 10)
     )!
 
-    /// Both watch cards that can carry a warning: Heart Rate and Skin Temp.
+    /// Every watch card that can carry a warning: Heart Rate, Blood Oxygen
+    /// and Skin Temp.
     nonisolated private static let warningCardKinds: Set<String> = [
         WatchMetricKindKey.heartRate,
+        WatchMetricKindKey.oxygenSaturation,
         WatchMetricKindKey.wristTemperature
     ]
 
@@ -339,7 +341,7 @@ final class BodyCompanionPublisherTests: XCTestCase {
             warningEvent(.highWristTemperature, hour: 6, threshold: 37.2),
             warningEvent(.highRespiratoryRate, hour: 5),
             warningEvent(.highHeartRate, hour: 8, minute: 5, threshold: 120),
-            warningEvent(.lowBloodOxygen, hour: 4),
+            warningEvent(.lowBloodOxygen, hour: 4, threshold: 90),
             warningEvent(.lowHeartRate, hour: 3, minute: 10, threshold: 40)
         ]
         return summary
@@ -362,28 +364,30 @@ final class BodyCompanionPublisherTests: XCTestCase {
         )
     }
 
-    /// Today's Low and High Heart Rate and High Skin Temperature ship in kind
-    /// order with the phone's fold key, their own threshold and start; Blood
-    /// Oxygen and Respiratory Rate have no watch card, so they never do.
+    /// Today's Low and High Heart Rate, Low Blood Oxygen and High Skin
+    /// Temperature ship in kind order with the phone's fold key, their own
+    /// threshold and start; Respiratory Rate has no watch card, so it never
+    /// does.
     func testWatchWarningsShipTodaysCardedKindsInKindOrder() throws {
         let warnings = try XCTUnwrap(Self.watchWarnings())
 
-        XCTAssertEqual(warnings.map(\.kind), ["lowHeartRate", "highHeartRate", "highWristTemperature"])
+        XCTAssertEqual(warnings.map(\.kind), ["lowHeartRate", "highHeartRate", "lowBloodOxygen", "highWristTemperature"])
         XCTAssertEqual(
             warnings.map(\.foldKey),
-            ["lowHeartRate@2026-06-20", "highHeartRate@2026-06-20", "highWristTemperature@2026-06-20"]
+            ["lowHeartRate@2026-06-20", "highHeartRate@2026-06-20", "lowBloodOxygen@2026-06-20", "highWristTemperature@2026-06-20"]
         )
-        XCTAssertEqual(warnings.map(\.threshold), [40, 120, 37.2])
+        XCTAssertEqual(warnings.map(\.threshold), [40, 120, 90, 37.2])
         XCTAssertEqual(
             warnings.map(\.startDate),
             [
                 Self.warningEvent(.lowHeartRate, hour: 3, minute: 10).startDate,
                 Self.warningEvent(.highHeartRate, hour: 8, minute: 5).startDate,
+                Self.warningEvent(.lowBloodOxygen, hour: 4).startDate,
                 Self.warningEvent(.highWristTemperature, hour: 6).startDate
             ]
         )
-        XCTAssertEqual(warnings.map(\.isFolded), [false, false, false])
-        XCTAssertEqual(warnings.map(\.foldChangedAt), [nil, nil, nil])
+        XCTAssertEqual(warnings.map(\.isFolded), [false, false, false, false])
+        XCTAssertEqual(warnings.map(\.foldChangedAt), [nil, nil, nil, nil])
         // The key is the phone's one fold key builder, verbatim.
         let summary = Self.summaryWithEveryWarningToday()
         XCTAssertEqual(
@@ -413,7 +417,7 @@ final class BodyCompanionPublisherTests: XCTestCase {
         let selection = BodyMetricWarningSelection(enabledKinds: [.highHeartRate, .lowBloodOxygen])
         let warnings = try XCTUnwrap(Self.watchWarnings(selectionRaw: selection.rawValue))
 
-        XCTAssertEqual(warnings.map(\.kind), ["highHeartRate"])
+        XCTAssertEqual(warnings.map(\.kind), ["highHeartRate", "lowBloodOxygen"])
         XCTAssertNil(Self.watchWarnings(selectionRaw: BodyMetricWarningSelection(enabledKinds: []).rawValue))
     }
 
@@ -425,6 +429,9 @@ final class BodyCompanionPublisherTests: XCTestCase {
 
         let skinOnly = try XCTUnwrap(Self.watchWarnings(cardKinds: [WatchMetricKindKey.wristTemperature, WatchMetricKindKey.stress]))
         XCTAssertEqual(skinOnly.map(\.kind), ["highWristTemperature"])
+
+        let oxygenOnly = try XCTUnwrap(Self.watchWarnings(cardKinds: [WatchMetricKindKey.oxygenSaturation]))
+        XCTAssertEqual(oxygenOnly.map(\.kind), ["lowBloodOxygen"])
 
         XCTAssertNil(Self.watchWarnings(cardKinds: [WatchMetricKindKey.stress, WatchMetricKindKey.sleep]))
     }
@@ -444,8 +451,8 @@ final class BodyCompanionPublisherTests: XCTestCase {
             ]
         ))
 
-        XCTAssertEqual(warnings.map(\.isFolded), [false, true, false])
-        XCTAssertEqual(warnings.map(\.foldChangedAt), [nil, stamp, unfoldStamp])
+        XCTAssertEqual(warnings.map(\.isFolded), [false, true, false, false])
+        XCTAssertEqual(warnings.map(\.foldChangedAt), [nil, stamp, nil, unfoldStamp])
     }
 
     func testWatchWarningsAreNilWhenNothingQualifies() {
@@ -453,7 +460,7 @@ final class BodyCompanionPublisherTests: XCTestCase {
 
         var summary = HealthSummarySnapshot.empty
         summary.metricWarnings = [
-            Self.warningEvent(.lowBloodOxygen, hour: 4),
+            Self.warningEvent(.lowBloodOxygen, hour: 4, dayOffset: -1),
             Self.warningEvent(.highRespiratoryRate, hour: 5),
             Self.warningEvent(.lowHeartRate, hour: 3, dayOffset: -1)
         ]
@@ -531,7 +538,7 @@ final class BodyCompanionPublisherTests: XCTestCase {
     func testWatchWarningSettingsResolveTheHighHeartRateDefault() {
         XCTAssertEqual(
             Self.warningSettings(maxHeartRate: 190).thresholds,
-            ["lowHeartRate": 40, "highHeartRate": 133, "highWristTemperature": 38]
+            ["lowHeartRate": 40, "highHeartRate": 133, "lowBloodOxygen": 90, "highWristTemperature": 38]
         )
         XCTAssertEqual(Self.warningSettings(maxHeartRate: .some(nil)).thresholds["highHeartRate"], 120)
     }
@@ -547,22 +554,24 @@ final class BodyCompanionPublisherTests: XCTestCase {
         XCTAssertEqual(Self.warningSettings(thresholdsRaw: override, maxHeartRate: 190).thresholds["highHeartRate"], 150)
     }
 
-    /// Low Heart Rate and High Skin Temperature never wait for the birth date:
-    /// their defaults (40 bpm, 38 °C) or the user's overrides ship whatever
-    /// the max heart rate's state. A kind without a watch card never ships.
+    /// Low Heart Rate, Low Blood Oxygen and High Skin Temperature never wait
+    /// for the birth date: their defaults (40 bpm, 90 %, 38 °C) or the user's
+    /// overrides ship whatever the max heart rate's state. A kind without a
+    /// watch card never ships.
     func testWatchWarningSettingsAlwaysCarryLowHeartRateAndSkinTemperature() {
         for maxHeartRate: Double?? in [.none, .some(nil), 190] {
             let thresholds = Self.warningSettings(maxHeartRate: maxHeartRate).thresholds
             XCTAssertEqual(thresholds["lowHeartRate"], 40)
+            XCTAssertEqual(thresholds["lowBloodOxygen"], 90)
             XCTAssertEqual(thresholds["highWristTemperature"], 38)
         }
 
         let overrides = BodyMetricWarningThresholds(
-            overrides: [.lowHeartRate: 45, .highWristTemperature: 37.5, .lowBloodOxygen: 92]
+            overrides: [.lowHeartRate: 45, .highWristTemperature: 37.5, .lowBloodOxygen: 92, .highRespiratoryRate: 24]
         ).rawValue
         XCTAssertEqual(
             Self.warningSettings(thresholdsRaw: overrides, maxHeartRate: .none).thresholds,
-            ["lowHeartRate": 45, "highWristTemperature": 37.5]
+            ["lowHeartRate": 45, "lowBloodOxygen": 92, "highWristTemperature": 37.5]
         )
     }
 
@@ -570,11 +579,14 @@ final class BodyCompanionPublisherTests: XCTestCase {
     /// them, and only those with a watch card. The limits don't follow the
     /// selection.
     func testWatchWarningSettingsListTheEnabledCardKindsInKindOrder() {
-        let reordered = Self.warningSettings(selectionRaw: "highWristTemperature,lowBloodOxygen,lowHeartRate")
-        XCTAssertEqual(reordered.enabledKinds, ["lowHeartRate", "highWristTemperature"])
-        XCTAssertEqual(reordered.thresholds.count, 3)
+        let reordered = Self.warningSettings(selectionRaw: "highWristTemperature,highRespiratoryRate,lowBloodOxygen,lowHeartRate")
+        XCTAssertEqual(reordered.enabledKinds, ["lowHeartRate", "lowBloodOxygen", "highWristTemperature"])
+        XCTAssertEqual(reordered.thresholds.count, 4)
 
-        XCTAssertEqual(Self.warningSettings().enabledKinds, ["lowHeartRate", "highHeartRate", "highWristTemperature"])
+        XCTAssertEqual(
+            Self.warningSettings().enabledKinds,
+            ["lowHeartRate", "highHeartRate", "lowBloodOxygen", "highWristTemperature"]
+        )
         XCTAssertEqual(Self.warningSettings(selectionRaw: "none").enabledKinds, [])
     }
 
@@ -584,10 +596,10 @@ final class BodyCompanionPublisherTests: XCTestCase {
         XCTAssertTrue(Self.warningSettings(notificationsEnabled: true).notifies)
         XCTAssertFalse(Self.warningSettings(notificationsEnabled: false).notifies)
 
-        let ledgerRaw = #"{"highHeartRate":"2026-06-20","lowBloodOxygen":"2026-06-20","lowHeartRate":"2026-06-19"}"#
+        let ledgerRaw = #"{"highHeartRate":"2026-06-20","highRespiratoryRate":"2026-06-20","lowBloodOxygen":"2026-06-20","lowHeartRate":"2026-06-19"}"#
         XCTAssertEqual(
             Self.warningSettings(ledgerRaw: ledgerRaw).notifiedDays,
-            ["highHeartRate": "2026-06-20", "lowHeartRate": "2026-06-19"]
+            ["highHeartRate": "2026-06-20", "lowBloodOxygen": "2026-06-20", "lowHeartRate": "2026-06-19"]
         )
         XCTAssertEqual(Self.warningSettings(ledgerRaw: "").notifiedDays, [:])
     }
@@ -597,8 +609,8 @@ final class BodyCompanionPublisherTests: XCTestCase {
     /// warnings under its own permissions.
     func testWarningSettingsRideTheWatchSnapshot() async {
         let expected = WatchWarningSettings(
-            thresholds: ["lowHeartRate": 45, "highHeartRate": 133, "highWristTemperature": 38],
-            enabledKinds: ["lowHeartRate", "highHeartRate", "highWristTemperature"],
+            thresholds: ["lowHeartRate": 45, "highHeartRate": 133, "lowBloodOxygen": 90, "highWristTemperature": 38],
+            enabledKinds: ["lowHeartRate", "highHeartRate", "lowBloodOxygen", "highWristTemperature"],
             notifies: true,
             notifiedDays: ["highHeartRate": "2026-06-20"]
         )

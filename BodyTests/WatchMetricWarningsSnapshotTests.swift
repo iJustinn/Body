@@ -179,6 +179,7 @@ final class WatchMetricWarningsSnapshotTests: XCTestCase {
     func testCardedWarningKindsMatchTheirWatchCardKeys() {
         XCTAssertEqual(MetricWarningKind.lowHeartRate.metric.rawValue, WatchMetricKindKey.heartRate)
         XCTAssertEqual(MetricWarningKind.highHeartRate.metric.rawValue, WatchMetricKindKey.heartRate)
+        XCTAssertEqual(MetricWarningKind.lowBloodOxygen.metric.rawValue, WatchMetricKindKey.oxygenSaturation)
         XCTAssertEqual(MetricWarningKind.highWristTemperature.metric.rawValue, WatchMetricKindKey.wristTemperature)
     }
 }

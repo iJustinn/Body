@@ -457,10 +457,10 @@ final class BodyCompanionPublisher {
     /// * `summary` carries an episode for it that started on `now`'s day (the
     ///   watch drops a warning after midnight anyway, so an older one would
     ///   only cost bytes);
-    /// * its metric has a card in the built snapshot (`cardKinds`). Blood
-    ///   Oxygen and Respiratory Rate have no watch card, so they never ship,
-    ///   and a card the builder left out for a permission that's off takes
-    ///   its warnings with it.
+    /// * its metric has a card in the built snapshot (`cardKinds`).
+    ///   Respiratory Rate has no watch card, so it never ships, and a card
+    ///   the builder left out for a permission that's off (Heart, Blood
+    ///   Oxygen, Skin Temperature) takes its warnings with it.
     ///
     /// `summary` is `input.shared.summary`, the same permission filtered
     /// summary Home reads, so the watch shows exactly the warnings Home
@@ -503,8 +503,8 @@ final class BodyCompanionPublisher {
 
     /// The phone's warning settings the watch checks and notifies its own
     /// warnings under, for the kinds with a watch card (Low and High Heart
-    /// Rate, High Skin Temperature), walked in `MetricWarningKind.allCases`
-    /// order:
+    /// Rate, Low Blood Oxygen, High Skin Temperature), walked in
+    /// `MetricWarningKind.allCases` order:
     /// * `thresholds`: each kind's effective limit, the user's override or the
     ///   default. High Heart Rate's default follows the birth date, which only
     ///   the engine's Heart Rate read resolves, so while `maxHeartRate` is nil
@@ -523,7 +523,7 @@ final class BodyCompanionPublisher {
         notificationsEnabled: Bool,
         ledgerRaw: String
     ) -> WatchWarningSettings {
-        let kinds = MetricWarningKind.allCases.filter { [.heartRate, .wristTemperature].contains($0.metric) }
+        let kinds = MetricWarningKind.allCases.filter { [.heartRate, .oxygenSaturation, .wristTemperature].contains($0.metric) }
         let selection = BodyMetricWarningSelection.storedValue(from: selectionRaw)
         let overrides = BodyMetricWarningThresholds.storedValue(from: thresholdsRaw)
         let ledger = MetricWarningNotificationLedger.storedValue(from: ledgerRaw)

@@ -34,7 +34,8 @@ struct WatchMetricWarningCard: View {
 
     let row: WatchMetricWarningRow
     /// Whether the Skin Temp metric reads in Fahrenheit, so the threshold in
-    /// the sentence matches the page's value. Ignored by the heart warnings.
+    /// the sentence matches the page's value. Ignored by the heart and blood
+    /// oxygen warnings.
     let usesFahrenheit: Bool
     /// Folds or unfolds `row.warning` (the pager hands it to the fold store).
     let onToggleFold: (WatchMetricWarning) -> Void
