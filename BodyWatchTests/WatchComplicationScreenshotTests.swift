@@ -7,9 +7,11 @@
 //  `36-complication-stress-rectangular`, from the gallery placeholder (a
 //  Relaxed 42), plus the two second circular complications,
 //  `40-complication-readiness-ring-circular` (the placeholder's Moderate 78)
-//  and `41-complication-stress-bands-circular`. It touches the worktree, so
-//  it skips unless `BODY_WATCH_WIDGET_SCREENSHOTS=1` is in the environment.
-//  Not a snapshot test.
+//  and `41-complication-stress-bands-circular`, and the Blood Oxygen ring's
+//  `57-complication-blood-oxygen-circular` and
+//  `58-complication-blood-oxygen-rectangular` (the placeholder's 97 %). It
+//  touches the worktree, so it skips unless `BODY_WATCH_WIDGET_SCREENSHOTS=1`
+//  is in the environment. Not a snapshot test.
 //
 //  The widget extension isn't compiled into any test target, so this draws
 //  the complications' layouts itself through the shared `WatchMetricRingView`
@@ -138,6 +140,103 @@ final class WatchComplicationScreenshotTests: XCTestCase {
             emptyText: stressText
         )
         try write(circular(stressBands), name: "41-complication-stress-bands-circular", to: directory)
+    }
+
+    /// Run it with:
+    /// `TEST_RUNNER_BODY_WATCH_WIDGET_SCREENSHOTS=1 SCHEME=BodyWatchTests PLANS=BodyWatch DEST=… ./test.sh -only-testing:BodyWatchTests/WatchComplicationScreenshotTests`
+    func testWritesBloodOxygenComplicationScreenshots() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["BODY_WATCH_WIDGET_SCREENSHOTS"] == "1",
+            "Set BODY_WATCH_WIDGET_SCREENSHOTS=1 to regenerate the Blood Oxygen complication screenshots"
+        )
+        try assertTheMetricMirrorMatchesTheWidgetSource()
+
+        let directory = root.appendingPathComponent("watch-widgets-screenshots", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        // `WatchComplicationView` for Blood Oxygen in the gallery placeholder:
+        // the value in the ring (no score, so the card's value), filled to
+        // the card's fill, the symbol in the gap of the circle only.
+        let metric = try XCTUnwrap(WatchMetricsSnapshot.placeholder.metric(forKind: WatchMetricKindKey.oxygenSaturation))
+        XCTAssertEqual("\(metric.displayValue) \(metric.unit)", "97 %")
+        func ring(showsGlyph: Bool, fontScale: (base: Double, compact: Double)) -> WatchMetricRingView {
+            WatchMetricRingView(
+                fillFraction: metric.fillFraction,
+                value: metric.displayValue,
+                unit: "",
+                symbolName: WatchMetricKindKey.symbolName(forKind: metric.kind),
+                tint: metric.resolvedTint,
+                showsUnit: false,
+                showsGlyph: showsGlyph,
+                valueFontScale: metric.displayValue.filter(\.isNumber).count >= 3 ? fontScale.compact : fontScale.base
+            )
+        }
+        try write(
+            circular(ring(showsGlyph: true, fontScale: Self.circularFontScale)),
+            name: "57-complication-blood-oxygen-circular",
+            to: directory
+        )
+
+        // The row: the ring, then the value and unit over the title.
+        let row = HStack(spacing: 8) {
+            ring(showsGlyph: false, fontScale: Self.rectangularFontScale)
+                .frame(width: 46, height: 46)
+                .offset(y: 2)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(metric.displayValue)
+                        .font(.headline)
+                    Text(metric.unit)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .lineLimit(1)
+                Text(metric.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            Spacer(minLength: 0)
+        }
+        let rectangular = row
+            .padding(.horizontal, Self.rectangularInset)
+            .frame(width: Self.rectangularSlot.width, height: Self.rectangularSlot.height)
+            // The slot's outline, as the folder's other rectangular images
+            // show it. The complication draws no border of its own.
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(white: 0.27), lineWidth: 0.7)
+            )
+            .frame(width: Self.rectangularCanvas.width, height: Self.rectangularCanvas.height)
+            .background(Color.black)
+        try write(rectangular, name: "58-complication-blood-oxygen-rectangular", to: directory)
+    }
+
+    /// The values the Blood Oxygen renders repeat, as `WatchComplicationView`
+    /// and the bundle spell them.
+    private func assertTheMetricMirrorMatchesTheWidgetSource() throws {
+        let bundle = try String(contentsOf: root.appendingPathComponent("BodyWatchWidgetExtension/BodyWatchComplicationsBundle.swift"), encoding: .utf8)
+        let shared = try String(contentsOf: root.appendingPathComponent("BodyWatchWidgetExtension/WatchComplicationView.swift"), encoding: .utf8)
+
+        XCTAssertTrue(bundle.contains("widgetKind: \"BodyWatchBloodOxygen\", metricKind: WatchMetricKindKey.oxygenSaturation,"))
+        for snippet in [
+            "if let score = metric.score { return \"\\(score)\" }\n        return metric.displayValue",
+            "fillFraction: metric.fillFraction,\n                    value: ringText(metric),",
+            "symbolName: WatchMetricKindKey.symbolName(forKind: metric.kind),\n                    tint: metric.resolvedTint,\n                    showsUnit: false,\n                    showsGlyph: true,",
+            "symbolName: WatchMetricKindKey.symbolName(forKind: metric.kind),\n                    tint: metric.resolvedTint,\n                    showsUnit: false,\n                    showsGlyph: false,",
+            "valueFontScale: complicationRingFontScale(for: ringText(metric), base: ComplicationRingFontScale.circular.base, compact: ComplicationRingFontScale.circular.compact)\n                )\n                .padding(1)",
+            "valueFontScale: complicationRingFontScale(for: ringText(metric), base: ComplicationRingFontScale.rectangular.base, compact: ComplicationRingFontScale.rectangular.compact)\n                )\n                .frame(width: 46, height: 46)",
+            ".offset(y: 2)",
+            "HStack(spacing: 8)",
+            "VStack(alignment: .leading, spacing: 1)",
+            "HStack(alignment: .firstTextBaseline, spacing: 3) {\n                            Text(metric.displayValue)\n                                .font(.headline)",
+            "Text(metric.unit)\n                                    .font(.caption2)\n                                    .foregroundStyle(.secondary)",
+            "Text(metric.title)\n                        .font(.headline)\n                        .lineLimit(1)\n                        .minimumScaleFactor(0.7)",
+            "static let circular = (base: 0.35, compact: 0.255)",
+            "static let rectangular = (base: 0.40, compact: 0.34)"
+        ] {
+            XCTAssertTrue(shared.contains(snippet), snippet)
+        }
     }
 
     /// A circular complication on the folder's circular canvas.

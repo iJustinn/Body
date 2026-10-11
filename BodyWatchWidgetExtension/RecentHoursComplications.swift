@@ -3,24 +3,28 @@
 //  BodyWatchWidgetExtension
 //
 //  The intraday chart complications (accessoryRectangular only): Stress over
-//  the last 12 hours, and Heart Rate and HRV over the last 8, the charts their
-//  detail pages draw, compacted by `WatchRecentHoursChartView` to fill the
-//  slot with no header. The system's content margins are off, and each edge
-//  keeps at most `edgeInset` of them (the bottom `bottomInset`), so the chart
-//  reaches near the slot's edge. Workouts on the Stress chart take the
-//  phone's workout colors (`workoutColorOverrides`). VoiceOver reads the
-//  metric's name and its latest reading: Stress draws the snapshot's
-//  `stressTimeline`, which the phone pushes or the watch recomputes, and
-//  speaks the Stress complication's own reading
-//  (`latestStressReading(in:)`) with its band. Heart Rate and HRV draw the 30
-//  minute slots the watch compute keeps in `heartCharts`, and speak the
-//  card's value and unit. Each chart ends at its entry's date, and the
-//  provider adds an entry at every local half hour across the chart's window
-//  (`slidingWindow`), so the window slides without a reload. A window with
-//  nothing in it shows "Nothing to chart yet", and the slot shows "Open Body
-//  on iPhone" while the phone shares no such card. Free (not Pro-gated), like
-//  the bar complications, and a tap opens the metric's page. Kept apart from
-//  `StressComplication.swift`, whose source guards are scoped to that file.
+//  the last 12 hours, and Heart Rate, HRV and Blood Oxygen over the last 8,
+//  the charts their detail pages draw, compacted by
+//  `WatchRecentHoursChartView` to fill the slot with no header. The system's
+//  content margins are off, and each edge keeps at most `edgeInset` of them
+//  (the bottom `bottomInset`), so the chart reaches near the slot's edge.
+//  Workouts on the Stress chart take the phone's workout colors
+//  (`workoutColorOverrides`). VoiceOver reads the metric's name and its
+//  latest reading: Stress draws the snapshot's `stressTimeline`, which the
+//  phone pushes or the watch recomputes, and speaks the Stress complication's
+//  own reading (`latestStressReading(in:)`) with its band. Heart Rate, HRV
+//  and Blood Oxygen draw the 30 minute slots the watch compute keeps in
+//  `heartCharts` (Blood Oxygen's combined with the ones the iPhone sends,
+//  `WatchMetricKindKey.combinedChartKinds`), and speak the card's value and
+//  unit; Blood Oxygen's value axis never labels past its 100% ceiling
+//  (`WatchMetricKindKey.valueCeiling`). Each chart ends at its entry's date,
+//  and the provider adds an entry at every local half hour across the chart's
+//  window (`slidingWindow`), so the window slides without a reload. A window
+//  with nothing in it shows "Nothing to chart yet", and the slot shows "Open
+//  Body on iPhone" while the phone shares no such card. Free (not Pro-gated),
+//  like the bar complications, and a tap opens the metric's page. Kept apart
+//  from `StressComplication.swift`, whose source guards are scoped to that
+//  file.
 //
 
 import SwiftUI
@@ -70,7 +74,10 @@ struct HRVChartComplication: Widget {
 
 /// One intraday chart under its header, or the empty state while the phone
 /// shares no such card (Stress, Heart Rate and HRV all come with the Heart
-/// permission).
+/// permission, Blood Oxygen with the Blood Oxygen one). Blood Oxygen's slots
+/// are built by the watch compute and, for a watch whose blood oxygen is
+/// calculated on the iPhone, sent by the iPhone
+/// (`WatchMetricKindKey.combinedChartKinds`).
 private struct RecentHoursComplicationView: View {
     let metricKind: String
     let entry: WatchMetricEntry
@@ -106,6 +113,8 @@ private struct RecentHoursComplicationView: View {
                     content: content,
                     now: now,
                     emptyText: String(localized: "Nothing to chart yet"),
+                    // Blood Oxygen's 100%: no axis label past it.
+                    valueCeiling: WatchMetricKindKey.valueCeiling(forKind: metricKind),
                     // The snapshot's overrides are already resolved for Body
                     // Pro, as the Stress page reads them.
                     palette: BodyWorkoutColorPalette(rawOverrides: entry.snapshot.workoutColorOverrides ?? "", isProUnlocked: true)
@@ -123,9 +132,9 @@ private struct RecentHoursComplicationView: View {
     /// The reading VoiceOver speaks. Stress: the Stress complication's
     /// reading (the latest scored window, until it is 12 hours old) with the
     /// band stamped on the timeline; a timeline from a build without the band
-    /// gives the score alone, as the Stress row does. Heart Rate and HRV: the
-    /// card's value and unit, which can differ from the chart's last 30
-    /// minute average, as on the page.
+    /// gives the score alone, as the Stress row does. Heart Rate, HRV and
+    /// Blood Oxygen: the card's value and unit ("97 %"), which can differ
+    /// from the chart's last 30 minute average, as on the page.
     private func reading(for metric: WatchMetric) -> String {
         if isStress {
             guard let reading = latestStressReading(in: entry) else { return "--" }
@@ -158,6 +167,20 @@ private struct RecentHoursComplicationView: View {
     }
 }
 
+struct BloodOxygenChartComplication: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "BodyWatchBloodOxygenChart", provider: WatchMetricProvider(slidingWindow: WatchIntradayWindow.length)) { entry in
+            RecentHoursComplicationView(metricKind: WatchMetricKindKey.oxygenSaturation, entry: entry)
+                // Tapping the complication opens the Blood Oxygen detail page.
+                .widgetURL(WatchMetricDeepLink.url(forKind: WatchMetricKindKey.oxygenSaturation))
+        }
+        .configurationDisplayName(String(localized: "Blood Oxygen"))
+        .description(String(localized: "Your blood oxygen over the last 8 hours."))
+        .supportedFamilies([.accessoryRectangular])
+        .contentMarginsDisabled()
+    }
+}
+
 #Preview("Stress", as: .accessoryRectangular) {
     StressChartComplication()
 } timeline: {
@@ -174,6 +197,13 @@ private struct RecentHoursComplicationView: View {
 
 #Preview("HRV", as: .accessoryRectangular) {
     HRVChartComplication()
+} timeline: {
+    WatchMetricEntry(date: .now, snapshot: .placeholder)
+    WatchMetricEntry(date: .now, snapshot: .empty)
+}
+
+#Preview("Blood Oxygen", as: .accessoryRectangular) {
+    BloodOxygenChartComplication()
 } timeline: {
     WatchMetricEntry(date: .now, snapshot: .placeholder)
     WatchMetricEntry(date: .now, snapshot: .empty)

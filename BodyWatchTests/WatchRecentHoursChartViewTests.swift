@@ -3,12 +3,13 @@
 //  BodyWatchTests
 //
 //  Locks the intraday chart complications' drawing
-//  (`WatchRecentHoursChartView`): the Heart Rate and HRV plot spans the
-//  pages' 8 hour window and the Stress plot its 12, a chart read earlier
-//  keeps only the slots still inside the window ending at the entry's date
+//  (`WatchRecentHoursChartView`): the Heart Rate, HRV and Blood Oxygen plot
+//  spans the pages' 8 hour window and the Stress plot its 12, a chart read
+//  earlier keeps only the slots still inside the window ending at the entry's date
 //  (the current slot included), so a spike that has slid out no longer
 //  stretches the value range, which runs exactly from the lowest to the
-//  highest reading (unpadded, unlike the pages'), the caption takes the
+//  highest reading (unpadded, unlike the pages'; a lone value takes the
+//  pages' range, capped at Blood Oxygen's 100% ceiling), the caption takes the
 //  plot's place only when nothing at all falls inside the window, the range
 //  capsules keep a usable width, the Stress axis labels 0, 50 and 100, the
 //  icon row is reserved only while a sleep, nap or workout band is in the
@@ -99,6 +100,34 @@ final class WatchRecentHoursChartViewTests: XCTestCase {
 
         let flat = [bucket(9, 0, min: 62, max: 62, average: 62)]
         XCTAssertEqual(WatchRecentHoursChartView.valueDomain(for: flat, in: heartDomain), WatchIntradayChartGeometry.rangeDomain(for: flat))
+    }
+
+    /// Blood Oxygen's 100% ceiling caps a window of one repeated value as the
+    /// pages' range does, so a lone 100% labels nothing past 100, while a
+    /// spread range stays exactly the readings and Heart Rate and HRV (no
+    /// ceiling) keep their padded range.
+    func testTheCeilingCapsALoneValueAndLeavesTheRestAlone() throws {
+        let ceiling = try XCTUnwrap(WatchMetricKindKey.valueCeiling(forKind: WatchMetricKindKey.oxygenSaturation))
+        let full = [bucket(9, 0, min: 100, max: 100, average: 100)]
+        let capped = WatchRecentHoursChartView.valueDomain(for: full, in: heartDomain, ceiling: ceiling)
+        XCTAssertEqual(capped, WatchIntradayChartGeometry.rangeDomain(for: full, ceiling: ceiling))
+        XCTAssertEqual(capped.upperBound, ceiling + WatchIntradayChartGeometry.ceilingHeadroom)
+        let ticks = WatchIntradayChartGeometry.valueTicks(in: capped)
+        XCTAssertFalse(ticks.isEmpty)
+        XCTAssertTrue(ticks.allSatisfy { $0 <= ceiling }, "\(ticks)")
+        // Uncapped, the same lone 100 would reach 102.
+        XCTAssertGreaterThan(WatchRecentHoursChartView.valueDomain(for: full, in: heartDomain).upperBound, ceiling + 1)
+
+        let spread = [bucket(9, 0, min: 94, max: 99, average: 97), bucket(12, 0, min: 96, max: 100, average: 98)]
+        XCTAssertEqual(WatchRecentHoursChartView.valueDomain(for: spread, in: heartDomain, ceiling: ceiling), 94...100)
+
+        XCTAssertNil(WatchMetricKindKey.valueCeiling(forKind: WatchMetricKindKey.heartRate))
+        XCTAssertNil(WatchMetricKindKey.valueCeiling(forKind: WatchMetricKindKey.heartRateVariability))
+        let flat = [bucket(9, 0, min: 62, max: 62, average: 62)]
+        XCTAssertEqual(
+            WatchRecentHoursChartView.valueDomain(for: flat, in: heartDomain, ceiling: WatchMetricKindKey.valueCeiling(forKind: WatchMetricKindKey.heartRate)),
+            WatchIntradayChartGeometry.rangeDomain(for: flat)
+        )
     }
 
     // MARK: - Empty plot

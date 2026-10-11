@@ -8,7 +8,8 @@
 //  and intraday chart complications. The picker lists Sleep Stages first,
 //  then the week bar charts (Weekly Workout Time, then this week's daily
 //  Steps, Active Energy and Resting Energy), then the intraday charts
-//  (Stress, Heart Rate, HRV), then the rest in the watch's card order. Steps,
+//  (Stress, Heart Rate, HRV, Blood Oxygen), then the rest in the watch's card
+//  order (Blood Oxygen's ring right before Skin Temp, as its card is). Steps,
 //  Active Energy and Resting Energy are also rings in circular slots, so they
 //  lead that list too, and gauges in corner slots like the rest. Readiness
 //  draws the home hero's segmented bands instead of the single ring
@@ -37,6 +38,7 @@ struct BodyWatchComplicationsBundle: WidgetBundle {
         StressChartComplication()
         HeartRateChartComplication()
         HRVChartComplication()
+        BloodOxygenChartComplication()
         ReadinessComplication()
         ReadinessRingComplication()
         SleepComplication()
@@ -46,6 +48,7 @@ struct BodyWatchComplicationsBundle: WidgetBundle {
         HeartRateComplication()
         HRVComplication()
         RestingHeartRateComplication()
+        BloodOxygenComplication()
         SkinTemperatureComplication()
     }
 }
@@ -136,6 +139,15 @@ struct RestingHeartRateComplication: Widget {
         metricComplication(
             widgetKind: "BodyWatchRestingHeartRate", metricKind: WatchMetricKindKey.restingHeartRate,
             displayName: String(localized: "Resting HR"), description: String(localized: "Your resting heart rate ring.")
+        )
+    }
+}
+
+struct BloodOxygenComplication: Widget {
+    var body: some WidgetConfiguration {
+        metricComplication(
+            widgetKind: "BodyWatchBloodOxygen", metricKind: WatchMetricKindKey.oxygenSaturation,
+            displayName: String(localized: "Blood Oxygen"), description: String(localized: "Your blood oxygen ring.")
         )
     }
 }

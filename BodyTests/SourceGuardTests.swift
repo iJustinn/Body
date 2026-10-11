@@ -5813,38 +5813,42 @@ final class SourceGuardTests: XCTestCase {
             .joined(separator: "\n")
 
         // Rectangular only: a chart has nowhere to lay out in a circular or
-        // corner slot. The file holds three widgets (Stress, Heart Rate, HRV),
-        // each pinned once.
-        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryRectangular])"), 3)
+        // corner slot. The file holds four widgets (Stress, Heart Rate, HRV,
+        // Blood Oxygen), each pinned once.
+        XCTAssertEqual(source.occurrenceCount(of: ".supportedFamilies([.accessoryRectangular])"), 4)
 
         // A face stores the widget kind, so renaming one silently drops the
         // complication from every face it is on. A tap opens the chart's page.
-        for kind in ["\"BodyWatchStressChart\"", "\"BodyWatchHeartRateChart\"", "\"BodyWatchHRVChart\""] {
+        for kind in ["\"BodyWatchStressChart\"", "\"BodyWatchHeartRateChart\"", "\"BodyWatchHRVChart\"", "\"BodyWatchBloodOxygenChart\""] {
             XCTAssertTrue(source.contains("kind: \(kind)"), kind)
         }
-        for metricKind in ["stress", "heartRate", "heartRateVariability"] {
+        for metricKind in ["stress", "heartRate", "heartRateVariability", "oxygenSaturation"] {
             XCTAssertTrue(source.contains(".widgetURL(WatchMetricDeepLink.url(forKind: WatchMetricKindKey.\(metricKind)))"), metricKind)
         }
 
         // Each chart ends at its entry's date, so the provider steps the
         // timeline through every half hour of that chart's window: Stress's
-        // 12 hours, the heart charts' 8.
+        // 12 hours, the Heart Rate, HRV and Blood Oxygen charts' 8.
         XCTAssertEqual(source.occurrenceCount(of: "WatchMetricProvider(slidingWindow: WatchStressChartGeometry.windowLength)"), 1)
-        XCTAssertEqual(source.occurrenceCount(of: "WatchMetricProvider(slidingWindow: WatchIntradayWindow.length)"), 2)
+        XCTAssertEqual(source.occurrenceCount(of: "WatchMetricProvider(slidingWindow: WatchIntradayWindow.length)"), 3)
 
         // Stress speaks the Stress complication's reading, aged like the
-        // chart and named with the band stamped on the timeline. Heart Rate
-        // and HRV chart the slots the watch compute keeps. Never the card's
-        // score.
+        // chart and named with the band stamped on the timeline. Heart Rate,
+        // HRV and Blood Oxygen chart the slots kept in `heartCharts`. Never
+        // the card's score.
         XCTAssertTrue(code.contains("latestStressReading(in: entry)"))
         XCTAssertTrue(code.contains("latestBand?.label"))
         XCTAssertTrue(code.contains("heartCharts?[metricKind]"))
         XCTAssertFalse(code.contains("metric.score"))
+        // Blood Oxygen's value axis stops at its 100% ceiling: the widget
+        // hands the kind's ceiling to the chart, whose single value range
+        // caps at it as the pages' does.
+        XCTAssertTrue(code.contains("valueCeiling: WatchMetricKindKey.valueCeiling(forKind: metricKind),"))
 
         // The chart reaches near the slot's edge: the system's content
         // margins are off, and each edge keeps at most `edgeInset` of them,
         // the bottom `bottomInset`, so the hour labels sit low.
-        XCTAssertEqual(code.occurrenceCount(of: ".contentMarginsDisabled()"), 3)
+        XCTAssertEqual(code.occurrenceCount(of: ".contentMarginsDisabled()"), 4)
         XCTAssertEqual(code.occurrenceCount(of: "@Environment(\\.widgetContentMargins)"), 1)
         XCTAssertTrue(code.contains("bottom: min(margins.bottom, Self.bottomInset),"))
         XCTAssertTrue(code.contains(".padding(insets)"))
@@ -5875,6 +5879,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(chartCode.contains("Text(reading)"))
         XCTAssertTrue(chartCode.contains(".accessibilityLabel(title)"))
         XCTAssertTrue(chartCode.contains(".accessibilityValue(hasPlot ? reading : emptyText)"))
+        XCTAssertTrue(chartCode.contains("return WatchIntradayChartGeometry.rangeDomain(for: visible, ceiling: ceiling)"))
 
         // The gallery placeholder (generated at `.distantPast`) carries its
         // sample data on fixed dates, so its charts end at the data's own end.
@@ -5886,7 +5891,7 @@ final class SourceGuardTests: XCTestCase {
         // A widget type that is never registered in its bundle compiles and
         // ships, but never appears in the gallery. The picker order is pinned
         // in `testWatchComplicationPickerOrder`.
-        for widget in ["StressChartComplication()", "HeartRateChartComplication()", "HRVChartComplication()"] {
+        for widget in ["StressChartComplication()", "HeartRateChartComplication()", "HRVChartComplication()", "BloodOxygenChartComplication()"] {
             XCTAssertTrue(watchBundle.contains(widget), widget)
         }
 
@@ -5955,8 +5960,8 @@ final class SourceGuardTests: XCTestCase {
             .map { $0.trimmingCharacters(in: .whitespaces) }
 
         // One bundle order serves every family. Sleep Stages leads, then the
-        // week bar charts, then the intraday charts (Stress, Heart Rate, HRV),
-        // then the rest in the watch's card order
+        // week bar charts, then the intraday charts (Stress, Heart Rate, HRV,
+        // Blood Oxygen), then the rest in the watch's card order
         // (`WatchMetricKindKey.displayOrder`), each new circular complication
         // right after its sibling. Steps, Active Energy and Resting Energy are
         // rings in circular slots too, so they lead that list as well.
@@ -5969,6 +5974,7 @@ final class SourceGuardTests: XCTestCase {
             "StressChartComplication()",
             "HeartRateChartComplication()",
             "HRVChartComplication()",
+            "BloodOxygenChartComplication()",
             "ReadinessComplication()",
             "ReadinessRingComplication()",
             "SleepComplication()",
@@ -5978,6 +5984,7 @@ final class SourceGuardTests: XCTestCase {
             "HeartRateComplication()",
             "HRVComplication()",
             "RestingHeartRateComplication()",
+            "BloodOxygenComplication()",
             "SkinTemperatureComplication()"
         ])
     }

@@ -3,13 +3,14 @@
 //  BodyWatchShared
 //
 //  The intraday chart complications' drawing (accessoryRectangular): the
-//  Stress page's "Last 12 hours" chart or the Heart Rate and HRV pages' "Last
-//  8 hours" chart, compacted to fill the slot with no header: the metric's
-//  name and latest reading are only spoken by VoiceOver. A value axis runs
-//  down the left like the pages' (Stress 0, 50 and 100 on its band grid,
-//  Heart Rate and HRV round values over faint gridlines), small even hour
-//  labels sit along the bottom, and while a sleep, nap or workout band is in
-//  the Stress window a row above the plot carries each band's symbol. The
+//  Stress page's "Last 12 hours" chart or the Heart Rate, HRV and Blood
+//  Oxygen pages' "Last 8 hours" chart, compacted to fill the slot with no
+//  header: the metric's name and latest reading are only spoken by
+//  VoiceOver. A value axis runs down the left like the pages' (Stress 0, 50
+//  and 100 on its band grid, the others round values over faint gridlines,
+//  never past Blood Oxygen's 100%), small even hour labels sit along the
+//  bottom, and while a sleep, nap or workout band is in the Stress window a
+//  row above the plot carries each band's symbol. The
 //  window, hour labels, line breaks, value range, marks and shading spans
 //  come from the geometry the pages draw with (`WatchIntradayChartGeometry`,
 //  `WatchStressChartGeometry`), so a complication never charts differently
@@ -35,8 +36,8 @@ import WidgetKit
 struct WatchRecentHoursChartView: View {
     /// What the plot draws.
     enum Content {
-        /// Heart Rate or HRV: each 30 minute slot's range under a line through
-        /// the slot averages, in the metric's tint.
+        /// Heart Rate, HRV or Blood Oxygen: each 30 minute slot's range under
+        /// a line through the slot averages, in the metric's tint.
         case readings([WatchIntradayBucket], tint: Color)
         /// Stress: the 15 minute windows over their sleep and workout shading,
         /// or nil when the snapshot carries no timeline.
@@ -54,6 +55,9 @@ struct WatchRecentHoursChartView: View {
     let now: Date
     /// The caption in the plot's place when nothing falls inside the window.
     let emptyText: String
+    /// The most `.readings` values can reach (Blood Oxygen's 100%,
+    /// `WatchMetricKindKey.valueCeiling`), or nil: no axis label past it.
+    var valueCeiling: Double? = nil
     var calendar: Calendar = .current
     /// Workout shading and symbol colors, the phone's custom colors included.
     var palette: BodyWorkoutColorPalette = .builtIn
@@ -150,7 +154,7 @@ struct WatchRecentHoursChartView: View {
                 let plotRect = layoutPlot(in: size, labels: labels, hasIconRow: hasIconRow)
                 switch content {
                 case let .readings(buckets, _):
-                    let valueDomain = Self.valueDomain(for: buckets, in: domain)
+                    let valueDomain = Self.valueDomain(for: buckets, in: domain, ceiling: valueCeiling)
                     drawValueGrid(values, valueDomain: valueDomain, in: plotRect, context: &context)
                     drawRanges(
                         Self.visibleBuckets(buckets, in: domain),
@@ -177,7 +181,7 @@ struct WatchRecentHoursChartView: View {
                     drawReadings(
                         Self.visibleBuckets(buckets, in: domain),
                         tint: tint,
-                        values: Self.valueDomain(for: buckets, in: domain),
+                        values: Self.valueDomain(for: buckets, in: domain, ceiling: valueCeiling),
                         domain: domain,
                         in: plotRect,
                         context: &context
@@ -198,11 +202,11 @@ struct WatchRecentHoursChartView: View {
     // MARK: - Axes
 
     /// The values the axis labels: Stress's fixed scores, or the round
-    /// values inside the Heart Rate or HRV value range.
+    /// values inside the Heart Rate, HRV or Blood Oxygen value range.
     private func axisValues(domain: ClosedRange<Date>) -> [Double] {
         switch content {
         case let .readings(buckets, _):
-            return WatchIntradayChartGeometry.valueTicks(in: Self.valueDomain(for: buckets, in: domain))
+            return WatchIntradayChartGeometry.valueTicks(in: Self.valueDomain(for: buckets, in: domain, ceiling: valueCeiling))
         case .stress:
             return Self.stressAxisScores.map(Double.init)
         }
@@ -219,7 +223,7 @@ struct WatchRecentHoursChartView: View {
     private func axisY(for value: Double, domain: ClosedRange<Date>, in plotRect: CGRect) -> CGFloat {
         switch content {
         case let .readings(buckets, _):
-            return Self.y(for: value, in: Self.valueDomain(for: buckets, in: domain), plotRect: plotRect)
+            return Self.y(for: value, in: Self.valueDomain(for: buckets, in: domain, ceiling: valueCeiling), plotRect: plotRect)
         case .stress:
             return WatchStressChartGeometry.y(forScore: value, in: plotRect)
         }
@@ -502,19 +506,21 @@ struct WatchRecentHoursChartView: View {
         buckets.filter { $0.start >= domain.lowerBound && $0.start < domain.upperBound }
     }
 
-    /// The Heart Rate and HRV value range over the visible slots only, so a
-    /// spike that has slid out of the window no longer flattens the rest:
-    /// exactly their lowest to highest reading, so the chart spans the plot
-    /// top to bottom. The pages pad theirs by 16% each way
+    /// The Heart Rate, HRV or Blood Oxygen value range over the visible slots
+    /// only, so a spike that has slid out of the window no longer flattens
+    /// the rest: exactly their lowest to highest reading, so the chart spans
+    /// the plot top to bottom. The pages pad theirs by 16% each way
     /// (`WatchIntradayChartGeometry.rangeDomain`), room this small plot can't
     /// spare; the plot's own inset keeps the marks on its edges whole. A
     /// window of one repeated value takes the pages' range, so its line sits
-    /// mid plot.
-    static func valueDomain(for buckets: [WatchIntradayBucket], in domain: ClosedRange<Date>) -> ClosedRange<Double> {
+    /// mid plot, capped like the pages' at `ceiling` (Blood Oxygen's 100%),
+    /// so a lone 100% reads no 101 or 102; the exact range never passes a
+    /// reading, so it needs no cap.
+    static func valueDomain(for buckets: [WatchIntradayBucket], in domain: ClosedRange<Date>, ceiling: Double? = nil) -> ClosedRange<Double> {
         let visible = visibleBuckets(buckets, in: domain)
         let values = visible.flatMap { [$0.minimum, $0.maximum] }.filter(\.isFinite)
         guard let lowest = values.min(), let highest = values.max(), lowest < highest else {
-            return WatchIntradayChartGeometry.rangeDomain(for: visible)
+            return WatchIntradayChartGeometry.rangeDomain(for: visible, ceiling: ceiling)
         }
         return lowest...highest
     }

@@ -4,10 +4,11 @@
 //
 //  Opt-in writer for the intraday chart complications' renders in
 //  `watch-widgets-screenshots/`: `42-complication-stress-chart-rectangular`,
-//  `43-complication-heart-rate-chart-rectangular` and
-//  `44-complication-hrv-chart-rectangular`, from the gallery placeholder (a
-//  Relaxed 42, 62 bpm and 48 ms) drawn up to its data's own end, as the
-//  gallery draws it. It touches the worktree, so it skips unless
+//  `43-complication-heart-rate-chart-rectangular`,
+//  `44-complication-hrv-chart-rectangular` and
+//  `56-complication-blood-oxygen-chart-rectangular`, from the gallery
+//  placeholder (a Relaxed 42, 62 bpm, 48 ms and 97 %) drawn up to its data's
+//  own end, as the gallery draws it. It touches the worktree, so it skips unless
 //  `BODY_WATCH_WIDGET_SCREENSHOTS=1` is in the environment. Not a snapshot
 //  test.
 //
@@ -72,11 +73,13 @@ final class WatchRecentHoursComplicationScreenshotTests: XCTestCase {
             to: directory
         )
 
-        // Heart Rate and HRV: the card's value and unit over the slots the
-        // watch compute keeps, up to the read's end.
+        // Heart Rate, HRV and Blood Oxygen: the card's value and unit over
+        // the slots kept in `heartCharts`, up to the read's end, Blood
+        // Oxygen's axis capped at its 100% ceiling.
         let cases: [(name: String, kind: String, reading: String)] = [
             ("43-complication-heart-rate-chart-rectangular", WatchMetricKindKey.heartRate, "62 bpm"),
-            ("44-complication-hrv-chart-rectangular", WatchMetricKindKey.heartRateVariability, "48 ms")
+            ("44-complication-hrv-chart-rectangular", WatchMetricKindKey.heartRateVariability, "48 ms"),
+            ("56-complication-blood-oxygen-chart-rectangular", WatchMetricKindKey.oxygenSaturation, "97 %")
         ]
         for item in cases {
             let metric = try XCTUnwrap(snapshot.metric(forKind: item.kind), item.kind)
@@ -90,6 +93,7 @@ final class WatchRecentHoursComplicationScreenshotTests: XCTestCase {
                     content: .readings(chart.buckets, tint: Color(WatchMetricKindKey.tint(forKind: item.kind))),
                     now: chart.window.end,
                     emptyText: "Nothing to chart yet",
+                    valueCeiling: WatchMetricKindKey.valueCeiling(forKind: item.kind),
                     palette: palette
                 ),
                 name: item.name,
@@ -99,9 +103,9 @@ final class WatchRecentHoursComplicationScreenshotTests: XCTestCase {
     }
 
     /// What this render repeats, as the widget source spells it: the view's
-    /// arguments and palette, the two reading builders, the gallery's anchor,
-    /// the clear background, and the margins: the system's off, each edge
-    /// capped.
+    /// arguments, ceiling and palette, the two reading builders, the
+    /// gallery's anchor, the clear background, and the margins: the system's
+    /// off, each edge capped.
     private func assertTheMirrorMatchesTheWidgetSource() throws {
         let source = try String(contentsOf: root.appendingPathComponent("BodyWatchWidgetExtension/RecentHoursComplications.swift"), encoding: .utf8)
         for snippet in [
@@ -116,6 +120,7 @@ final class WatchRecentHoursComplicationScreenshotTests: XCTestCase {
             "return .stress(entry.snapshot.stressTimeline)",
             "entry.snapshot.heartCharts?[metricKind]?.buckets ?? [],",
             "tint: Color(WatchMetricKindKey.tint(forKind: metricKind))",
+            "valueCeiling: WatchMetricKindKey.valueCeiling(forKind: metricKind),",
             "guard entry.snapshot.generatedAt == .distantPast else { return entry.date }",
             "let end = isStress ? entry.snapshot.stressTimeline?.end : entry.snapshot.heartCharts?[metricKind]?.window.end",
             ".containerBackground(.clear, for: .widget)",
@@ -131,7 +136,7 @@ final class WatchRecentHoursComplicationScreenshotTests: XCTestCase {
         ] {
             XCTAssertTrue(source.contains(snippet), snippet)
         }
-        XCTAssertEqual(source.components(separatedBy: ".contentMarginsDisabled()").count - 1, 3)
+        XCTAssertEqual(source.components(separatedBy: ".contentMarginsDisabled()").count - 1, 4)
     }
 
     /// The complication's content area in the rectangular slot, on the
