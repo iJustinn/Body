@@ -110,6 +110,11 @@ enum WatchComputeAssembly {
         trends.oxygenSaturation = WatchDeltaSplicer.splice(
             seedSeries: trends.oxygenSaturation, delta: delta.oxygenSaturationSeries, from: windowStart, calendar: calendar
         )
+        // Blood Oxygen's week capsules, the same accepted edge as Heart
+        // Rate's above (display only, never a readiness input).
+        trends.oxygenSaturationRanges = WatchDeltaSplicer.spliceRanges(
+            seedSeries: trends.oxygenSaturationRanges, delta: delta.oxygenSaturationRanges, from: windowStart
+        )
         trends.wristTemperature = WatchDeltaSplicer.splice(
             seedSeries: trends.wristTemperature, delta: delta.wristTemperatureSeries, from: windowStart, calendar: calendar
         )
@@ -139,8 +144,8 @@ enum WatchComputeAssembly {
         // seeded value survives. A missing read on the watch means "no local
         // data for it", never an authoritative clear.
         var summary = seed.summary
-        // HR / HRV / RHR: `HealthMetricSummary` carries only a value — the seed
-        // side has NO watermark to compare the fetched sample's `endDate`
+        // HR / HRV / RHR / SpO₂: `HealthMetricSummary` carries only a value —
+        // the seed side has NO watermark to compare the fetched sample's `endDate`
         // against, so fetched-wins stands. It is also the safe direction here:
         // these come from `latestQuantitySample` bounded to the daily trend
         // window, i.e. the newest in-window sample this watch can see, and a
@@ -158,6 +163,11 @@ enum WatchComputeAssembly {
         }
         if let heartRateVariability = delta.heartRateVariabilitySample {
             summary.heartRateVariability = HealthMetricSummary(value: heartRateVariability.value, measuredAt: heartRateVariability.measuredAt)
+        }
+        // Already in percent (`WatchDeltaFetcher.latestSample` applies the
+        // descriptor's transform), like the phone's summary.
+        if let oxygenSaturation = delta.oxygenSaturationSample {
+            summary.oxygenSaturation = HealthMetricSummary(value: oxygenSaturation.value, measuredAt: oxygenSaturation.measuredAt)
         }
         // Sleep DOES carry a real watermark on both sides (the night's day), so
         // it's guarded: the watch's HealthKit retention is far shorter than the
@@ -546,6 +556,11 @@ enum WatchComputeAssembly {
         if let heartRateVariability = delta.heartRateVariabilitySample {
             map[WatchMetricKindKey.heartRateVariability] = heartRateVariability.measuredAt
         }
+        // Blood Oxygen's card, like Heart Rate's: the sample's own time. Not a
+        // readiness or Stress input (readiness reads the daily series).
+        if let oxygenSaturation = delta.oxygenSaturationSample {
+            map[WatchMetricKindKey.oxygenSaturation] = oxygenSaturation.measuredAt
+        }
         // Sleep is stamped ONLY from the night this run actually fetched — never
         // from `recomputedSleep`, which falls back to the seed's night whenever
         // the sleep fetch failed or was refused above. Reading the watermark off
@@ -722,7 +737,9 @@ enum WatchComputeAssembly {
         var inputs: [(kind: HealthMetricKind, succeeded: Bool)] = []
         if permission.includes(.heart) {
             // The HR / HRV range reads are deliberately absent: they only draw
-            // the week charts' capsules, which the score never reads.
+            // the week charts' capsules, which the score never reads. So are
+            // the latest samples and the "Last 8 hours" charts, Blood Oxygen's
+            // included.
             inputs.append((.heartRate, delta.heartRateSeries.isSuccess))
             inputs.append((.restingHeartRate, delta.restingHeartRateSeries.isSuccess))
             inputs.append((.heartRateVariability, delta.heartRateVariabilitySeries.isSuccess))
@@ -772,25 +789,37 @@ enum WatchComputeAssembly {
         return map
     }
 
-    /// The Heart Rate and HRV chart complications' slots
+    /// The Heart Rate, HRV and Blood Oxygen chart complications' slots
     /// (`WatchMetricsSnapshot.heartCharts`), keyed by kind: every chart this
-    /// run read, an empty one included (the merge's "remove"), and no key for
-    /// a read that failed or was skipped (the merge's "keep"). Nil without
-    /// Heart, and nil when no read succeeded, so a compute that read no chart
-    /// carries no field at all. Display only, like the week charts' ranges:
-    /// no watermark, since each chart carries its own read time
-    /// (`WatchIntradayWindow.end`), which is what `WatchComputeMerge` compares.
+    /// run read, an empty one included (the merge's "remove" for Heart Rate
+    /// and HRV, a re-window for Blood Oxygen), and no key for a read that
+    /// failed or was skipped (the merge's "keep"). Each kind rides its own
+    /// permission: Heart for Heart Rate and HRV, Blood Oxygen for its own.
+    /// Blood Oxygen is left out too when this watch holds no blood oxygen
+    /// source at all (`carriedKinds`, such as a watch whose readings the
+    /// iPhone calculates): its empty read proves nothing, and the chart the
+    /// iPhone sends must stand. Nil when no kind is left, so a compute that
+    /// read no chart carries no field at all. Display only, like the week
+    /// charts' ranges: no watermark, since each chart carries its own read
+    /// time (`WatchIntradayWindow.end`), which is what `WatchComputeMerge`
+    /// compares.
     static func heartCharts(
         delta: WatchComputeDelta,
         permission: BodyHealthPermissionSelection
     ) -> [String: WatchIntradayChart]? {
-        guard permission.includes(.heart) else { return nil }
         var charts: [String: WatchIntradayChart] = [:]
-        if case .success(let chart) = delta.heartRateIntraday {
-            charts[WatchMetricKindKey.heartRate] = chart
+        if permission.includes(.heart) {
+            if case .success(let chart) = delta.heartRateIntraday {
+                charts[WatchMetricKindKey.heartRate] = chart
+            }
+            if case .success(let chart) = delta.heartRateVariabilityIntraday {
+                charts[WatchMetricKindKey.heartRateVariability] = chart
+            }
         }
-        if case .success(let chart) = delta.heartRateVariabilityIntraday {
-            charts[WatchMetricKindKey.heartRateVariability] = chart
+        if permission.includes(.bloodOxygen),
+           !delta.carriedKinds.contains(.oxygenSaturation),
+           case .success(let chart) = delta.oxygenSaturationIntraday {
+            charts[WatchMetricKindKey.oxygenSaturation] = chart
         }
         return charts.isEmpty ? nil : charts
     }

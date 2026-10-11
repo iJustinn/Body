@@ -64,6 +64,12 @@ enum WatchMetricKindKey {
     static let steps = "steps"
     static let activeEnergy = "activeEnergy"
     static let restingEnergy = "restingEnergy"
+    /// Blood Oxygen, directly above Skin Temp: the latest reading as the
+    /// headline and each day's average with its lowest to highest reading as
+    /// the week, like Heart Rate and HRV. Its "Last 8 hours" chart rides
+    /// `WatchMetricsSnapshot.heartCharts`, which both devices build
+    /// (`combinedChartKinds`).
+    static let oxygenSaturation = "oxygenSaturation"
     /// Legacy activity-ring exercise minutes. No longer published: the weekly
     /// workout complication reads `workoutMinutes` below and only falls back to
     /// this kind when it finds a cached snapshot from an older phone build.
@@ -81,12 +87,12 @@ enum WatchMetricKindKey {
     /// Dashboard ordering — Readiness leads (drawn as the home screen's hero
     /// rather than a card), then Sleep, Training Load and Stress, the heart
     /// vitals, the day's running totals (Steps, Active Energy, Resting Energy)
-    /// directly under Resting HR, and Skin Temp last. The watch complications
-    /// are independent widgets and don't read this.
+    /// directly under Resting HR, Blood Oxygen, and Skin Temp last. The watch
+    /// complications are independent widgets and don't read this.
     static let displayOrder: [String] = [
         readiness, sleep, trainingLoad, stress, heartRate,
         heartRateVariability, restingHeartRate, steps, activeEnergy,
-        restingEnergy, wristTemperature
+        restingEnergy, oxygenSaturation, wristTemperature
     ]
 
     /// The kinds whose headline is today's running total rather than a
@@ -106,7 +112,8 @@ enum WatchMetricKindKey {
         // The iPhone's move orange, the same as Training Load's.
         case steps, activeEnergy: return WatchMetricColor(red: 1.00, green: 0.38, blue: 0.12)
         case restingEnergy: return WatchMetricColor(red: 0.14, green: 0.72, blue: 0.42)
-        case wristTemperature: return WatchMetricColor(red: 0.00, green: 0.75, blue: 0.85)
+        // The iPhone's teal for both, as on the phone.
+        case oxygenSaturation, wristTemperature: return WatchMetricColor(red: 0.00, green: 0.75, blue: 0.85)
         case stress: return WatchMetricColor(red: 0.90, green: 0.35, blue: 0.75)
         default: return WatchMetricColor(red: 0.55, green: 0.55, blue: 0.60)
         }
@@ -123,6 +130,7 @@ enum WatchMetricKindKey {
         case steps: return "figure.walk"
         case activeEnergy: return "flame.fill"
         case restingEnergy: return "leaf.fill"
+        case oxygenSaturation: return "drop.fill"
         case wristTemperature: return "thermometer.medium"
         case stress: return "brain.head.profile.fill"
         default: return "heart.text.square"
@@ -136,14 +144,32 @@ enum WatchMetricKindKey {
     /// instantly re-stale a freshly-accepted multi-hour-old HRV, wedging the
     /// live-read loop. Used by both `WatchHealthStore` (sample acceptance) and
     /// `WatchMetricsModel.isStale`. Kinds without a live path fall back to the
-    /// snapshot-level stale interval.
+    /// snapshot-level stale interval, except Blood Oxygen: it has no live read,
+    /// only the compute's latest sample, but it is sampled about hourly at
+    /// most, so it takes HRV's window, where the fallback would keep
+    /// `WatchMetricsModel.isComputeStale` true between readings.
     static func liveFreshnessLimit(forKind kind: String) -> TimeInterval {
         switch kind {
         case heartRate: return 30 * 60
-        case heartRateVariability: return 4 * 60 * 60
+        case heartRateVariability, oxygenSaturation: return 4 * 60 * 60
         default: return WatchMetricsSnapshot.staleInterval
         }
     }
+
+    /// The highest value a kind can read, which its "Last 8 hours" value axis
+    /// never labels past (`WatchIntradayChartGeometry.rangeDomain`): Blood
+    /// Oxygen's 100%. Nil for every other kind.
+    static func valueCeiling(forKind kind: String) -> Double? {
+        kind == oxygenSaturation ? 100 : nil
+    }
+
+    /// The kinds whose "Last 8 hours" chart (`WatchMetricsSnapshot.heartCharts`)
+    /// both devices build: the watch's compute from its own readings, and the
+    /// iPhone's push from the readings it holds, which is the only source on a
+    /// watch whose blood oxygen is calculated on the iPhone. Both merges
+    /// combine their slots (`WatchIntradayChart.combining(_:with:)`) instead
+    /// of letting the newer window replace the chart.
+    static let combinedChartKinds: Set<String> = [oxygenSaturation]
 }
 
 /// Deep-link scheme shared by the watch complications (`widgetURL`) and the
@@ -216,9 +242,9 @@ struct WatchMetric: Codable, Equatable, Identifiable {
     /// phone's query time exceeds the event time of the (older) sample it
     /// actually saw, and comparing against it would both reject a genuinely
     /// newer watch reading and let a later push overwrite one. Stamped by the
-    /// shared builder for HR / Resting HR / HRV / Sleep; nil for computed
-    /// metrics (Readiness, Training Load), whose `computedAt` is the honest
-    /// watermark, and for payloads from before this field.
+    /// shared builder for HR / Resting HR / HRV / Blood Oxygen / Sleep; nil
+    /// for computed metrics (Readiness, Training Load), whose `computedAt` is
+    /// the honest watermark, and for payloads from before this field.
     var measuredAt: Date? = nil
 
     /// Tint that can't be derived from `kind` alone — Readiness carries its
@@ -254,8 +280,8 @@ struct WatchMetric: Codable, Equatable, Identifiable {
 
     /// Each day's lowest and highest reading behind the recent-week chart
     /// (oldest → today, `nil` for a day without both), aligned slot for slot
-    /// with `weekly` and windowed on the same `weeklyAsOf`. Heart Rate and HRV
-    /// only, drawn as a capsule per day under the line. Not to be confused
+    /// with `weekly` and windowed on the same `weeklyAsOf`. Heart Rate, HRV,
+    /// Blood Oxygen and Stress only, drawn as a capsule per day under the line. Not to be confused
     /// with `rangeMin`/`rangeMax`, the whole-series bounds the ring fill and
     /// corner gauge scale against. Optional/defaulted per the schema-evolution
     /// note below: an older phone omits it and the chart is the plain line.
@@ -661,18 +687,23 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// (`latestReading(asOf:)`). Optional so snapshots from before this field
     /// decode.
     var stressTimeline: WatchStressTimeline? = nil
-    /// The Heart Rate and HRV chart complications' last 8 hours, keyed by
-    /// `WatchMetricKindKey` (`heartRate`, `heartRateVariability`): the same 30
-    /// minute slots the detail pages read, built by the WATCH compute from
-    /// its own Apple Health data. Watch side only: the phone never sets it, so
-    /// it adds nothing to the push. A chart the compute read successfully
-    /// replaces the displayed one when its window is newer, an empty one
-    /// removes it, and a failed or skipped read keeps it
-    /// (`WatchComputeMerge`); a phone push keeps it while the push still
-    /// carries that kind's card, and a permission or data source change drops
-    /// it until the next compute. No sanitize rule: the complications draw
-    /// only the slots inside their own window. Optional so snapshots from
-    /// before this field decode.
+    /// The "Last 8 hours" charts of the Heart Rate, HRV and Blood Oxygen chart
+    /// complications (and the Blood Oxygen page), keyed by `WatchMetricKindKey`
+    /// (`heartRate`, `heartRateVariability`, `oxygenSaturation`): the same 30
+    /// minute slots the detail pages read. The WATCH compute builds every one
+    /// from its own Apple Health data. The iPhone sends Blood Oxygen's alone
+    /// (`WatchMetricKindKey.combinedChartKinds`), built from the readings it
+    /// holds, so a watch whose blood oxygen is calculated on the iPhone still
+    /// draws one; that is all a push adds. For Heart Rate and HRV a chart the
+    /// compute read successfully replaces the displayed one when its window
+    /// is newer, an empty one removes it, and a failed or skipped read keeps
+    /// it. Blood Oxygen's slots from both devices are combined instead, the
+    /// later window's slot winning a shared one (`WatchComputeMerge`). A phone
+    /// push keeps each chart while it still carries that kind's card, and a
+    /// permission or data source change drops them until the next compute or
+    /// push. No sanitize rule: the complications and the page draw only the
+    /// slots inside their own window. Optional so snapshots from before this
+    /// field decode.
     var heartCharts: [String: WatchIntradayChart]? = nil
     /// The phone's custom workout colors (`BodyWorkoutColorOverrides` raw
     /// form, empty without Body Pro), for the workout shading on the Stress
@@ -785,6 +816,7 @@ struct WatchMetricsSnapshot: Codable, Equatable {
             WatchMetric(kind: WatchMetricKindKey.restingEnergy, title: String(localized: "Resting Energy", table: "BodyWatchShared"), displayValue: "1,640", unit: "kcal", score: nil, fillFraction: 1640.0 / 1668.0, rawValue: 1640, rangeMin: 0, rangeMax: 1668, weekly: [1610, 1655, 1590, 1632, 1601, 1668, 1640], usesKilojoules: false),
             WatchMetric(kind: WatchMetricKindKey.trainingLoad, title: String(localized: "Training Load", table: "BodyWatchShared"), displayValue: "1.05", unit: "", score: nil, fillFraction: 0.53, rawValue: 1.05, rangeMin: 0, rangeMax: 2, levelMin: 0.8, levelMax: 1.3, tint: WatchMetricColor(red: 0.10, green: 0.82, blue: 0.20)),
             WatchMetric(kind: WatchMetricKindKey.stress, title: String(localized: "Stress", table: "BodyWatchShared"), displayValue: "34", unit: "", score: 34, fillFraction: 0.34, rawValue: 34, rangeMin: 0, rangeMax: 100, levelMin: 26, levelMax: 50, tint: WatchMetricColor(red: 0.20, green: 0.80, blue: 0.45), statusBand: WatchStatusBand(min: 25.5, max: 50.5, label: String(localized: "Relaxed", table: "BodyWatchShared"))),
+            WatchMetric(kind: WatchMetricKindKey.oxygenSaturation, title: String(localized: "Blood Oxygen", table: "BodyWatchShared"), displayValue: "97", unit: "%", score: nil, fillFraction: 0.625, rawValue: 97, rangeMin: 92, rangeMax: 100),
             WatchMetric(kind: WatchMetricKindKey.wristTemperature, title: String(localized: "Skin Temp", table: "BodyWatchShared"), displayValue: "93.4", unit: "°F", score: nil, fillFraction: 0.50, rawValue: 34.1, rangeMin: 33.8, rangeMax: 34.4),
             // The weekly workout time complication draws only `weekly`, so the
             // gallery preview needs a sample week (oldest → today) rather than
@@ -798,7 +830,8 @@ struct WatchMetricsSnapshot: Codable, Equatable {
         // The Stress complications draw the timeline's latest scored window,
         // and the Stress chart its last 12 hours.
         stressTimeline: placeholderStressTimeline,
-        // The Heart Rate and HRV chart complications draw these slots.
+        // The Heart Rate, HRV and Blood Oxygen chart complications draw
+        // these slots.
         heartCharts: placeholderHeartCharts
     )
 
@@ -853,11 +886,12 @@ struct WatchMetricsSnapshot: Codable, Equatable {
         )
     }()
 
-    /// The placeholder's Heart Rate and HRV slots: the 8 hours before 16:45
-    /// UTC on the same day as the Stress windows above (08:30 to 17:00). Heart
-    /// Rate rests, runs with the Stress timeline's run, comes off the wrist
-    /// for an hour, walks, and ends on 62, the sample card's reading; HRV
-    /// takes a few sparse readings, the way the watch does, ending on 48.
+    /// The placeholder's Heart Rate, HRV and Blood Oxygen slots: the 8 hours
+    /// before 16:45 UTC on the same day as the Stress windows above (08:30 to
+    /// 17:00). Heart Rate rests, runs with the Stress timeline's run, comes
+    /// off the wrist for an hour, walks, and ends on 62, the sample card's
+    /// reading; HRV takes a few sparse readings, the way the watch does,
+    /// ending on 48; Blood Oxygen takes about one an hour, ending on 97.
     /// Whole seconds and whole numbers, so the placeholder survives the
     /// snapshot's ISO 8601 round trip unchanged.
     private static let placeholderHeartCharts: [String: WatchIntradayChart] = {
@@ -886,6 +920,10 @@ struct WatchMetricsSnapshot: Codable, Equatable {
             WatchMetricKindKey.heartRateVariability: chart([
                 (1, 38, 44, 50), (2, 46, 51, 56), (4, 43, 47, 51), (8, 26, 33, 40),
                 (12, 52, 52, 52), (14, 49, 55, 61), (16, 43, 48, 53)
+            ]),
+            WatchMetricKindKey.oxygenSaturation: chart([
+                (1, 95, 96, 97), (3, 97, 97, 97), (6, 94, 95, 96), (9, 96, 96, 96),
+                (12, 98, 98, 98), (14, 95, 96, 97), (16, 97, 97, 97)
             ])
         ]
     }()
@@ -1049,8 +1087,9 @@ struct WatchMetricsSnapshot: Codable, Equatable {
     /// and its complications in one place.
     ///
     /// Gated on a non-nil `measuredAt`, which the shared builder stamps only for
-    /// the latest-sample metrics (HR / Resting HR / HRV / Sleep). Computed
-    /// metrics carry `computedAt` instead and must NOT be cleared by this rule —
+    /// the latest-sample metrics (HR / Resting HR / HRV / Blood Oxygen /
+    /// Sleep). Computed metrics carry `computedAt` instead and must NOT be
+    /// cleared by this rule —
     /// unlike Sleep's own "unknown night ⇒ clear" guard, a nil watermark here
     /// means "not a latest-sample metric", not "unverifiable".
     private func isOutOfTrendWindow(_ metric: WatchMetric, windowStart: Date) -> Bool {

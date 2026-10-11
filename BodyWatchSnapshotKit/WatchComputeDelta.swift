@@ -38,6 +38,13 @@ struct WatchComputeDelta {
     /// it failed or was skipped, which keeps what's displayed.
     var heartRateIntraday: WatchFetchOutcome<WatchIntradayChart> = .failure
     var heartRateVariabilityIntraday: WatchFetchOutcome<WatchIntradayChart> = .failure
+    /// Blood Oxygen's week chart capsules (`trends.oxygenSaturationRanges`)
+    /// and its "Last 8 hours" slots (`heartCharts`), read and kept like the
+    /// Heart Rate and HRV ones above, so display only too. A watch with no
+    /// blood oxygen source at all (`carriedKinds`) brings no chart, so the one
+    /// the iPhone sends stands (`WatchComputeAssembly.heartCharts`).
+    var oxygenSaturationRanges: WatchFetchOutcome<HealthTrendRangeSeries> = .failure
+    var oxygenSaturationIntraday: WatchFetchOutcome<WatchIntradayChart> = .failure
     var respiratoryRateSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var oxygenSaturationSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
     var wristTemperatureSeries: WatchFetchOutcome<HealthTrendSeries> = .failure
@@ -84,6 +91,8 @@ struct WatchComputeDelta {
     var heartRateSample: WatchDeltaSample?
     var restingHeartRateSample: WatchDeltaSample?
     var heartRateVariabilitySample: WatchDeltaSample?
+    /// Blood Oxygen's latest reading, in percent like the iPhone's.
+    var oxygenSaturationSample: WatchDeltaSample?
 
     /// The most recent night assembled this run (the phone's `fetchSleepSummary`
     /// picks the same one: the grouping with the latest stage date). Whether it

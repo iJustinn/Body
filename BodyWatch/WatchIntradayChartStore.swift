@@ -4,7 +4,9 @@
 //
 //  The data behind the "Last 8 hours" charts on the Heart Rate, HRV, Steps
 //  and Active Energy detail pages: the watch reads them from its own Apple
-//  Health data, in 30 minute slots, with no phone involved. Held in memory only. The pager asks for a
+//  Health data, in 30 minute slots, with no phone involved. The Blood Oxygen
+//  page's chart isn't read here: it draws the snapshot's
+//  (`WatchMetricDetailView.snapshotChartKinds`). Held in memory only. The pager asks for a
 //  kind only while that kind's page is the visible one (see
 //  `WatchMetricDetailPager`), and a kind is read at most once every
 //  `refreshInterval`, counted from the last read that finished, so paging
@@ -35,7 +37,9 @@ final class WatchIntradayChartStore: ObservableObject {
 
     /// The minimum time between two finished reads of the same kind.
     static let refreshInterval: TimeInterval = 5 * 60
-    /// The kinds whose pages carry a "Last 8 hours" chart.
+    /// The kinds whose pages carry a "Last 8 hours" chart the watch reads
+    /// live. Blood Oxygen's page draws the snapshot's chart instead
+    /// (`WatchMetricDetailView.snapshotChartKinds`), so it isn't one.
     static let chartKinds: Set<String> = [
         WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability,
         WatchMetricKindKey.steps, WatchMetricKindKey.activeEnergy
@@ -122,8 +126,11 @@ extension WatchIntradayChart {
     /// hour off the wrist that breaks the average line. HRV: a few sparse
     /// readings, the way the watch takes them: a run of consecutive slots the
     /// line joins, lone slots it skips, each with a small spread and one with
-    /// a single reading. Steps and Active Energy: a walk, a desk stretch with
-    /// an idle hour (no slots), and a late walk.
+    /// a single reading. Blood Oxygen: about one slot an hour, whole percents
+    /// between 93 and 100 (one slot reaching 100, so the capped value axis
+    /// shows), a single reading, and the latest slot averaging 97. Steps and
+    /// Active Energy: a walk, a desk stretch with an idle hour (no slots), and
+    /// a late walk.
     static func preview(kind: String, now: Date = Date(), calendar: Calendar = .current) -> WatchIntradayChart {
         let window = WatchIntradayWindow.endingAt(now, calendar: calendar)
         let slotCount = Int((window.plotEnd.timeIntervalSince(window.start) / WatchIntradayWindow.slotLength).rounded())
@@ -143,6 +150,15 @@ extension WatchIntradayChart {
             return totals([420, 980, 1_640, 310, 120, nil, nil, 260, 2_210, 1_480, 390, 150, 90, 640, 1_120, 710, 480])
         case WatchMetricKindKey.activeEnergy:
             return totals([28, 54, 96, 24, 12, nil, nil, 20, 138, 92, 30, 14, 9, 42, 70, 46, 31])
+        case WatchMetricKindKey.oxygenSaturation:
+            let readings: [(slot: Int, minimum: Double, maximum: Double, average: Double)] = [
+                (0, 95, 97, 96), (2, 94, 96, 95), (4, 97, 97, 97), (5, 96, 100, 98), (7, 94, 98, 96),
+                (9, 93, 95, 94), (10, 95, 98, 97), (12, 97, 99, 98), (14, 96, 99, 98), (15, 96, 98, 97)
+            ]
+            let buckets = readings
+                .filter { $0.slot < slotCount }
+                .map { WatchIntradayBucket(start: slotStart($0.slot), minimum: $0.minimum, maximum: $0.maximum, average: $0.average) }
+            return WatchIntradayChart(window: window, buckets: buckets)
         default:
             break
         }

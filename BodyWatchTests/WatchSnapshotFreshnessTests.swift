@@ -142,6 +142,9 @@ final class WatchSnapshotFreshnessTests: XCTestCase {
     func testLiveFreshnessLimitIsPerKind() {
         XCTAssertEqual(WatchMetricKindKey.liveFreshnessLimit(forKind: WatchMetricKindKey.heartRate), 30 * 60)
         XCTAssertEqual(WatchMetricKindKey.liveFreshnessLimit(forKind: WatchMetricKindKey.heartRateVariability), 4 * 60 * 60)
+        // No live read, but sampled about hourly at most: HRV's window, so a
+        // compute's latest reading doesn't read stale between samples.
+        XCTAssertEqual(WatchMetricKindKey.liveFreshnessLimit(forKind: WatchMetricKindKey.oxygenSaturation), 4 * 60 * 60)
     }
 
     func testLiveFreshnessLimitFallsBackToSnapshotIntervalForOtherKinds() {

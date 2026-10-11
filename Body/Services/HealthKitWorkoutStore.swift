@@ -7264,12 +7264,14 @@ final class HealthKitWorkoutStore {
     /// `ProjectConfigurationTests`). Steps and the two energy kinds are not
     /// vitals, but their cards' headline is today's total, published only
     /// under a watermark on today (`WatchMetricsSnapshotBuilder`'s day guard),
-    /// so a pull of one of them needs the stamp just the same.
+    /// so a pull of one of them needs the stamp just the same. Blood Oxygen's
+    /// watch card is a latest-sample vital, like Heart Rate's.
     nonisolated static let watchVitalsPullKinds: Set<HealthMetricKind> = [
         .heartRate,
         .heartRateVariability,
         .restingHeartRate,
         .sleep,
+        .oxygenSaturation,
         .wristTemperature,
         .steps,
         .activeEnergy,

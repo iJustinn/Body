@@ -203,7 +203,15 @@ enum WatchComputeMerge {
     /// strictly later, an empty one (the read found nothing) removes the kind
     /// instead of being stored, so a persisted snapshot never carries one,
     /// and a kind the compute brought no chart for (its read failed or was
-    /// skipped) keeps what's displayed.
+    /// skipped) keeps what's displayed. The charts both devices build
+    /// (`WatchMetricKindKey.combinedChartKinds`, Blood Oxygen) are combined
+    /// instead (`WatchIntradayChart.combining(_:with:)`): the later window,
+    /// the union of both charts' slots inside it, and the later chart's slot
+    /// where both have one, so the watch's read never wipes a slot only the
+    /// iPhone's readings hold. "Later" is the window's end: a phone push
+    /// built from samples it read a while ago can still win a shared slot
+    /// until the next compute, but never drops one. An empty read only moves
+    /// the window on, and the chart is never stored empty either.
     ///
     /// The workout spans (`workoutSpans`) are replaced whole by a compute
     /// whose workout read succeeded: an empty read clears them instead of
@@ -354,13 +362,18 @@ enum WatchComputeMerge {
             merged.stressTimeline = candidate
         }
 
-        // Heart Rate and HRV charts: per kind, on each chart's own window
-        // (see the rules above). An empty read removes the kind; a kind
-        // without a candidate keeps its chart.
+        // Heart charts: per kind, on each chart's own window (see the rules
+        // above). For Heart Rate and HRV an empty read removes the kind; the
+        // combined kinds put both reads' slots together. A kind without a
+        // candidate keeps its chart.
         if let candidates = computed.heartCharts {
             var charts = current.heartCharts ?? [:]
-            for (kind, candidate) in candidates where candidate.window.end > (charts[kind]?.window.end ?? .distantPast) {
-                charts[kind] = candidate.buckets.isEmpty ? nil : candidate
+            for (kind, candidate) in candidates {
+                if WatchMetricKindKey.combinedChartKinds.contains(kind) {
+                    charts[kind] = WatchIntradayChart.combining(charts[kind], with: candidate)
+                } else if candidate.window.end > (charts[kind]?.window.end ?? .distantPast) {
+                    charts[kind] = candidate.buckets.isEmpty ? nil : candidate
+                }
             }
             merged.heartCharts = charts.isEmpty ? nil : charts
         }
@@ -457,9 +470,15 @@ enum WatchComputeMerge {
     ///
     /// The Heart Rate and HRV charts (`heartCharts`) never come from the
     /// push, since only the watch builds them: each local one is kept while
-    /// the push still carries that kind's card (a push without it means
-    /// Heart was turned off), outside the settings-change mode, which drops
-    /// them all because they were read under the old source selection.
+    /// the push still carries that kind's card (a push without it means its
+    /// permission was turned off). The charts both devices build
+    /// (`WatchMetricKindKey.combinedChartKinds`, Blood Oxygen, which the
+    /// iPhone sends from the readings it holds) are kept on the same card
+    /// rule and then combined with the pushed one
+    /// (`WatchIntradayChart.combining(_:with:)`, the rule `mergingComputed`
+    /// describes), so a push built from older samples can't wipe the newer
+    /// slots the watch read. The settings-change mode drops the local ones,
+    /// read under the old source selection, and takes the push's as is.
     ///
     /// The workout spans and warning checks (`workoutSpans`,
     /// `warningChecks`) never come from the push either, since only the
@@ -587,14 +606,21 @@ enum WatchComputeMerge {
             merged.stressTimeline = local
         }
 
-        // Heart Rate and HRV charts: the push never carries them, so the
-        // local ones stand while the push still carries each kind's card.
-        // Without the card, Heart was turned off. The settings-change mode
-        // drops them (`merged = received`): they were read under the old
-        // source selection.
-        if !treatingBlanksAsAuthoritative, let local = current.heartCharts {
-            let kept = local.filter { received.metric(forKind: $0.key) != nil }
-            merged.heartCharts = kept.isEmpty ? nil : kept
+        // Heart charts: the local ones stand while the push still carries
+        // each kind's card (without it, the kind's permission was turned
+        // off), and the combined kinds then take the pushed slots in too; the
+        // push brings no other kind. The settings-change mode drops the local
+        // ones (`merged = received`), read under the old source selection,
+        // keeping only the push's charts that have a slot.
+        if treatingBlanksAsAuthoritative {
+            let pushed = (received.heartCharts ?? [:]).filter { !$0.value.buckets.isEmpty }
+            merged.heartCharts = pushed.isEmpty ? nil : pushed
+        } else {
+            var charts = (current.heartCharts ?? [:]).filter { received.metric(forKind: $0.key) != nil }
+            for kind in WatchMetricKindKey.combinedChartKinds where received.metric(forKind: kind) != nil {
+                charts[kind] = WatchIntradayChart.combining(charts[kind], with: received.heartCharts?[kind])
+            }
+            merged.heartCharts = charts.isEmpty ? nil : charts
         }
 
         // Workout spans and warning checks: the push never carries them, so
@@ -645,12 +671,12 @@ enum WatchComputeMerge {
     /// would preserve exactly the values that must go. Display fields are left
     /// in place; the push resolving in the same intake replaces them. The
     /// Sleep Debt's and the Stress timeline's `computedAt` are cleared too,
-    /// for the same reason. The Heart Rate and HRV charts (`heartCharts`) are
-    /// dropped outright: they were read under the old permission or source
-    /// selection, and no push brings them back, so they wait for the next
-    /// compute. So are the workout spans and the warning checks
-    /// (`workoutSpans`, `warningChecks`), for the same reason; the push's
-    /// `warningSettings` stays.
+    /// for the same reason. The heart charts (`heartCharts`) are dropped
+    /// outright: they were read under the old permission or source
+    /// selection, so they wait for the next compute (Blood Oxygen's also for
+    /// the next push, which sends its own). So are the workout spans and the
+    /// warning checks (`workoutSpans`, `warningChecks`), for the same reason;
+    /// the push's `warningSettings` stays.
     static func strippingLocalProvenance(
         from snapshot: WatchMetricsSnapshot
     ) -> WatchMetricsSnapshot {

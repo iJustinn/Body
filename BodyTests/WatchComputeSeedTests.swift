@@ -193,6 +193,7 @@ final class WatchComputeSeedTests: XCTestCase {
         trends.heartRateVariabilityRanges = rangeSeriesFixture(around: trends.heartRateVariability, spread: 30)
         trends.respiratoryRate = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 14, amplitude: 1)
         trends.oxygenSaturation = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 97, amplitude: 1)
+        trends.oxygenSaturationRanges = rangeSeriesFixture(around: trends.oxygenSaturation, spread: 4)
         trends.trainingLoad = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 1.0, amplitude: 0.3)
         trends.wristTemperature = dailySeriesFixture(dayCount: dayCount, anchor: anchor, baseline: 36.3, amplitude: 0.3)
         trends.sleepHistory = sleepHistoryFixture(nightCount: dayCount, anchor: anchor)
@@ -614,7 +615,7 @@ final class WatchComputeSeedTests: XCTestCase {
         XCTAssertEqual(trimmed.recordedSleepDebtContext, "fixture-sleep-debt-context")
     }
 
-    // MARK: - Range series window (HR / HRV week chart capsules)
+    // MARK: - Range series window (HR / HRV / Blood Oxygen week chart capsules)
 
     /// The capsules ride the seed for one week only: the builder reads them
     /// through `.recentWeek`, and the delta re-reads the days after the seed.
@@ -626,7 +627,8 @@ final class WatchComputeSeedTests: XCTestCase {
 
         let ranges: [(name: String, full: HealthTrendRangeSeries, trimmed: HealthTrendRangeSeries)] = [
             ("heartRateRanges", full.heartRateRanges, trimmed.heartRateRanges),
-            ("heartRateVariabilityRanges", full.heartRateVariabilityRanges, trimmed.heartRateVariabilityRanges)
+            ("heartRateVariabilityRanges", full.heartRateVariabilityRanges, trimmed.heartRateVariabilityRanges),
+            ("oxygenSaturationRanges", full.oxygenSaturationRanges, trimmed.oxygenSaturationRanges)
         ]
         for (name, fullSeries, trimmedSeries) in ranges {
             XCTAssertEqual(fullSeries.points.count, 365, name)

@@ -6,8 +6,8 @@
 //  metric's fixed kind color washes the whole screen (the status-band color
 //  appears only on the band highlight and the status label, matching the iOS
 //  detail page), the title sits top-right, the recent-
-//  week chart sits below it (on Heart Rate, HRV and Stress with each day's low
-//  to high range under the line; on Steps, Active Energy and Resting Energy as
+//  week chart sits below it (on Heart Rate, HRV, Blood Oxygen and Stress with
+//  each day's low to high range under the line; on Steps, Active Energy and Resting Energy as
 //  daily total bars, `WatchWeekBarsView`), and the current value reads large at the
 //  bottom-left — followed, for Readiness, Training Load and Stress, by the
 //  status level beside it ("85 · HIGH"; Readiness and Training Load also
@@ -22,17 +22,24 @@
 //  (`WatchSleepDebtChartView`). The Training Load page scrolls the same way whenever the
 //  snapshot carries the weekly workout minutes, adding the Weekly Workout Time
 //  complication's bar chart (`WatchExerciseWeekChartView`) below its value row.
-//  The Heart Rate, HRV, Steps and Active Energy pages scroll the same way
-//  whenever the watch has readings from the last 8 hours, adding the "Last 8
-//  hours" chart (`WatchIntradayChartView`) below their value row: ranges under
-//  a line for the two heart kinds, a bar per 30 minute slot for the two daily
-//  totals (Resting Energy has none, like the iPhone). The Stress page scrolls
+//  The Heart Rate, HRV, Blood Oxygen, Steps and Active Energy pages scroll the
+//  same way whenever there are readings from the last 8 hours, adding the
+//  "Last 8 hours" chart (`WatchIntradayChartView`) below their value row:
+//  ranges under a line for the two heart kinds and Blood Oxygen (whose value
+//  axis stops just above 100%), a bar per 30 minute slot for the two daily
+//  totals (Resting Energy has none, like the iPhone). Heart Rate, HRV, Steps
+//  and Active Energy draw the watch's own read of the last 8 hours
+//  (`WatchIntradayChartStore`); Blood Oxygen draws the snapshot's chart
+//  (`snapshotChartKinds`), the one its chart complication draws, which the
+//  watch compute and the iPhone fill together. The Stress page scrolls
 //  the same way whenever the snapshot's Stress timeline has a window in the
 //  last 12 hours, adding its own "Last 12 hours" chart (`WatchStressChartView`)
-//  below its value row. The Heart Rate, HRV and Stress charts stand about half
-//  again as tall as the page's other charts, the Steps and Active Energy ones as tall.
-//  Whenever the phone pushed a warning for the page's metric today (Low or
-//  High Heart Rate on Heart Rate, High Skin Temperature on Skin Temp), the
+//  below its value row. The Heart Rate, HRV, Blood Oxygen and Stress charts
+//  stand about half again as tall as the page's other charts, the Steps and
+//  Active Energy ones as tall.
+//  Whenever there is a warning for the page's metric today, the phone's or
+//  the watch's own (Low or High Heart Rate on Heart Rate, Low Blood Oxygen on
+//  Blood Oxygen, High Skin Temperature on Skin Temp), the
 //  page scrolls the same way and its foldable warning cards
 //  (`WatchMetricWarningSection`) follow the last chart, the iPhone's order;
 //  Skin Temp, which has no chart below its value row, scrolls only then.
@@ -42,7 +49,8 @@
 //  reads the `weekly` series and its daily ranges, `statusBand`, sleep score, sleep stages, and
 //  workout minutes the iPhone baked into the pushed snapshot, the Sleep Debt
 //  the phone pushes or the watch recomputes, the Stress timeline likewise,
-//  and the last 8 hours the watch reads itself (nothing is computed here).
+//  the last 8 hours the watch reads itself or, for Blood Oxygen, the
+//  snapshot carries (nothing is computed here).
 //
 //  Watch-only: not compiled into the iOS `Body` target.
 //
@@ -72,10 +80,11 @@ struct WatchMetricDetailView: View {
     /// complication's), drawn as bars below the Training Load page's info (the
     /// week chart stays). Ignored on every other page.
     var exerciseWeekMetric: WatchMetric? = nil
-    /// The watch's own last 8 hours of readings for this kind (see
-    /// `WatchIntradayChartStore`), drawn below the Heart Rate, HRV, Steps or
-    /// Active Energy page's info (the week chart stays). Ignored on every
-    /// other page.
+    /// The last 8 hours of readings for this kind, drawn below the Heart Rate,
+    /// HRV, Blood Oxygen, Steps or Active Energy page's info (the week chart
+    /// stays): the watch's own read (`WatchIntradayChartStore`), or for Blood
+    /// Oxygen the snapshot's chart re-windowed to now (`snapshotChartKinds`,
+    /// resolved by the pager). Ignored on every other page.
     var intradayChart: WatchIntradayChart? = nil
     /// The snapshot's `stressTimeline` (the recent 15 minute Stress windows),
     /// drawn below the Stress page's info (the week chart stays). Ignored on
@@ -121,7 +130,8 @@ struct WatchMetricDetailView: View {
         return weekly
     }
 
-    /// Each day's low/high under the sparkline (Heart Rate and HRV), rewound
+    /// Each day's low/high under the sparkline (Heart Rate, HRV, Blood Oxygen
+    /// and Stress), rewound
     /// onto `today` exactly like `sparklineWeekly` so every capsule stays
     /// under its own day's point. Today's slot follows the headline too: a
     /// cleared metric drops today's capsule along with today's point. Nil when
@@ -197,20 +207,33 @@ struct WatchMetricDetailView: View {
         return weekly.contains(where: { $0 != nil }) ? weekly : nil
     }
 
-    /// The Heart Rate, HRV, Steps or Active Energy page's last 8 hours, added
-    /// below the page's info and making the page scroll, or nil (the page
-    /// reads exactly like every other metric's) on any other page or when
-    /// there are no readings.
+    /// The kinds whose page draws the snapshot's "Last 8 hours" chart
+    /// (`WatchMetricsSnapshot.heartCharts`, re-windowed to now) rather than a
+    /// live read of its own: Blood Oxygen. Its readings come about hourly, so
+    /// a 5 minute read would add nothing, and drawing the chart the watch
+    /// compute and the iPhone fill together keeps the page in step with the
+    /// chart complication, and gives a watch whose blood oxygen is calculated
+    /// on the iPhone a chart at all.
+    static let snapshotChartKinds: Set<String> = [WatchMetricKindKey.oxygenSaturation]
+
+    /// The Heart Rate, HRV, Blood Oxygen, Steps or Active Energy page's last 8
+    /// hours, added below the page's info and making the page scroll, or nil
+    /// (the page reads exactly like every other metric's) on any other page or
+    /// when there are no readings.
     static func intradayChart(_ chart: WatchIntradayChart?, kind: String) -> WatchIntradayChart? {
-        guard WatchIntradayChartStore.chartKinds.contains(kind), let chart, !chart.buckets.isEmpty else { return nil }
+        guard WatchIntradayChartStore.chartKinds.contains(kind) || snapshotChartKinds.contains(kind),
+              let chart, !chart.buckets.isEmpty else { return nil }
         return chart
     }
 
     /// The height of the page's "Last 8 hours" or "Last 12 hours" chart:
-    /// 130 points on Heart Rate, HRV and Stress, about half again the page's
-    /// other charts' 86, and 86 on Steps and Active Energy.
+    /// 130 points on Heart Rate, HRV, Blood Oxygen and Stress, about half
+    /// again the page's other charts' 86, and 86 on Steps and Active Energy.
     static func intradayChartHeight(forKind kind: String) -> CGFloat {
-        let tallKinds = [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability, WatchMetricKindKey.stress]
+        let tallKinds = [
+            WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability,
+            WatchMetricKindKey.oxygenSaturation, WatchMetricKindKey.stress
+        ]
         return tallKinds.contains(kind) ? 130 : 86
     }
 
@@ -276,7 +299,8 @@ struct WatchMetricDetailView: View {
                             WatchIntradayChartView(
                                 chart: visibleIntradayChart,
                                 tint: pageTint,
-                                style: .style(forKind: metric.kind)
+                                style: .style(forKind: metric.kind),
+                                valueCeiling: WatchMetricKindKey.valueCeiling(forKind: metric.kind)
                             )
                                 .frame(height: Self.intradayChartHeight(forKind: metric.kind))
                                 .padding(.top, 10)
@@ -496,6 +520,27 @@ struct WatchMetricDetailView: View {
                 .init(low: 31, high: 84), .init(low: 27, high: 70), .init(low: 25, high: 68)
             ]
         ), intradayChart: .preview(kind: WatchMetricKindKey.heartRateVariability))
+    }
+}
+
+#Preview("Blood Oxygen") {
+    NavigationStack {
+        WatchMetricDetailView(metric: WatchMetric(
+            kind: WatchMetricKindKey.oxygenSaturation,
+            title: "Blood Oxygen",
+            displayValue: "97",
+            unit: "%",
+            score: nil,
+            fillFraction: 0.6,
+            rawValue: 97,
+            rangeMin: 95,
+            rangeMax: 98,
+            weekly: [96, 97, nil, 95, 98, 96, 97],
+            weeklyRanges: [
+                .init(low: 91, high: 100), .init(low: 93, high: 99), nil, .init(low: 89, high: 99),
+                .init(low: 94, high: 100), .init(low: 92, high: 99), .init(low: 93, high: 100)
+            ]
+        ), intradayChart: .preview(kind: WatchMetricKindKey.oxygenSaturation))
     }
 }
 

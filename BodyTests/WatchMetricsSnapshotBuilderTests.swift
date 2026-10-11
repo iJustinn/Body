@@ -8,8 +8,9 @@
 //  that passing `nil` for both new parameters reproduces `makeSnapshot`'s
 //  prior output exactly (the existing iOS call sites don't pass them yet).
 //  Also covers the `sleepStages` payload the watch Sleep Stages complication
-//  draws, the Sleep page's `sleepDebt`, and the Heart Rate / HRV week charts'
-//  `weeklyRanges`.
+//  draws, the Sleep page's `sleepDebt`, the Heart Rate / HRV week charts'
+//  `weeklyRanges`, the Blood Oxygen card, and the iPhone's Blood Oxygen
+//  "Last 8 hours" slots (`intradayChart(from:window:)`).
 //
 
 import XCTest
@@ -259,6 +260,121 @@ final class WatchMetricsSnapshotBuilderTests: XCTestCase {
             idealSleepDuration: 8 * 3_600, now: anchor
         )
         XCTAssertNil(stale.metric(forKind: WatchMetricKindKey.heartRate)?.weeklyRanges)
+    }
+
+    // MARK: - Blood Oxygen
+
+    /// The card reads the latest reading in percent, fills against the whole
+    /// series' range like HRV (higher reads fuller), and carries the week's
+    /// averages and capsules, its measurement time, and a carried range for
+    /// the seed. It sits directly above Skin Temp.
+    func testBloodOxygenCardReadsInPercentWithItsWeekAndRanges() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
+        let measured = anchor.addingTimeInterval(-2_700)
+        let (baseSummary, baseTrends) = fixture(anchor: anchor)
+        var summary = baseSummary
+        summary.oxygenSaturation = HealthMetricSummary(value: 97, measuredAt: measured)
+        var trends = baseTrends
+        trends.oxygenSaturation = series([95, 96, 97, 98, 96], endingAt: anchor)
+        trends.oxygenSaturationRanges = ranges([-3: (93, 99), 0: (94, 98)], endingAt: anchor)
+
+        let snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary, trends: trends, lastRefreshDate: anchor,
+            permissionSelection: .defaultValue, temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600, now: anchor
+        )
+
+        let oxygen = try XCTUnwrap(snapshot.metric(forKind: WatchMetricKindKey.oxygenSaturation))
+        XCTAssertEqual(oxygen.title, String(localized: "Blood Oxygen", table: "BodyWatchSnapshotKit"))
+        XCTAssertEqual(oxygen.displayValue, "97")
+        XCTAssertEqual(oxygen.unit, "%")
+        XCTAssertEqual(oxygen.rawValue, 97)
+        XCTAssertEqual(oxygen.rangeMin, 95)
+        XCTAssertEqual(oxygen.rangeMax, 98)
+        XCTAssertEqual(oxygen.fillFraction, (97.0 - 95.0) / (98.0 - 95.0), accuracy: 1e-9, "not inverted")
+        XCTAssertEqual(oxygen.measuredAt, measured)
+        XCTAssertEqual(oxygen.weekly, [nil, nil, 95, 96, 97, 98, 96])
+        XCTAssertEqual(oxygen.weeklyRanges, [
+            nil, nil, nil,
+            WatchDayRange(low: 93, high: 99),
+            nil, nil,
+            WatchDayRange(low: 94, high: 98)
+        ])
+        XCTAssertEqual(oxygen.weeklyAsOf, anchor)
+        XCTAssertEqual(
+            WatchMetricsSnapshotBuilder.seriesRanges(from: trends)[WatchMetricKindKey.oxygenSaturation],
+            WatchSeriesRange(min: 95, max: 98)
+        )
+
+        let kinds = snapshot.metrics.map(\.kind)
+        let oxygenIndex = try XCTUnwrap(kinds.firstIndex(of: WatchMetricKindKey.oxygenSaturation))
+        XCTAssertEqual(kinds[oxygenIndex + 1], WatchMetricKindKey.wristTemperature, "directly above Skin Temp")
+    }
+
+    /// The card rides the Blood Oxygen permission alone, so turning it off
+    /// leaves no card (and with it no warning on the watch).
+    func testBloodOxygenCardIsAbsentWithoutItsPermission() throws {
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 17, hour: 9)))
+        let (baseSummary, trends) = fixture(anchor: anchor)
+        var summary = baseSummary
+        summary.oxygenSaturation = HealthMetricSummary(value: 97)
+
+        let snapshot = WatchMetricsSnapshotBuilder.makeSnapshot(
+            summary: summary, trends: trends, lastRefreshDate: anchor,
+            permissionSelection: BodyHealthPermissionSelection.defaultValue.setting(.bloodOxygen, isEnabled: false),
+            temperatureUnitPreference: .celsius,
+            idealSleepDuration: 8 * 3_600, now: anchor
+        )
+
+        XCTAssertNil(snapshot.metric(forKind: WatchMetricKindKey.oxygenSaturation))
+        XCTAssertNotNil(snapshot.metric(forKind: WatchMetricKindKey.heartRate))
+        XCTAssertNotNil(snapshot.metric(forKind: WatchMetricKindKey.wristTemperature))
+    }
+
+    // MARK: - intradayChart(from:window:) (the iPhone's Blood Oxygen chart)
+
+    /// The readings fall in the window's 30 minute slots, each slot dated on
+    /// the window's own half hour grid (never a reading's time), so the
+    /// iPhone's slots meet the watch's by start; the window is half open at
+    /// the current slot's end, and a non-finite reading is skipped.
+    func testIntradayChartSlotsReadingsOnTheWindowsGrid() throws {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let now = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 6, day: 4, hour: 16, minute: 47, second: 13)))
+        let window = WatchIntradayWindow.endingAt(now, calendar: utc)
+        let start = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 6, day: 4, hour: 8, minute: 30)))
+        XCTAssertEqual(window.start, start)
+        func at(_ minutes: Double, _ value: Double) -> HealthTrendDataPoint {
+            HealthTrendDataPoint(date: start.addingTimeInterval(minutes * 60), value: value)
+        }
+        let samples = HealthTrendSeries(points: [
+            at(-1, 90),            // before the window
+            at(47, 97),            // slot 1, out of order
+            at(0, 95),             // slot 0, on its start
+            at(12.5, 98),          // slot 0
+            at(29, 96),            // slot 0
+            at(200, .nan),         // skipped
+            at(509, 99),           // slot 16, the current one
+            at(510, 100)           // the plot's end: outside
+        ])
+
+        let chart = WatchMetricsSnapshotBuilder.intradayChart(from: samples, window: window)
+
+        XCTAssertEqual(chart.window, window)
+        XCTAssertEqual(chart.buckets, [
+            WatchIntradayBucket(start: start, minimum: 95, maximum: 98, average: (95.0 + 98.0 + 96.0) / 3),
+            WatchIntradayBucket(start: start.addingTimeInterval(30 * 60), minimum: 97, maximum: 97, average: 97),
+            WatchIntradayBucket(start: start.addingTimeInterval(16 * 30 * 60), minimum: 99, maximum: 99, average: 99)
+        ])
+        // The same grid a watch read made a few minutes later lands on.
+        let laterWindow = WatchIntradayWindow.endingAt(now.addingTimeInterval(6 * 60), calendar: utc)
+        XCTAssertEqual(laterWindow.start, window.start)
+        XCTAssertEqual(
+            WatchMetricsSnapshotBuilder.intradayChart(from: samples, window: laterWindow).buckets.map(\.start),
+            chart.buckets.map(\.start)
+        )
+
+        XCTAssertEqual(WatchMetricsSnapshotBuilder.intradayChart(from: .empty, window: window).buckets, [])
     }
 
     // MARK: - Sleep stages (watch Sleep Stages complication)

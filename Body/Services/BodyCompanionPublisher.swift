@@ -310,6 +310,23 @@ final class BodyCompanionPublisher {
                 workoutColorOverrides: BodyWorkoutColorOverrides.rawValue(from: input.workoutColorPalette.overrides)
             )
             snapshot.source = "phone"
+            // Blood Oxygen's "Last 8 hours", from the day samples the live
+            // trends carry (like the Stress timeline above), on the watch's
+            // slot grid. The watch combines it with its own read
+            // (`WatchComputeMerge`), so it fills the chart on a watch whose
+            // blood oxygen the iPhone calculates. These samples move only
+            // with the iPhone's own Blood Oxygen reads (the observed per
+            // reading pull republishes; a full refresh reuses them). Nil
+            // without Blood Oxygen or without a reading in the window.
+            if input.permissionSelection.includes(.bloodOxygen) {
+                let chart = WatchMetricsSnapshotBuilder.intradayChart(
+                    from: input.shared.trends.oxygenSaturationDaySamples,
+                    window: WatchIntradayWindow.endingAt(input.now, calendar: .bodyGregorian)
+                )
+                if !chart.buckets.isEmpty {
+                    snapshot.heartCharts = [WatchMetricKindKey.oxygenSaturation: chart]
+                }
+            }
             snapshot.readinessHeroShowsLevel = input.readinessHeroShowsLevel
             snapshot.showsSleepDebt = input.showsSleepDebt
             snapshot.homeHero = input.homeHeroRaw

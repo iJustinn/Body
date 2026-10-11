@@ -14,12 +14,14 @@
 //  behind the Steps, Active Energy and Resting Energy cards, which mirrors the
 //  engine's `fetchDailyCumulativeQuantitySeries` and shares its resting energy
 //  estimate fold; and `BodyHealthQuantityFetch.intradayRangeBuckets`, the 30
-//  minute slots behind the Heart Rate and HRV chart complications, which the
-//  watch's own detail pages read through too (`WatchHealthStore`), so a
-//  complication and its page chart the same slots. This file owns no query
-//  logic of its own — a hand-forked watch fetch layer drifted from the phone
-//  within a day in the June 2026 standalone-compute attempt (a 26-hour
-//  night), and this file exists precisely so there is nothing left to drift.
+//  minute slots behind the Heart Rate, HRV and Blood Oxygen chart
+//  complications, which the watch's own Heart Rate and HRV detail pages read
+//  through too (`WatchHealthStore`), so a complication and its page chart the
+//  same slots (the Blood Oxygen page draws the snapshot's chart itself). This
+//  file owns no query logic of its own — a hand-forked watch fetch layer
+//  drifted from the phone within a day in the June 2026 standalone-compute
+//  attempt (a 26-hour night), and this file exists precisely so there is
+//  nothing left to drift.
 //
 //  Two rules run through everything here:
 //  * Source parity — every source-selectable read resolves the PHONE's synced
@@ -139,14 +141,18 @@ actor WatchDeltaFetcher {
             .wristTemperature, reads: reads,
             start: windowStart, end: now, calendar: calendar
         )
-        // The HR / HRV week charts' daily min/max capsules, over the same
-        // window and source predicate as their averages above.
+        // The HR / HRV / Blood Oxygen week charts' daily min/max capsules,
+        // over the same window and source predicate as their averages above.
         async let heartRateRanges = dailyRangeSeries(
             .heartRate, reads: reads,
             start: windowStart, end: now, calendar: calendar
         )
         async let heartRateVariabilityRanges = dailyRangeSeries(
             .heartRateVariability, reads: reads,
+            start: windowStart, end: now, calendar: calendar
+        )
+        async let oxygenSaturationRanges = dailyRangeSeries(
+            .oxygenSaturation, reads: reads,
             start: windowStart, end: now, calendar: calendar
         )
         // Latest-sample summaries: bounded to the daily trend window, matching
@@ -166,6 +172,10 @@ actor WatchDeltaFetcher {
         )
         async let heartRateVariabilitySample = latestSample(
             .heartRateVariability, reads: reads,
+            now: now, calendar: calendar
+        )
+        async let oxygenSaturationSample = latestSample(
+            .oxygenSaturation, reads: reads,
             now: now, calendar: calendar
         )
         async let sleep = sleepDelta(
@@ -201,15 +211,19 @@ actor WatchDeltaFetcher {
             .activeEnergy, reads: movementReads,
             start: stressStart, end: now, calendar: calendar
         )
-        // The Heart Rate and HRV chart complications: the detail pages'
-        // "Last 8 hours" read, in the same 30 minute slots on the same
-        // window, under the kinds' resolution above (see `intradayChart`).
+        // The Heart Rate, HRV and Blood Oxygen chart complications (and the
+        // Blood Oxygen page): the detail pages' "Last 8 hours" read, in the
+        // same 30 minute slots on the same window, under the kinds'
+        // resolution above (see `intradayChart`).
         let intradayWindow = WatchIntradayWindow.endingAt(now, calendar: calendar)
         async let heartRateIntraday = intradayChart(
             .heartRate, reads: reads, window: intradayWindow
         )
         async let heartRateVariabilityIntraday = intradayChart(
             .heartRateVariability, reads: reads, window: intradayWindow
+        )
+        async let oxygenSaturationIntraday = intradayChart(
+            .oxygenSaturation, reads: reads, window: intradayWindow
         )
         // The Steps, Active Energy and Resting Energy cards: a fixed trailing
         // week of daily totals, today included, so every day the 7 day bars
@@ -244,9 +258,11 @@ actor WatchDeltaFetcher {
         delta.wristTemperatureSeries = await wristTemperatureSeries
         delta.heartRateRanges = await heartRateRanges
         delta.heartRateVariabilityRanges = await heartRateVariabilityRanges
+        delta.oxygenSaturationRanges = await oxygenSaturationRanges
         delta.heartRateSample = await heartRateSample
         delta.restingHeartRateSample = await restingHeartRateSample
         delta.heartRateVariabilitySample = await heartRateVariabilitySample
+        delta.oxygenSaturationSample = await oxygenSaturationSample
 
         let resolvedSleep = await sleep
         delta.sleepNights = resolvedSleep.nights
@@ -262,6 +278,7 @@ actor WatchDeltaFetcher {
 
         delta.heartRateIntraday = await heartRateIntraday
         delta.heartRateVariabilityIntraday = await heartRateVariabilityIntraday
+        delta.oxygenSaturationIntraday = await oxygenSaturationIntraday
 
         delta.stepsWeek = await stepsWeek
         delta.activeEnergyWeek = await activeEnergyWeek
@@ -317,11 +334,11 @@ actor WatchDeltaFetcher {
         )
     }
 
-    /// `dailySeries`' daily min/max counterpart for the Heart Rate and HRV
-    /// week charts' capsules: the same descriptor, source predicate and
-    /// window, through the shared leaf that applies the phone's range point
-    /// rule. `.failure` keeps the seed's capsules, and is never a readiness
-    /// blocker.
+    /// `dailySeries`' daily min/max counterpart for the Heart Rate, HRV and
+    /// Blood Oxygen week charts' capsules: the same descriptor, source
+    /// predicate and window, through the shared leaf that applies the phone's
+    /// range point rule. `.failure` keeps the seed's capsules, and is never a
+    /// readiness blocker.
     private func dailyRangeSeries(
         _ kind: HealthMetricKind,
         reads: [HealthMetricKind: WatchSourceRead],
@@ -351,6 +368,10 @@ actor WatchDeltaFetcher {
         )
     }
 
+    /// The newest reading in the daily trend window, in the phone's display
+    /// unit: the descriptor's `valueTransform` is applied (Blood Oxygen's
+    /// `normalizedPercent`, which reads HealthKit's 0.97 as 97; identity for
+    /// Heart Rate, Resting HR and HRV), as the phone's `latestQuantity` does.
     private func latestSample(
         _ kind: HealthMetricKind,
         reads: [HealthMetricKind: WatchSourceRead],
@@ -383,7 +404,7 @@ actor WatchDeltaFetcher {
                 predicate: predicate
             )
             guard case .success(let result) = outcome, let result else { return nil }
-            let value = result.quantity.doubleValue(for: unit)
+            let value = descriptor.valueTransform(result.quantity.doubleValue(for: unit))
             guard value.isFinite else { return nil }
             return WatchDeltaSample(value: value, measuredAt: result.endDate)
         }
@@ -397,7 +418,7 @@ actor WatchDeltaFetcher {
         // watch an absent reading means "this device has no local data", not an
         // authoritative clear, so the seeded summary value survives either way.
         guard case .success(let sample) = outcome, let sample else { return nil }
-        let value = sample.quantity.doubleValue(for: unit)
+        let value = descriptor.valueTransform(sample.quantity.doubleValue(for: unit))
         guard value.isFinite else { return nil }
         return WatchDeltaSample(value: value, measuredAt: sample.endDate)
     }
@@ -497,15 +518,18 @@ actor WatchDeltaFetcher {
 
     // MARK: - Chart complications
 
-    /// A Heart Rate or HRV chart complication's last 8 hours: the detail
-    /// page's read (`WatchHealthStore.intradayBuckets`) through the same
-    /// shared leaf, with the descriptor's type and unit (SDNN in ms for HRV,
-    /// as on the page) under the kind's resolution in `reads`. The predicate
+    /// A Heart Rate, HRV or Blood Oxygen chart complication's last 8 hours:
+    /// the detail page's read (`WatchHealthStore.intradayBuckets`) through the
+    /// same shared leaf, with the descriptor's type, unit and value transform
+    /// (SDNN in ms for HRV, as on the page; Blood Oxygen in percent, as on the
+    /// iPhone) under the kind's resolution in `reads`. The predicate
     /// is the page's own, open ended on purpose (`endDate: nil`), so a heart
     /// rate series that started before the window still contributes its
     /// in-window beats. A kind with no source on this watch at all
     /// (`.unavailable`) reads as an empty chart, as the page's does, which
-    /// removes the displayed one. A skipped resolution (Heart off, or a
+    /// removes the displayed one (Blood Oxygen's is left out of the snapshot
+    /// instead, so the iPhone's stands: `WatchComputeAssembly.heartCharts`).
+    /// A skipped resolution (Heart off, or a
     /// selection this watch can't match), a missing read or a failed query
     /// leaves `.failure`, which keeps it.
     private func intradayChart(
@@ -530,7 +554,8 @@ actor WatchDeltaFetcher {
                 ),
                 unit: descriptor.unit,
                 start: window.start,
-                end: window.end
+                end: window.end,
+                valueTransform: descriptor.valueTransform
             )
             guard case .success(let buckets) = outcome else { return .failure }
             return .success(WatchIntradayChart(window: window, buckets: buckets))

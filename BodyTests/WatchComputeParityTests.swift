@@ -71,6 +71,7 @@ final class WatchComputeParityTests: XCTestCase {
         trends.wristTemperature = dailySeries(dayCount: 365, anchor: anchor, calendar: calendar, baseline: 36.2, amplitude: 0.4)
         trends.heartRateRanges = rangeSeries(around: trends.heartRate, spread: 18, anchor: anchor, calendar: calendar)
         trends.heartRateVariabilityRanges = rangeSeries(around: trends.heartRateVariability, spread: 25, anchor: anchor, calendar: calendar)
+        trends.oxygenSaturationRanges = rangeSeries(around: trends.oxygenSaturation, spread: 2, anchor: anchor, calendar: calendar)
         // The day's running totals: a month is plenty, the watch reads only
         // the trailing week and the seed trims them away entirely.
         trends.steps = dailySeries(dayCount: 30, anchor: anchor, calendar: calendar, baseline: 8_400, amplitude: 2_600)
@@ -586,6 +587,7 @@ final class WatchComputeParityTests: XCTestCase {
         delta.heartRateVariabilitySeries = deltaSlice(fixture.trends.heartRateVariability)
         delta.heartRateRanges = deltaRangeSlice(fixture.trends.heartRateRanges)
         delta.heartRateVariabilityRanges = deltaRangeSlice(fixture.trends.heartRateVariabilityRanges)
+        delta.oxygenSaturationRanges = deltaRangeSlice(fixture.trends.oxygenSaturationRanges)
         delta.respiratoryRateSeries = deltaSlice(fixture.trends.respiratoryRate)
         delta.oxygenSaturationSeries = deltaSlice(fixture.trends.oxygenSaturation)
         delta.wristTemperatureSeries = deltaSlice(fixture.trends.wristTemperature)
@@ -594,6 +596,7 @@ final class WatchComputeParityTests: XCTestCase {
         delta.heartRateSample = latestSample(fixture.trends.heartRate)
         delta.restingHeartRateSample = latestSample(fixture.trends.restingHeartRate)
         delta.heartRateVariabilitySample = latestSample(fixture.trends.heartRateVariability)
+        delta.oxygenSaturationSample = latestSample(fixture.trends.oxygenSaturation)
         // The night with the latest stage date among the delta nights — the
         // same pick `WatchDeltaFetcher.sleepDelta` makes.
         delta.latestNight = deltaNights.max { lhs, rhs in
@@ -689,7 +692,7 @@ final class WatchComputeParityTests: XCTestCase {
     // MARK: - Assertions
 
     /// Per-metric equality across every field the plan calls out, for all
-    /// seven dashboard kinds. `excluding` skips kinds with a documented
+    /// dashboard kinds (`displayOrder`). `excluding` skips kinds with a documented
     /// deliberate deviation for the case at hand (e.g. the wrist-temperature
     /// headline lag when the seed's `dataThrough` is stale relative to `now` —
     /// see `testDeltaNewerThanSeedAdoptsFreshDataWithHonestWatermarks`).
@@ -1091,6 +1094,10 @@ final class WatchComputeParityTests: XCTestCase {
         let heartRateAsOf = try XCTUnwrap(dataAsOf[WatchMetricKindKey.heartRate])
         XCTAssertGreaterThan(heartRateAsOf, dataThrough, "the watermark must be the fresh sample's own date, not the stale seed's dataThrough")
         XCTAssertEqual(heartRateAsOf, nowDay)
+        // Blood Oxygen's card follows the same rule.
+        let trueOxygenSaturationToday = try XCTUnwrap(fixture.trends.oxygenSaturation.point(on: nowDay)?.value)
+        XCTAssertEqual(watch.metric(forKind: WatchMetricKindKey.oxygenSaturation)?.rawValue, trueOxygenSaturationToday)
+        XCTAssertEqual(dataAsOf[WatchMetricKindKey.oxygenSaturation], nowDay)
 
         // `mergingComputed`: a "current" displayed snapshot is what the phone
         // pushed at `dataThrough` (uniform stamps at that date); the fresher
@@ -1149,7 +1156,7 @@ final class WatchComputeParityTests: XCTestCase {
         XCTAssertNil(mergedWristTemp.liveUpdatedAt, "chart adoption makes no provenance claim")
     }
 
-    // MARK: - Weekly ranges (the HR / HRV week charts' capsules)
+    // MARK: - Weekly ranges (the HR / HRV / Blood Oxygen week charts' capsules)
 
     /// The watch computes the capsules from the seed's one trimmed week plus
     /// its own delta re-read, the phone from its full range series: on a seed
@@ -1172,7 +1179,8 @@ final class WatchComputeParityTests: XCTestCase {
         )
 
         XCTAssertEqual(seed.trends.heartRateRanges.points.map(\.date).max(), calendar.startOfDay(for: dataThrough))
-        for kind in [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability] {
+        XCTAssertEqual(seed.trends.oxygenSaturationRanges.points.map(\.date).max(), calendar.startOfDay(for: dataThrough))
+        for kind in [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability, WatchMetricKindKey.oxygenSaturation] {
             let phoneRanges = try XCTUnwrap(phone.metric(forKind: kind)?.weeklyRanges, kind)
             XCTAssertEqual(phoneRanges.count, 7, kind)
             XCTAssertNil(phoneRanges[6 - Self.rangelessAgeDay], "\(kind): the day without a range")
@@ -1199,6 +1207,7 @@ final class WatchComputeParityTests: XCTestCase {
             mutateDelta: { delta in
                 delta.heartRateRanges = .failure
                 delta.heartRateVariabilityRanges = .failure
+                delta.oxygenSaturationRanges = .failure
             }
         )
 
@@ -1229,10 +1238,11 @@ final class WatchComputeParityTests: XCTestCase {
             mutateDelta: { delta in
                 delta.heartRateRanges = .failure
                 delta.heartRateVariabilityRanges = .failure
+                delta.oxygenSaturationRanges = .failure
             }
         )
 
-        for kind in [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability] {
+        for kind in [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability, WatchMetricKindKey.oxygenSaturation] {
             let phoneRanges = try XCTUnwrap(phone.metric(forKind: kind)?.weeklyRanges, kind)
             let watchMetric = try XCTUnwrap(result.snapshot.metric(forKind: kind), kind)
             let watchRanges = try XCTUnwrap(watchMetric.weeklyRanges, kind)

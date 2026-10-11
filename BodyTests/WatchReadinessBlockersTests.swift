@@ -66,6 +66,17 @@ final class WatchReadinessBlockersTests: XCTestCase {
         XCTAssertEqual(blockers(delta(carried: all)).count, all.count)
     }
 
+    /// The Blood Oxygen card's reads (its week capsules, latest reading and
+    /// "Last 8 hours") are display only: failing or missing, they never
+    /// block readiness, which reads the daily series alone.
+    func testBloodOxygenCardReadsNeverBlock() {
+        var cardReadsFailed = delta()
+        cardReadsFailed.oxygenSaturationRanges = .failure
+        cardReadsFailed.oxygenSaturationIntraday = .failure
+        cardReadsFailed.oxygenSaturationSample = nil
+        XCTAssertEqual(blockers(cardReadsFailed), [])
+    }
+
     func testFailedWorkoutQueryStillBlocks() {
         var failed = delta(carried: [.oxygenSaturation])
         failed.workouts = .failure

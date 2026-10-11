@@ -2,12 +2,12 @@
 //  WatchHeartChartsSnapshotTests.swift
 //  BodyTests
 //
-//  The `heartCharts` payload the watch's Heart Rate and HRV chart complications
-//  draw: it survives phone/watch version skew (an older payload omits the key,
-//  and a phone, which never sets it, publishes no key at all, so the push is
-//  unchanged), round-trips through the snapshot's encoding, and the gallery
-//  placeholder carries sample slots and a 12 hour Stress timeline that still
-//  end on the sample cards' readings.
+//  The `heartCharts` payload the watch's Heart Rate, HRV and Blood Oxygen chart
+//  complications draw: it survives phone/watch version skew (an older payload
+//  omits the key, and a phone with no Blood Oxygen chart to send publishes no
+//  key at all, so that push is unchanged), round-trips through the snapshot's
+//  encoding, and the gallery placeholder carries sample slots and a 12 hour
+//  Stress timeline that still end on the sample cards' readings.
 //
 
 import XCTest
@@ -35,7 +35,7 @@ final class WatchHeartChartsSnapshotTests: XCTestCase {
     // MARK: - Schema evolution
 
     func testSnapshotWithoutTheHeartChartsKeyStillDecodes() throws {
-        // What an older watch cached, and what every phone publishes.
+        // What an older watch cached, and what an older phone publishes.
         let json = """
         {
           "generatedAt": "2026-06-04T07:00:00Z",
@@ -48,8 +48,8 @@ final class WatchHeartChartsSnapshotTests: XCTestCase {
         XCTAssertNil(decoded.heartCharts)
     }
 
-    /// The phone never sets the field, so its push carries no key and stays
-    /// the size it was.
+    /// A phone with no Blood Oxygen chart leaves the field nil, so its push
+    /// carries no key and stays the size it was.
     func testANilFieldWritesNoKey() throws {
         let snapshot = WatchMetricsSnapshot(generatedAt: moment(9), lastRefreshDate: moment(9), metrics: [])
         let data = try XCTUnwrap(snapshot.encoded())
@@ -61,7 +61,8 @@ final class WatchHeartChartsSnapshotTests: XCTestCase {
         var original = WatchMetricsSnapshot(generatedAt: moment(9), lastRefreshDate: moment(9), metrics: [])
         original.heartCharts = [
             WatchMetricKindKey.heartRate: chart(slots: [(0, 64), (30, 61), (480, 62)]),
-            WatchMetricKindKey.heartRateVariability: chart(slots: [(60, 51)])
+            WatchMetricKindKey.heartRateVariability: chart(slots: [(60, 51)]),
+            WatchMetricKindKey.oxygenSaturation: chart(slots: [(90, 96), (450, 97)])
         ]
         let data = try XCTUnwrap(original.encoded())
 
@@ -75,12 +76,22 @@ final class WatchHeartChartsSnapshotTests: XCTestCase {
 
     func testPlaceholderChartsEndOnTheSampleCardsReadings() throws {
         let placeholder = WatchMetricsSnapshot.placeholder
-        for kind in [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability] {
+        for kind in [WatchMetricKindKey.heartRate, WatchMetricKindKey.heartRateVariability, WatchMetricKindKey.oxygenSaturation] {
             let chart = try XCTUnwrap(placeholder.heartCharts?[kind], kind)
             let latest = try XCTUnwrap(chart.buckets.max { $0.start < $1.start }, kind)
             XCTAssertEqual(latest.average, placeholder.metric(forKind: kind)?.rawValue, "\(kind) ends on its card's reading")
         }
-        XCTAssertEqual(placeholder.heartCharts?.count, 2, "Heart Rate and HRV only")
+        XCTAssertEqual(placeholder.heartCharts?.count, 3, "Heart Rate, HRV and Blood Oxygen")
+        // Blood Oxygen reads in whole percent, never past 100, like a watch read.
+        let oxygen = try XCTUnwrap(placeholder.heartCharts?[WatchMetricKindKey.oxygenSaturation])
+        for bucket in oxygen.buckets {
+            for value in [bucket.minimum, bucket.average, bucket.maximum] {
+                XCTAssertEqual(value.rounded(), value)
+                XCTAssertLessThanOrEqual(value, 100)
+            }
+        }
+        XCTAssertEqual(placeholder.metric(forKind: WatchMetricKindKey.oxygenSaturation)?.displayValue, "97")
+        XCTAssertEqual(placeholder.metric(forKind: WatchMetricKindKey.oxygenSaturation)?.unit, "%")
     }
 
     func testPlaceholderSlotsSitOnTheirWindowsGridOnWholeSeconds() throws {

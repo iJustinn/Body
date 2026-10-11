@@ -8,9 +8,13 @@
 //  position). Entered from a dashboard card or a complication tap, it opens
 //  positioned on the chosen metric — the order doesn't change. While the
 //  Heart Rate, HRV, Steps or Active Energy page is the visible one, it keeps
-//  that page's "Last 8 hours" chart fresh (`WatchIntradayChartStore`). The Stress page's "Last 8
-//  hours" chart rides the snapshot instead (the compute builds it alongside
-//  the Stress value), so it is not read here. Each page's warning cards come
+//  that page's "Last 8 hours" chart fresh (`WatchIntradayChartStore`). The
+//  Blood Oxygen page's "Last 8 hours" chart rides the snapshot instead
+//  (`WatchMetricDetailView.snapshotChartKinds`: the slots the watch compute
+//  and the iPhone fill together, the ones its chart complication draws),
+//  re-windowed to now, and the Stress page's "Last 12 hours" chart rides it
+//  too (the compute builds it alongside the Stress value), so neither is
+//  read here. Each page's warning cards come
 //  from the snapshot's warnings, the phone's and the watch's own
 //  (`WatchMetricWarnings.shown`), with the fold state `WatchWarningFoldStore`
 //  resolves, and a tap on one folds it there.
@@ -69,7 +73,9 @@ struct WatchMetricDetailPager: View {
                         sleepStages: model.snapshot.sleepStages,
                         sleepDebt: model.snapshot.showsSleepDebt == true ? model.snapshot.sleepDebt : nil,
                         exerciseWeekMetric: WatchComplicationTimeline.exerciseWeekMetric(in: model.snapshot),
-                        intradayChart: intradayCharts.charts[metric.kind],
+                        intradayChart: WatchMetricDetailView.snapshotChartKinds.contains(metric.kind)
+                            ? model.snapshot.heartCharts?[metric.kind]?.windowed(endingAt: Date())
+                            : intradayCharts.charts[metric.kind],
                         stressTimeline: model.snapshot.stressTimeline,
                         workoutColorOverrides: model.snapshot.workoutColorOverrides,
                         warnings: WatchMetricWarnings.rows(

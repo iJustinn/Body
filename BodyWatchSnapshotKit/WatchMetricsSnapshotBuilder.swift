@@ -222,6 +222,16 @@ enum WatchMetricsSnapshotBuilder {
                 ))
             }
         }
+        if permissionSelection.includes(.bloodOxygen) {
+            // The latest reading, in percent like the iPhone card, filled
+            // against the whole series' range like HRV (higher reads fuller).
+            metrics.append(rangeMetric(
+                kind: WatchMetricKindKey.oxygenSaturation, title: String(localized: "Blood Oxygen", table: "BodyWatchSnapshotKit"), value: summary.oxygenSaturation.value,
+                unit: "%", decimals: 0,
+                seriesValues: values(trends.oxygenSaturation),
+                overrideRange: seriesRangeOverride?(WatchMetricKindKey.oxygenSaturation)
+            ))
+        }
         if permissionSelection.includes(.wristTemperature) {
             metrics.append(skinTempMetric(
                 summary.wristTemperature.value,
@@ -247,6 +257,7 @@ enum WatchMetricsSnapshotBuilder {
             case WatchMetricKindKey.steps: return weekly(trends.steps, now: now)
             case WatchMetricKindKey.activeEnergy: return energyWeek(trends.activeEnergy)
             case WatchMetricKindKey.restingEnergy: return energyWeek(trends.restingEnergy)
+            case WatchMetricKindKey.oxygenSaturation: return weekly(trends.oxygenSaturation, now: now)
             case WatchMetricKindKey.workoutMinutes: return workoutWeeklyMinutes
             // The legacy compatibility copy carries the same week (see the
             // version-skew comment where both metrics are appended).
@@ -260,14 +271,15 @@ enum WatchMetricsSnapshotBuilder {
             }
         }
 
-        // Each day's min/max under the Heart Rate, HRV and Stress week charts
-        // (the iPhone trend charts' range bars), windowed exactly like
-        // `weekly` above, so slot i is the same day in both. nil for every
-        // other kind.
+        // Each day's min/max under the Heart Rate, HRV, Blood Oxygen and
+        // Stress week charts (the iPhone trend charts' range bars), windowed
+        // exactly like `weekly` above, so slot i is the same day in both. nil
+        // for every other kind.
         func weeklyRangeValues(forKind kind: String) -> [WatchDayRange?]? {
             switch kind {
             case WatchMetricKindKey.heartRate: return weeklyRanges(trends.heartRateRanges, now: now)
             case WatchMetricKindKey.heartRateVariability: return weeklyRanges(trends.heartRateVariabilityRanges, now: now)
+            case WatchMetricKindKey.oxygenSaturation: return weeklyRanges(trends.oxygenSaturationRanges, now: now)
             case WatchMetricKindKey.stress: return weeklyRanges(trends.stressRanges, now: now)
             default: return nil
             }
@@ -282,6 +294,7 @@ enum WatchMetricsSnapshotBuilder {
             case WatchMetricKindKey.heartRate: return summary.heartRate.measuredAt
             case WatchMetricKindKey.heartRateVariability: return summary.heartRateVariability.measuredAt
             case WatchMetricKindKey.restingHeartRate: return summary.restingHeartRate.measuredAt
+            case WatchMetricKindKey.oxygenSaturation: return summary.oxygenSaturation.measuredAt
             case WatchMetricKindKey.sleep: return sleepNightEnd
             default: return nil
             }
@@ -320,6 +333,7 @@ enum WatchMetricsSnapshotBuilder {
             (WatchMetricKindKey.heartRate, trends.heartRate),
             (WatchMetricKindKey.heartRateVariability, trends.heartRateVariability),
             (WatchMetricKindKey.restingHeartRate, trends.restingHeartRate),
+            (WatchMetricKindKey.oxygenSaturation, trends.oxygenSaturation),
             (WatchMetricKindKey.wristTemperature, trends.wristTemperature)
         ]
 
@@ -332,6 +346,36 @@ enum WatchMetricsSnapshotBuilder {
             ranges[kind] = WatchSeriesRange(min: low, max: high)
         }
         return ranges
+    }
+
+    /// A "Last 8 hours" chart (`WatchMetricsSnapshot.heartCharts`) built from
+    /// readings already in hand rather than read from HealthKit: the iPhone's
+    /// Blood Oxygen chart, from its day samples (already in percent). Each
+    /// finite reading in `[window.start, window.plotEnd)` falls in the slot
+    /// `k` whole 30 minute steps after `window.start`, and every slot with a
+    /// reading gets its lowest, highest and mean value. A slot's `start` is
+    /// `window.start` plus those whole steps, never a reading's own time, so
+    /// it lands on the same half hour grid as the watch's statistics read
+    /// (`BodyHealthQuantityFetch.intradayRangeBuckets`) and the two charts'
+    /// slots match by start once `WatchIntradayChart.combined(with:)` puts
+    /// them together. Sorted by start; empty when no reading falls inside.
+    static func intradayChart(from samples: HealthTrendSeries, window: WatchIntradayWindow) -> WatchIntradayChart {
+        var slots: [Int: [Double]] = [:]
+        for point in samples.points
+        where point.value.isFinite && point.date >= window.start && point.date < window.plotEnd {
+            let slot = Int((point.date.timeIntervalSince(window.start) / WatchIntradayWindow.slotLength).rounded(.down))
+            slots[slot, default: []].append(point.value)
+        }
+        let buckets = slots.keys.sorted().compactMap { slot -> WatchIntradayBucket? in
+            guard let values = slots[slot], let minimum = values.min(), let maximum = values.max() else { return nil }
+            return WatchIntradayBucket(
+                start: window.start.addingTimeInterval(Double(slot) * WatchIntradayWindow.slotLength),
+                minimum: minimum,
+                maximum: maximum,
+                average: values.reduce(0, +) / Double(values.count)
+            )
+        }
+        return WatchIntradayChart(window: window, buckets: buckets)
     }
 
     // MARK: - Per-metric builders

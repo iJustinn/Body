@@ -193,6 +193,62 @@ final class BodyCompanionPublisherTests: XCTestCase {
         }
     }
 
+    /// Blood Oxygen's "Last 8 hours" rides the push, built from the captured
+    /// live trends' day samples on the watch's slot grid, so a watch whose
+    /// blood oxygen the iPhone calculates still has a chart. None without
+    /// Blood Oxygen, and none without a reading in the window (the field
+    /// stays nil rather than carrying an empty chart).
+    func testTheBloodOxygenChartRidesTheWatchSnapshot() async throws {
+        let calendar = Calendar.bodyGregorian
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10, minute: 40)))
+        let window = WatchIntradayWindow.endingAt(now, calendar: calendar)
+        var trends = HealthTrendSnapshot.empty
+        trends.oxygenSaturationDaySamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: window.start.addingTimeInterval(-600), value: 93),
+            HealthTrendDataPoint(date: window.start.addingTimeInterval(4 * 1_800 + 120), value: 96),
+            HealthTrendDataPoint(date: window.start.addingTimeInterval(4 * 1_800 + 900), value: 98),
+            HealthTrendDataPoint(date: now.addingTimeInterval(-300), value: 97)
+        ])
+        func shared(_ trends: HealthTrendSnapshot) -> BodyCompanionPublishInput.Shared {
+            BodyCompanionPublishInput.Shared(
+                trends: trends,
+                summary: .empty,
+                temperatureUnitPreference: .celsius,
+                energyUnitPreference: .kilocalories,
+                idealSleepDuration: 8 * 60 * 60,
+                showSleepScore: true
+            )
+        }
+        let expected = WatchIntradayChart(window: window, buckets: [
+            WatchIntradayBucket(start: window.start.addingTimeInterval(4 * 1_800), minimum: 96, maximum: 98, average: 97),
+            WatchIntradayBucket(start: window.start.addingTimeInterval(16 * 1_800), minimum: 97, maximum: 97, average: 97)
+        ])
+        var outOfWindow = HealthTrendSnapshot.empty
+        outOfWindow.oxygenSaturationDaySamples = HealthTrendSeries(points: [
+            HealthTrendDataPoint(date: window.start.addingTimeInterval(-600), value: 93)
+        ])
+
+        let cases: [(name: String, trends: HealthTrendSnapshot, permission: BodyHealthPermissionSelection, charts: [String: WatchIntradayChart]?)] = [
+            ("readings in the window", trends, .defaultValue, [WatchMetricKindKey.oxygenSaturation: expected]),
+            ("Blood Oxygen off", trends, BodyHealthPermissionSelection.defaultValue.setting(.bloodOxygen, isEnabled: false), nil),
+            ("no reading in the window", outOfWindow, .defaultValue, nil)
+        ]
+        for testCase in cases {
+            let sent = expectation(description: testCase.name)
+            let publisher = BodyCompanionPublisher(send: { snapshot, _, _, _, _ in
+                XCTAssertEqual(snapshot.heartCharts, testCase.charts, testCase.name)
+                sent.fulfill()
+            })
+
+            publisher.publishWatchSnapshot(
+                makeInput(epoch: 3, shared: shared(testCase.trends), now: now, permissionSelection: testCase.permission),
+                isEpochCurrent: { $0 == 3 }
+            )
+
+            await fulfillment(of: [sent], timeout: 5)
+        }
+    }
+
     func testStaleEpochNeverSends() async {
         let sent = expectation(description: "sent")
         sent.isInverted = true
@@ -406,7 +462,8 @@ final class BodyCompanionPublisherTests: XCTestCase {
 
     /// The publish puts the warnings and the Show on Home Hero switch on the
     /// snapshot it sends, filtered by the cards the builder made: with Heart
-    /// off there's no Heart Rate card, so only Skin Temp's warning ships.
+    /// off there's no Heart Rate card, and with Blood Oxygen off no Blood
+    /// Oxygen card, so their warnings stay behind.
     func testWarningsAndTheHeroSwitchRideTheWatchSnapshot() async throws {
         let shared = BodyCompanionPublishInput.Shared(
             trends: .empty,
@@ -418,8 +475,9 @@ final class BodyCompanionPublisherTests: XCTestCase {
         )
         let stamp = Self.warningNow.addingTimeInterval(-120)
         let cases: [(name: String, permission: BodyHealthPermissionSelection, onHero: Bool, kinds: [String])] = [
-            ("every permission", .defaultValue, false, ["lowHeartRate", "highHeartRate", "highWristTemperature"]),
-            ("Heart off", BodyHealthPermissionSelection.defaultValue.setting(.heart, isEnabled: false), true, ["highWristTemperature"])
+            ("every permission", .defaultValue, false, ["lowHeartRate", "highHeartRate", "lowBloodOxygen", "highWristTemperature"]),
+            ("Heart off", BodyHealthPermissionSelection.defaultValue.setting(.heart, isEnabled: false), true, ["lowBloodOxygen", "highWristTemperature"]),
+            ("Blood Oxygen off", BodyHealthPermissionSelection.defaultValue.setting(.bloodOxygen, isEnabled: false), true, ["lowHeartRate", "highHeartRate", "highWristTemperature"])
         ]
         for testCase in cases {
             let sent = expectation(description: testCase.name)

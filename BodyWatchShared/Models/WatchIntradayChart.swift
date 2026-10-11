@@ -5,10 +5,13 @@
 //  The 30 minute slots behind the watch's "Last 8 hours" charts, and the
 //  geometry every drawing of them shares. The Heart Rate, HRV, Steps and
 //  Active Energy detail pages read their slots on demand
-//  (`WatchIntradayChartStore`, held in memory); the Heart Rate and HRV chart
-//  complications draw the copy the watch compute keeps in the snapshot
+//  (`WatchIntradayChartStore`, held in memory); the Heart Rate, HRV and Blood
+//  Oxygen chart complications draw the copy the snapshot carries
 //  (`WatchMetricsSnapshot.heartCharts`), which is why these types are
-//  Codable.
+//  Codable. The watch compute builds those three; for Blood Oxygen the iPhone
+//  sends its own slots too and the two are combined (`combined(with:)`), and
+//  the Blood Oxygen page draws that same snapshot copy (`windowed(endingAt:)`)
+//  rather than a read of its own.
 //
 //  Shared by the iOS `Body` target (the snapshot it encodes names these
 //  types), the `BodyWatch` target and the watch widget extension, so it stays
@@ -18,10 +21,10 @@
 import Foundation
 
 /// One 30 minute slot of readings, in the metric's display unit (bpm for
-/// Heart Rate, ms for HRV, steps, kcal or kJ for the energies). Slots without
-/// a reading are never built. For the daily total kinds (Steps, Active Energy)
-/// a slot has one number, its sum, carried in all three fields; the chart's
-/// `.totals` style reads `average`.
+/// Heart Rate, ms for HRV, percent for Blood Oxygen, steps, kcal or kJ for
+/// the energies). Slots without a reading are never built. For the daily
+/// total kinds (Steps, Active Energy) a slot has one number, its sum,
+/// carried in all three fields; the chart's `.totals` style reads `average`.
 struct WatchIntradayBucket: Codable, Equatable, Sendable {
     let start: Date
     let minimum: Double
@@ -72,10 +75,54 @@ struct WatchIntradayWindow: Codable, Equatable, Sendable {
 /// The page store never keeps an empty one (an empty read removes the chart
 /// instead). In a snapshot the watch computed, an empty chart is the
 /// compute's "read succeeded, found nothing", which the merge turns into a
-/// removal, so a persisted snapshot never carries one either.
+/// removal (for Blood Oxygen, into the held slots re-windowed, see
+/// `combined(with:)`), so a persisted snapshot never carries one either.
 struct WatchIntradayChart: Codable, Equatable, Sendable {
     let window: WatchIntradayWindow
     let buckets: [WatchIntradayBucket]
+
+    /// This chart moved onto the window ending at `now`: the slots that start
+    /// inside it, on that window, so a chart read or pushed earlier draws the
+    /// same last 8 hours as a fresh read would. Nil when no slot is left. The
+    /// Blood Oxygen page draws the snapshot's chart through this, where the
+    /// pages fed by `WatchIntradayChartStore` draw a read of their own.
+    func windowed(endingAt now: Date, calendar: Calendar = .current) -> WatchIntradayChart? {
+        let current = WatchIntradayWindow.endingAt(now, calendar: calendar)
+        let kept = buckets.filter { $0.start >= current.start && $0.start < current.plotEnd }
+        return kept.isEmpty ? nil : WatchIntradayChart(window: current, buckets: kept)
+    }
+
+    /// Two reads of one kind's slots put together, for the charts both devices
+    /// build (`WatchMetricKindKey.combinedChartKinds`): the later window (by
+    /// `end`, `other` winning a tie), every slot of either chart that starts
+    /// inside it, and where both have a slot (slots share one half hour grid,
+    /// keyed by `start`), the later chart's. Sorted by start, so an encoded
+    /// snapshot stays byte for byte deterministic. Nil when no slot is left;
+    /// `self` unchanged without `other`. Unlike a plain replace, a chart built
+    /// from older readings, such as an iPhone push from samples it read a
+    /// while ago, can't wipe slots only the other read holds; it can still win
+    /// a shared slot until the next read, since "later" is the window's end.
+    func combined(with other: WatchIntradayChart?) -> WatchIntradayChart? {
+        guard let other else { return self }
+        let (older, newer) = other.window.end >= window.end ? (self, other) : (other, self)
+        var slots: [Date: WatchIntradayBucket] = [:]
+        for bucket in older.buckets { slots[bucket.start] = bucket }
+        for bucket in newer.buckets { slots[bucket.start] = bucket }
+        let kept = slots.values
+            .filter { $0.start >= newer.window.start }
+            .sorted { $0.start < $1.start }
+        return kept.isEmpty ? nil : WatchIntradayChart(window: newer.window, buckets: kept)
+    }
+
+    /// `combined(with:)` where the displayed chart may be missing too: the
+    /// merges' entry point. Without a `current` chart an `incoming` one with
+    /// slots is taken as is, and an empty one leaves nothing.
+    static func combining(_ current: WatchIntradayChart?, with incoming: WatchIntradayChart?) -> WatchIntradayChart? {
+        guard let current else {
+            return incoming.flatMap { $0.buckets.isEmpty ? nil : $0 }
+        }
+        return current.combined(with: incoming)
+    }
 }
 
 /// The geometry the detail pages' charts (`WatchIntradayChartView`,
@@ -111,29 +158,43 @@ enum WatchIntradayChartGeometry {
         return runs
     }
 
-    /// The value range of a Heart Rate or HRV plot: spans every slot's range
-    /// so no capsule clips, padded and clamped like the iPhone Day View's
-    /// `computeYDomain` (Body/Views/Health/Charts/MetricCharts.swift), which
-    /// is iOS-only.
-    static func rangeDomain(for buckets: [WatchIntradayBucket]) -> ClosedRange<Double> {
+    /// The value range of a Heart Rate, HRV or Blood Oxygen plot: spans every
+    /// slot's range so no capsule clips, padded and clamped like the iPhone
+    /// Day View's `computeYDomain` (Body/Views/Health/Charts/MetricCharts.swift),
+    /// which is iOS-only. With a `ceiling` no reading passes (Blood Oxygen's
+    /// 100%, `WatchMetricKindKey.valueCeiling`), the padding stops
+    /// `ceilingHeadroom` above it: no round value past the ceiling gets a
+    /// label, so a lone 100% reading never reads 101 or 102, and a dot at the
+    /// ceiling keeps room inside the plot.
+    static func rangeDomain(for buckets: [WatchIntradayBucket], ceiling: Double? = nil) -> ClosedRange<Double> {
         let values = buckets.flatMap { [$0.minimum, $0.maximum] }.filter(\.isFinite)
         guard let minimum = values.min(), let maximum = values.max() else {
             return 0...1
         }
 
-        guard minimum != maximum else {
+        let domain: ClosedRange<Double>
+        if minimum == maximum {
             let padding = max(abs(minimum) * 0.02, 1)
             let lower = max(0, minimum - padding)
-            return lower...max(maximum + padding, lower + 1)
+            domain = lower...max(maximum + padding, lower + 1)
+        } else {
+            let padding = max((maximum - minimum) * 0.16, 1)
+            let lower = max(0, minimum - padding)
+            domain = lower...max(maximum + padding, lower + 1)
         }
 
-        let padding = max((maximum - minimum) * 0.16, 1)
-        let lower = max(0, minimum - padding)
-        return lower...max(maximum + padding, lower + 1)
+        guard let ceiling, maximum <= ceiling, domain.upperBound > ceiling + ceilingHeadroom else {
+            return domain
+        }
+        return domain.lowerBound...(ceiling + ceilingHeadroom)
     }
 
-    /// The round values a Heart Rate or HRV chart complication labels on its
-    /// axis: the multiples inside `domain` of the smallest step of 1, 2, 2.5
+    /// How far a capped value range reaches past its ceiling: half a unit,
+    /// short of the next whole value.
+    static let ceilingHeadroom = 0.5
+
+    /// The round values a Heart Rate, HRV or Blood Oxygen chart complication
+    /// labels on its axis: the multiples inside `domain` of the smallest step of 1, 2, 2.5
     /// or 5 times a power of ten (never under 1, and 2.5 only from 25 up, so
     /// every label is a whole number) that leaves at most three, so 55...149
     /// reads 75, 100 and 125. A range so flat that this leaves a single value

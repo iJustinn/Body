@@ -408,8 +408,8 @@ extension HealthTrendSnapshot {
     /// windowed to `WatchComputeSeed.trendDayCount` most-recent days ending at
     /// `anchor` (the sleep history to `WatchComputeSeed.sleepHistoryDayCount`),
     /// keeping only the series the watch's on-device recompute
-    /// reads (readiness, HR/RHR/HRV, the HR/HRV daily ranges for one week,
-    /// respiratory, SpO₂, Training Load, wrist temperature, sleep + sleep
+    /// reads (readiness, HR/RHR/HRV, the HR/HRV/SpO₂ daily ranges for one
+    /// week, respiratory, SpO₂, Training Load, wrist temperature, sleep + sleep
     /// history, recorded-readiness + its context, the recorded Stress days for
     /// `WatchComputeSeed.stressRecordDayCount` days + their context, the
     /// frozen Sleep Debt nights the watch's 14 night model reads + their context)
@@ -429,9 +429,9 @@ extension HealthTrendSnapshot {
         trimmed.oxygenSaturation = watchComputeWindowed(oxygenSaturation, dayCount: days, anchor: anchor, calendar: calendar)
         trimmed.trainingLoad = watchComputeWindowed(trainingLoad, dayCount: days, anchor: anchor, calendar: calendar)
         trimmed.wristTemperature = watchComputeWindowed(wristTemperature, dayCount: days, anchor: anchor, calendar: calendar)
-        // The Heart Rate and HRV week charts' daily min/max capsules keep only
-        // a week, not `trendDayCount`: the builder reads them through
-        // `.recentWeek` alone (nothing scores them), a seed is at most
+        // The Heart Rate, HRV and Blood Oxygen week charts' daily min/max
+        // capsules keep only a week, not `trendDayCount`: the builder reads
+        // them through `.recentWeek` alone (nothing scores them), a seed is at most
         // `maxComputeAge` (7 days) old, and the delta re-reads them from
         // `dataThrough`'s day minus 2 days, so these 7 days plus the delta
         // always cover the 7 the chart draws. 70 would only grow the push.
@@ -439,6 +439,9 @@ extension HealthTrendSnapshot {
         trimmed.heartRateRanges = watchComputeWindowed(heartRateRanges, dayCount: rangeDays, anchor: anchor, calendar: calendar)
         trimmed.heartRateVariabilityRanges = watchComputeWindowed(
             heartRateVariabilityRanges, dayCount: rangeDays, anchor: anchor, calendar: calendar
+        )
+        trimmed.oxygenSaturationRanges = watchComputeWindowed(
+            oxygenSaturationRanges, dayCount: rangeDays, anchor: anchor, calendar: calendar
         )
         trimmed.sleepHistory = sleepHistory.watchComputeTrimmed(anchor: anchor, calendar: calendar)
 

@@ -335,6 +335,7 @@ final class ProjectConfigurationTests: XCTestCase {
             (WatchMetricKindKey.steps, .steps),
             (WatchMetricKindKey.activeEnergy, .activeEnergy),
             (WatchMetricKindKey.restingEnergy, .restingEnergy),
+            (WatchMetricKindKey.oxygenSaturation, .oxygenSaturation),
             (WatchMetricKindKey.wristTemperature, .wristTemperature)
         ]
 

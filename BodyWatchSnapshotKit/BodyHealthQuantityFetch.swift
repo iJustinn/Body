@@ -497,10 +497,11 @@ enum BodyHealthQuantityFetch {
     }
 
     /// One min/max point per calendar day over `[start, end]`, the daily range
-    /// series behind the Heart Rate and HRV week charts' capsules: the same
-    /// one-day collection (anchored at the window's `startOfDay`, average + min
-    /// + max) the iOS engine's `fetchDailyQuantityAverageAndRangeSeries` runs,
-    /// with its exact point rule. A day gets a point only when its average,
+    /// series behind the Heart Rate, HRV and Blood Oxygen week charts'
+    /// capsules: the same one-day collection (anchored at the window's
+    /// `startOfDay`, average + min + max) the iOS engine's
+    /// `fetchDailyQuantityAverageAndRangeSeries` runs, with its exact point
+    /// rule. A day gets a point only when its average,
     /// minimum AND maximum are all present and finite after `valueTransform`,
     /// dated to the day's start, with the average as `averageValue`. Anything
     /// looser would let the watch draw a capsule the phone's chart never shows.
@@ -567,7 +568,8 @@ enum BodyHealthQuantityFetch {
     /// slots behind the watch's Heart Rate and HRV detail pages
     /// (`WatchHealthStore.intradayBuckets`) and their chart complications
     /// (`WatchMetricsSnapshot.heartCharts`, read by the watch compute), so a
-    /// complication never charts a slot its page doesn't. The same average +
+    /// complication never charts a slot its page doesn't. The compute reads
+    /// Blood Oxygen's chart through it too. The same average +
     /// min + max collection as `dailyQuantityRangeSeries`, anchored at `start`
     /// (the window's oldest slot start, already on the local half hour) with
     /// `WatchIntradayWindow.slotLength` intervals. A statistics query resolves
@@ -575,7 +577,9 @@ enum BodyHealthQuantityFetch {
     /// where a sample query would return one entry per series. A slot gets a
     /// bucket only when its minimum, maximum AND average are all present and
     /// finite, dated at the slot's start; a slot without readings is never
-    /// built.
+    /// built. `valueTransform` is the descriptor's (Blood Oxygen's
+    /// `normalizedPercent`, which reads HealthKit's 0.97 as 97), applied to
+    /// all three values; identity for Heart Rate and HRV.
     static func intradayRangeBuckets(
         store: any BodyHealthQuerying,
         quantityType: HKQuantityType,
@@ -583,6 +587,7 @@ enum BodyHealthQuantityFetch {
         unit: HKUnit,
         start: Date,
         end: Date,
+        valueTransform: @escaping @Sendable (Double) -> Double = { $0 },
         onFailure: ((Error?) -> Void)? = nil
     ) async -> WatchFetchOutcome<[WatchIntradayBucket]> {
         var intervalComponents = DateComponents()
@@ -605,9 +610,9 @@ enum BodyHealthQuantityFetch {
         case .success(let ranges):
             var buckets: [WatchIntradayBucket] = []
             for dated in ranges {
-                guard let minimum = dated.minimum?.doubleValue(for: unit),
-                      let maximum = dated.maximum?.doubleValue(for: unit),
-                      let average = dated.average?.doubleValue(for: unit),
+                guard let minimum = dated.minimum.map({ valueTransform($0.doubleValue(for: unit)) }),
+                      let maximum = dated.maximum.map({ valueTransform($0.doubleValue(for: unit)) }),
+                      let average = dated.average.map({ valueTransform($0.doubleValue(for: unit)) }),
                       minimum.isFinite, maximum.isFinite, average.isFinite else {
                     continue
                 }

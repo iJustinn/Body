@@ -2,11 +2,11 @@
 //  WatchHeartChartsMergeTests.swift
 //  BodyTests
 //
-//  Locks how the Heart Rate and HRV chart complications' slots
+//  Locks how the Heart Rate, HRV and Blood Oxygen chart complications' slots
 //  (`WatchMetricsSnapshot.heartCharts`) are built by the watch compute
 //  (`WatchComputeAssembly.heartCharts(delta:permission:)`) and move through
-//  the watch's merges (`WatchComputeMerge`). Only a watch compute writes the
-//  field, so the rules are:
+//  the watch's merges (`WatchComputeMerge`). For Heart Rate and HRV only a
+//  watch compute writes the field, so the rules are:
 //  * the compute carries a chart for every kind it read, an EMPTY one
 //    included ("read fine, found nothing"), and no key for a read that
 //    failed or was skipped; nothing without Heart or without a read;
@@ -17,9 +17,15 @@
 //    path that deletes a displayed chart without new data;
 //  * a kind the compute brought no chart for keeps its chart;
 //  * a Clear-Cache tombstone is never repopulated;
-//  * a phone push, which never carries the field, keeps each local chart
+//  * a phone push, which never carries their charts, keeps each local chart
 //    while it carries that kind's card, and the settings-change mode and a
 //    permission or data source change (the provenance strip) drop them all.
+//  Blood Oxygen's chart is built by both devices (the iPhone from its own
+//  readings, the only source on a watch whose blood oxygen it calculates),
+//  so both merges combine its slots instead: the later window, the union of
+//  both charts' slots inside it, and the later chart's slot where both have
+//  one. Each kind rides its own permission, and a watch with no blood oxygen
+//  source carries no Blood Oxygen chart, so the iPhone's stands.
 //
 
 import XCTest
@@ -33,6 +39,7 @@ final class WatchHeartChartsMergeTests: XCTestCase {
 
     private let heartRate = WatchMetricKindKey.heartRate
     private let hrv = WatchMetricKindKey.heartRateVariability
+    private let oxygen = WatchMetricKindKey.oxygenSaturation
 
     // MARK: - Fixtures
 
@@ -306,5 +313,217 @@ final class WatchHeartChartsMergeTests: XCTestCase {
         let push = snapshot(metrics: [card(heartRate), card(hrv)], generatedAt: t3)
         XCTAssertNil(WatchComputeMerge.merging(push, over: stripped).heartCharts)
         XCTAssertNil(WatchComputeMerge.merging(push, over: stripped, treatingBlanksAsAuthoritative: true).heartCharts)
+    }
+
+    // MARK: - Blood Oxygen: built by both devices, combined
+
+    /// A Blood Oxygen chart read at `minutes` past 16:00 UTC on 2026-06-04
+    /// (so on a fixed half hour grid: up to 16:29 the window opens at 08:00,
+    /// from 16:30 at 08:30), with one slot per `(slot, average)`, slot `k`
+    /// starting `k` half hours after 08:00.
+    private func oxygenChart(endingAtMinute minutes: Double, slots: [(slot: Int, average: Double)]) -> WatchIntradayChart {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let base = utc.date(from: DateComponents(year: 2026, month: 6, day: 4, hour: 8))!
+        let window = WatchIntradayWindow.endingAt(base.addingTimeInterval((8 * 60 + minutes) * 60), calendar: utc)
+        return WatchIntradayChart(window: window, buckets: slots.map { slot in
+            WatchIntradayBucket(
+                start: base.addingTimeInterval(Double(slot.slot) * WatchIntradayWindow.slotLength),
+                minimum: slot.average - 1,
+                maximum: slot.average + 1,
+                average: slot.average
+            )
+        })
+    }
+
+    func testTheComputeGatesEachKindOnItsOwnPermission() {
+        let heartRead = chart(endingAt: t2, average: 70)
+        let oxygenRead = oxygenChart(endingAtMinute: 40, slots: [(16, 97)])
+        var delta = WatchComputeDelta()
+        delta.heartRateIntraday = .success(heartRead)
+        delta.oxygenSaturationIntraday = .success(oxygenRead)
+
+        XCTAssertEqual(
+            WatchComputeAssembly.heartCharts(delta: delta, permission: .defaultValue),
+            [heartRate: heartRead, oxygen: oxygenRead]
+        )
+        let heartOff = BodyHealthPermissionSelection.defaultValue.setting(.heart, isEnabled: false)
+        XCTAssertEqual(WatchComputeAssembly.heartCharts(delta: delta, permission: heartOff), [oxygen: oxygenRead])
+        let oxygenOff = BodyHealthPermissionSelection.defaultValue.setting(.bloodOxygen, isEnabled: false)
+        XCTAssertEqual(WatchComputeAssembly.heartCharts(delta: delta, permission: oxygenOff), [heartRate: heartRead])
+        XCTAssertNil(WatchComputeAssembly.heartCharts(delta: delta, permission: heartOff.setting(.bloodOxygen, isEnabled: false)))
+    }
+
+    /// A watch with no blood oxygen source (one whose readings the iPhone
+    /// calculates) reads an empty chart (`WatchSourceRead.unavailable`),
+    /// which proves nothing: the compute carries no Blood Oxygen chart, and
+    /// the iPhone's stands through the merge.
+    func testACarriedBloodOxygenCarriesNoChartAndLeavesThePhones() {
+        var delta = WatchComputeDelta()
+        delta.oxygenSaturationIntraday = .success(oxygenChart(endingAtMinute: 50, slots: []))
+        delta.carriedKinds = [.oxygenSaturation]
+        XCTAssertNil(WatchComputeAssembly.heartCharts(delta: delta, permission: .defaultValue))
+
+        delta.heartRateIntraday = .success(chart(endingAt: t2, average: 70))
+        let charts = WatchComputeAssembly.heartCharts(delta: delta, permission: .defaultValue)
+        XCTAssertEqual(charts?.keys.sorted(), [heartRate])
+
+        let phones = oxygenChart(endingAtMinute: 20, slots: [(3, 95), (15, 96)])
+        let merged = WatchComputeMerge.mergingComputed(computed(charts), into: snapshot(heartCharts: [oxygen: phones]))
+        XCTAssertEqual(merged.heartCharts?[oxygen], phones)
+    }
+
+    /// The compute's slots join the displayed (pushed) ones on the later
+    /// window, the compute's winning the slot both read.
+    func testAComputeCombinesItsSlotsWithTheDisplayedOnes() {
+        let pushed = oxygenChart(endingAtMinute: 35, slots: [(2, 95), (10, 96)])
+        let read = oxygenChart(endingAtMinute: 45, slots: [(10, 98), (15, 97)])
+        let merged = WatchComputeMerge.mergingComputed(computed([oxygen: read]), into: snapshot(heartCharts: [oxygen: pushed]))
+
+        XCTAssertEqual(merged.heartCharts?[oxygen], WatchIntradayChart(
+            window: read.window,
+            buckets: oxygenChart(endingAtMinute: 45, slots: [(2, 95), (10, 98), (15, 97)]).buckets
+        ))
+
+        // Over nothing, the read is taken as is.
+        XCTAssertEqual(WatchComputeMerge.mergingComputed(computed([oxygen: read]), into: snapshot()).heartCharts, [oxygen: read])
+    }
+
+    /// The iPhone's push can be built from samples it read a while ago: its
+    /// slots join the watch's newer ones rather than replacing them, and the
+    /// chart whose window ends later wins a slot both have.
+    func testAStalePushKeepsTheWatchsNewerSlots() {
+        let watchRead = oxygenChart(endingAtMinute: 50, slots: [(14, 97), (16, 98)])
+        let displayed = snapshot(metrics: [card(oxygen)], heartCharts: [oxygen: watchRead])
+
+        let stale = snapshot(
+            metrics: [card(oxygen)],
+            generatedAt: t3,
+            heartCharts: [oxygen: oxygenChart(endingAtMinute: 40, slots: [(3, 94), (14, 95)])]
+        )
+        XCTAssertEqual(
+            WatchComputeMerge.merging(stale, over: displayed).heartCharts?[oxygen],
+            WatchIntradayChart(window: watchRead.window, buckets: oxygenChart(endingAtMinute: 50, slots: [(3, 94), (14, 97), (16, 98)]).buckets),
+            "the watch's window is later, so its slot 14 stands and the push only adds slot 3"
+        )
+
+        let later = snapshot(
+            metrics: [card(oxygen)],
+            generatedAt: t3,
+            heartCharts: [oxygen: oxygenChart(endingAtMinute: 55, slots: [(14, 95)])]
+        )
+        let laterWindow = oxygenChart(endingAtMinute: 55, slots: []).window
+        XCTAssertEqual(
+            WatchComputeMerge.merging(later, over: displayed).heartCharts?[oxygen],
+            WatchIntradayChart(window: laterWindow, buckets: oxygenChart(endingAtMinute: 55, slots: [(14, 95), (16, 98)]).buckets),
+            "a later push wins the shared slot and keeps the watch's other one"
+        )
+    }
+
+    /// Only the slots inside the later window survive, and an empty read
+    /// just moves the window on (nothing left: no chart).
+    func testSlotsBeforeTheLaterWindowDropAndAnEmptyReadOnlyMovesTheWindow() {
+        let displayed = snapshot(heartCharts: [oxygen: oxygenChart(endingAtMinute: 20, slots: [(0, 96), (1, 97), (12, 95)])])
+        let read = oxygenChart(endingAtMinute: 35, slots: [(16, 98)])
+        XCTAssertEqual(read.window.start, oxygenChart(endingAtMinute: 0, slots: []).window.start.addingTimeInterval(WatchIntradayWindow.slotLength))
+
+        XCTAssertEqual(
+            WatchComputeMerge.mergingComputed(computed([oxygen: read]), into: displayed).heartCharts?[oxygen]?.buckets,
+            oxygenChart(endingAtMinute: 35, slots: [(1, 97), (12, 95), (16, 98)]).buckets,
+            "slot 0 (08:00) is before the 08:30 window"
+        )
+
+        let empty = oxygenChart(endingAtMinute: 35, slots: [])
+        XCTAssertEqual(
+            WatchComputeMerge.mergingComputed(computed([oxygen: empty]), into: displayed).heartCharts?[oxygen],
+            WatchIntradayChart(window: empty.window, buckets: oxygenChart(endingAtMinute: 35, slots: [(1, 97), (12, 95)]).buckets)
+        )
+
+        let onlyOld = snapshot(heartCharts: [oxygen: oxygenChart(endingAtMinute: 20, slots: [(0, 96)])])
+        XCTAssertNil(WatchComputeMerge.mergingComputed(computed([oxygen: empty]), into: onlyOld).heartCharts, "never stored empty")
+        XCTAssertNil(WatchComputeMerge.mergingComputed(computed([oxygen: empty]), into: snapshot()).heartCharts)
+    }
+
+    /// A push with Blood Oxygen's chart keeps the local Heart Rate and HRV
+    /// charts beside it; one without the Blood Oxygen card drops its chart,
+    /// whichever side read it.
+    func testAPushCarriesItsBloodOxygenChartBesideTheLocalHeartCharts() {
+        let pushedChart = oxygenChart(endingAtMinute: 40, slots: [(5, 96)])
+        let displayed = snapshot(metrics: [card(heartRate), card(hrv)], heartCharts: displayedCharts)
+        let push = snapshot(metrics: [card(heartRate), card(hrv), card(oxygen)], generatedAt: t3, heartCharts: [oxygen: pushedChart])
+
+        var expected = displayedCharts
+        expected[oxygen] = pushedChart
+        XCTAssertEqual(WatchComputeMerge.merging(push, over: displayed).heartCharts, expected)
+        XCTAssertEqual(WatchComputeMerge.merging(push, over: snapshot()).heartCharts, [oxygen: pushedChart])
+
+        let withLocalOxygen = snapshot(
+            metrics: [card(oxygen)],
+            heartCharts: [oxygen: oxygenChart(endingAtMinute: 45, slots: [(15, 97)])]
+        )
+        let withoutCard = snapshot(metrics: [card(heartRate)], generatedAt: t3, heartCharts: [oxygen: pushedChart])
+        XCTAssertNil(WatchComputeMerge.merging(withoutCard, over: withLocalOxygen).heartCharts)
+        XCTAssertNil(WatchComputeMerge.merging(withoutCard, over: snapshot()).heartCharts)
+    }
+
+    /// The settings-change push was built under the new source selection:
+    /// the local charts go and the push's Blood Oxygen chart is taken as is,
+    /// never an empty one.
+    func testTheSettingsChangeModeTakesThePushedBloodOxygenChartAsIs() {
+        let displayed = snapshot(
+            metrics: [card(heartRate), card(oxygen)],
+            heartCharts: [heartRate: chart(endingAt: t1, average: 62), oxygen: oxygenChart(endingAtMinute: 45, slots: [(15, 97)])]
+        )
+        let pushedChart = oxygenChart(endingAtMinute: 40, slots: [(5, 96)])
+        let push = snapshot(metrics: [card(heartRate), card(oxygen)], generatedAt: t3, heartCharts: [oxygen: pushedChart])
+        XCTAssertEqual(
+            WatchComputeMerge.merging(push, over: displayed, treatingBlanksAsAuthoritative: true).heartCharts,
+            [oxygen: pushedChart]
+        )
+
+        let emptyPush = snapshot(
+            metrics: [card(heartRate), card(oxygen)],
+            generatedAt: t3,
+            heartCharts: [oxygen: oxygenChart(endingAtMinute: 40, slots: [])]
+        )
+        XCTAssertNil(WatchComputeMerge.merging(emptyPush, over: displayed, treatingBlanksAsAuthoritative: true).heartCharts)
+    }
+
+    /// The wiring: `assemble` puts the Blood Oxygen read in the snapshot
+    /// beside Heart Rate's.
+    func testTheComputedSnapshotCarriesTheBloodOxygenRead() throws {
+        let now = Date(timeIntervalSince1970: 1_788_500_000)
+        let calendar = Calendar.bodyGregorian
+        let seed = WatchComputeSeed(
+            publishedAt: now,
+            dataThrough: now,
+            summary: .placeholder,
+            trends: .empty,
+            seriesRanges: [:],
+            settings: WatchComputeSettings(
+                idealSleepDurationMinutes: 480,
+                followsSystemUnits: true,
+                selectedTemperatureUnitRaw: BodyValueFormat.TemperatureUnitPreference.celsius.rawValue,
+                showSleepScore: true,
+                showsSubMinuteAwakeSleepStages: true,
+                showsLeadingTrailingAwakeSleepStages: true,
+                healthDataSourceSelectionRaw: "all",
+                combinesHealthDataSourcesByName: false
+            ),
+            settingsSignature: "sig-oxygen-chart"
+        )
+        let read = oxygenChart(endingAtMinute: 40, slots: [(16, 97)])
+        var delta = WatchComputeDelta()
+        delta.oxygenSaturationIntraday = .success(read)
+        let snapshot = try XCTUnwrap(WatchComputeAssembly.assemble(
+            seed: seed,
+            delta: delta,
+            permission: .defaultValue,
+            generation: 1,
+            windowStart: WatchDeltaSplicer.deltaStart(dataThrough: now, calendar: calendar),
+            now: now,
+            calendar: calendar
+        )).snapshot
+        XCTAssertEqual(snapshot.heartCharts, [oxygen: read])
     }
 }

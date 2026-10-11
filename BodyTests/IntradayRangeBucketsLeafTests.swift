@@ -5,9 +5,9 @@
 //  `BodyHealthQuantityFetch.intradayRangeBuckets`, driven against
 //  `FakeHealthStore`: the 30 minute "Last 8 hours" slots the watch's Heart
 //  Rate and HRV detail pages read on demand (`WatchHealthStore.intradayBuckets`)
-//  and the watch compute reads for their chart complications
-//  (`WatchDeltaFetcher`, `WatchMetricsSnapshot.heartCharts`), so what these
-//  pin holds for both:
+//  and the watch compute reads for their chart complications and Blood
+//  Oxygen's (`WatchDeltaFetcher`, `WatchMetricsSnapshot.heartCharts`), so what
+//  these pin holds for both:
 //  * the collection it runs (average + min + max, 30 minute intervals
 //    anchored at the window's own start, the caller's predicate untouched),
 //    which no scripted answer can show;
@@ -19,7 +19,9 @@
 //    included) reports once, and a cancellation fails without reporting;
 //  * the descriptor rows the compute takes its type and unit from, which
 //    must stay the page's own (SDNN in ms, beats per minute, no transform),
-//    so a complication and its page can't read different numbers.
+//    so a complication and its page can't read different numbers;
+//  * the value transform, applied to all three statistics: Blood Oxygen's
+//    percent, which HealthKit holds as a fraction (0.97 reads 97).
 //
 
 import XCTest
@@ -148,6 +150,44 @@ final class IntradayRangeBucketsLeafTests: XCTestCase {
         XCTAssertEqual(bucket.minimum, 43, accuracy: 1e-9)
         XCTAssertEqual(bucket.maximum, 53, accuracy: 1e-9)
         XCTAssertEqual(bucket.average, 48, accuracy: 1e-9)
+    }
+
+    /// Blood Oxygen passes its descriptor's transform (`normalizedPercent`),
+    /// so a slot reads 97, not HealthKit's 0.97, like the iPhone's; the
+    /// default leaves Heart Rate and HRV untouched (the tests above).
+    func testAppliesTheValueTransformToEveryStatistic() async throws {
+        let type = try XCTUnwrap(HKObjectType.quantityType(forIdentifier: .oxygenSaturation))
+        let descriptor = try XCTUnwrap(HealthMetricQueryDescriptor.descriptor(for: .oxygenSaturation))
+        XCTAssertEqual(descriptor.quantityType, .oxygenSaturation)
+        let percent = HKUnit.percent()
+        let store = FakeHealthStore()
+        store.scriptDailyQuantityRanges(for: type, values: [
+            BodyDatedQuantityRange(
+                date: start,
+                minimum: HKQuantity(unit: percent, doubleValue: 0.94),
+                maximum: HKQuantity(unit: percent, doubleValue: 0.99),
+                average: HKQuantity(unit: percent, doubleValue: 0.97)
+            )
+        ])
+
+        let outcome = await BodyHealthQuantityFetch.intradayRangeBuckets(
+            store: store,
+            quantityType: type,
+            predicate: nil,
+            unit: descriptor.unit,
+            start: start,
+            end: start.addingTimeInterval(slot),
+            valueTransform: descriptor.valueTransform
+        )
+
+        guard case .success(let buckets) = outcome, let bucket = buckets.first else {
+            return XCTFail("a scripted collection must succeed")
+        }
+        XCTAssertEqual(buckets.count, 1)
+        XCTAssertEqual(bucket.start, start)
+        XCTAssertEqual(bucket.minimum, 94, accuracy: 1e-9)
+        XCTAssertEqual(bucket.maximum, 99, accuracy: 1e-9)
+        XCTAssertEqual(bucket.average, 97, accuracy: 1e-9)
     }
 
     // MARK: - Failure semantics
