@@ -4702,6 +4702,27 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(bodyHead.contains("Color.black.ignoresSafeArea()"))
     }
 
+    func testSummaryNotificationsOpenStraightIntoTheFoldablePane() throws {
+        let homeSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyHomeView.swift")
+
+        // Pushed first, a Sleep or Readiness notification's detail zoomed across both
+        // columns before the path's handler moved it into the pane; split, it now goes
+        // straight to the pane and is pushed as before otherwise.
+        XCTAssertTrue(homeSource.contains("openFromNotification(.metric(.sleep))"))
+        XCTAssertTrue(homeSource.contains("openFromNotification(.metric(.readiness))"))
+        XCTAssertFalse(homeSource.contains("metricNavigationPath = [.metric(.sleep)]"))
+        XCTAssertFalse(homeSource.contains("metricNavigationPath = [.metric(.readiness)]"))
+        let openStart = try XCTUnwrap(homeSource.range(of: "private func openFromNotification(_ route: HomeMetricRoute) {")?.lowerBound)
+        let openBlock = String(homeSource[openStart...].prefix(300))
+        XCTAssertTrue(openBlock.contains("if isFoldableSplit {"))
+        XCTAssertTrue(openBlock.contains("showInPane([route])"))
+        XCTAssertTrue(openBlock.contains("metricNavigationPath = [route]"))
+
+        // A hinge change eases the pane's width with the right column; off on the fold,
+        // so the pane still drops at once under the pushed detail.
+        XCTAssertTrue(homeSource.contains(".animation(reduceMotion || !isFoldableSplit ? nil : .easeInOut(duration: 0.3), value: foldablePaneWidth)"))
+    }
+
     func testWorkoutCustomNamePlumbing() throws {
         let workoutsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutsView.swift")
 

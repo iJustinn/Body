@@ -804,7 +804,7 @@ struct BodyHomeView: View {
             .task(id: notificationRoute.ready ? notificationRoute.sleepRequestID : nil) {
                 guard notificationRoute.ready, notificationRoute.sleepRequestID != nil else { return }
                 readinessDetailPresented = false
-                metricNavigationPath = [.metric(.sleep)]
+                openFromNotification(.metric(.sleep))
                 notificationRoute.sleepRequestID = nil
             }
             .task(id: notificationRoute.ready ? notificationRoute.readinessRequestID : nil) {
@@ -815,7 +815,7 @@ struct BodyHomeView: View {
                     readinessDetailPresented = true
                 } else {
                     readinessDetailPresented = false
-                    metricNavigationPath = [.metric(.readiness)]
+                    openFromNotification(.metric(.readiness))
                 }
             }
             .navigationDestination(for: HomeMetricRoute.self) { route in
@@ -894,6 +894,9 @@ struct BodyHomeView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: sideRoute)
+            // A hinge change resizes the pane alongside the column's own ease. Only while
+            // split: the fold must still drop the pane at once under the pushed detail.
+            .animation(reduceMotion || !isFoldableSplit ? nil : .easeInOut(duration: 0.3), value: foldablePaneWidth)
         }
         // Readiness star: cross-fade its detail in/out over Home as an overlay instead of a
         // navigation push (SwiftUI has no fade push transition, and the full-bleed hero has
@@ -1349,6 +1352,16 @@ struct BodyHomeView: View {
     private func showInPane(_ stack: [HomeMetricRoute]) {
         sideRoute = stack.first
         panePath = Array(stack.dropFirst())
+    }
+
+    /// A notification's detail: straight into the pane while split. Pushed first, it
+    /// zoomed across both columns before the path's handler moved it to the pane.
+    private func openFromNotification(_ route: HomeMetricRoute) {
+        if isFoldableSplit {
+            showInPane([route])
+        } else {
+            metricNavigationPath = [route]
+        }
     }
 
     /// The detail page for a route, zooming from its card when pushed.
