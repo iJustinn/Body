@@ -4576,6 +4576,41 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(source.contains(".toolbar(.hidden, for: .navigationBar)"))
     }
 
+    func testWorkoutsFoldShowsTheOpenDetailInPlace() throws {
+        let workoutsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutsView.swift")
+
+        // Folding with a workout open, the pane leaves at once (no ease) since its
+        // detail is pushed over the page; folds with nothing open, unfolds and hinge
+        // changes still ease.
+        XCTAssertTrue(workoutsSource.contains("let foldsDetail = !isSplit && selectedWorkoutForDetails != nil"))
+        XCTAssertTrue(workoutsSource.contains(".animation(reduceMotion || foldsDetail ? nil : .easeInOut(duration: 0.3), value: isSplit)"))
+        XCTAssertTrue(workoutsSource.contains(".animation(reduceMotion || foldsDetail ? nil : .easeInOut(duration: 0.3), value: isSplit ? columnWidth : 0)"))
+        XCTAssertFalse(workoutsSource.contains(".animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isSplit)"))
+
+        // The fold's push waits one update for the state mirror of the layout's split.
+        // Pushed in the same update in which the pane's own NavigationStack left, the
+        // stack popped it and pushed it again with the row's zoom, so the detail grew in
+        // from its row over the list well after the fold.
+        XCTAssertTrue(workoutsSource.contains("@State private var isSplitLayout = false"))
+        let mirrorStart = try XCTUnwrap(workoutsSource.range(of: ".onChange(of: isSplit, initial: true) { _, isSplit in")?.upperBound)
+        let pushStart = try XCTUnwrap(
+            workoutsSource.range(of: ".onChange(of: isSplitLayout) { _, isSplit in", range: mirrorStart..<workoutsSource.endIndex)
+        )
+        let mirrorBlock = String(workoutsSource[mirrorStart..<pushStart.lowerBound])
+        XCTAssertTrue(mirrorBlock.contains("isSplitLayout = isSplit"))
+        XCTAssertFalse(mirrorBlock.contains("pushedWorkoutForDetails"))
+        let pushEnd = try XCTUnwrap(
+            workoutsSource.range(of: ".onChange(of: selectedWorkoutForDetails)", range: pushStart.upperBound..<workoutsSource.endIndex)?.lowerBound
+        )
+        let pushBlock = String(workoutsSource[pushStart.upperBound..<pushEnd])
+        XCTAssertTrue(pushBlock.contains("withoutNavigationAnimation {"))
+        XCTAssertTrue(pushBlock.contains("pushedWorkoutForDetails = isSplit ? nil : selectedWorkoutForDetails"))
+
+        // A row tap while folded still zooms the detail out of its row.
+        XCTAssertTrue(workoutsSource.contains(".navigationDestination(item: $pushedWorkoutForDetails) { workout in"))
+        XCTAssertTrue(workoutsSource.contains(".navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))"))
+    }
+
     func testWorkoutCustomNamePlumbing() throws {
         let workoutsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutsView.swift")
 

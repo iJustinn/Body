@@ -116,6 +116,10 @@ struct BodyWorkoutsView: View {
     /// The last posture the size class reported: an open foldable iPhone. Read by the
     /// retries above, which must stop as soon as the phone folds again.
     @State private var isUnfoldedPhone = false
+    /// The page's split, as state: the width-based split inside the page's geometry,
+    /// copied out once that layout pass is done. The fold's push waits for it, so the
+    /// pane is gone before the detail is pushed.
+    @State private var isSplitLayout = false
     @Bindable private var notificationRoute = BodyAppRuntime.shared.notificationRoute
     @State private var notificationWorkoutUnavailable = false
     @State private var selectedWorkoutListSelection: BodyWorkoutListSelection?
@@ -203,6 +207,9 @@ struct BodyWorkoutsView: View {
                 safeAreaTrailing: page.safeAreaInsets.trailing,
                 foldedColumnWidth: foldedColumnWidth
             )
+            // Folding with a workout open: its detail is pushed over the page in the same
+            // pass, so the pane goes at once instead of fading out beneath it.
+            let foldsDetail = !isSplit && selectedWorkoutForDetails != nil
             ZStack {
                 BodyTabPageBackground()
 
@@ -348,9 +355,9 @@ struct BodyWorkoutsView: View {
                 // refracts content instead of the background's plain lower region.
                 .ignoresSafeArea(.container, edges: .bottom)
                 }
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isSplit)
+                .animation(reduceMotion || foldsDetail ? nil : .easeInOut(duration: 0.3), value: isSplit)
                 // The column only exists while split, so only a split page animates its width.
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: isSplit ? columnWidth : 0)
+                .animation(reduceMotion || foldsDetail ? nil : .easeInOut(duration: 0.3), value: isSplit ? columnWidth : 0)
             }
             // While split the detail lives in the side pane and nothing is pushed; a
             // fold with a workout selected pushes it, and unfolding pops it back into
@@ -361,8 +368,13 @@ struct BodyWorkoutsView: View {
                     .navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))
             }
             .onChange(of: isSplit, initial: true) { _, isSplit in
+                isSplitLayout = isSplit
+            }
+            .onChange(of: isSplitLayout) { _, isSplit in
                 // A fold's push and pop are the same detail changing homes, so they
-                // skip the slide the stack would otherwise animate.
+                // skip the slide the stack would otherwise animate. One update after
+                // the layout flips: pushed in the same pass as the pane's own stack
+                // left, the detail was popped and pushed again, zooming from its row.
                 withoutNavigationAnimation {
                     pushedWorkoutForDetails = isSplit ? nil : selectedWorkoutForDetails
                 }
