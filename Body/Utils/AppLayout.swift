@@ -36,9 +36,11 @@ enum AppLayout {
     /// The inner screen's right column on a foldable: the folded outer screen's Home
     /// content width (its page less the 32 pt of horizontal padding) as last stored, so
     /// the hero and metric cards keep their folded size. Before the outer screen has
-    /// been measured (a first launch while open) a phone-sized column stands in.
+    /// been measured (a first launch while open) a phone-sized column stands in, as it
+    /// does for anything under 200 pt, which is never a real folded column; the floor
+    /// keeps every portrait iPhone below the split threshold.
     static func foldedHomeColumnWidth(stored: Double) -> CGFloat {
-        stored > 0 ? CGFloat(stored) : 344
+        stored >= 200 ? CGFloat(stored) : 344
     }
 
     /// The inner screen's right column for a hinge posture. Half open, the columns split
