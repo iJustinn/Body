@@ -448,7 +448,12 @@ struct BodyWorkoutsView: View {
                 }
             }
             .sheet(item: $selectedWorkoutListSelection) { selection in
-                BodyWorkoutListSheet(selection: selection)
+                // Split, a row opens in the side pane like every other workout there,
+                // rather than a full-screen detail across both columns.
+                BodyWorkoutListSheet(selection: selection, onSelectWorkout: isSplitLayout ? { workout in
+                    selectedWorkoutListSelection = nil
+                    selectedWorkoutForDetails = workout
+                } : nil)
                     .environment(workoutStore)
                     .presentationDetents([.fraction(0.6), .large])
                     .presentationDragIndicator(.visible)

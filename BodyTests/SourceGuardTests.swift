@@ -4574,6 +4574,22 @@ final class SourceGuardTests: XCTestCase {
         // The Done button was removed; the popups dismiss via the sheet grabber.
         XCTAssertFalse(source.contains(#"Button("Done")"#))
         XCTAssertTrue(source.contains(".toolbar(.hidden, for: .navigationBar)"))
+
+        // On a foldable's inner screen a row hands its workout to the Workouts page's
+        // side pane instead (the page closes the sheet); everywhere else the callback is
+        // nil and the row still opens the full-screen detail above.
+        XCTAssertTrue(source.contains("var onSelectWorkout: ((WorkoutSummary) -> Void)? = nil"))
+        let rowStart = try XCTUnwrap(source.range(of: "if let onSelectWorkout {")?.lowerBound)
+        let rowBlock = String(source[rowStart...].prefix(250))
+        XCTAssertTrue(rowBlock.contains("onSelectWorkout(workout)"))
+        XCTAssertTrue(rowBlock.contains("} else {"))
+        XCTAssertTrue(rowBlock.contains("selectedWorkout = workout"))
+
+        let workoutsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutsView.swift")
+        XCTAssertTrue(workoutsSource.contains("BodyWorkoutListSheet(selection: selection, onSelectWorkout: isSplitLayout ? { workout in"))
+        XCTAssertTrue(workoutsSource.contains("selectedWorkoutListSelection = nil"))
+        XCTAssertTrue(workoutsSource.contains("selectedWorkoutForDetails = workout"))
+        XCTAssertTrue(workoutsSource.contains("} : nil)"))
     }
 
     func testWorkoutsFoldShowsTheOpenDetailInPlace() throws {

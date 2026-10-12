@@ -108,6 +108,9 @@ struct BodyWorkoutListSheet: View {
     @State private var selectedWorkout: WorkoutSummary?
     @Namespace private var workoutZoom
     let selection: BodyWorkoutListSelection
+    /// Where a row's workout goes instead of the full-screen detail: on a foldable's
+    /// inner screen, the Workouts page's side pane. Nil everywhere else.
+    var onSelectWorkout: ((WorkoutSummary) -> Void)? = nil
 
     var body: some View {
         NavigationStack {
@@ -126,7 +129,11 @@ struct BodyWorkoutListSheet: View {
                         ForEach(selection.workouts) { workout in
                             Button {
                                 BodyCardTapHaptics.play()
-                                selectedWorkout = workout
+                                if let onSelectWorkout {
+                                    onSelectWorkout(workout)
+                                } else {
+                                    selectedWorkout = workout
+                                }
                             } label: {
                                 BodyWorkoutRecordRow(
                                     workout: workout,
