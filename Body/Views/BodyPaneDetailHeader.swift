@@ -91,22 +91,23 @@ private struct BodyPaneGlass<S: Shape>: ViewModifier {
     }
 }
 
-/// The mask a detail page's backdrop draws through: everything, or in a foldable's
-/// pane a fade to clear over the trailing 72 pt, so the page blends into the tab
-/// background beside it.
-struct BodyPaneBackdropMask: View {
-    let fadesTrailingEdge: Bool
-
-    var body: some View {
-        if fadesTrailingEdge {
-            HStack(spacing: 0) {
-                Color.black
-                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: 72)
+extension View {
+    /// Masks a detail page's backdrop in a foldable's pane with a fade to clear over the
+    /// trailing 72 pt, so the page blends into the tab background beside it. Outside a
+    /// pane nothing fades, so the backdrop goes unmasked.
+    @ViewBuilder
+    func bodyPaneBackdropFade(_ fades: Bool) -> some View {
+        if fades {
+            mask {
+                HStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: 72)
+                }
+                .ignoresSafeArea()
             }
-            .ignoresSafeArea()
         } else {
-            Color.black.ignoresSafeArea()
+            self
         }
     }
 }

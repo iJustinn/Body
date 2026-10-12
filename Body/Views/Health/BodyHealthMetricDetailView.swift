@@ -596,9 +596,7 @@ struct BodyHealthMetricDetailView: View {
             .ignoresSafeArea()
             // In a foldable's pane the backdrop fades out along its trailing edge into
             // the tab background beside it rather than ending in a hard vertical edge.
-            .mask {
-                BodyPaneBackdropMask(fadesTrailingEdge: paneClose != nil)
-            }
+            .bodyPaneBackdropFade(paneClose != nil)
         }
         .navigationTitle(String(localized: String.LocalizationValue(model.title)))
         .navigationBarTitleDisplayMode(.inline)

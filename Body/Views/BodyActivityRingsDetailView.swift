@@ -543,9 +543,7 @@ struct BodyActivityRingsDetailView: View {
         .background {
             Color(.systemGroupedBackground)
                 .ignoresSafeArea()
-                .mask {
-                    BodyPaneBackdropMask(fadesTrailingEdge: paneClose != nil)
-                }
+                .bodyPaneBackdropFade(paneClose != nil)
         }
         .navigationTitle("Activity Rings")
         .navigationBarTitleDisplayMode(.inline)

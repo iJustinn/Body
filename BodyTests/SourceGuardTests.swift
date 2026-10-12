@@ -4655,6 +4655,37 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(ringsSource.contains(".safeAreaInset(edge: .top, spacing: 0) {"))
     }
 
+    func testDetailBackdropsMaskOnlyInAFoldablePane() throws {
+        let headerSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyPaneDetailHeader.swift")
+        let metricSource = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let ringsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyActivityRingsDetailView.swift")
+        let workoutsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutsView.swift")
+
+        // Only a pane fades its backdrop's trailing 72 pt; outside one the backdrop goes
+        // unmasked, as regular iPhones drew it before the foldable panes.
+        let fadeStart = try XCTUnwrap(headerSource.range(of: "func bodyPaneBackdropFade(_ fades: Bool) -> some View {")?.lowerBound)
+        let fadeBlock = String(headerSource[fadeStart...])
+        XCTAssertTrue(fadeBlock.contains("} else {\n            self\n        }"))
+        XCTAssertFalse(headerSource.contains("BodyPaneBackdropMask"))
+        XCTAssertFalse(headerSource.contains("Color.black.ignoresSafeArea()"))
+
+        XCTAssertTrue(metricSource.contains(".bodyPaneBackdropFade(paneClose != nil)"))
+        XCTAssertTrue(ringsSource.contains(".bodyPaneBackdropFade(paneClose != nil)"))
+        XCTAssertTrue(workoutsSource.contains(".bodyPaneBackdropFade(fadesTrailingEdge)"))
+        XCTAssertFalse(metricSource.contains("BodyPaneBackdropMask"))
+        XCTAssertFalse(ringsSource.contains("BodyPaneBackdropMask"))
+
+        // The workout detail dropped its own copy of the mask.
+        let sheetStart = try XCTUnwrap(workoutsSource.range(of: "struct BodyWorkoutDetailSheet")?.lowerBound)
+        let bodyStart = try XCTUnwrap(
+            workoutsSource.range(of: "    var body: some View {", range: sheetStart..<workoutsSource.endIndex)?.lowerBound
+        )
+        let bodyHead = String(workoutsSource[bodyStart...].prefix(400))
+        XCTAssertTrue(bodyHead.contains(".bodyPaneBackdropFade(fadesTrailingEdge)"))
+        XCTAssertFalse(bodyHead.contains(".mask {"))
+        XCTAssertFalse(bodyHead.contains("Color.black.ignoresSafeArea()"))
+    }
+
     func testWorkoutCustomNamePlumbing() throws {
         let workoutsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutsView.swift")
 

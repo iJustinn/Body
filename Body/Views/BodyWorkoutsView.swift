@@ -1805,18 +1805,7 @@ struct BodyWorkoutDetailSheet: View {
     var body: some View {
         ZStack(alignment: .top) {
             backdropLayers
-                .mask {
-                    if fadesTrailingEdge {
-                        HStack(spacing: 0) {
-                            Color.black
-                            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                                .frame(width: 72)
-                        }
-                        .ignoresSafeArea()
-                    } else {
-                        Color.black.ignoresSafeArea()
-                    }
-                }
+                .bodyPaneBackdropFade(fadesTrailingEdge)
 
             ScrollView(.vertical, showsIndicators: false) {
                 compactWorkoutContent
