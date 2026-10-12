@@ -97,4 +97,22 @@ extension View {
             }
         }
     }
+
+    /// Pins a foldable pane's header to the top edge in place of the hidden navigation
+    /// bar: on iOS 26 a safe area bar, so cards scrolling under the title and Back pick up
+    /// the system's default scroll edge effect like the folded navigation bar; earlier
+    /// systems (which never show a pane) inset it plainly. With `isShown` off the page is
+    /// left alone, so a page outside a pane gets no empty top bar.
+    @ViewBuilder
+    func bodyPaneHeaderBar<Bar: View>(isShown: Bool, @ViewBuilder _ bar: () -> Bar) -> some View {
+        if isShown {
+            if #available(iOS 26.0, *) {
+                safeAreaBar(edge: .top, spacing: 0, content: bar)
+            } else {
+                safeAreaInset(edge: .top, spacing: 0, content: bar)
+            }
+        } else {
+            self
+        }
+    }
 }

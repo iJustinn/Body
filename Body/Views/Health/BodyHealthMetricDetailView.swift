@@ -603,11 +603,26 @@ struct BodyHealthMetricDetailView: View {
         .navigationTitle(String(localized: String.LocalizationValue(model.title)))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(paneClose == nil ? .automatic : .hidden, for: .navigationBar)
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .bodyPaneHeaderBar(isShown: paneClose != nil) {
             if let paneClose {
                 BodyPaneDetailHeader(title: String(localized: String.LocalizationValue(model.title)), onClose: paneClose) {
                     if isBasicsDetail {
-                        addMeasurementButton
+                        Button {
+                            showsAddMeasurementSheet = true
+                        } label: {
+                            BodyPaneHeaderIcon(systemName: "plus")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Add Measurement")
+                    }
+                    if recoveryHRVAvailable {
+                        Menu {
+                            hrvDisplayKindPicker
+                        } label: {
+                            BodyPaneHeaderIcon(systemName: "arrow.left.arrow.right")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(String(localized: "HRV View"))
                     }
                 }
             }
@@ -1223,17 +1238,22 @@ struct BodyHealthMetricDetailView: View {
     /// reopens on the last choice.
     private var hrvDisplayKindMenu: some View {
         Menu {
-            Picker(String(localized: "HRV View"), selection: $hrvDetailDisplayKindRawValue) {
-                Label("Overall HRV", systemImage: "waveform.path.ecg")
-                    .tag(BodyHRVDisplayKind.overall.rawValue)
-                Label("Recovery HRV", systemImage: "arrow.clockwise.heart")
-                    .tag(BodyHRVDisplayKind.recovery.rawValue)
-            }
-            .pickerStyle(.inline)
+            hrvDisplayKindPicker
         } label: {
             Image(systemName: "arrow.left.arrow.right")
         }
         .accessibilityLabel(String(localized: "HRV View"))
+    }
+
+    /// The Overall / Recovery pick, shared by the toolbar menu and a foldable pane's header.
+    private var hrvDisplayKindPicker: some View {
+        Picker(String(localized: "HRV View"), selection: $hrvDetailDisplayKindRawValue) {
+            Label("Overall HRV", systemImage: "waveform.path.ecg")
+                .tag(BodyHRVDisplayKind.overall.rawValue)
+            Label("Recovery HRV", systemImage: "arrow.clockwise.heart")
+                .tag(BodyHRVDisplayKind.recovery.rawValue)
+        }
+        .pickerStyle(.inline)
     }
 
     private var selectedSleepSummary: SleepSummary? {

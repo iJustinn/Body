@@ -557,11 +557,15 @@ struct BodyActivityRingsDetailView: View {
             }
         }
         .toolbar(paneClose == nil ? .automatic : .hidden, for: .navigationBar)
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .bodyPaneHeaderBar(isShown: paneClose != nil) {
             if let paneClose {
                 BodyPaneDetailHeader(title: String(localized: "Activity Rings"), onClose: paneClose) {
                     if isAwayFromToday {
-                        todayToolbarButton
+                        Button(action: scrollToToday) {
+                            BodyPaneHeaderText("Today")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Scroll to today")
                     }
                 }
             }
@@ -583,14 +587,16 @@ struct BodyActivityRingsDetailView: View {
     }
 
     private var todayToolbarButton: some View {
-        Button {
-            withAnimation(.smooth) {
-                scrollPosition.scrollTo(edge: .bottom)
-            }
-        } label: {
+        Button(action: scrollToToday) {
             Text("Today")
         }
         .accessibilityLabel("Scroll to today")
+    }
+
+    private func scrollToToday() {
+        withAnimation(.smooth) {
+            scrollPosition.scrollTo(edge: .bottom)
+        }
     }
 
     /// Falls back to a synchronous computation for the first frame so the

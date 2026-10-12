@@ -4611,6 +4611,50 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(workoutsSource.contains(".navigationTransition(.zoom(sourceID: workout.id, in: workoutZoom))"))
     }
 
+    func testFoldablePaneHeaderDrawsThePageActionsAsGlassButtons() throws {
+        let headerSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyPaneDetailHeader.swift")
+        let metricSource = try BodyTestSupport.sourceText(at: "Body/Views/Health/BodyHealthMetricDetailView.swift")
+        let ringsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyActivityRingsDetailView.swift")
+        let layoutSource = try BodyTestSupport.sourceText(at: "Body/Utils/AppLayout.swift")
+
+        // The pane header has no navigation bar to style its actions, so they draw their
+        // own 44 pt glass: a circle for a glyph (Back included), a capsule for text.
+        XCTAssertTrue(headerSource.contains("struct BodyPaneHeaderIcon: View"))
+        XCTAssertTrue(headerSource.contains("struct BodyPaneHeaderText: View"))
+        XCTAssertTrue(headerSource.contains(#"BodyPaneHeaderIcon(systemName: "chevron.backward")"#))
+        XCTAssertTrue(headerSource.contains(".modifier(BodyPaneGlass(shape: Circle()))"))
+        XCTAssertTrue(headerSource.contains(".modifier(BodyPaneGlass(shape: Capsule()))"))
+
+        // Basics' add and the HRV Overall / Recovery switch (once missing from the pane,
+        // which hides the toolbar) both show in the pane header as glass circles; the
+        // switch shares its picker with the toolbar menu.
+        let metricHeaderStart = try XCTUnwrap(metricSource.range(of: ".bodyPaneHeaderBar(isShown: paneClose != nil) {")?.lowerBound)
+        let metricHeader = String(metricSource[metricHeaderStart...].prefix(1_500))
+        XCTAssertTrue(metricHeader.contains(#"BodyPaneHeaderIcon(systemName: "plus")"#))
+        XCTAssertTrue(metricHeader.contains("showsAddMeasurementSheet = true"))
+        XCTAssertTrue(metricHeader.contains("if recoveryHRVAvailable {"))
+        XCTAssertTrue(metricHeader.contains(#"BodyPaneHeaderIcon(systemName: "arrow.left.arrow.right")"#))
+        XCTAssertTrue(metricHeader.contains("hrvDisplayKindPicker"))
+        XCTAssertTrue(metricSource.contains("private var hrvDisplayKindPicker: some View {"))
+        XCTAssertGreaterThanOrEqual(metricSource.occurrenceCount(of: "hrvDisplayKindPicker"), 3)
+
+        // Activity Rings' Today is a glass capsule sharing the toolbar button's action.
+        let ringsHeaderStart = try XCTUnwrap(ringsSource.range(of: ".bodyPaneHeaderBar(isShown: paneClose != nil) {")?.lowerBound)
+        let ringsHeader = String(ringsSource[ringsHeaderStart...].prefix(800))
+        XCTAssertTrue(ringsHeader.contains(#"BodyPaneHeaderText("Today")"#))
+        XCTAssertTrue(ringsHeader.contains("Button(action: scrollToToday)"))
+        XCTAssertEqual(ringsSource.occurrenceCount(of: "Button(action: scrollToToday)"), 2)
+
+        // The header sits in a safe area bar, so cards scroll under the system's default
+        // scroll edge like under the folded navigation bar (never the hard style).
+        let barStart = try XCTUnwrap(layoutSource.range(of: "func bodyPaneHeaderBar<Bar: View>(isShown: Bool")?.lowerBound)
+        let barBlock = String(layoutSource[barStart...])
+        XCTAssertTrue(barBlock.contains("safeAreaBar(edge: .top, spacing: 0, content: bar)"))
+        XCTAssertFalse(barBlock.contains(".hard"))
+        XCTAssertFalse(metricSource.contains(".safeAreaInset(edge: .top, spacing: 0) {"))
+        XCTAssertFalse(ringsSource.contains(".safeAreaInset(edge: .top, spacing: 0) {"))
+    }
+
     func testWorkoutCustomNamePlumbing() throws {
         let workoutsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodyWorkoutsView.swift")
 

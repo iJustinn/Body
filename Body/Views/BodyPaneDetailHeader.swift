@@ -23,12 +23,7 @@ struct BodyPaneDetailHeader<Trailing: View>: View {
     var body: some View {
         HStack(spacing: 12) {
             Button(action: onClose) {
-                Image(systemName: "chevron.backward")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 44, height: 44)
-                    .modifier(BodyPaneGlassCircle())
-                    .contentShape(Circle())
+                BodyPaneHeaderIcon(systemName: "chevron.backward")
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
@@ -50,12 +45,48 @@ struct BodyPaneDetailHeader<Trailing: View>: View {
     }
 }
 
-private struct BodyPaneGlassCircle: ViewModifier {
+/// A pane header action drawn as a 44 pt glass circle, the way a navigation bar draws
+/// its toolbar buttons. The header has no navigation bar, so its actions draw their own.
+struct BodyPaneHeaderIcon: View {
+    let systemName: String
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(.primary)
+            .frame(width: 44, height: 44)
+            .modifier(BodyPaneGlass(shape: Circle()))
+            .contentShape(Circle())
+    }
+}
+
+/// A pane header text action drawn as a 44 pt tall glass capsule.
+struct BodyPaneHeaderText: View {
+    let title: LocalizedStringKey
+
+    init(_ title: LocalizedStringKey) {
+        self.title = title
+    }
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .modifier(BodyPaneGlass(shape: Capsule()))
+            .contentShape(Capsule())
+    }
+}
+
+private struct BodyPaneGlass<S: Shape>: ViewModifier {
+    let shape: S
+
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.glassEffect(.regular, in: .circle)
+            content.glassEffect(.regular, in: shape)
         } else {
-            content.background(.ultraThinMaterial, in: Circle())
+            content.background(.ultraThinMaterial, in: shape)
         }
     }
 }
