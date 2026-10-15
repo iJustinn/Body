@@ -2078,10 +2078,10 @@ final class SourceGuardTests: XCTestCase {
         // The total is capped at 6 hours, and the chart's axis always ends there.
         XCTAssertTrue(model.contains("static let maximumDebt: TimeInterval = 6 * 3_600"))
         XCTAssertTrue(model.contains("? min(max(0, balance(of: recordedGaps)), maximumDebt)"))
-        // Extra sleep banks at most an hour, applied night by night, oldest first.
-        XCTAssertTrue(model.contains("static let maximumReserve: TimeInterval = 3_600"))
+        // Extra sleep banks at most 2 hours, applied night by night, oldest first.
+        XCTAssertTrue(model.contains("static let maximumReserve: TimeInterval = 2 * 3_600"))
         XCTAssertTrue(model.contains("gaps.reduce(0) { max($0 + $1, -maximumReserve) }"))
-        XCTAssertTrue(model.contains("static let algorithmVersion = 2"))
+        XCTAssertTrue(model.contains("static let algorithmVersion = 3"))
         XCTAssertTrue(model.contains("static let moderateDebtUpperBound: TimeInterval = 4 * 3_600"))
         XCTAssertTrue(try text(at: "Body/Views/Health/Charts/SleepDebtChart.swift").contains("SleepDebtChartModel.maximumDebt\n    }"))
         // Each night is judged against the need it learned by its own day, never
@@ -3761,7 +3761,8 @@ final class SourceGuardTests: XCTestCase {
         let versionHistory = try BodyTestSupport.sourceText(at: "VersionHistory.md")
         let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
 
-        XCTAssertTrue(readme.contains("Current app version: **1.1.6 (build 2)**"))
+        XCTAssertTrue(readme.contains("Current app version: **1.1.6 (build 3)**"))
+        XCTAssertFalse(readme.contains("Current app version: **1.1.6 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.6 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.5 (build 8)**"))
         XCTAssertFalse(readme.contains("Current app version: **1.1.5 (build 7)**"))
@@ -3931,6 +3932,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 2)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.3 (build 1)**"))
         XCTAssertFalse(readme.contains("Current app version: **0.9.2 (build 3)**"))
+        XCTAssertTrue(versionHistory.contains("## 1.1.6 (build 3)"))
+        XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.6 build 3."))
         XCTAssertTrue(versionHistory.contains("## 1.1.6 (build 2)"))
         XCTAssertTrue(versionHistory.contains("Updated the app, widget, watch, and test bundle version to 1.1.6 build 2."))
         XCTAssertTrue(versionHistory.contains("## 1.1.6 (build 1)"))
@@ -5084,7 +5087,7 @@ final class SourceGuardTests: XCTestCase {
         let iconRange = try XCTUnwrap(appearanceBlock.range(of: #"title: "Icon""#))
         let sleepRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Sleep""#))
         let unitsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Units""#))
-        let summaryCardsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Summary Cards""#))
+        let summaryCardsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Cards""#))
         let trendCardsRange = try XCTUnwrap(metricsBlock.range(of: #"title: "Trend Cards""#))
 
         XCTAssertLessThan(appearanceSectionRange.lowerBound, metricsSectionRange.lowerBound)
@@ -5094,7 +5097,7 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertLessThan(unitsRange.lowerBound, summaryCardsRange.lowerBound)
         XCTAssertLessThan(summaryCardsRange.lowerBound, trendCardsRange.lowerBound)
         XCTAssertFalse(metricsBlock.contains(#"title: "Sleep Goal""#))
-        XCTAssertFalse(appearanceBlock.contains(#"title: "Summary Cards""#))
+        XCTAssertFalse(appearanceBlock.contains(#"title: "Cards""#))
         XCTAssertFalse(appearanceBlock.contains(#"title: "Charts Range""#))
         XCTAssertFalse(appearanceBlock.contains(#"title: "Trend Cards""#))
         XCTAssertFalse(settingsSource.contains("private var unitSection: some View"))
@@ -5139,7 +5142,7 @@ final class SourceGuardTests: XCTestCase {
         // their Settings toggle row and their About card on the Sleep detail page.
         XCTAssertEqual(settingsSource.occurrenceCount(of: #"Text("v3")"#), 0)
         XCTAssertTrue(appearanceSource.contains(#"static let sleepScoreVersionLabel: LocalizedStringKey = "v3""#))
-        XCTAssertTrue(appearanceSource.contains(#"static let sleepDebtVersionLabel: LocalizedStringKey = "v2""#))
+        XCTAssertTrue(appearanceSource.contains(#"static let sleepDebtVersionLabel: LocalizedStringKey = "v2.1""#))
         XCTAssertEqual(settingsSource.occurrenceCount(of: "versionLabel: BodyHomeCardKind.sleepScoreVersionLabel"), 1)
         XCTAssertEqual(settingsSource.occurrenceCount(of: "versionLabel: BodyHomeCardKind.sleepDebtVersionLabel"), 1)
         // The Readiness AI sheet's toggle row carries the only Beta v2 badge; the
@@ -5268,6 +5271,50 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(settingsSource.contains("BodyHowToUseGuideSection"))
         XCTAssertFalse(settingsSource.contains("BodyHowToUseGuideCard"))
         XCTAssertFalse(settingsSource.contains(#"title: "Connect Apple Health""#))
+    }
+
+    func testSettingsEndsWithAppVersionFooter() throws {
+        let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
+        let settingsStackStart = try XCTUnwrap(
+            settingsSource.range(of: "VStack(alignment: .leading, spacing: 22) {")?.lowerBound
+        )
+        let settingsStack = String(settingsSource[settingsStackStart...].prefix(600))
+        let bodyProEntryRange = try XCTUnwrap(settingsStack.range(of: "bodyProEntryCard"))
+        let footerRange = try XCTUnwrap(settingsStack.range(of: "appVersionFooter"))
+        let stackEnd = try XCTUnwrap(settingsStack.range(of: "}", range: footerRange.upperBound..<settingsStack.endIndex))
+
+        // The version lives in a centered footer at the very end of Settings, not in About.
+        XCTAssertLessThan(bodyProEntryRange.lowerBound, footerRange.lowerBound)
+        XCTAssertTrue(settingsStack[footerRange.upperBound..<stackEnd.lowerBound].allSatisfy(\.isWhitespace))
+        XCTAssertTrue(settingsSource.contains(#"Image("SettingsFooterGlyph")"#))
+        XCTAssertTrue(settingsSource.contains(#"Text(verbatim: "ohmybody")"#))
+        XCTAssertTrue(settingsSource.contains("Text(appVersionDisplay)"))
+        XCTAssertFalse(BodySettingsAboutTab.allCases.map(\.title).contains("Version"))
+
+        let glyph = try Data(contentsOf: BodyTestSupport.projectRoot.appendingPathComponent(
+            "Body/Assets.xcassets/SettingsFooterGlyph.imageset/SettingsFooterGlyph@3x.png"
+        ))
+        XCTAssertGreaterThan(glyph.count, 0)
+    }
+
+    func testMoreSheetSocialCardsUseBrandLogos() throws {
+        let settingsSource = try BodyTestSupport.sourceText(at: "Body/Views/BodySettingsView.swift")
+
+        // Threads, Reddit and Instagram show their own logos and share the follow
+        // subtitle, in one card with the Email row.
+        XCTAssertTrue(settingsSource.contains(#"iconName: "SocialThreads""#))
+        XCTAssertTrue(settingsSource.contains(#"iconName: "SocialReddit""#))
+        XCTAssertTrue(settingsSource.contains(#"iconName: "SocialInstagram""#))
+        XCTAssertTrue(settingsSource.contains("https://www.instagram.com/zihengthedeveloper"))
+        XCTAssertEqual(settingsSource.occurrenceCount(of: #"subtitle: String(localized: "Follow to see app progress")"#), 3)
+        XCTAssertEqual(settingsSource.occurrenceCount(of: "                    contactDivider\n"), 3)
+        XCTAssertFalse(settingsSource.contains(#"iconName: "r.circle.fill""#))
+        for asset in ["SocialThreads", "SocialReddit", "SocialInstagram"] {
+            let svg = try Data(contentsOf: BodyTestSupport.projectRoot.appendingPathComponent(
+                "Body/Assets.xcassets/\(asset).imageset/\(asset).svg"
+            ))
+            XCTAssertGreaterThan(svg.count, 0, asset)
+        }
     }
 
     func testBodyProPageUsesCoinStyleSettingsEntryAndIconAssets() throws {

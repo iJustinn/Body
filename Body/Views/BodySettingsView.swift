@@ -93,6 +93,7 @@ struct BodySettingsView: View {
                         dataSection
                         aboutSection
                         bodyProEntryCard
+                        appVersionFooter
                     }
                     .padding(.horizontal)
                     .padding(.top, 10)
@@ -290,6 +291,28 @@ struct BodySettingsView: View {
         .buttonStyle(.plain)
     }
 
+    private var appVersionFooter: some View {
+        VStack(spacing: 6) {
+            Image("SettingsFooterGlyph")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 60, height: 60)
+                .accessibilityHidden(true)
+
+            Text(verbatim: "ohmybody")
+                .font(.system(.headline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+
+            Text(appVersionDisplay)
+                .font(.system(.footnote, design: .rounded))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 18)
+        .accessibilityElement(children: .combine)
+    }
+
     private var appearanceSection: some View {
         BodySettingsCardSection("Appearance") {
             Button {
@@ -389,7 +412,7 @@ struct BodySettingsView: View {
             ForEach(BodySettingsAboutTab.allCases) { tab in
                 aboutRow(for: tab)
 
-                if tab != .version {
+                if tab != BodySettingsAboutTab.allCases.last {
                     settingsDivider
                 }
             }
@@ -406,8 +429,6 @@ struct BodySettingsView: View {
                 showingPrivacyBrowser = true
             case .onboarding:
                 showingOnboarding = true
-            case .version:
-                break
             case .more:
                 if let sheet = tab.sheet {
                     activeSheet = sheet
@@ -416,7 +437,7 @@ struct BodySettingsView: View {
         } label: {
             BodySettingsRowLabel(
                 title: LocalizedStringKey(tab.title),
-                value: tab == .version ? appVersionDisplay : nil,
+                value: nil,
                 iconName: tab.iconName,
                 tintColor: tab.tintColor,
                 accessory: aboutAccessory(for: tab)
@@ -431,8 +452,6 @@ struct BodySettingsView: View {
             return .externalLink
         case .onboarding, .more:
             return .chevron
-        case .version:
-            return .none
         }
     }
 
@@ -472,7 +491,7 @@ struct BodySettingsView: View {
                 activeSheet = .summaryCards
             } label: {
                 BodySettingsRowLabel(
-                    title: "Summary Cards",
+                    title: "Cards",
                     value: summaryCardsSummaryText,
                     iconName: "square.grid.2x2",
                     tintColor: .blue,
@@ -564,7 +583,7 @@ struct BodySettingsView: View {
                 activeSheet = .workoutEquivalents
             } label: {
                 BodySettingsRowLabel(
-                    title: "Workout Equivalents",
+                    title: "Equivalents",
                     value: workoutEquivalentsSummaryText,
                     iconName: "fork.knife",
                     tintColor: .purple,
@@ -579,7 +598,7 @@ struct BodySettingsView: View {
                 activeSheet = .effortSuggestions
             } label: {
                 BodySettingsRowLabel(
-                    title: "Workout Effort",
+                    title: "Effort",
                     value: workoutEffortSummaryText,
                     iconName: "speedometer",
                     tintColor: .purple,
@@ -1199,7 +1218,6 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
     case privacy
     case onboarding
     case more
-    case version
 
     var id: String {
         rawValue
@@ -1215,8 +1233,6 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
             return "Onboarding"
         case .more:
             return "More"
-        case .version:
-            return "Version"
         }
     }
 
@@ -1230,8 +1246,6 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
             return "sparkles"
         case .more:
             return "ellipsis.circle.fill"
-        case .version:
-            return "info.circle.fill"
         }
     }
 
@@ -1247,7 +1261,7 @@ enum BodySettingsAboutTab: String, CaseIterable, Identifiable {
         switch self {
         case .more:
             return .more
-        case .howToUse, .privacy, .onboarding, .version:
+        case .howToUse, .privacy, .onboarding:
             return nil
         }
     }
@@ -1632,7 +1646,7 @@ private struct BodySummaryCardsSettingsSheet: View {
     @State private var showBodyProPaywall = false
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Summary Cards") {
+        BodySettingsAboutSheetScaffold(title: "Cards") {
             VStack(alignment: .leading, spacing: 20) {
                 BodySettingsCardSection("Body Computed") {
                     // The score and the debt are Body's own readings of your nights;
@@ -3175,7 +3189,7 @@ private struct BodyWorkoutEffortSettingsSheet: View {
     @State private var autoApplyTask: Task<Void, Never>?
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Workout Effort") {
+        BodySettingsAboutSheetScaffold(title: "Effort") {
             VStack(alignment: .leading, spacing: 22) {
                 // Each setting sits in its own section so its footer explains only that
                 // option.
@@ -3391,7 +3405,7 @@ private struct BodyWorkoutEquivalentsSettingsSheet: View {
     }
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Workout Equivalents") {
+        BodySettingsAboutSheetScaffold(title: "Equivalents") {
             VStack(alignment: .leading, spacing: 12) {
                 BodyWorkoutEquivalentCardToggleRow(isEnabled: $cardEnabled)
                     .bodyCardBackground(translucent: true)
@@ -5536,16 +5550,28 @@ private enum BodySettingsRowAccessory {
 struct BodySettingsIconTile: View {
     let iconName: String
     let color: Color
+    /// Draws `iconName` from the asset catalog (a template brand mark) instead of SF Symbols.
+    var isAssetImage = false
 
     var body: some View {
-        Image(systemName: iconName)
-            .font(.system(size: 21, weight: .semibold))
-            .foregroundColor(color)
-            .frame(width: 44, height: 44)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(color.opacity(0.14))
-            )
+        Group {
+            if isAssetImage {
+                Image(iconName)
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 21, height: 21)
+            } else {
+                Image(systemName: iconName)
+                    .font(.system(size: 21, weight: .semibold))
+            }
+        }
+        .foregroundColor(color)
+        .frame(width: 44, height: 44)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(color.opacity(0.14))
+        )
     }
 }
 
@@ -5648,6 +5674,8 @@ private struct BodyMoreSettingsSheet: View {
 
     private let supportEmailAddress = "zihengthedeveloper@gmail.com"
     private let threadsProfileURL = URL(string: "https://www.threads.com/@zihengthedeveloper")!
+    private let redditProfileURL = URL(string: "https://www.reddit.com/u/zihengthedeveloper/s/uFGyXYVXHQ")!
+    private let instagramProfileURL = URL(string: "https://www.instagram.com/zihengthedeveloper?mdxt=MWV0M3ZkdHRlanZraA%3D%3D&utm_source=qr")!
 
     private let disclaimerSection = BodySettingsInfoSection(
         title: String(localized: "Disclaimer"),
@@ -5665,24 +5693,48 @@ private struct BodyMoreSettingsSheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(spacing: 0) {
                     BodySettingsPopupActionRow(
-                        title: "Feedback Email",
-                        subtitle: supportEmailAddress,
+                        title: "Email",
+                        subtitle: String(localized: "Reach out with any feedback"),
                         iconName: "envelope.fill",
                         tintColor: .gray
                     ) {
                         openSupportEmail()
                     }
-                }
-                .bodyCardBackground(translucent: true)
 
-                VStack(spacing: 0) {
+                    contactDivider
+
                     BodySettingsPopupActionRow(
                         title: "Threads",
                         subtitle: String(localized: "Follow to see app progress"),
-                        iconName: "at",
-                        tintColor: .gray
+                        iconName: "SocialThreads",
+                        tintColor: .gray,
+                        iconIsAsset: true
                     ) {
                         openURL(threadsProfileURL)
+                    }
+
+                    contactDivider
+
+                    BodySettingsPopupActionRow(
+                        title: "Instagram",
+                        subtitle: String(localized: "Follow to see app progress"),
+                        iconName: "SocialInstagram",
+                        tintColor: .gray,
+                        iconIsAsset: true
+                    ) {
+                        openURL(instagramProfileURL)
+                    }
+
+                    contactDivider
+
+                    BodySettingsPopupActionRow(
+                        title: "Reddit",
+                        subtitle: String(localized: "Follow to see app progress"),
+                        iconName: "SocialReddit",
+                        tintColor: .gray,
+                        iconIsAsset: true
+                    ) {
+                        openURL(redditProfileURL)
                     }
                 }
                 .bodyCardBackground(translucent: true)
@@ -5694,32 +5746,31 @@ private struct BodyMoreSettingsSheet: View {
         }
     }
 
+    /// Lines up with the row text, past the 44 pt icon tile.
+    private var contactDivider: some View {
+        Divider()
+            .padding(.leading, 76)
+    }
+
     private var copyrightCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                BodySettingsIconTile(iconName: "c.circle.fill", color: .gray)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Copyright")
+                .font(.system(size: 25, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
 
-                Text("Copyright")
-                    .font(.system(.headline, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
-            }
+            Text("© 2026 Ziheng Zhong. All rights reserved.")
+                .font(.system(.headline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Copyright (c) 2026 Ziheng Zhong. All rights reserved.")
-                    .font(.system(.subheadline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text("Body reads Apple Health data locally to power the app and widgets.")
-                    .font(.system(.subheadline, design: .rounded))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text("Body reads Apple Health data locally to power the app and widgets.")
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(18)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .bodyCardBackground(translucent: true)
     }
@@ -5802,6 +5853,7 @@ private struct BodySettingsPopupActionRow: View {
     let subtitle: String
     let iconName: String
     let tintColor: Color
+    var iconIsAsset = false
     var isEnabled = true
     let action: () -> Void
 
@@ -5810,7 +5862,7 @@ private struct BodySettingsPopupActionRow: View {
             action()
         } label: {
             HStack(spacing: 14) {
-                BodySettingsIconTile(iconName: iconName, color: tintColor)
+                BodySettingsIconTile(iconName: iconName, color: tintColor, isAssetImage: iconIsAsset)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)

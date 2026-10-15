@@ -48,10 +48,7 @@ struct BodyHomeTrendsSection: View {
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundColor(.accentColor)
                         .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(Color(.secondarySystemGroupedBackground))
-                        )
+                        .bodyCardBackground(cornerRadius: 18, translucent: true, translucentFillOpacity: 0.09)
                 }
                 .buttonStyle(.plain)
             }

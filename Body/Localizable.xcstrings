@@ -5866,6 +5866,165 @@
         }
       }
     },
+    "Email" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-Mail"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Email"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Correo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-mail"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ईमेल"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Почта"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-posta"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "邮箱"
+          }
+        }
+      }
+    },
+    "Instagram" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instagram"
+          }
+        }
+      }
+    },
+    "Reach out with any feedback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schreib uns dein Feedback"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reach out with any feedback"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escríbenos con cualquier comentario"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écrivez-nous pour tout commentaire"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कोई भी फ़ीडबैक हो तो हमसे संपर्क करें"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Напишите нам с любым отзывом"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Her türlü geri bildirim için bize yazın"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有任何反馈，欢迎联系"
+          }
+        }
+      }
+    },
     "accessibility.deleteProfile" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13718,6 +13877,58 @@
         }
       }
     },
+    "Cards" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Karten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cards"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tarjetas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cartes"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कार्ड"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Карточки"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kartlar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卡片"
+          }
+        }
+      }
+    },
     "Celsius" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15188,55 +15399,55 @@
         }
       }
     },
-    "Copyright (c) 2026 Ziheng Zhong. All rights reserved." : {
+    "© 2026 Ziheng Zhong. All rights reserved." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copyright (c) 2026 Ziheng Zhong. Alle Rechte vorbehalten."
+            "value" : "© 2026 Ziheng Zhong. Alle Rechte vorbehalten."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copyright (c) 2026 Ziheng Zhong. All rights reserved."
+            "value" : "© 2026 Ziheng Zhong. All rights reserved."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copyright (c) 2026 Ziheng Zhong. Todos los derechos reservados."
+            "value" : "© 2026 Ziheng Zhong. Todos los derechos reservados."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copyright (c) 2026 Ziheng Zhong. Tous droits réservés."
+            "value" : "© 2026 Ziheng Zhong. Tous droits réservés."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "कॉपीराइट (c) 2026 Ziheng Zhong। सर्वाधिकार सुरक्षित।"
+            "value" : "© 2026 Ziheng Zhong। सर्वाधिकार सुरक्षित।"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copyright (c) 2026 Ziheng Zhong. Все права защищены."
+            "value" : "© 2026 Ziheng Zhong. Все права защищены."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Telif Hakkı (c) 2026 Ziheng Zhong. Tüm hakları saklıdır."
+            "value" : "© 2026 Ziheng Zhong. Tüm hakları saklıdır."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "版权所有 (c) 2026 Ziheng Zhong。保留所有权利。"
+            "value" : "© 2026 Ziheng Zhong。保留所有权利。"
           }
         }
       }
@@ -22344,6 +22555,58 @@
         }
       }
     },
+    "Equivalents" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gegenwerte"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Equivalents"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Equivalencias"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Équivalents"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "समतुल्य"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эквиваленты"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kalori Karşılıkları"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "热量等价"
+          }
+        }
+      }
+    },
     "Every metric's individual source choice will be replaced by the Primary and Secondary Data Source selected here." : {
       "localizations" : {
         "de" : {
@@ -22921,59 +23184,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "家庭"
-          }
-        }
-      }
-    },
-    "Feedback Email" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Feedback-E-Mail"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Feedback Email"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Correo para comentarios"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "E-mail de commentaires"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "फ़ीडबैक ईमेल"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Почта для отзывов"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Geri Bildirim E-postası"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "反馈邮箱"
           }
         }
       }
@@ -45276,6 +45486,59 @@
         }
       }
     },
+    "Reddit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reddit"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reddit"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reddit"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reddit"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reddit"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reddit"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reddit"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reddit"
+          }
+        }
+      }
+    },
     "Refresh Now" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -51703,54 +51966,54 @@
         }
       }
     },
-    "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay the debt back, and up to 1 hour of extra sleep carries over to later nights. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement." : {
+    "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay the debt back, and up to 2 hours of extra sleep carry over to later nights. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Schlafdefizit schätzt, wie viel Schlaf dir in den letzten 14 Nächten gefehlt hat. Für jede Nacht vergleicht Body, wie lange du geschlafen hast, mit dem, was du gebraucht hättest. Dein Bedarf geht von deinem Schlafziel aus und bewegt sich um ein Drittel in Richtung dessen, was du in deinen längeren Nächten der letzten 8 Wochen erreichst, plus einem Zuschlag nach hartem Training oder einer Nacht mit niedriger nächtlicher HRV. Bis 28 Nächte aufgezeichnet sind, ersetzt dein Schlafziel den erlernten Bedarf. Längere Nächte bauen das Defizit wieder ab, und bis zu 1 Stunde zusätzlicher Schlaf wird auf spätere Nächte übertragen. Die gestrichelten Linien markieren 2 und 4 Stunden, ab denen ein Defizit von gering zu mittel und dann zu hoch wechselt, und die Summe ist bei 6 Stunden gedeckelt. Dies ist eine Schätzung, die dir hilft, einen Trend zu erkennen, keine medizinische Messung."
+            "value" : "Schlafdefizit schätzt, wie viel Schlaf dir in den letzten 14 Nächten gefehlt hat. Für jede Nacht vergleicht Body, wie lange du geschlafen hast, mit dem, was du gebraucht hättest. Dein Bedarf geht von deinem Schlafziel aus und bewegt sich um ein Drittel in Richtung dessen, was du in deinen längeren Nächten der letzten 8 Wochen erreichst, plus einem Zuschlag nach hartem Training oder einer Nacht mit niedriger nächtlicher HRV. Bis 28 Nächte aufgezeichnet sind, ersetzt dein Schlafziel den erlernten Bedarf. Längere Nächte bauen das Defizit wieder ab, und bis zu 2 Stunden zusätzlicher Schlaf werden auf spätere Nächte übertragen. Die gestrichelten Linien markieren 2 und 4 Stunden, ab denen ein Defizit von gering zu mittel und dann zu hoch wechselt, und die Summe ist bei 6 Stunden gedeckelt. Dies ist eine Schätzung, die dir hilft, einen Trend zu erkennen, keine medizinische Messung."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay the debt back, and up to 1 hour of extra sleep carries over to later nights. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement."
+            "value" : "Sleep Debt estimates how much sleep you have missed over the last 14 nights. Each night, Body compares what you slept with what you needed. Your need starts from your sleep goal and moves a third of the way toward what you reach on your longer nights over the last 8 weeks, plus extra after heavy training or a night of low overnight HRV. Until 28 nights are recorded, your sleep goal stands in for the learned need. Longer nights pay the debt back, and up to 2 hours of extra sleep carry over to later nights. The dashed lines mark 2 and 4 hours, where a debt goes from low to moderate and then to high, and the total tops out at 6 hours. This is an estimate to help you spot a trend, not a medical measurement."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La deuda de sueño estima cuánto sueño te ha faltado en las últimas 14 noches. Cada noche, Body compara lo que dormiste con lo que necesitabas. Tu necesidad parte de tu objetivo de sueño y se desplaza un tercio del camino hacia lo que alcanzas en tus noches más largas de las últimas 8 semanas, más un extra tras un entrenamiento intenso o una noche con VFC nocturna baja. Hasta que haya 28 noches registradas, tu objetivo de sueño sustituye a la necesidad aprendida. Las noches más largas saldan la deuda, y hasta 1 hora de sueño extra se traslada a las noches siguientes. Las líneas discontinuas marcan 2 y 4 horas, donde la deuda pasa de baja a moderada y luego a alta, y el total llega como máximo a 6 horas. Es una estimación para ayudarte a detectar una tendencia, no una medición médica."
+            "value" : "La deuda de sueño estima cuánto sueño te ha faltado en las últimas 14 noches. Cada noche, Body compara lo que dormiste con lo que necesitabas. Tu necesidad parte de tu objetivo de sueño y se desplaza un tercio del camino hacia lo que alcanzas en tus noches más largas de las últimas 8 semanas, más un extra tras un entrenamiento intenso o una noche con VFC nocturna baja. Hasta que haya 28 noches registradas, tu objetivo de sueño sustituye a la necesidad aprendida. Las noches más largas saldan la deuda, y hasta 2 horas de sueño extra se trasladan a las noches siguientes. Las líneas discontinuas marcan 2 y 4 horas, donde la deuda pasa de baja a moderada y luego a alta, y el total llega como máximo a 6 horas. Es una estimación para ayudarte a detectar una tendencia, no una medición médica."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La dette de sommeil estime le sommeil qui vous a manqué au cours des 14 dernières nuits. Chaque nuit, Body compare votre temps de sommeil à votre besoin. Votre besoin part de votre objectif de sommeil puis comble un tiers de l’écart avec ce que vous atteignez lors de vos nuits les plus longues des 8 dernières semaines, avec un supplément après un entraînement intense ou une nuit de VFC nocturne basse. Tant que 28 nuits n’ont pas été enregistrées, votre objectif de sommeil remplace le besoin appris. Les nuits plus longues remboursent la dette, et jusqu’à 1 heure de sommeil supplémentaire est reportée sur les nuits suivantes. Les lignes pointillées marquent 2 et 4 heures, seuils où la dette passe de faible à modérée puis à élevée, et le total plafonne à 6 heures. Il s’agit d’une estimation pour vous aider à repérer une tendance, pas d’une mesure médicale."
+            "value" : "La dette de sommeil estime le sommeil qui vous a manqué au cours des 14 dernières nuits. Chaque nuit, Body compare votre temps de sommeil à votre besoin. Votre besoin part de votre objectif de sommeil puis comble un tiers de l’écart avec ce que vous atteignez lors de vos nuits les plus longues des 8 dernières semaines, avec un supplément après un entraînement intense ou une nuit de VFC nocturne basse. Tant que 28 nuits n’ont pas été enregistrées, votre objectif de sommeil remplace le besoin appris. Les nuits plus longues remboursent la dette, et jusqu’à 2 heures de sommeil supplémentaire sont reportées sur les nuits suivantes. Les lignes pointillées marquent 2 et 4 heures, seuils où la dette passe de faible à modérée puis à élevée, et le total plafonne à 6 heures. Il s’agit d’une estimation pour vous aider à repérer une tendance, pas d’une mesure médicale."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "नींद की कमी अनुमान लगाती है कि पिछली 14 रातों में आपकी कितनी नींद छूटी। हर रात Body देखता है कि आप कितना सोए और आपको कितनी नींद चाहिए थी। आपकी ज़रूरत आपके नींद के लक्ष्य से शुरू होती है और पिछले 8 सप्ताह की आपकी लंबी रातों की नींद की ओर एक तिहाई खिसकती है, साथ ही भारी ट्रेनिंग के बाद या रात में कम HRV वाली रात के बाद थोड़ी और बढ़ती है। 28 रातें रिकॉर्ड होने तक सीखी गई ज़रूरत की जगह आपका नींद का लक्ष्य इस्तेमाल होता है। लंबी रातें कमी की भरपाई करती हैं, और ज़्यादा से ज़्यादा 1 घंटे की अतिरिक्त नींद आगे की रातों में गिनी जाती है। डैश वाली रेखाएँ 2 और 4 घंटे पर हैं, जहाँ कमी थोड़ी से मध्यम और फिर ज़्यादा हो जाती है, और कुल कमी 6 घंटे से ऊपर नहीं जाती। यह ट्रेंड पहचानने में मदद के लिए एक अनुमान है, कोई चिकित्सा माप नहीं।"
+            "value" : "नींद की कमी अनुमान लगाती है कि पिछली 14 रातों में आपकी कितनी नींद छूटी। हर रात Body देखता है कि आप कितना सोए और आपको कितनी नींद चाहिए थी। आपकी ज़रूरत आपके नींद के लक्ष्य से शुरू होती है और पिछले 8 सप्ताह की आपकी लंबी रातों की नींद की ओर एक तिहाई खिसकती है, साथ ही भारी ट्रेनिंग के बाद या रात में कम HRV वाली रात के बाद थोड़ी और बढ़ती है। 28 रातें रिकॉर्ड होने तक सीखी गई ज़रूरत की जगह आपका नींद का लक्ष्य इस्तेमाल होता है। लंबी रातें कमी की भरपाई करती हैं, और ज़्यादा से ज़्यादा 2 घंटे की अतिरिक्त नींद आगे की रातों में गिनी जाती है। डैश वाली रेखाएँ 2 और 4 घंटे पर हैं, जहाँ कमी थोड़ी से मध्यम और फिर ज़्यादा हो जाती है, और कुल कमी 6 घंटे से ऊपर नहीं जाती। यह ट्रेंड पहचानने में मदद के लिए एक अनुमान है, कोई चिकित्सा माप नहीं।"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Дефицит сна оценивает, сколько сна Вам не хватило за последние 14 ночей. Каждую ночь Body сравнивает, сколько Вы спали, с тем, сколько Вам было нужно. Потребность начинается с Вашей цели сна и смещается на треть к тому, сколько Вы спали в свои более длинные ночи за последние 8 недель, плюс дополнительное время после тяжелых тренировок или ночи с низкой ночной ВСР. Пока не записано 28 ночей, вместо вычисленной потребности используется Ваша цель сна. Более длинные ночи погашают дефицит, а до 1 часа лишнего сна переносится на следующие ночи. Пунктирные линии отмечают 2 и 4 часа, где дефицит переходит из малого в средний, а затем в большой; итог ограничен 6 часами. Это оценка, которая помогает заметить тренд, а не медицинское измерение."
+            "value" : "Дефицит сна оценивает, сколько сна Вам не хватило за последние 14 ночей. Каждую ночь Body сравнивает, сколько Вы спали, с тем, сколько Вам было нужно. Потребность начинается с Вашей цели сна и смещается на треть к тому, сколько Вы спали в свои более длинные ночи за последние 8 недель, плюс дополнительное время после тяжелых тренировок или ночи с низкой ночной ВСР. Пока не записано 28 ночей, вместо вычисленной потребности используется Ваша цель сна. Более длинные ночи погашают дефицит, а до 2 часов лишнего сна переносится на следующие ночи. Пунктирные линии отмечают 2 и 4 часа, где дефицит переходит из малого в средний, а затем в большой; итог ограничен 6 часами. Это оценка, которая помогает заметить тренд, а не медицинское измерение."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Uyku Borcu, son 14 gecede ne kadar uyku kaçırdığınızı tahmin eder. Body her gece uyuduğunuz süreyi ihtiyacınız olan süreyle karşılaştırır. İhtiyacınız uyku hedefinizden başlar ve son 8 haftadaki uzun gecelerinizde ulaştığınız süreye doğru üçte bir oranında yaklaşır. Yoğun antrenmandan veya gece HRV'nizin düşük olduğu bir geceden sonra buna ek süre eklenir. 28 gece kaydedilene kadar öğrenilen ihtiyacın yerine uyku hedefiniz kullanılır. Daha uzun geceler borcu öder ve en fazla 1 saatlik fazla uyku sonraki gecelere aktarılır. Kesikli çizgiler, borcun düşükten ortaya ve ardından yükseğe geçtiği 2 ve 4 saati gösterir. Toplam en fazla 6 saat olabilir. Bu, bir eğilimi fark etmenize yardımcı olacak bir tahmindir, tıbbi bir ölçüm değildir."
+            "value" : "Uyku Borcu, son 14 gecede ne kadar uyku kaçırdığınızı tahmin eder. Body her gece uyuduğunuz süreyi ihtiyacınız olan süreyle karşılaştırır. İhtiyacınız uyku hedefinizden başlar ve son 8 haftadaki uzun gecelerinizde ulaştığınız süreye doğru üçte bir oranında yaklaşır. Yoğun antrenmandan veya gece HRV'nizin düşük olduğu bir geceden sonra buna ek süre eklenir. 28 gece kaydedilene kadar öğrenilen ihtiyacın yerine uyku hedefiniz kullanılır. Daha uzun geceler borcu öder ve en fazla 2 saatlik fazla uyku sonraki gecelere aktarılır. Kesikli çizgiler, borcun düşükten ortaya ve ardından yükseğe geçtiği 2 ve 4 saati gösterir. Toplam en fazla 6 saat olabilir. Bu, bir eğilimi fark etmenize yardımcı olacak bir tahmindir, tıbbi bir ölçüm değildir."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "睡眠负债估算你在最近14晚中少睡了多少。Body会把每晚的实际睡眠与所需睡眠进行比较。所需睡眠以你的睡眠目标为起点，向最近8周里你在睡得较久的夜晚所达到的时长靠近三分之一，并在高强度训练后或夜间心率变异性偏低的夜晚之后再额外增加一些。在记录满28晚之前，会以你的睡眠目标代替学习得出的所需睡眠。睡得更久的夜晚可以偿还负债，多睡的时间最多保留1小时，用来抵扣之后的夜晚。图表中的虚线标出了2小时和4小时，负债在这两处由低变为中等，再变为高，总量最多计为6小时。这只是帮助你发现趋势的估算，并非医学测量。"
+            "value" : "睡眠负债估算你在最近14晚中少睡了多少。Body会把每晚的实际睡眠与所需睡眠进行比较。所需睡眠以你的睡眠目标为起点，向最近8周里你在睡得较久的夜晚所达到的时长靠近三分之一，并在高强度训练后或夜间心率变异性偏低的夜晚之后再额外增加一些。在记录满28晚之前，会以你的睡眠目标代替学习得出的所需睡眠。睡得更久的夜晚可以偿还负债，多睡的时间最多保留2小时，用来抵扣之后的夜晚。图表中的虚线标出了2小时和4小时，负债在这两处由低变为中等，再变为高，总量最多计为6小时。这只是帮助你发现趋势的估算，并非医学测量。"
           }
         }
       }
@@ -55652,59 +55915,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "摘要"
-          }
-        }
-      }
-    },
-    "Summary Cards" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Übersichtskarten"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Summary Cards"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tarjetas de resumen"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cartes de résumé"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "सारांश कार्ड"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Карточки сводки"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Özet Kartları"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "摘要卡片"
           }
         }
       }
@@ -61380,6 +61590,59 @@
         }
       }
     },
+    "v2.1" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v2.1"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v2.1"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v2.1"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v2.1"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v2.1"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v2.1"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v2.1"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v2.1"
+          }
+        }
+      }
+    },
     "v3" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -61533,59 +61796,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "数值"
-          }
-        }
-      }
-    },
-    "Version" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Version"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Version"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Versión"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Version"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "संस्करण"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Версия"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sürüm"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "版本"
           }
         }
       }
@@ -63275,58 +63485,6 @@
         }
       }
     },
-    "Workout Effort" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Trainingsanstrengung"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workout Effort"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Esfuerzo del entrenamiento"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Effort de l’exercice"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "वर्कआउट प्रयास"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Усилие при тренировке"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Antrenman Eforu"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "运动强度"
-          }
-        }
-      }
-    },
     "Workout effort isn't available on this device." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -63376,58 +63534,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此设备不支持运动强度。"
-          }
-        }
-      }
-    },
-    "Workout Equivalents" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Trainings-Gegenwert"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workout Equivalents"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Equivalencias del entrenamiento"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Équivalents de l’exercice"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "वर्कआउट समतुल्य"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Эквиваленты тренировки"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Antrenman Karşılıkları"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "运动热量等价"
           }
         }
       }

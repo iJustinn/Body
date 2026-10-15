@@ -1,3 +1,8 @@
+## 1.1.6 (build 3)
+
+- Updated the app, widget, watch, and test bundle version to 1.1.6 build 3.
+- **Coin style Copyright card.** The Copyright card at the end of Settings › About › More drops its gray icon tile and follows Coin's card: a 25 pt bold rounded **Copyright** title, then the copyright line as a primary headline, now written with the © sign ("© 2026 Ziheng Zhong. All rights reserved."), then the Apple Health note in gray, with 20 pt padding. The copyright line's catalog key changed with it, and every language now reads "© 2026" in place of "Copyright (c) 2026" and its translated forms.
+
 ## 1.1.6 (build 2)
 
 - Updated the app, widget, watch, and test bundle version to 1.1.6 build 2.
