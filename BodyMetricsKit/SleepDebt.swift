@@ -27,7 +27,7 @@ struct SleepDebtNight: Equatable, Identifiable {
     /// Recorded nights in the 14 night window ending on this night.
     var recordedNightCount: Int
     /// Need minus actual summed over that window's recorded nights, oldest
-    /// first, with at most an hour of extra sleep banked along the way, then
+    /// first, with at most 2 hours of extra sleep banked along the way, then
     /// floored at zero and capped at 6 hours. Nil when fewer than 5 of them
     /// were recorded, and for today while today's night hasn't arrived.
     var debtAfterNight: TimeInterval?
@@ -102,7 +102,7 @@ struct SleepDebtRecord: Codable, Equatable, Identifiable {
 /// that night show, or the goal alone until enough nights exist, plus Training
 /// Load and sleep HRV adjustments) against what was slept, summed over a
 /// rolling 14 night calendar window. Nights with no sleep recorded are
-/// skipped, longer nights offset shorter ones but bank at most an hour against
+/// skipped, longer nights offset shorter ones but bank at most 2 hours against
 /// later nights, and the total never drops below zero or climbs past 6 hours.
 /// Each night keeps the need it learned on its own day, so a point on the
 /// chart never moves as later nights arrive.
@@ -127,7 +127,7 @@ struct SleepDebtChartModel: Equatable {
 
     /// Rides the records' context signature: bumping it drops every frozen
     /// night so the new rule judges them again, like Body Radar's.
-    static let algorithmVersion = 2
+    static let algorithmVersion = 3
     /// Frozen nights older than this many days before today are pruned: the
     /// entry days the model reads, plus a window of slack.
     static let recordRetentionDayCount = entryDayCount + windowNightCount
@@ -161,7 +161,7 @@ struct SleepDebtChartModel: Equatable {
     static let maximumDebt: TimeInterval = 6 * 3_600
     /// Extra sleep banks at most this much against later nights, so a run of
     /// long nights can't hide the short ones after it.
-    static let maximumReserve: TimeInterval = 3_600
+    static let maximumReserve: TimeInterval = 2 * 3_600
     /// A night's learned need reads the recorded nights of the 56 days ending
     /// on it, needs 28 of them, and takes their 75th percentile: what you sleep on
     /// your longer nights, since the median of a short sleeper reflects the
