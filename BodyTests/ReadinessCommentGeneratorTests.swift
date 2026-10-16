@@ -192,6 +192,18 @@ final class ReadinessCommentGeneratorTests: XCTestCase {
         }
     }
 
+    func testTurkishInstructionsUseTheAppsWordForRecovery() {
+        let turkish = ReadinessCommentPromptBuilder.instructions(locale: Locale(identifier: "tr"))
+        XCTAssertTrue(turkish.contains("Write the comment in Turkish."))
+        XCTAssertTrue(turkish.contains(#"always write "toparlanma""#))
+        XCTAssertTrue(turkish.contains(#"never "iyileşme""#))
+
+        for identifier in ["en_US", "de", "zh-Hans"] {
+            let other = ReadinessCommentPromptBuilder.instructions(locale: Locale(identifier: identifier))
+            XCTAssertFalse(other.contains("toparlanma"), identifier)
+        }
+    }
+
     func testInstructionsNeverNameLatinScriptOrAllowAppMentions() {
         // "en" + script "Latn" once resolved to "English (Latin)" and a device
         // dutifully wrote its comment in Latin. The script may only surface for

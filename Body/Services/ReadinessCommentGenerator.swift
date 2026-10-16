@@ -190,8 +190,20 @@ enum ReadinessCommentPromptBuilder {
         - Plain prose only: no emoji, no markdown, no lists, no headings.
         - Very simple, plain sentences. Never use a dash of any kind or a semicolon. Split into two short sentences instead.
         - Respond with the rewritten comment only: a single paragraph, no labels, no field names, no blank lines, and never repeat the brief or any part of it.
-        - Write the comment in \(languageName(for: locale)).
+        - Write the comment in \(languageName(for: locale)).\(termHints(for: locale))
         """
+    }
+
+    /// The app's own word for a term the model otherwise renders differently from
+    /// the rest of the UI. A Turkish reviewer flagged "İyileşme" for recovery,
+    /// where every Turkish screen says "Toparlanma".
+    private static func termHints(for locale: Locale) -> String {
+        switch locale.language.languageCode?.identifier {
+        case "tr":
+            return "\n- For \"recovery\", always write \"toparlanma\" (\"Toparlanma\" at the start of a sentence), never \"iyileşme\"."
+        default:
+            return ""
+        }
     }
 
     /// The prompt is a rewrite brief, not raw data: the authored `heroExplanation`
@@ -342,7 +354,7 @@ enum ReadinessCommentSignature {
         return [
             // Prompt-format version: bumping it invalidates every cached comment
             // written by an older prompt, forcing a regeneration.
-            "v11",
+            "v12",
             dayFormatter.string(from: day),
             readinessIntText(readiness.score, fallback: "-"),
             readiness.status.rawValue,
