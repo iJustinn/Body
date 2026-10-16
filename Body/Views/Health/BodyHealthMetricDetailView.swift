@@ -3896,7 +3896,7 @@ struct BodyHealthMetricDetailView: View {
             switch measurement.kind {
             case .sleepingHeartRate:
                 value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
-                unit = "bpm"
+                unit = String(localized: "bpm")
             case .respiratoryRate:
                 value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
                 unit = String(localized: "br/min")

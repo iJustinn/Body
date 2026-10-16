@@ -121,8 +121,8 @@ struct WorkoutElevationLinePresentation: Equatable {
         guard highestMeters - lowestMeters >= WorkoutElevationSeries.minimumSpanMeters else { return nil }
 
         let useFeet = distanceUnitPreference == .miles
-        // Matching `BodyValueFormat.elevationText`, the units stay unlocalized.
-        unitText = useFeet ? "ft" : "m"
+        // Matching `BodyValueFormat.elevationText`.
+        unitText = useFeet ? String(localized: "ft", table: "BodyMetricsKit") : String(localized: "m", table: "BodyMetricsKit")
         let display: (Double) -> Double = { meters in
             useFeet
                 ? Measurement(value: meters, unit: UnitLength.meters).converted(to: .feet).value

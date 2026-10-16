@@ -921,10 +921,10 @@ final class WatchMetricsModel: NSObject, ObservableObject {
 
         var metrics = snapshot.metrics
         if let heartRate {
-            metrics = updating(metrics, kind: WatchMetricKindKey.heartRate, value: heartRate.value, measuredAt: heartRate.measuredAt, decimals: 0, unit: "bpm")
+            metrics = updating(metrics, kind: WatchMetricKindKey.heartRate, value: heartRate.value, measuredAt: heartRate.measuredAt, decimals: 0, unit: String(localized: "bpm"))
         }
         if let hrv {
-            metrics = updating(metrics, kind: WatchMetricKindKey.heartRateVariability, value: hrv.value, measuredAt: hrv.measuredAt, decimals: 0, unit: "ms")
+            metrics = updating(metrics, kind: WatchMetricKindKey.heartRateVariability, value: hrv.value, measuredAt: hrv.measuredAt, decimals: 0, unit: String(localized: "ms"))
         }
 
         // Don't advance `generatedAt` on a local live refresh: a newer phone

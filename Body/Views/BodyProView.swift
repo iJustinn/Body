@@ -858,9 +858,9 @@ private struct BodyProRouteSlide: View {
                 .foregroundColor(.secondary)
 
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
-                    stat("8.4", unit: "km")
+                    stat("8.4", unit: String(localized: "km"))
                     stat("42:18", unit: nil)
-                    stat("5'02\"", unit: "/km")
+                    stat("5'02\"", unit: String(localized: "/km"))
                 }
             }
             .padding(18)

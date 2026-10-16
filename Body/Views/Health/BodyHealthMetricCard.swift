@@ -327,7 +327,8 @@ struct BodyHealthMetricCard: View {
     }
 
     private func displayValueRow(_ display: BodyMetricDisplayValue, valueFontSize: CGFloat) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
+        // A percent sign sits against its number ("13,6%"), as on the hero.
+        HStack(alignment: .firstTextBaseline, spacing: display.unit == "%" ? 1 : 4) {
             Group {
                 // Word values ("Typical", "2 Outliers", "Below Average") must not
                 // get the numeric text treatment digits rely on.

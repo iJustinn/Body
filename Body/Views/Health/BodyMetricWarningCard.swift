@@ -403,7 +403,7 @@ struct BodyMetricWarningCard: View {
         let number = BodyValueFormat.numberText(value, decimals: valueDecimals)
         switch event.kind {
         case .lowHeartRate, .highHeartRate:
-            return number + " BPM"
+            return number + " " + String(localized: "BPM")
         case .lowBloodOxygen:
             return number + "%"
         case .highRespiratoryRate:

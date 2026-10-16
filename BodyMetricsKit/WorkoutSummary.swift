@@ -1039,14 +1039,14 @@ struct WorkoutDetailPresentation: Equatable {
             metrics.append(WorkoutDetailMetric(
                 kind: .stepCadence,
                 title: String(localized: "Step Cadence", table: "BodyMetricsKit"),
-                value: BodyValueFormat.cadenceText(stepCadence, unit: "spm", locale: locale)
+                value: BodyValueFormat.cadenceText(stepCadence, unit: String(localized: "spm", table: "BodyMetricsKit"), locale: locale)
             ))
         }
         if let cyclingCadence = workout.averageCyclingCadenceRPM, cyclingCadence > 0 {
             metrics.append(WorkoutDetailMetric(
                 kind: .cyclingCadence,
                 title: String(localized: "Cycling Cadence", table: "BodyMetricsKit"),
-                value: BodyValueFormat.cadenceText(cyclingCadence, unit: "rpm", locale: locale)
+                value: BodyValueFormat.cadenceText(cyclingCadence, unit: String(localized: "rpm", table: "BodyMetricsKit"), locale: locale)
             ))
         }
         if let power = workout.averagePowerWatts, power > 0 {
@@ -1079,7 +1079,7 @@ struct WorkoutDetailPresentation: Equatable {
             metrics.append(WorkoutDetailMetric(
                 kind: .averageMETs,
                 title: String(localized: "Avg METs", table: "BodyMetricsKit"),
-                value: BodyValueFormat.numberText(averageMETs, decimals: 1, locale: locale) + " METs"
+                value: BodyValueFormat.numberText(averageMETs, decimals: 1, locale: locale) + " " + String(localized: "METs", table: "BodyMetricsKit")
             ))
         }
 
@@ -1198,9 +1198,9 @@ enum BodyValueFormat {
             case .system:
                 return String(localized: "Device", table: "BodyMetricsKit")
             case .metric:
-                return "kg / km"
+                return String(localized: "kg", table: "BodyMetricsKit") + " / " + String(localized: "km", table: "BodyMetricsKit")
             case .imperial:
-                return "lb / mi"
+                return String(localized: "lb", table: "BodyMetricsKit") + " / " + String(localized: "mi", table: "BodyMetricsKit")
             }
         }
 
@@ -1231,9 +1231,9 @@ enum BodyValueFormat {
         var unitLabel: String {
             switch self {
             case .kilograms:
-                return "kg"
+                return String(localized: "kg", table: "BodyMetricsKit")
             case .pounds:
-                return "lb"
+                return String(localized: "lb", table: "BodyMetricsKit")
             }
         }
 
@@ -1268,9 +1268,9 @@ enum BodyValueFormat {
         var unitLabel: String {
             switch self {
             case .kilometers:
-                return "km"
+                return String(localized: "km", table: "BodyMetricsKit")
             case .miles:
-                return "mi"
+                return String(localized: "mi", table: "BodyMetricsKit")
             }
         }
 
@@ -1305,9 +1305,9 @@ enum BodyValueFormat {
         var unitLabel: String {
             switch self {
             case .kilocalories:
-                return "kcal"
+                return String(localized: "kcal", table: "BodyMetricsKit")
             case .kilojoules:
-                return "kJ"
+                return String(localized: "kJ", table: "BodyMetricsKit")
             }
         }
 
@@ -1454,10 +1454,10 @@ enum BodyValueFormat {
             let pounds = Measurement(value: kilograms, unit: UnitMass.kilograms)
                 .converted(to: .pounds)
                 .value
-            return (pounds, "lb")
+            return (pounds, String(localized: "lb", table: "BodyMetricsKit"))
         }
 
-        return (kilograms, "kg")
+        return (kilograms, String(localized: "kg", table: "BodyMetricsKit"))
     }
 
     static func distanceText(
@@ -1508,7 +1508,7 @@ enum BodyValueFormat {
         let useMiles = distanceUnitPreference == .miles
         let unitMeters = useMiles ? 1_609.344 : 1_000.0
         let secondsPerUnit = seconds / (meters / unitMeters)
-        return clockText(seconds: secondsPerUnit) + (useMiles ? " /mi" : " /km")
+        return clockText(seconds: secondsPerUnit) + " " + (useMiles ? String(localized: "/mi", table: "BodyMetricsKit") : String(localized: "/km", table: "BodyMetricsKit"))
     }
 
     /// Average speed as km/h (or mph), from total distance and elapsed time.
@@ -1524,12 +1524,12 @@ enum BodyValueFormat {
             let mph = Measurement(value: metersPerSecond, unit: UnitSpeed.metersPerSecond)
                 .converted(to: .milesPerHour)
                 .value
-            return numberText(mph, decimals: 1, locale: locale) + " mph"
+            return numberText(mph, decimals: 1, locale: locale) + " " + String(localized: "mph", table: "BodyMetricsKit")
         }
         let kmh = Measurement(value: metersPerSecond, unit: UnitSpeed.metersPerSecond)
             .converted(to: .kilometersPerHour)
             .value
-        return numberText(kmh, decimals: 1, locale: locale) + " km/h"
+        return numberText(kmh, decimals: 1, locale: locale) + " " + String(localized: "km/h", table: "BodyMetricsKit")
     }
 
     /// Swim pace as M:SS per 100 m (or per 100 yd).
@@ -1543,7 +1543,7 @@ enum BodyValueFormat {
         let useYards = distanceUnitPreference == .miles
         let unitMeters = useYards ? 91.44 : 100.0
         let secondsPerUnit = seconds / (meters / unitMeters)
-        return clockText(seconds: secondsPerUnit) + (useYards ? " /100yd" : " /100m")
+        return clockText(seconds: secondsPerUnit) + " " + (useYards ? String(localized: "/100yd", table: "BodyMetricsKit") : String(localized: "/100m", table: "BodyMetricsKit"))
     }
 
     /// Elevation gain as whole meters (or feet).
@@ -1556,13 +1556,13 @@ enum BodyValueFormat {
             let feet = Measurement(value: meters, unit: UnitLength.meters)
                 .converted(to: .feet)
                 .value
-            return numberText(feet.rounded(), decimals: 0, locale: locale) + " ft"
+            return numberText(feet.rounded(), decimals: 0, locale: locale) + " " + String(localized: "ft", table: "BodyMetricsKit")
         }
-        return numberText(meters.rounded(), decimals: 0, locale: locale) + " m"
+        return numberText(meters.rounded(), decimals: 0, locale: locale) + " " + String(localized: "m", table: "BodyMetricsKit")
     }
 
     static func powerText(watts: Double, locale: Locale = .current) -> String {
-        numberText(watts.rounded(), decimals: 0, locale: locale) + " W"
+        numberText(watts.rounded(), decimals: 0, locale: locale) + " " + String(localized: "W", table: "BodyMetricsKit")
     }
 
     /// Cadence with an activity-specific unit ("spm" for foot, "rpm" for cycling).
@@ -1571,7 +1571,7 @@ enum BodyValueFormat {
     }
 
     static func vo2MaxText(_ value: Double, locale: Locale = .current) -> String {
-        numberText(value, decimals: 1, locale: locale) + " ml/kg·min"
+        numberText(value, decimals: 1, locale: locale) + " " + String(localized: "ml/kg·min", table: "BodyMetricsKit")
     }
 
     static func strokeCountText(_ count: Double, locale: Locale = .current) -> String {
@@ -1598,21 +1598,21 @@ enum BodyValueFormat {
     ) -> (value: Double, unit: String) {
         switch energyUnitPreference {
         case .kilocalories:
-            return (kilocalories, "kcal")
+            return (kilocalories, String(localized: "kcal", table: "BodyMetricsKit"))
         case .kilojoules:
             let kilojoules = Measurement(value: kilocalories, unit: UnitEnergy.kilocalories)
                 .converted(to: .kilojoules)
                 .value
-            return (kilojoules, "kJ")
+            return (kilojoules, String(localized: "kJ", table: "BodyMetricsKit"))
         }
     }
 
     static func heartRateText(beatsPerMinute: Double, locale: Locale = .current) -> String {
-        numberText(beatsPerMinute.rounded(), decimals: 0, locale: locale) + " bpm"
+        numberText(beatsPerMinute.rounded(), decimals: 0, locale: locale) + " " + String(localized: "bpm", table: "BodyMetricsKit")
     }
 
     static func respiratoryRateText(breathsPerMinute: Double, locale: Locale = .current) -> String {
-        numberText(breathsPerMinute.rounded(), decimals: 0, locale: locale) + " br/min"
+        numberText(breathsPerMinute.rounded(), decimals: 0, locale: locale) + " " + String(localized: "br/min", table: "BodyMetricsKit")
     }
 
     static func temperatureDisplay(

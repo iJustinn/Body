@@ -1378,15 +1378,13 @@ private struct BodyWorkoutExpenseStyleRow: View {
     }
 
     private var formattedCompactDate: String {
-        var calendar = Calendar.bodyGregorian
-        var monthStyle = Date.FormatStyle.dateTime.month(.wide)
+        // The locale orders month and day ("September 30", "30. September").
+        var style = Date.FormatStyle.dateTime.month(.wide).day()
+        style.calendar = Calendar.bodyGregorian
         if let rowTimeZone {
-            calendar.timeZone = rowTimeZone
-            monthStyle.timeZone = rowTimeZone
+            style.timeZone = rowTimeZone
         }
-        let day = calendar.component(.day, from: workout.startDate)
-        let month = workout.startDate.formatted(monthStyle)
-        return "\(month) \(day)"
+        return workout.startDate.formatted(style)
     }
 
     private var formattedTime: String {
@@ -4816,7 +4814,7 @@ private struct BodyWorkoutHeartRateChart: View, Animatable {
             values: [
                 BodyChartSelectionValue(
                     title: nil,
-                    value: "\(Int(smoothed.value.rounded())) bpm",
+                    value: "\(Int(smoothed.value.rounded())) " + String(localized: "bpm"),
                     color: color(for: smoothed)
                 )
             ],
@@ -4835,7 +4833,7 @@ private struct BodyWorkoutHeartRateChart: View, Animatable {
     ) -> String {
         guard series.indices.contains(accessibilityPointIndex) else { return "" }
         let point = series[accessibilityPointIndex]
-        return "\(point.date.formatted(.dateTime.hour().minute())), \(Int(point.value.rounded())) bpm"
+        return "\(point.date.formatted(.dateTime.hour().minute())), \(Int(point.value.rounded())) " + String(localized: "bpm")
     }
 }
 

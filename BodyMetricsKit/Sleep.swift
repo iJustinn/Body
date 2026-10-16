@@ -507,7 +507,7 @@ struct SleepScoreSummary: Equatable {
                 kind: .pressure,
                 progress: Self.pressureProgress(heartRateVariability, baseline: baselines.heartRateVariability),
                 maximumPoints: 15,
-                valueDescription: "\(Int(heartRateVariability.rounded())) ms"
+                valueDescription: "\(Int(heartRateVariability.rounded())) " + String(localized: "ms", table: "BodyMetricsKit")
             ))
         }
 

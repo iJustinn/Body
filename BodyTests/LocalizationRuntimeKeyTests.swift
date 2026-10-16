@@ -187,10 +187,62 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
     /// English literal.
     func testMetricUnitKeysResolveInBothCatalogs() throws {
         let localizable = try loadCatalog(at: "Body/Localizable.xcstrings")
-        try assertKeysTranslated(["steps", "br/min", "pts", "min"], in: localizable)
+        try assertKeysTranslated(["steps", "br/min", "pts", "min", "bpm", "BPM"], in: localizable)
 
         let metricsKit = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
-        try assertKeysTranslated(["steps", "br/min", "min"], in: metricsKit)
+        try assertKeysTranslated(["steps", "br/min", "min", "bpm", "BPM"], in: metricsKit)
+
+        try assertKeysTranslated(["bpm"], in: loadCatalog(at: "BodyWatch/Localizable.xcstrings"))
+        try assertKeysTranslated(["bpm"], in: loadCatalog(at: "BodyWatchSnapshotKit/BodyWatchSnapshotKit.xcstrings"))
+    }
+
+    /// Measurement units follow Apple Health: Latin in German, Spanish, French
+    /// and Turkish, local script in Russian, Hindi and Chinese.
+    func testMeasurementUnitsFollowApplePerLanguage() throws {
+        let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+        let keys = ["kg", "lb", "km", "mi", "m", "ft", "kcal", "kJ", "ms", "/km", "/mi", "/100m", "/100yd",
+                    "km/h", "mph", "min/km", "min/mi", "ft/step", "m/step", "W", "spm", "rpm", "ml/kg·min", "METs"]
+        try assertKeysTranslated(keys, in: catalog)
+
+        let expected: [String: [String: String]] = [
+            "kg": ["ru": "кг", "hi": "कि॰ग्रा॰", "zh-Hans": "公斤", "de": "kg", "tr": "kg"],
+            "km": ["ru": "км", "hi": "कि॰मी॰", "zh-Hans": "公里", "es": "km", "fr": "km"],
+            "kcal": ["ru": "ккал", "hi": "कि॰कै॰", "zh-Hans": "千卡", "de": "kcal"],
+            "ms": ["ru": "мс", "hi": "मि॰से॰", "zh-Hans": "毫秒", "tr": "ms"]
+        ]
+        for (key, values) in expected {
+            let entry = try XCTUnwrap(catalog[key] as? [String: Any])
+            let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any])
+            for (language, value) in values {
+                let units = try BodyTestSupport.stringUnits(in: XCTUnwrap(localizations[language] as? [String: Any]), context: "\(key) \(language)")
+                XCTAssertEqual(units.first?["value"] as? String, value, "\(key) \(language)")
+            }
+        }
+
+        try assertKeysTranslated(["kcal", "ms", "km", "/km"], in: loadCatalog(at: "Body/Localizable.xcstrings"))
+        try assertKeysTranslated(["ms"], in: loadCatalog(at: "BodyWatch/Localizable.xcstrings"))
+        try assertKeysTranslated(["ms"], in: loadCatalog(at: "BodyWatchSnapshotKit/BodyWatchSnapshotKit.xcstrings"))
+    }
+
+    /// Heart rate follows Apple Health's unit per language: Latin bpm in
+    /// German, French and Hindi, and lpm, уд/мин, v/dk and 次/分 elsewhere,
+    /// including inside the warning sentences.
+    func testHeartRateUnitFollowsApplePerLanguage() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+        let expected = ["de": "bpm", "fr": "bpm", "hi": "bpm", "es": "lpm", "ru": "уд/мин", "tr": "v/dk", "zh-Hans": "次/分"]
+        let entry = try XCTUnwrap(catalog["bpm"] as? [String: Any])
+        let localizations = try XCTUnwrap(entry["localizations"] as? [String: Any])
+        for (language, unit) in expected {
+            let units = try BodyTestSupport.stringUnits(in: XCTUnwrap(localizations[language] as? [String: Any]), context: language)
+            XCTAssertEqual(units.first?["value"] as? String, unit, language)
+        }
+
+        let warning = try XCTUnwrap(catalog["Your heart rate fell below %lld BPM starting at %@."] as? [String: Any])
+        let warningLocalizations = try XCTUnwrap(warning["localizations"] as? [String: Any])
+        for (language, unit) in expected where !["de", "fr", "hi", "zh-Hans"].contains(language) {
+            let units = try BodyTestSupport.stringUnits(in: XCTUnwrap(warningLocalizations[language] as? [String: Any]), context: language)
+            XCTAssertTrue((units.first?["value"] as? String)?.contains(unit) == true, language)
+        }
     }
 
     func testReadinessAwaitingSleepHeroResolvesInBodyMetricsKitCatalog() throws {
@@ -1084,6 +1136,11 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
         XCTAssertEqual(try value(of: "pr.badge", language: "en", in: catalog), "PR")
         XCTAssertEqual(try value(of: "pr.badge", language: "zh-Hans", in: catalog), "PR")
+        // Native reviewers read PR as English; each language uses its own short form.
+        XCTAssertEqual(try value(of: "pr.badge", language: "de", in: catalog), "PB")
+        XCTAssertEqual(try value(of: "pr.badge", language: "es", in: catalog), "RP")
+        XCTAssertEqual(try value(of: "pr.badge", language: "fr", in: catalog), "RP")
+        XCTAssertEqual(try value(of: "pr.badge", language: "ru", in: catalog), "ЛР")
         XCTAssertEqual(
             try value(of: "pr.accessibility.personalRecord", language: "en", in: catalog),
             "Personal record"

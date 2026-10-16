@@ -646,6 +646,214 @@
         }
       }
     },
+    "/100m" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100m"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100m"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100m"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100m"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100 मी॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100 м"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100m"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100米"
+          }
+        }
+      }
+    },
+    "/100yd" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100yd"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100yd"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100yd"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100yd"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100 गज़"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100 ярд."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100yd"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/100码"
+          }
+        }
+      }
+    },
+    "/km" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/km"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/km"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/km"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/km"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/कि॰मी॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/км"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/km"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/公里"
+          }
+        }
+      }
+    },
+    "/mi" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/mi"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/mi"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/mi"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/mi"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/मील"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/ми"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/mi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/英里"
+          }
+        }
+      }
+    },
     "1 Outlier" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2888,7 +3096,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Frecuencia cardiaca media de %@ bpm"
+            "value" : "Frecuencia cardiaca media de %@ lpm"
           }
         },
         "fr" : {
@@ -2906,19 +3114,19 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Средний пульс: %@ bpm"
+            "value" : "Средний пульс: %@ уд/мин"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ortalama kalp atış hızı %@ bpm"
+            "value" : "Ortalama kalp atış hızı %@ v/dk"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "平均心率 %@ BPM"
+            "value" : "平均心率 %@ 次/分"
           }
         }
       }
@@ -3141,7 +3349,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ø METs"
+            "value" : "Ø MET"
           }
         },
         "en" : {
@@ -3153,7 +3361,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "METs medios"
+            "value" : "MET medios"
           }
         },
         "fr" : {
@@ -3165,7 +3373,7 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "औसत METs"
+            "value" : "औसत MET"
           }
         },
         "ru" : {
@@ -3177,7 +3385,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ort. METs"
+            "value" : "Ort. MET"
           }
         },
         "zh-Hans" : {
@@ -5996,6 +6204,110 @@
         }
       }
     },
+    "bpm" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bpm"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bpm"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "lpm"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bpm"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bpm"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "уд/мин"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v/dk"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次/分"
+          }
+        }
+      }
+    },
+    "BPM" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BPM"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BPM"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LPM"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BPM"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BPM"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "УД/МИН"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "V/DK"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次/分"
+          }
+        }
+      }
+    },
     "br/min" : {
       "localizations" : {
         "de" : {
@@ -6843,6 +7155,266 @@
         }
       }
     },
+    "ft" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ft"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ft"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ft"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ft"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "फ़ु॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "фт"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ft"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "英尺"
+          }
+        }
+      }
+    },
+    "kcal" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kcal"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kcal"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kcal"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kcal"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कि॰कै॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ккал"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kcal"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "千卡"
+          }
+        }
+      }
+    },
+    "kg" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kg"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kg"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kg"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kg"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कि॰ग्रा॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "кг"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kg"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "公斤"
+          }
+        }
+      }
+    },
+    "lb" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "lb"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "lb"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "lb"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "lb"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "पाउंड"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "фунт."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "lb"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "磅"
+          }
+        }
+      }
+    },
+    "m" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "m"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "m"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "m"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "m"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "मी॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "м"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "m"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "米"
+          }
+        }
+      }
+    },
     "Max Elevation" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6896,6 +7468,58 @@
         }
       }
     },
+    "METs" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MET"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "METs"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MET"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MET"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MET"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "МЕТ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MET"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "METs"
+          }
+        }
+      }
+    },
     "min" : {
       "localizations" : {
         "de" : {
@@ -6944,6 +7568,58 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "分钟"
+          }
+        }
+      }
+    },
+    "ml/kg·min" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ml/kg·min"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ml/kg·min"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ml/kg·min"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ml/kg·min"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "मि॰ली॰/(कि॰ग्रा॰·मि॰)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "мл/(кг·мин)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ml/kg·min"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "毫升/(千克·分钟)"
           }
         }
       }
@@ -7720,13 +8396,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cm"
+            "value" : "सें॰मी॰"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cm"
+            "value" : "см"
           }
         },
         "tr" : {
@@ -7738,7 +8414,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cm"
+            "value" : "厘米"
           }
         }
       }
@@ -9945,13 +10621,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ft/क़दम"
+            "value" : "फ़ु॰/क़दम"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ft/шаг"
+            "value" : "фт/шаг"
           }
         },
         "tr" : {
@@ -11691,13 +12367,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "in"
+            "value" : "इंच"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "in"
+            "value" : "дм"
           }
         },
         "tr" : {
@@ -11709,7 +12385,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "in"
+            "value" : "英寸"
           }
         }
       }
@@ -12167,13 +12843,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "kJ"
+            "value" : "कि॰जू॰"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "kJ"
+            "value" : "кДж"
           }
         },
         "tr" : {
@@ -12185,7 +12861,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "kJ"
+            "value" : "千焦"
           }
         }
       }
@@ -12220,13 +12896,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "km"
+            "value" : "कि॰मी॰"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "km"
+            "value" : "км"
           }
         },
         "tr" : {
@@ -12273,13 +12949,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "km/h"
+            "value" : "कि॰मी॰/घं॰"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "km/h"
+            "value" : "км/ч"
           }
         },
         "tr" : {
@@ -12291,7 +12967,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "km/h"
+            "value" : "公里/时"
           }
         }
       }
@@ -12802,13 +13478,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "m/क़दम"
+            "value" : "मी॰/क़दम"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "m/шаг"
+            "value" : "м/шаг"
           }
         },
         "tr" : {
@@ -13491,13 +14167,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "mi"
+            "value" : "मील"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "mi"
+            "value" : "ми"
           }
         },
         "tr" : {
@@ -13650,13 +14326,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "min/km"
+            "value" : "मि॰/कि॰मी॰"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "min/km"
+            "value" : "мин/км"
           }
         },
         "tr" : {
@@ -13668,7 +14344,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "min/km"
+            "value" : "分钟/公里"
           }
         }
       }
@@ -13703,13 +14379,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "min/mi"
+            "value" : "मि॰/मील"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "min/mi"
+            "value" : "мин/ми"
           }
         },
         "tr" : {
@@ -13721,7 +14397,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "min/mi"
+            "value" : "分钟/英里"
           }
         }
       }
@@ -14127,13 +14803,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "mph"
+            "value" : "मील/घंटा"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "mph"
+            "value" : "ми/ч"
           }
         },
         "tr" : {
@@ -14145,7 +14821,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "mph"
+            "value" : "英里/时"
           }
         }
       }
@@ -14180,13 +14856,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ms"
+            "value" : "मि॰से॰"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ms"
+            "value" : "мс"
           }
         },
         "tr" : {
@@ -14198,7 +14874,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ms"
+            "value" : "毫秒"
           }
         }
       }
@@ -17731,7 +18407,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "rpm"
+            "value" : "об/мин"
           }
         },
         "tr" : {
@@ -20212,7 +20888,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "spm"
+            "value" : "шаг/мин"
           }
         },
         "tr" : {
@@ -20224,7 +20900,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "spm"
+            "value" : "步/分"
           }
         }
       }
@@ -23490,7 +24166,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "W"
+            "value" : "Вт"
           }
         },
         "tr" : {
@@ -23502,7 +24178,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "W"
+            "value" : "瓦"
           }
         }
       }
@@ -24606,7 +25282,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sinyalleriniz rahatça referansın üstünde. Antrenmana iyi hazırsınız."
+            "value" : "Sinyalleriniz rahatça referansın üstünde. Antrenman için iyi durumdasınız."
           }
         },
         "zh-Hans" : {
@@ -24870,7 +25546,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sinyalleriniz rahatça referansın üstünde. Antrenmana iyi hazırsınız."
+            "value" : "Sinyalleriniz rahatça referansın üstünde. Antrenman için iyi durumdasınız."
           }
         },
         "zh-Hans" : {

@@ -2690,7 +2690,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld bpm"
+            "value" : "%lld lpm"
           }
         },
         "fr" : {
@@ -2708,13 +2708,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld bpm"
+            "value" : "%lld уд/мин"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld bpm"
+            "value" : "%lld v/dk"
           }
         },
         "zh-Hans" : {
@@ -4245,6 +4245,58 @@
         }
       }
     },
+    "/km" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/km"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/km"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/km"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/km"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/कि॰मी॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/км"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/km"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/公里"
+          }
+        }
+      }
+    },
     "1 day" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4731,7 +4783,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Una comprobación periódica detectó hoy una frecuencia cardiaca de %lld bpm, por encima de tu límite de %lld bpm."
+            "value" : "Una comprobación periódica detectó hoy una frecuencia cardiaca de %lld lpm, por encima de tu límite de %lld lpm."
           }
         },
         "fr" : {
@@ -4749,13 +4801,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "При плановой проверке сегодня пульс составил %lld bpm, это выше Вашего порога (%lld bpm)."
+            "value" : "При плановой проверке сегодня пульс составил %lld уд/мин, это выше Вашего порога (%lld уд/мин)."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Düzenli kontrolde bugün kalp atış hızınız %lld bpm ölçüldü. Bu değer, belirlediğiniz %lld bpm sınırının üstünde."
+            "value" : "Düzenli kontrolde bugün kalp atış hızınız %lld v/dk ölçüldü. Bu değer, belirlediğiniz %lld v/dk sınırının üstünde."
           }
         },
         "zh-Hans" : {
@@ -4783,7 +4835,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Una comprobación periódica detectó hoy una frecuencia cardiaca de %lld bpm, por debajo de tu límite de %lld bpm."
+            "value" : "Una comprobación periódica detectó hoy una frecuencia cardiaca de %lld lpm, por debajo de tu límite de %lld lpm."
           }
         },
         "fr" : {
@@ -4801,13 +4853,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "При плановой проверке сегодня пульс составил %lld bpm, это ниже Вашего порога (%lld bpm)."
+            "value" : "При плановой проверке сегодня пульс составил %lld уд/мин, это ниже Вашего порога (%lld уд/мин)."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Düzenli kontrolde bugün kalp atış hızınız %lld bpm ölçüldü. Bu değer, belirlediğiniz %lld bpm sınırının altında."
+            "value" : "Düzenli kontrolde bugün kalp atış hızınız %lld v/dk ölçüldü. Bu değer, belirlediğiniz %lld v/dk sınırının altında."
           }
         },
         "zh-Hans" : {
@@ -5866,6 +5918,58 @@
         }
       }
     },
+    "BPM" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BPM"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BPM"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "LPM"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BPM"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "BPM"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "УД/МИН"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "V/DK"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次/分"
+          }
+        }
+      }
+    },
     "Email" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5968,6 +6072,110 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Instagram"
+          }
+        }
+      }
+    },
+    "km" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "km"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "km"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "km"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "km"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कि॰मी॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "км"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "km"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "公里"
+          }
+        }
+      }
+    },
+    "ms" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "मि॰से॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "мс"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "毫秒"
           }
         }
       }
@@ -7459,7 +7667,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alguna lectura por encima de %lld bpm hoy, fuera de los entrenamientos"
+            "value" : "Alguna lectura por encima de %lld lpm hoy, fuera de los entrenamientos"
           }
         },
         "fr" : {
@@ -7477,13 +7685,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сегодня любое значение выше %lld bpm вне тренировок"
+            "value" : "Сегодня любое значение выше %lld уд/мин вне тренировок"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bugün antrenmanlar dışında %lld bpm üzerindeki herhangi bir ölçüm"
+            "value" : "Bugün antrenmanlar dışında %lld v/dk üzerindeki herhangi bir ölçüm"
           }
         },
         "zh-Hans" : {
@@ -7563,7 +7771,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alguna lectura por debajo de %lld bpm hoy"
+            "value" : "Alguna lectura por debajo de %lld lpm hoy"
           }
         },
         "fr" : {
@@ -7581,13 +7789,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Сегодня любое значение ниже %lld bpm"
+            "value" : "Сегодня любое значение ниже %lld уд/мин"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bugün %lld bpm altındaki herhangi bir ölçüm"
+            "value" : "Bugün %lld v/dk altındaki herhangi bir ölçüm"
           }
         },
         "zh-Hans" : {
@@ -12794,7 +13002,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "bpm"
+            "value" : "lpm"
           }
         },
         "fr" : {
@@ -12812,19 +13020,19 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "bpm"
+            "value" : "уд/мин"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "bpm"
+            "value" : "v/dk"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "bpm"
+            "value" : "次/分"
           }
         }
       }
@@ -17757,7 +17965,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Просмотр дня"
+            "value" : "Обзор дня"
           }
         },
         "tr" : {
@@ -18604,7 +18812,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "G Aralık"
+            "value" : "G Aralığı"
           }
         },
         "zh-Hans" : {
@@ -18816,7 +19024,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A Aralık"
+            "value" : "A Aralığı"
           }
         },
         "zh-Hans" : {
@@ -18922,7 +19130,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "6A Aralık"
+            "value" : "6A Aralığı"
           }
         },
         "zh-Hans" : {
@@ -19028,7 +19236,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "H Aralık"
+            "value" : "H Aralığı"
           }
         },
         "zh-Hans" : {
@@ -19134,7 +19342,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Y Aralık"
+            "value" : "Y Aralığı"
           }
         },
         "zh-Hans" : {
@@ -28416,13 +28624,13 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "kcal"
+            "value" : "कि॰कै॰"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "kcal"
+            "value" : "ккал"
           }
         },
         "tr" : {
@@ -30807,7 +31015,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Metabolische Äquivalente, ein Maß für die Intensität, bei dem 1 MET ungefähr dem Energieverbrauch im ruhigen Sitzen entspricht. Ein Durchschnitt von 8 METs bedeutet, dass die Einheit etwa das Achtfache davon gekostet hat."
+            "value" : "Metabolische Äquivalente, ein Maß für die Intensität, bei dem 1 MET ungefähr dem Energieverbrauch im ruhigen Sitzen entspricht. Ein Durchschnitt von 8 MET bedeutet, dass die Einheit etwa das Achtfache davon gekostet hat."
           }
         },
         "en" : {
@@ -30819,7 +31027,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Equivalentes metabólicos, una medida de intensidad en la que 1 MET equivale aproximadamente a la energía que gastas sentado sin moverte. Un promedio de 8 METs significa que la sesión requirió unas ocho veces esa energía."
+            "value" : "Equivalentes metabólicos, una medida de intensidad en la que 1 MET equivale aproximadamente a la energía que gastas sentado sin moverte. Un promedio de 8 MET significa que la sesión requirió unas ocho veces esa energía."
           }
         },
         "fr" : {
@@ -30831,7 +31039,7 @@
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "मेटाबॉलिक इक्विवेलेंट, तीव्रता का एक माप, जिसमें 1 MET लगभग उतनी ऊर्जा है जितनी आप शांत बैठे रहने पर ख़र्च करते हैं। औसतन 8 METs का मतलब है कि इस सेशन में उसकी लगभग आठ गुना ऊर्जा लगी।"
+            "value" : "मेटाबॉलिक इक्विवेलेंट, तीव्रता का एक माप, जिसमें 1 MET लगभग उतनी ऊर्जा है जितनी आप शांत बैठे रहने पर ख़र्च करते हैं। औसतन 8 MET का मतलब है कि इस सेशन में उसकी लगभग आठ गुना ऊर्जा लगी।"
           }
         },
         "ru" : {
@@ -43628,7 +43836,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PR"
+            "value" : "PB"
           }
         },
         "en" : {
@@ -43640,13 +43848,13 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PR"
+            "value" : "RP"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PR"
+            "value" : "RP"
           }
         },
         "hi" : {
@@ -43658,7 +43866,7 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PR"
+            "value" : "ЛР"
           }
         },
         "tr" : {
@@ -57649,7 +57857,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Antrenman sırasında kaydedilen en yüksek tekil bpm ölçümü. Gevşek bir kordon veya soğuk cilt, gerçek eforu yansıtmayan kısa bir sıçramaya yol açabilir."
+            "value" : "Antrenman sırasında kaydedilen en yüksek tekil v/dk ölçümü. Gevşek bir kordon veya soğuk cilt, gerçek eforu yansıtmayan kısa bir sıçramaya yol açabilir."
           }
         },
         "zh-Hans" : {
@@ -67094,7 +67302,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tu frecuencia cardiaca bajó de %lld bpm desde %@."
+            "value" : "Tu frecuencia cardiaca bajó de %lld lpm desde %@."
           }
         },
         "fr" : {
@@ -67112,13 +67320,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "С %2$@ Ваш пульс опустился ниже %1$lld bpm."
+            "value" : "С %2$@ Ваш пульс опустился ниже %1$lld уд/мин."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%2$@ itibarıyla kalp atış hızınız %1$lld bpm değerinin altına düştü."
+            "value" : "%2$@ itibarıyla kalp atış hızınız %1$lld v/dk değerinin altına düştü."
           }
         },
         "zh-Hans" : {
@@ -67146,7 +67354,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tu frecuencia cardiaca superó los %lld bpm desde %@."
+            "value" : "Tu frecuencia cardiaca superó los %lld lpm desde %@."
           }
         },
         "fr" : {
@@ -67164,13 +67372,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "С %2$@ Ваш пульс поднялся выше %1$lld bpm."
+            "value" : "С %2$@ Ваш пульс поднялся выше %1$lld уд/мин."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%2$@ itibarıyla kalp atış hızınız %1$lld bpm değerinin üstüne çıktı."
+            "value" : "%2$@ itibarıyla kalp atış hızınız %1$lld v/dk değerinin üstüne çıktı."
           }
         },
         "zh-Hans" : {

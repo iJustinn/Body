@@ -1,6 +1,110 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "bpm" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bpm"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bpm"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "lpm"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bpm"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bpm"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "уд/мин"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "v/dk"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次/分"
+          }
+        }
+      }
+    },
+    "ms" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "मि॰से॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "мс"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "毫秒"
+          }
+        }
+      }
+    },
     "·" : {
       "localizations" : {
         "de" : {
@@ -283,7 +387,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Una comprobación periódica detectó hoy una frecuencia cardiaca de %lld bpm, por encima de tu límite de %lld bpm."
+            "value" : "Una comprobación periódica detectó hoy una frecuencia cardiaca de %lld lpm, por encima de tu límite de %lld lpm."
           }
         },
         "fr" : {
@@ -301,13 +405,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "При плановой проверке сегодня пульс составил %lld bpm, это выше Вашего порога (%lld bpm)."
+            "value" : "При плановой проверке сегодня пульс составил %lld уд/мин, это выше Вашего порога (%lld уд/мин)."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Düzenli kontrolde bugün kalp atış hızınız %lld bpm ölçüldü. Bu değer, belirlediğiniz %lld bpm sınırının üstünde."
+            "value" : "Düzenli kontrolde bugün kalp atış hızınız %lld v/dk ölçüldü. Bu değer, belirlediğiniz %lld v/dk sınırının üstünde."
           }
         },
         "zh-Hans" : {
@@ -336,7 +440,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Una comprobación periódica detectó hoy una frecuencia cardiaca de %lld bpm, por debajo de tu límite de %lld bpm."
+            "value" : "Una comprobación periódica detectó hoy una frecuencia cardiaca de %lld lpm, por debajo de tu límite de %lld lpm."
           }
         },
         "fr" : {
@@ -354,13 +458,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "При плановой проверке сегодня пульс составил %lld bpm, это ниже Вашего порога (%lld bpm)."
+            "value" : "При плановой проверке сегодня пульс составил %lld уд/мин, это ниже Вашего порога (%lld уд/мин)."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Düzenli kontrolde bugün kalp atış hızınız %lld bpm ölçüldü. Bu değer, belirlediğiniz %lld bpm sınırının altında."
+            "value" : "Düzenli kontrolde bugün kalp atış hızınız %lld v/dk ölçüldü. Bu değer, belirlediğiniz %lld v/dk sınırının altında."
           }
         },
         "zh-Hans" : {
@@ -3297,7 +3401,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tu frecuencia cardiaca bajó de %lld bpm desde %@."
+            "value" : "Tu frecuencia cardiaca bajó de %lld lpm desde %@."
           }
         },
         "fr" : {
@@ -3315,13 +3419,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "С %2$@ Ваш пульс опустился ниже %1$lld bpm."
+            "value" : "С %2$@ Ваш пульс опустился ниже %1$lld уд/мин."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%2$@ itibarıyla kalp atış hızınız %1$lld bpm değerinin altına düştü."
+            "value" : "%2$@ itibarıyla kalp atış hızınız %1$lld v/dk değerinin altına düştü."
           }
         },
         "zh-Hans" : {
@@ -3350,7 +3454,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tu frecuencia cardiaca superó los %lld bpm desde %@."
+            "value" : "Tu frecuencia cardiaca superó los %lld lpm desde %@."
           }
         },
         "fr" : {
@@ -3368,13 +3472,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "С %2$@ Ваш пульс поднялся выше %1$lld bpm."
+            "value" : "С %2$@ Ваш пульс поднялся выше %1$lld уд/мин."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%2$@ itibarıyla kalp atış hızınız %1$lld bpm değerinin üstüne çıktı."
+            "value" : "%2$@ itibarıyla kalp atış hızınız %1$lld v/dk değerinin üstüne çıktı."
           }
         },
         "zh-Hans" : {

@@ -127,19 +127,19 @@ enum WatchMetricsSnapshotBuilder {
         if permissionSelection.includes(.heart) {
             metrics.append(rangeMetric(
                 kind: WatchMetricKindKey.heartRate, title: String(localized: "Heart Rate", table: "BodyWatchSnapshotKit"), value: summary.heartRate.value,
-                unit: "bpm", decimals: 0,
+                unit: String(localized: "bpm", table: "BodyWatchSnapshotKit"), decimals: 0,
                 seriesValues: values(trends.heartRate),
                 overrideRange: seriesRangeOverride?(WatchMetricKindKey.heartRate)
             ))
             metrics.append(rangeMetric(
                 kind: WatchMetricKindKey.heartRateVariability, title: String(localized: "HRV", table: "BodyWatchSnapshotKit"), value: summary.heartRateVariability.value,
-                unit: "ms", decimals: 0,
+                unit: String(localized: "ms", table: "BodyWatchSnapshotKit"), decimals: 0,
                 seriesValues: values(trends.heartRateVariability),
                 overrideRange: seriesRangeOverride?(WatchMetricKindKey.heartRateVariability)
             ))
             metrics.append(rangeMetric(
                 kind: WatchMetricKindKey.restingHeartRate, title: String(localized: "Resting HR", table: "BodyWatchSnapshotKit"), value: summary.restingHeartRate.value,
-                unit: "bpm", decimals: 0,
+                unit: String(localized: "bpm", table: "BodyWatchSnapshotKit"), decimals: 0,
                 seriesValues: values(trends.restingHeartRate), invert: true,
                 overrideRange: seriesRangeOverride?(WatchMetricKindKey.restingHeartRate)
             ))

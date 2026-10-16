@@ -1468,7 +1468,7 @@ final class SourceGuardTests: XCTestCase {
         // Anchored on the Overall model's call, past the Recovery view branch
         // that precedes it in the `.heartRateVariability` case.
         let detailStart = try XCTUnwrap(
-            source.range(of: "                summary: summary.heartRateVariability,\n                unit: \"ms\",")?.lowerBound
+            source.range(of: "                summary: summary.heartRateVariability,\n                unit: String(localized: \"ms\"),")?.lowerBound
         )
         let detailBlock = String(source[detailStart...].prefix(900))
         let contextStart = try XCTUnwrap(source.range(of: "private var selectedMetricDayContextIntervals")?.lowerBound)

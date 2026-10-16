@@ -54,9 +54,8 @@ struct HealthMetricPresentation: Sendable {
         case mass
     }
 
-    /// How a metric's value is written in one context. Symbol suffixes (`%`,
-    /// `bpm`, `ms`) ship untranslated; `br/min`, `steps` and `min` are localized
-    /// from the BodyMetricsKit table.
+    /// How a metric's value is written in one context. `%` ships untranslated;
+    /// every other unit suffix is localized from the BodyMetricsKit table.
     struct NumberFormat: Equatable, Sendable {
         /// Fraction digits for `BodyValueFormat.numberText`.
         let decimals: Int
@@ -128,22 +127,22 @@ struct HealthMetricPresentation: Sendable {
             symbolName: "heart.fill",
             tint: heartTint,
             chartStyle: .line,
-            summaryFormat: NumberFormat(decimals: 0, unitSuffix: "bpm"),
-            trendFormat: NumberFormat(decimals: 0, unitSuffix: "BPM")
+            summaryFormat: NumberFormat(decimals: 0, unitSuffix: String(localized: "bpm", table: "BodyMetricsKit")),
+            trendFormat: NumberFormat(decimals: 0, unitSuffix: String(localized: "BPM", table: "BodyMetricsKit"))
         ),
         .restingHeartRate: HealthMetricPresentation(
             symbolName: "heart.fill",
             tint: heartTint,
             chartStyle: .line,
-            summaryFormat: NumberFormat(decimals: 0, unitSuffix: "bpm"),
-            trendFormat: NumberFormat(decimals: 0, unitSuffix: "BPM")
+            summaryFormat: NumberFormat(decimals: 0, unitSuffix: String(localized: "bpm", table: "BodyMetricsKit")),
+            trendFormat: NumberFormat(decimals: 0, unitSuffix: String(localized: "BPM", table: "BodyMetricsKit"))
         ),
         .heartRateVariability: HealthMetricPresentation(
             symbolName: "waveform.path.ecg",
             tint: heartTint,
             chartStyle: .line,
-            summaryFormat: NumberFormat(decimals: 1, unitSuffix: "ms"),
-            trendFormat: NumberFormat(decimals: 0, unitSuffix: "ms")
+            summaryFormat: NumberFormat(decimals: 1, unitSuffix: String(localized: "ms", table: "BodyMetricsKit")),
+            trendFormat: NumberFormat(decimals: 0, unitSuffix: String(localized: "ms", table: "BodyMetricsKit"))
         ),
         .cardioFitness: HealthMetricPresentation(
             symbolName: "arrow.up.heart.fill",
