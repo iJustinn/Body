@@ -5237,7 +5237,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(dataBlock.contains("dataValue(for: tab)"))
         XCTAssertTrue(settingsSource.contains("return permissionSummaryText"))
         XCTAssertFalse(settingsSource.contains(#""Grant Access""#))
-        XCTAssertTrue(settingsSource.contains(#"return "Data Refresh""#))
+        XCTAssertTrue(settingsSource.contains(#"return "Refresh""#))
+        XCTAssertFalse(settingsSource.contains(#""Data Refresh""#))
         XCTAssertFalse(settingsSource.contains(#"return "Health Data Sync""#))
         XCTAssertTrue(settingsSource.contains(#"return "Cache""#))
         XCTAssertTrue(settingsSource.contains("case .syncStatus:"))
@@ -5257,7 +5258,7 @@ final class SourceGuardTests: XCTestCase {
         let statusTextStart = try XCTUnwrap(storeSource.range(of: "var healthSyncStatusLastRefreshText")?.lowerBound)
         let statusTextBlock = String(storeSource[statusTextStart...].prefix(500))
 
-        XCTAssertTrue(sheetBlock.contains(#"BodySettingsAboutSheetScaffold(title: "Data Refresh")"#))
+        XCTAssertTrue(sheetBlock.contains(#"BodySettingsAboutSheetScaffold(title: "Refresh")"#))
         XCTAssertTrue(sheetBlock.contains(#""Last refreshed: \(lastSuccessfulRefreshText)""#))
         XCTAssertFalse(sheetBlock.contains("workoutStore.healthSyncStatusDetailText"))
         XCTAssertFalse(sheetBlock.contains(#""Last successful refresh: \(lastSuccessfulRefreshText)""#))

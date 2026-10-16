@@ -62,7 +62,7 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSettingsDataTabsExposePermissions() {
-        XCTAssertEqual(BodySettingsDataTab.allCases.map(\.title), ["Source", "Permissions", "Data Refresh", "Cache"])
+        XCTAssertEqual(BodySettingsDataTab.allCases.map(\.title), ["Source", "Permissions", "Refresh", "Cache"])
         XCTAssertEqual(BodySettingsDataTab.source.sheet, .source)
         XCTAssertEqual(BodySettingsDataTab.permissions.sheet, .permissions)
         XCTAssertEqual(BodySettingsDataTab.syncStatus.sheet, .syncStatus)

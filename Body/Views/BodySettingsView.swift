@@ -1167,7 +1167,7 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
         case .permissions:
             return "Permissions"
         case .syncStatus:
-            return "Data Refresh"
+            return "Refresh"
         case .cache:
             return "Cache"
         }
@@ -5100,7 +5100,7 @@ private struct BodyHealthSyncStatusSettingsSheet: View {
     let workoutStore: HealthKitWorkoutStore
 
     var body: some View {
-        BodySettingsAboutSheetScaffold(title: "Data Refresh") {
+        BodySettingsAboutSheetScaffold(title: "Refresh") {
             VStack(spacing: 14) {
                 BodySettingsInfoCard(section: syncStatusSection)
 
