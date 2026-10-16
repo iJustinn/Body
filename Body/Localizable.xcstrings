@@ -8543,6 +8543,59 @@
         }
       }
     },
+    "Applying Settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einstellungen werden übernommen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applying Settings"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aplicando ajustes"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Application des réglages"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "सेटिंग लागू हो रही हैं"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Применение настроек"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayarlar Uygulanıyor"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在应用设置"
+          }
+        }
+      }
+    },
     "Arrange" : {
       "localizations" : {
         "de" : {
@@ -10453,6 +10506,59 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Body算法"
+          }
+        }
+      }
+    },
+    "Body couldn't save the config file. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body konnte die Konfigurationsdatei nicht sichern. Versuche es erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body couldn't save the config file. Try again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body no pudo guardar el archivo de configuración. Vuelve a intentarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body n’a pas pu enregistrer le fichier de configuration. Réessayez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body कॉन्फ़िग फ़ाइल सहेज नहीं सका। फिर कोशिश करें।"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body не удалось сохранить файл конфигурации. Повторите попытку."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body yapılandırma dosyasını kaydedemedi. Yeniden deneyin."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Body 无法存储配置文件。请重试。"
           }
         }
       }
@@ -14929,6 +15035,165 @@
         }
       }
     },
+    "Config" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konfiguration"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Config"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configuración"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configuration"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कॉन्फ़िग"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Конфигурация"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırma"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置"
+          }
+        }
+      }
+    },
+    "Config Exported" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konfiguration exportiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Config Exported"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configuración exportada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configuration exportée"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कॉन्फ़िग एक्सपोर्ट हो गया"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Конфигурация экспортирована"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırma Dışa Aktarıldı"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置已导出"
+          }
+        }
+      }
+    },
+    "Config Imported" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konfiguration importiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Config Imported"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configuración importada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Configuration importée"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कॉन्फ़िग इम्पोर्ट हो गया"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Конфигурация импортирована"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırma İçe Aktarıldı"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置已导入"
+          }
+        }
+      }
+    },
     "Confirmation Vibration" : {
       "localizations" : {
         "de" : {
@@ -15766,6 +16031,112 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无法导出身体雷达回放数据"
+          }
+        }
+      }
+    },
+    "Couldn't Export Config" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konfiguration konnte nicht exportiert werden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Export Config"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo exportar la configuración"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible d’exporter la configuration"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कॉन्फ़िग एक्सपोर्ट नहीं हो सका"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось экспортировать конфигурацию"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırma Dışa Aktarılamadı"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法导出配置"
+          }
+        }
+      }
+    },
+    "Couldn't Import Config" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konfiguration konnte nicht importiert werden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Import Config"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo importar la configuración"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible d’importer la configuration"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कॉन्फ़िग इम्पोर्ट नहीं हो सका"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось импортировать конфигурацию"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırma İçe Aktarılamadı"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法导入配置"
           }
         }
       }
@@ -22976,6 +23347,112 @@
         }
       }
     },
+    "Export Config" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konfiguration exportieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Config"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportar configuración"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporter la configuration"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कॉन्फ़िग एक्सपोर्ट करें"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспортировать конфигурацию"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırmayı Dışa Aktar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导出配置"
+          }
+        }
+      }
+    },
+    "Export saves your settings, metric sources and custom sources as a file you can keep or open on another iPhone. Import replaces your current settings with the file's, so export first to keep a copy. Your profile, Health permissions and health data stay as they are, and nothing is uploaded. Changing sources or the sleep goal may recalculate past scores." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportieren speichert deine Einstellungen, die Quellen für Messwerte und deine eigenen Quellen als Datei, die du behalten oder auf einem anderen iPhone öffnen kannst. Importieren ersetzt deine aktuellen Einstellungen durch die aus der Datei, exportiere also vorher, um eine Kopie zu behalten. Dein Profil, deine Berechtigungen für Health und deine Gesundheitsdaten bleiben unverändert, und es wird nichts hochgeladen. Wenn du Quellen oder das Schlafziel änderst, können frühere Werte neu berechnet werden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export saves your settings, metric sources and custom sources as a file you can keep or open on another iPhone. Import replaces your current settings with the file's, so export first to keep a copy. Your profile, Health permissions and health data stay as they are, and nothing is uploaded. Changing sources or the sleep goal may recalculate past scores."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportar guarda tus ajustes, las fuentes de las métricas y las fuentes personalizadas en un archivo que puedes conservar o abrir en otro iPhone. Importar reemplaza tus ajustes actuales por los del archivo, así que exporta antes para conservar una copia. Tu perfil, los permisos de Salud y los datos de salud no cambian, y no se sube nada. Cambiar las fuentes o el objetivo de sueño puede recalcular las puntuaciones anteriores."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporter enregistre vos réglages, les sources des mesures et les sources personnalisées dans un fichier que vous pouvez garder ou ouvrir sur un autre iPhone. Importer remplace vos réglages actuels par ceux du fichier, exportez donc d’abord pour en garder une copie. Votre profil, les autorisations Santé et les données de santé restent inchangés, et rien n’est envoyé. Modifier les sources ou l’objectif de sommeil peut recalculer les scores passés."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "एक्सपोर्ट आपकी सेटिंग, मेट्रिक सोर्स और कस्टम सोर्स को एक फ़ाइल में सहेजता है, जिसे आप रख सकते हैं या किसी दूसरे iPhone पर खोल सकते हैं। इम्पोर्ट आपकी मौजूदा सेटिंग को फ़ाइल की सेटिंग से बदल देता है, इसलिए कॉपी रखने के लिए पहले एक्सपोर्ट करें। आपकी प्रोफ़ाइल, सेहत अनुमतियाँ और सेहत डेटा जैसे हैं वैसे ही रहते हैं, और कुछ भी अपलोड नहीं होता। सोर्स या नींद का लक्ष्य बदलने पर पिछले स्कोर दोबारा गिने जा सकते हैं।"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экспорт сохраняет Ваши настройки, источники показателей и свои источники в файл, который можно сохранить или открыть на другом iPhone. Импорт заменяет текущие настройки настройками из файла, поэтому сначала сделайте экспорт, чтобы сохранить копию. Профиль, права доступа к Здоровью и данные о здоровье не меняются, и ничего не загружается в сеть. После смены источников или цели сна прошлые оценки могут быть пересчитаны."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dışa aktarma, ayarlarınızı, metrik kaynaklarını ve özel kaynakları saklayabileceğiniz veya başka bir iPhone'da açabileceğiniz bir dosyaya kaydeder. İçe aktarma, mevcut ayarlarınızı dosyadakilerle değiştirir, bu yüzden bir kopya saklamak için önce dışa aktarın. Profiliniz, Sağlık izinleriniz ve sağlık verileriniz olduğu gibi kalır ve hiçbir şey yüklenmez. Kaynakları veya uyku hedefini değiştirmek geçmiş puanları yeniden hesaplayabilir."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导出会将你的设置、指标数据来源和自定义来源保存为一个文件，你可以保留它，或在另一台 iPhone 上打开。导入会用文件中的设置替换当前设置，因此请先导出以保留一份副本。你的个人资料、健康权限和健康数据保持不变，也不会上传任何内容。更改来源或睡眠目标可能会重新计算过去的分数。"
+          }
+        }
+      }
+    },
     "Fahrenheit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -27116,6 +27593,112 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "各活动影响"
+          }
+        }
+      }
+    },
+    "Import Complete" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import abgeschlossen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Complete"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importación completada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importation terminée"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "इम्पोर्ट पूरा हुआ"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импорт завершен"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İçe Aktarma Tamamlandı"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入完成"
+          }
+        }
+      }
+    },
+    "Import Config" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konfiguration importieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Config"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar configuración"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer une configuration"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कॉन्फ़िग इम्पोर्ट करें"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортировать конфигурацию"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırmayı İçe Aktar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入配置"
           }
         }
       }
@@ -40938,6 +41521,59 @@
         }
       }
     },
+    "Opening the selected file..." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die ausgewählte Datei wird geöffnet..."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening the selected file..."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abriendo el archivo seleccionado..."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouverture du fichier sélectionné..."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "चुनी गई फ़ाइल खुल रही है..."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открытие выбранного файла..."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seçilen dosya açılıyor..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在打开所选文件..."
+          }
+        }
+      }
+    },
     "Optimal Range" : {
       "localizations" : {
         "de" : {
@@ -43195,6 +43831,59 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "用更多小份食物代替少量大份食物"
+          }
+        }
+      }
+    },
+    "Preparing Import" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import wird vorbereitet"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparing Import"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparando importación"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Préparation de l’importation"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "इम्पोर्ट की तैयारी हो रही है"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготовка импорта"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İçe Aktarma Hazırlanıyor"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在准备导入"
           }
         }
       }
@@ -57554,6 +58243,59 @@
         }
       }
     },
+    "This file isn't a Body config, or it's from a newer version of Body." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Datei ist keine Konfiguration von Body oder stammt aus einer neueren Version von Body."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This file isn't a Body config, or it's from a newer version of Body."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este archivo no es una configuración de Body o es de una versión más reciente de Body."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce fichier n’est pas une configuration de Body, ou il provient d’une version plus récente de Body."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "यह फ़ाइल Body का कॉन्फ़िग नहीं है, या Body के नए वर्शन की है।"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот файл не является конфигурацией Body или создан в более новой версии Body."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu dosya bir Body yapılandırması değil veya Body'nin daha yeni bir sürümünden."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此文件不是 Body 配置，或来自更新版本的 Body。"
+          }
+        }
+      }
+    },
     "This profile will be removed." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -61062,6 +61804,59 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在更新压力..."
+          }
+        }
+      }
+    },
+    "Updating Summary, the widgets and the watch..." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übersicht, Widgets und Watch werden aktualisiert..."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating Summary, the widgets and the watch..."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actualizando Resumen, los widgets y el reloj..."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mise à jour de Résumé, des widgets et de la montre..."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "सारांश, विजेट और वॉच अपडेट हो रहे हैं..."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновление сводки, виджетов и часов..."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Özet, araç takımları ve saat güncelleniyor..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新摘要、小组件和手表..."
           }
         }
       }
@@ -65966,6 +66761,59 @@
         }
       }
     },
+    "Your config file is saved in Files." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Konfigurationsdatei ist in „Dateien“ gesichert."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your config file is saved in Files."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu archivo de configuración se guardó en Archivos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre fichier de configuration est enregistré dans Fichiers."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "आपकी कॉन्फ़िग फ़ाइल फ़ाइलें ऐप में सहेज दी गई है।"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Файл конфигурации сохранен в приложении «Файлы»."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yapılandırma dosyanız Dosyalar'a kaydedildi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的配置文件已存储到“文件”App 中。"
+          }
+        }
+      }
+    },
     "Your day around the clock" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -66857,6 +67705,59 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的路线，立体呈现"
+          }
+        }
+      }
+    },
+    "Your settings now match the file." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Einstellungen entsprechen jetzt der Datei."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your settings now match the file."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus ajustes ahora coinciden con el archivo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos réglages correspondent maintenant au fichier."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "आपकी सेटिंग अब फ़ाइल से मेल खाती हैं।"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваши настройки теперь совпадают с файлом."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayarlarınız artık dosyayla eşleşiyor."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的设置现已与文件一致。"
           }
         }
       }

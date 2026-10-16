@@ -6,6 +6,7 @@
 import SafariServices
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 import UserNotifications
 
 struct BodySettingsView: View {
@@ -800,7 +801,7 @@ struct BodySettingsView: View {
         "\(currentMetricWarningSelection.enabledCount)/\(currentMetricWarningSelection.totalCount)"
     }
 
-    private func dataValue(for tab: BodySettingsDataTab) -> String {
+    private func dataValue(for tab: BodySettingsDataTab) -> String? {
         switch tab {
         case .source:
             return sourceSummaryText
@@ -808,6 +809,8 @@ struct BodySettingsView: View {
             return permissionSummaryText
         case .syncStatus:
             return workoutStore.healthSyncStatusSummaryText
+        case .config:
+            return nil
         case .cache:
             return workoutStore.cacheStatus.summaryText
         }
@@ -1054,6 +1057,8 @@ struct BodySettingsView: View {
             BodySourceSettingsSheet(workoutStore: workoutStore)
         case .syncStatus:
             BodyHealthSyncStatusSettingsSheet(workoutStore: workoutStore)
+        case .config:
+            BodyConfigSettingsSheet(workoutStore: workoutStore)
         case .cache:
             BodyCacheSettingsSheet(workoutStore: workoutStore)
         case .more:
@@ -1143,6 +1148,7 @@ enum BodySettingsSheet: String, Identifiable {
     case permissions
     case syncStatus
     case cache
+    case config
     case more
 
     var id: String {
@@ -1155,6 +1161,7 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
     case permissions
     case syncStatus
     case cache
+    case config
 
     var id: String {
         rawValue
@@ -1168,6 +1175,8 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
             return "Permissions"
         case .syncStatus:
             return "Refresh"
+        case .config:
+            return "Config"
         case .cache:
             return "Cache"
         }
@@ -1181,6 +1190,8 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
             return "checkmark.shield.fill"
         case .syncStatus:
             return "arrow.triangle.2.circlepath"
+        case .config:
+            return "externaldrive.fill"
         case .cache:
             return "internaldrive.fill"
         }
@@ -1193,6 +1204,8 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
         case .permissions:
             return .green
         case .syncStatus:
+            return .gray
+        case .config:
             return .gray
         case .cache:
             return .gray
@@ -1207,6 +1220,8 @@ enum BodySettingsDataTab: String, CaseIterable, Identifiable {
             return .permissions
         case .syncStatus:
             return .syncStatus
+        case .config:
+            return .config
         case .cache:
             return .cache
         }
@@ -5306,6 +5321,267 @@ private struct BodyCacheSettingsSheet: View {
 private struct BodyRadarReplayFile: Identifiable {
     let id = UUID()
     let url: URL
+}
+
+/// Settings › Data › Config: saves the settings, metric sources and custom
+/// sources as a JSON file, and imports one, through the Files dialogs. Both
+/// open in Body's own folder (On My iPhone › ohmybody › Configs, shared through
+/// `UIFileSharingEnabled`). Like Coin, an import shows a status card while it
+/// runs and both actions end in an alert with the result. See
+/// `BodyConfigTransfer` for what the file holds.
+private struct BodyConfigSettingsSheet: View {
+    /// Files hides an app's folder while its Documents directory is empty, so
+    /// this subfolder is created when the sheet opens, which keeps ohmybody
+    /// listed and gives both dialogs somewhere to land.
+    private static let configsDirectory = URL.documentsDirectory.appending(path: "Configs", directoryHint: .isDirectory)
+
+    let workoutStore: HealthKitWorkoutStore
+    @State private var exportDocument: BodyConfigDocument?
+    @State private var exportFileName = ""
+    @State private var showingExporter = false
+    @State private var showingExportSuccess = false
+    @State private var showingExportError = false
+    @State private var showingImporter = false
+    @State private var importStage: BodyConfigImportStage?
+    @State private var showingImportSuccess = false
+    @State private var showingImportError = false
+
+    var body: some View {
+        BodySettingsAboutSheetScaffold(title: "Config") {
+            VStack(spacing: 14) {
+                VStack(spacing: 0) {
+                    Button {
+                        exportConfig()
+                    } label: {
+                        BodySettingsRowLabel(
+                            title: "Export Config",
+                            value: nil,
+                            iconName: "square.and.arrow.up.fill",
+                            tintColor: .blue,
+                            accessory: .chevron
+                        )
+                    }
+                    .disabled(importStage != nil)
+                    .buttonStyle(.plain)
+                    .opacity(importStage != nil ? 0.65 : 1)
+
+                    Divider()
+                        .padding(.leading, 76)
+
+                    Button {
+                        showingImporter = true
+                    } label: {
+                        BodySettingsRowLabel(
+                            title: "Import Config",
+                            value: nil,
+                            iconName: "square.and.arrow.down.fill",
+                            tintColor: .green,
+                            accessory: .chevron
+                        )
+                    }
+                    .disabled(importStage != nil)
+                    .buttonStyle(.plain)
+                    .opacity(importStage != nil ? 0.65 : 1)
+                }
+                .bodyCardBackground(translucent: true)
+
+                Text("Export saves your settings, metric sources and custom sources as a file you can keep or open on another iPhone. Import replaces your current settings with the file's, so export first to keep a copy. Your profile, Health permissions and health data stay as they are, and nothing is uploaded. Changing sources or the sleep goal may recalculate past scores.")
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+            }
+        }
+        .overlay {
+            if let importStage {
+                BodyConfigImportStatusCard(stage: importStage)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: importStage)
+        .interactiveDismissDisabled(importStage != nil)
+        .onAppear {
+            try? FileManager.default.createDirectory(at: Self.configsDirectory, withIntermediateDirectories: true)
+        }
+        .fileExporter(
+            isPresented: $showingExporter,
+            document: exportDocument,
+            contentType: .json,
+            defaultFilename: exportFileName
+        ) { result in
+            exportDocument = nil
+            switch result {
+            case .success:
+                showingExportSuccess = true
+            case .failure:
+                showingExportError = true
+            }
+        }
+        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.json]) { result in
+            guard case .success(let url) = result else { return }
+            importConfig(from: url)
+        }
+        // Both dialogs open in Body's Files folder rather than the last place used.
+        .fileDialogDefaultDirectory(Self.configsDirectory)
+        .alert(Text("Config Exported"), isPresented: $showingExportSuccess) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your config file is saved in Files.")
+        }
+        .alert(Text("Couldn't Export Config"), isPresented: $showingExportError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Body couldn't save the config file. Try again.")
+        }
+        .alert(Text("Config Imported"), isPresented: $showingImportSuccess) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your settings now match the file.")
+        }
+        .alert(Text("Couldn't Import Config"), isPresented: $showingImportError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This file isn't a Body config, or it's from a newer version of Body.")
+        }
+    }
+
+    private func exportConfig() {
+        let now = Date()
+        guard let data = try? BodyConfigTransfer.export(now: now) else {
+            showingExportError = true
+            return
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        exportFileName = "BodyConfig-\(formatter.string(from: now))"
+        exportDocument = BodyConfigDocument(data: data)
+        showingExporter = true
+    }
+
+    private func importConfig(from url: URL) {
+        importStage = .opening
+        Task {
+            // Read off the main actor so the status card draws before the file is checked.
+            let file = await Task.detached(priority: .userInitiated) { () -> BodyConfigTransfer.File? in
+                let didAccess = url.startAccessingSecurityScopedResource()
+                defer {
+                    if didAccess { url.stopAccessingSecurityScopedResource() }
+                }
+                guard let data = try? Data(contentsOf: url) else { return nil }
+                return try? BodyConfigTransfer.decode(data)
+            }.value
+            guard let file else {
+                importStage = nil
+                showingImportError = true
+                return
+            }
+
+            importStage = .applying
+            await BodyConfigTransfer.apply(file, to: workoutStore)
+            importStage = .complete
+            try? await Task.sleep(for: .milliseconds(450))
+            importStage = nil
+            showingImportSuccess = true
+        }
+    }
+}
+
+/// One step of a config import, shown on the status card.
+private enum BodyConfigImportStage: Equatable {
+    case opening
+    case applying
+    case complete
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .opening:
+            return "Preparing Import"
+        case .applying:
+            return "Applying Settings"
+        case .complete:
+            return "Import Complete"
+        }
+    }
+
+    var detail: LocalizedStringKey {
+        switch self {
+        case .opening:
+            return "Opening the selected file..."
+        case .applying:
+            return "Updating Summary, the widgets and the watch..."
+        case .complete:
+            return "Your settings now match the file."
+        }
+    }
+
+    var progress: Double {
+        switch self {
+        case .opening:
+            return 0.15
+        case .applying:
+            return 0.6
+        case .complete:
+            return 1
+        }
+    }
+}
+
+/// The card over a dimmed sheet while a config import runs: a progress bar,
+/// the step, and what it is doing. It blocks taps until the import ends.
+private struct BodyConfigImportStatusCard: View {
+    let stage: BodyConfigImportStage
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.26)
+                .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                ProgressView(value: stage.progress)
+                    .progressViewStyle(.linear)
+                    .tint(.blue)
+
+                VStack(spacing: 6) {
+                    Text(stage.title)
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+
+                    Text(stage.detail)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(22)
+            .frame(maxWidth: 340)
+            .bodyCardBackground(cornerRadius: 26)
+            .padding(.horizontal, 32)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The exported config bytes handed to the Files save dialog.
+private struct BodyConfigDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+
+    let data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
 }
 
 private struct BodyPermissionSwitchToggleStyle: ToggleStyle {

@@ -776,6 +776,36 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    func testConfigTransferStringsAreTranslated() throws {
+        let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
+
+        // Settings › Data: the renamed Refresh row and the Config row, then the
+        // Config sheet's rows, footnote and alerts.
+        let keys = [
+            "Refresh",
+            "Config",
+            "Export Config",
+            "Import Config",
+            "Export saves your settings, metric sources and custom sources as a file you can keep or open on another iPhone. Import replaces your current settings with the file's, so export first to keep a copy. Your profile, Health permissions and health data stay as they are, and nothing is uploaded. Changing sources or the sleep goal may recalculate past scores.",
+            "Couldn't Export Config",
+            "Config Imported",
+            "Your settings now match the file.",
+            "Couldn't Import Config",
+            "This file isn't a Body config, or it's from a newer version of Body.",
+            "Config Exported",
+            "Your config file is saved in Files.",
+            "Body couldn't save the config file. Try again.",
+            "Preparing Import",
+            "Opening the selected file...",
+            "Applying Settings",
+            "Updating Summary, the widgets and the watch...",
+            "Import Complete"
+        ]
+
+        try assertKeysTranslated(keys, in: catalog)
+        XCTAssertNil(catalog["Data Refresh"])
+    }
+
     func testSleepDebtStringsAreTranslated() throws {
         let catalog = try loadCatalog(at: "Body/Localizable.xcstrings")
 

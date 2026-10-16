@@ -62,10 +62,11 @@ final class ProjectConfigurationTests: XCTestCase {
     }
 
     func testSettingsDataTabsExposePermissions() {
-        XCTAssertEqual(BodySettingsDataTab.allCases.map(\.title), ["Source", "Permissions", "Refresh", "Cache"])
+        XCTAssertEqual(BodySettingsDataTab.allCases.map(\.title), ["Source", "Permissions", "Refresh", "Cache", "Config"])
         XCTAssertEqual(BodySettingsDataTab.source.sheet, .source)
         XCTAssertEqual(BodySettingsDataTab.permissions.sheet, .permissions)
         XCTAssertEqual(BodySettingsDataTab.syncStatus.sheet, .syncStatus)
+        XCTAssertEqual(BodySettingsDataTab.config.sheet, .config)
         XCTAssertEqual(BodySettingsDataTab.cache.sheet, .cache)
     }
 
@@ -301,6 +302,10 @@ final class ProjectConfigurationTests: XCTestCase {
         // the add-only authorization prompt crashes the app. App target only (Debug +
         // Release) — the widget and watch never save.
         XCTAssertEqual(project.occurrenceCount(of: "INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription"), 2)
+        // Body's Documents folder shows in Files as On My iPhone › ohmybody, where
+        // the Settings › Data › Config save and open dialogs land. App target only.
+        XCTAssertEqual(project.occurrenceCount(of: "INFOPLIST_KEY_UIFileSharingEnabled = YES;"), 2)
+        XCTAssertEqual(project.occurrenceCount(of: "INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;"), 2)
         // The copy now covers video saves too, since the Save button can also write an
         // exported MP4 from the Your Video background.
         XCTAssertEqual(project.occurrenceCount(of: "INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = \"Body saves the workout images and videos you create to your photo library.\";"), 2)

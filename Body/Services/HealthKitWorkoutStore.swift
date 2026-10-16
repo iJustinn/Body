@@ -4402,6 +4402,40 @@ final class HealthKitWorkoutStore {
         await persistContextChange()
     }
 
+    /// Adopts a config import (`BodyConfigTransfer`) that just rewrote defaults.
+    /// The source configuration is only read at init, so it is reloaded here and,
+    /// when it changed, run through the combine-flag invalidation sequence once
+    /// for all four values. The one capture also picks up every other refetch
+    /// input the import changed (cards, star metric, awake stages), and the
+    /// context refresh debounce folds them into a single refetch.
+    func reloadHealthSourceConfiguration(defaults: UserDefaults = .standard) async {
+        let groups = Self.loadCustomHealthSourceGroups(defaults: defaults)
+        let selection = BodyHealthDataSourceSelection.load(defaults: defaults)
+        let secondarySelection = BodyHealthSecondaryDataSourceSelection.load(defaults: defaults)
+        let combines = defaults.bool(forKey: BodyAppearancePreference.combinesHealthDataSourcesByNameKey)
+        let changed = groups != customHealthSourceGroups
+            || selection != healthDataSourceSelection
+            || secondarySelection != secondaryHealthDataSourceSelection
+            || combines != combinesHealthDataSourcesByName
+
+        if changed {
+            customHealthSourceGroups = groups
+            healthDataSourceSelection = selection
+            secondaryHealthDataSourceSelection = secondarySelection
+            combinesHealthDataSourcesByName = combines
+            cacheSourceIdentities.removeAll()
+        }
+        _ = captureRefreshInputs(intent: .userInitiated)
+        if changed {
+            await engine.setCustomHealthSourceGroups(groups)
+            await engine.setHealthDataSourceSelection(selection)
+            await engine.setSecondaryHealthDataSourceSelection(secondarySelection)
+            await engine.setCombinesHealthDataSourcesByName(combines)
+        }
+
+        await persistContextChange()
+    }
+
     func updateDefaultHealthDataSource(option: BodyHealthDataSourceOption) async {
         let nextSelection = healthDataSourceSelection.settingDefault(option: option)
         guard nextSelection != healthDataSourceSelection else {

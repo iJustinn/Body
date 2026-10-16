@@ -5239,6 +5239,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertFalse(settingsSource.contains(#""Grant Access""#))
         XCTAssertTrue(settingsSource.contains(#"return "Refresh""#))
         XCTAssertFalse(settingsSource.contains(#""Data Refresh""#))
+        XCTAssertTrue(settingsSource.contains(#"return "Config""#))
+        XCTAssertTrue(settingsSource.contains(#"return "externaldrive.fill""#))
         XCTAssertFalse(settingsSource.contains(#"return "Health Data Sync""#))
         XCTAssertTrue(settingsSource.contains(#"return "Cache""#))
         XCTAssertTrue(settingsSource.contains("case .syncStatus:"))
@@ -5246,6 +5248,8 @@ final class SourceGuardTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("case .permissions:"))
         XCTAssertTrue(settingsSource.contains("BodyHealthPermissionsSettingsSheet(workoutStore: workoutStore)"))
         XCTAssertTrue(settingsSource.contains("BodyCacheSettingsSheet(workoutStore: workoutStore)"))
+        XCTAssertTrue(settingsSource.contains("BodyConfigSettingsSheet(workoutStore: workoutStore)"))
+        XCTAssertTrue(settingsSource.contains(".fileDialogDefaultDirectory(Self.configsDirectory)"))
         XCTAssertTrue(settingsSource.contains("workoutStore.healthSyncStatusSummaryText"))
         XCTAssertTrue(settingsSource.contains("workoutStore.cacheStatus.summaryText"))
     }
