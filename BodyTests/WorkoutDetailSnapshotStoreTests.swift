@@ -154,6 +154,28 @@ final class WorkoutDetailSnapshotStoreTests: XCTestCase {
 
     // MARK: - Energy equivalent
 
+    /// A place name is geocoded in the app's language ("Peking" in German,
+    /// "Pekín" in Spanish), so it only comes back in that language; another
+    /// language, or a file from before the field, loads without it and the
+    /// detail page geocodes it again.
+    func testRouteLocalityOnlyLoadsInTheLanguageItWasGeocodedIn() throws {
+        let persisted = PersistedWorkoutRoute(model: makeRoute(), language: "de-DE")
+        XCTAssertEqual(persisted.localityLanguage, "de-DE")
+        XCTAssertEqual(persisted.toModel(language: "de-DE").locality, "San Francisco")
+        XCTAssertNil(persisted.toModel(language: "es-ES").locality)
+        XCTAssertEqual(persisted.toModel(language: "es-ES").coordinates, makeRoute().coordinates)
+
+        let legacy = try JSONDecoder().decode(
+            PersistedWorkoutRoute.self,
+            from: Data(#"{"coordinates":[],"locality":"Peking, China","elevationProfile":[]}"#.utf8)
+        )
+        XCTAssertNil(legacy.localityLanguage)
+        XCTAssertNil(legacy.toModel(language: "de-DE").locality)
+
+        let unresolved = WorkoutRoute(coordinates: makeRoute().coordinates, locality: nil, elevationProfile: [])
+        XCTAssertNil(PersistedWorkoutRoute(model: unresolved, language: "de-DE").localityLanguage)
+    }
+
     func testRoundTripPreservesEnergyEquivalent() throws {
         let workoutID = UUID()
         let energyEquivalent = PersistedEnergyEquivalent(

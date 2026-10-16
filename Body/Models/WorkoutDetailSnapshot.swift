@@ -124,18 +124,29 @@ struct PersistedElevationSample: Codable, Equatable, Sendable {
 struct PersistedWorkoutRoute: Codable, Equatable, Sendable {
     let coordinates: [PersistedRouteCoordinate]
     let locality: String?
+    /// The language `locality` was geocoded in ("Peking" in German, "Pekín" in
+    /// Spanish). Added after v1 shipped, so optional with no version bump; a
+    /// file without it, or written in another language, loads with no
+    /// locality and the detail page geocodes it again in the current one.
+    let localityLanguage: String?
     let elevationProfile: [PersistedElevationSample]
 
-    init(model: WorkoutRoute) {
+    /// The app's language, which `CLGeocoder` writes place names in.
+    static var currentLocalityLanguage: String {
+        Locale.preferredLanguages.first ?? Locale.current.identifier
+    }
+
+    init(model: WorkoutRoute, language: String = PersistedWorkoutRoute.currentLocalityLanguage) {
         coordinates = model.coordinates.map(PersistedRouteCoordinate.init(model:))
         locality = model.locality
+        localityLanguage = model.locality == nil ? nil : language
         elevationProfile = model.elevationProfile.map(PersistedElevationSample.init(model:))
     }
 
-    func toModel() -> WorkoutRoute {
+    func toModel(language: String = PersistedWorkoutRoute.currentLocalityLanguage) -> WorkoutRoute {
         WorkoutRoute(
             coordinates: coordinates.map { $0.toModel() },
-            locality: locality,
+            locality: localityLanguage == language ? locality : nil,
             elevationProfile: elevationProfile.map { $0.toModel() }
         )
     }
