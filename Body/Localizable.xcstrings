@@ -5972,6 +5972,58 @@
         }
       }
     },
+    "pts" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pkt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pts"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pts"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pts"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "पॉइंट"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "б."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "puan"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分"
+          }
+        }
+      }
+    },
     "Reach out with any feedback" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11608,7 +11660,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Body her geceyi o uyku aralığı için mevcut verilere göre puanlar: uyku miktarı, kesintisizlik, uykuya dalma saatinin düzenliliği, derin ve REM uykusunun payı, uyku HRV'sinden gelen baskı, uykudaki yaşam bulguları ve cilt sıcaklığı. Baskı, yaşam bulguları ve sıcaklık, yakın zamandaki kendi gece referanslarınıza göre değerlendirilir. Uykudaki yaşam bulguları, Yaşam Bulguları grafiğiyle aynı normal aralıkları kullanır, bu yüzden oradaki bir aykırı değer, aralığınızın ne kadar dışında kaldığıyla orantılı olarak puan kaybettirir. Toplam, yalnızca gerçekten güçlü gecelerin yüksek puan alacağı şekilde kalibre edilmiştir. Eksik sensörler sıfır sayılmak yerine atlanır."
+            "value" : "Body her geceyi o uyku aralığı için mevcut verilere göre puanlar: uyku miktarı, kesintisizlik, uykuya dalma saatinin düzenliliği, derin ve REM uykusunun payı, uyku HRV'sinden gelen baskı, uykudaki yaşam bulguları ve cilt sıcaklığı. Baskı, yaşam bulguları ve sıcaklık, yakın zamandaki kendi gece referanslarınıza göre değerlendirilir. Uykudaki yaşam bulguları, Yaşam Bulguları grafiğiyle aynı normal aralıkları kullanır, bu yüzden oradaki bir uç değer, aralığınızın ne kadar dışında kaldığıyla orantılı olarak puan kaybettirir. Toplam, yalnızca gerçekten güçlü gecelerin yüksek puan alacağı şekilde kalibre edilmiştir. Eksik sensörler sıfır sayılmak yerine atlanır."
           }
         },
         "zh-Hans" : {
@@ -15660,6 +15712,58 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "版权"
+          }
+        }
+      }
+    },
+    "steps" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schritte"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "steps"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pasos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pas"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "क़दम"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "шаги"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "adım"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步"
           }
         }
       }
@@ -62898,7 +63002,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Yaşam bulgularında aykırı değer eğilimi"
+            "value" : "Yaşam bulgularında uç değer eğilimi"
           }
         },
         "zh-Hans" : {

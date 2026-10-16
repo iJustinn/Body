@@ -182,6 +182,17 @@ final class LocalizationRuntimeKeyTests: XCTestCase {
         try assertKeysTranslated(keys, in: catalog)
     }
 
+    /// Word units written after a number on Home, the metric detail charts and
+    /// widgets ("5.258 adım", "17 nefes/dk", "86 puan", "30 dk"); each used to ship as an
+    /// English literal.
+    func testMetricUnitKeysResolveInBothCatalogs() throws {
+        let localizable = try loadCatalog(at: "Body/Localizable.xcstrings")
+        try assertKeysTranslated(["steps", "br/min", "pts", "min"], in: localizable)
+
+        let metricsKit = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
+        try assertKeysTranslated(["steps", "br/min", "min"], in: metricsKit)
+    }
+
     func testReadinessAwaitingSleepHeroResolvesInBodyMetricsKitCatalog() throws {
         let catalog = try loadCatalog(at: "BodyMetricsKit/BodyMetricsKit.xcstrings")
 

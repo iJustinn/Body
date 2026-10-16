@@ -3899,7 +3899,7 @@ struct BodyHealthMetricDetailView: View {
                 unit = "bpm"
             case .respiratoryRate:
                 value = BodyValueFormat.numberText(measurement.value.rounded(), decimals: 0)
-                unit = "br/min"
+                unit = String(localized: "br/min")
             case .wristTemperature:
                 let display = BodyValueFormat.temperatureDisplay(
                     celsius: measurement.value,

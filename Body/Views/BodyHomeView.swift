@@ -2021,7 +2021,7 @@ struct BodyHomeView: View {
                     on: $0.stageSnapshot.date
                 )
             }.map {
-                BodyMetricDisplayValue(title: "Score", value: "\($0.total)", unit: "pts")
+                BodyMetricDisplayValue(title: "Score", value: "\($0.total)", unit: String(localized: "pts"))
             } ?? BodyMetricDisplayValue(title: "Score", value: "--", unit: "")
 
             prominentMetrics = [
@@ -2397,7 +2397,7 @@ struct BodyHomeView: View {
                 kind: kind,
                 title: "Exercise Minutes",
                 summary: summary.exerciseMinutes,
-                unit: "min",
+                unit: String(localized: "min"),
                 decimals: 0,
                 symbolName: "figure.run",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
@@ -2500,7 +2500,7 @@ struct BodyHomeView: View {
                 kind: kind,
                 title: "Time In Daylight",
                 summary: summary.timeInDaylight,
-                unit: "min",
+                unit: String(localized: "min"),
                 decimals: 0,
                 symbolName: "sun.max.fill",
                 symbolColor: Color(red: 0.10, green: 0.58, blue: 1.00),
@@ -2511,7 +2511,7 @@ struct BodyHomeView: View {
                 kind: kind,
                 title: "Steps",
                 summary: summary.steps,
-                unit: "steps",
+                unit: String(localized: "steps"),
                 decimals: 0,
                 symbolName: "figure.walk",
                 symbolColor: Color(red: 1.00, green: 0.38, blue: 0.12),
@@ -2700,7 +2700,7 @@ struct BodyHomeView: View {
                 kind: kind,
                 title: "Respiratory Rate",
                 summary: summary.respiratoryRate,
-                unit: "br/min",
+                unit: String(localized: "br/min"),
                 decimals: 0,
                 symbolName: "lungs.fill",
                 symbolColor: Color(red: 0.00, green: 0.75, blue: 0.85)

@@ -242,7 +242,7 @@ enum HealthWidgetSnapshotBuilder {
                 calendar: calendar
             )?.total
             return [
-                HealthWidgetDisplayValue(value: score.map { "\($0)" } ?? "--", unit: score == nil ? "" : "pts"),
+                HealthWidgetDisplayValue(value: score.map { "\($0)" } ?? "--", unit: score == nil ? "" : String(localized: "pts")),
                 HealthWidgetDisplayValue(value: duration, unit: "")
             ]
         case .wristTemperature:

@@ -54,9 +54,9 @@ struct HealthMetricPresentation: Sendable {
         case mass
     }
 
-    /// How a metric's value is written in one context. Unit suffixes are plain
-    /// literals, never `String(localized:)`: they are symbols and abbreviations
-    /// the app ships untranslated everywhere it writes them today.
+    /// How a metric's value is written in one context. Symbol suffixes (`%`,
+    /// `bpm`, `ms`) ship untranslated; `br/min`, `steps` and `min` are localized
+    /// from the BodyMetricsKit table.
     struct NumberFormat: Equatable, Sendable {
         /// Fraction digits for `BodyValueFormat.numberText`.
         let decimals: Int
@@ -155,8 +155,8 @@ struct HealthMetricPresentation: Sendable {
             symbolName: "lungs.fill",
             tint: breathTint,
             chartStyle: .line,
-            summaryFormat: NumberFormat(decimals: 0, unitSuffix: "br/min"),
-            trendFormat: NumberFormat(decimals: 0, unitSuffix: "br/min")
+            summaryFormat: NumberFormat(decimals: 0, unitSuffix: String(localized: "br/min", table: "BodyMetricsKit")),
+            trendFormat: NumberFormat(decimals: 0, unitSuffix: String(localized: "br/min", table: "BodyMetricsKit"))
         ),
         .oxygenSaturation: HealthMetricPresentation(
             symbolName: "drop.fill",
@@ -182,7 +182,7 @@ struct HealthMetricPresentation: Sendable {
             tint: moveTint,
             chartStyle: .bar,
             summaryFormat: NumberFormat(decimals: 0),
-            trendFormat: NumberFormat(decimals: 0, unitSuffix: "steps")
+            trendFormat: NumberFormat(decimals: 0, unitSuffix: String(localized: "steps", table: "BodyMetricsKit"))
         ),
         .activeEnergy: HealthMetricPresentation(
             symbolName: "flame.fill",
@@ -205,7 +205,7 @@ struct HealthMetricPresentation: Sendable {
             tint: moveTint,
             chartStyle: .bar,
             summaryFormat: NumberFormat(decimals: 0),
-            trendFormat: NumberFormat(decimals: 0, unitSuffix: "min")
+            trendFormat: NumberFormat(decimals: 0, unitSuffix: String(localized: "min", table: "BodyMetricsKit"))
         ),
         .trainingLoad: HealthMetricPresentation(
             symbolName: "figure.strengthtraining.traditional",
@@ -218,8 +218,8 @@ struct HealthMetricPresentation: Sendable {
             symbolName: "sun.max.fill",
             tint: Color(red: 0.10, green: 0.58, blue: 1.00),
             chartStyle: .bar,
-            summaryFormat: NumberFormat(decimals: 0, unitSuffix: "min"),
-            trendFormat: NumberFormat(decimals: 0, unitSuffix: "min")
+            summaryFormat: NumberFormat(decimals: 0, unitSuffix: String(localized: "min", table: "BodyMetricsKit")),
+            trendFormat: NumberFormat(decimals: 0, unitSuffix: String(localized: "min", table: "BodyMetricsKit"))
         ),
         .bodyMass: HealthMetricPresentation(
             symbolName: "scalemass.fill",

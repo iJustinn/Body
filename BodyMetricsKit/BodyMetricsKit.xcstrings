@@ -250,7 +250,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld aykırı değer"
+            "value" : "%lld uç değer"
           }
         },
         "zh-Hans" : {
@@ -688,7 +688,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "1 aykırı değer"
+            "value" : "1 uç değer"
           }
         },
         "zh-Hans" : {
@@ -5996,6 +5996,58 @@
         }
       }
     },
+    "br/min" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atemzüge/Min."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "br/min"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "resp/min"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "resp/min"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "साँस/मि॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "вд/мин"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "nefes/dk"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次/分钟"
+          }
+        }
+      }
+    },
     "Breathing rate is a hair high, but nothing's holding you back. Prime to train." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6840,6 +6892,58 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最高海拔"
+          }
+        }
+      }
+    },
+    "min" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Min."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "मि॰"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "мин"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "dk"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分钟"
           }
         }
       }
@@ -20496,6 +20600,58 @@
         }
       }
     },
+    "steps" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schritte"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "steps"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pasos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pas"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "क़दम"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "шаги"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "adım"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "步"
+          }
+        }
+      }
+    },
     "Steps estimate your walking and running step count from Apple Health sources. Phones and wearables can count differently depending on where they are worn or carried. The trend is best used to compare your usual activity level over time." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -23128,7 +23284,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Yaşam Bulguları, gece boyunca ölçülen uykudaki kalp atış hızı, solunum hızı, cilt sıcaklığı, kanda oksijen ve uyku süresini inceler. Her biri, yaklaşık sekiz haftalık kendi uyku verinizden öğrenilen kişisel normal aralığınızla karşılaştırılır. Aykırı değerler hastalık, alkol, seyahat veya zorlu antrenman sonrasında görülebilir ve bir teşhis değildir. Kalibrasyon için yaklaşık iki haftalık uyku verisi gerekir.\nYaşam Bulguları, Uyku ve her bir yaşam bulgusu için seçtiğiniz veri kaynaklarını kullanır; bu yüzden tek bir kaynak seçmek, veri bulunan gece sayısını ve grafiklerin ne kadar geriye uzandığını sınırlayabilir."
+            "value" : "Yaşam Bulguları, gece boyunca ölçülen uykudaki kalp atış hızı, solunum hızı, cilt sıcaklığı, kanda oksijen ve uyku süresini inceler. Her biri, yaklaşık sekiz haftalık kendi uyku verinizden öğrenilen kişisel normal aralığınızla karşılaştırılır. Uç değerler hastalık, alkol, seyahat veya zorlu antrenman sonrasında görülebilir ve bir teşhis değildir. Kalibrasyon için yaklaşık iki haftalık uyku verisi gerekir.\nYaşam Bulguları, Uyku ve her bir yaşam bulgusu için seçtiğiniz veri kaynaklarını kullanır; bu yüzden tek bir kaynak seçmek, veri bulunan gece sayısını ve grafiklerin ne kadar geriye uzandığını sınırlayabilir."
           }
         },
         "zh-Hans" : {
